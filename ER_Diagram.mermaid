@@ -1,0 +1,289 @@
+erDiagram
+    %% =========================================================================
+    %% Q.S.C. SYSTEM — FINAL PRODUCTION SCHEMA (20 TABLES)
+    %% Clean & Streamlined: N/A Support, File Storage Paths, Chat Timeline,
+    %% Form Versioning Lineage, Dual Signatures, and Complete FK Indexes
+    %% =========================================================================
+
+    %% ==========================================
+    %% DOMAIN 1: USERS & PERMISSIONS (RBAC)
+    %% ==========================================
+    USERS {
+        int id PK
+        string username "Unique Index"
+        string password_hash
+        string full_name
+        int role_id FK
+        string branch_scope "ALL / SPECIFIC"
+        boolean must_change_password "บังคับเปลี่ยนรหัสผ่านตอนล็อกอินครั้งแรก"
+        boolean is_active
+        datetime created_at
+    }
+
+    USER_LOCATIONS {
+        int id PK
+        int user_id FK "Users.id (Index)"
+        int location_id FK "Locations.id"
+    }
+
+    ROLES {
+        int id PK
+        string code "ADMIN / AUDITOR / AUDITEE / STANDARD / EXEC"
+        string name "ชื่อบทบาท เช่น ผู้ตรวจประเมิน"
+        string description
+        datetime created_at
+    }
+
+    PERMISSIONS {
+        int id PK
+        string code "เช่น menu.dashboard, forms.manage, cap.approve"
+        string name "ชื่อสิทธิ์"
+        string module "Dashboard / Audit / Form / CAP / System"
+        string description
+    }
+
+    ROLE_PERMISSIONS {
+        int id PK
+        int role_id FK
+        int permission_id FK
+    }
+
+    %% ==========================================
+    %% DOMAIN 2: LOCATIONS
+    %% ==========================================
+    LOCATION_TYPES {
+        int id PK
+        string code "STORE / PLANT / OFFICE / CLOUD_KITCHEN"
+        string name "หน้าร้าน / โรงงาน / สำนักงานใหญ่"
+        string description
+        boolean is_active
+    }
+
+    LOCATIONS {
+        int id PK
+        string code "เช่น BKK-001"
+        string name "เช่น สาขาสยามพารากอน"
+        int location_type_id FK
+        int manager_user_id FK "nullable - ผู้จัดการสาขาหลัก"
+        double latitude "พิกัดละติจูดของสาขา"
+        double longitude "พิกัดลองติจูดของสาขา"
+        string region "เช่น กรุงเทพฯ และปริมณฑล"
+        string brand_name "ชื่อแบรนด์"
+        string address
+        string phone
+        double last_score "Cache คะแนนล่าสุด"
+        datetime last_audit_date "Cache วันที่ตรวจล่าสุด"
+        boolean is_active
+        datetime created_at
+    }
+
+    %% ==========================================
+    %% DOMAIN 3: SURVEY FORMS (SMART VERSIONING & SOFT DELETE)
+    %% ==========================================
+    SURVEY_FORMS {
+        int id PK
+        int form_group_id FK "nullable (self-ref) - กลุ่มฟอร์มสายเลือดเดียวกัน"
+        string title "เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core)"
+        int location_type_id FK "nullable - หมวดหมู่ตามประเภทสถานที่"
+        double passing_score "เกณฑ์คะแนนผ่านเริ่มต้น 85.0%"
+        string targeting_mode "ALL_LOCATIONS / SPECIFIC_LOCATIONS"
+        string version "เช่น v1.0, v2.1"
+        boolean is_latest "เวอร์ชันล่าสุดที่เปิดให้ใช้งาน"
+        boolean is_active
+        int created_by FK
+        datetime created_at
+    }
+
+    SURVEY_FORM_TARGET_LOCATIONS {
+        int id PK
+        int survey_form_id FK
+        int location_id FK
+    }
+
+    SURVEY_SECTIONS {
+        int id PK
+        int survey_form_id FK
+        string title "เช่น 1. ความสะอาดและการสุขาภิบาล"
+        int order_index
+        double weight_percent "ค่าน้ำหนักหมวด"
+        boolean is_active "Soft Delete หมวดคำถาม"
+    }
+
+    SURVEY_ITEMS {
+        int id PK
+        int survey_section_id FK "Index"
+        string question_text "ข้อความคำถาม"
+        string question_type "YESNO / SCALE / TEXT"
+        double full_score "คะแนนเต็มประจำข้อ เช่น 10"
+        boolean is_critical "ข้อวิกฤต Critical Defect (ตก = ปรับตกทั้งฉบับ + ออก CAP ทันที)"
+        int order_index
+        boolean is_active "Soft Delete ข้อคำถาม"
+    }
+
+    %% ==========================================
+    %% DOMAIN 4: AUDIT SCHEDULES
+    %% ==========================================
+    AUDIT_SCHEDULES {
+        int id PK
+        int location_id FK
+        int survey_form_id FK
+        datetime scheduled_date "วันที่และเวลานัดหมาย"
+        string audit_type "announced / spot / undercover"
+        string status "pending / in_progress / completed"
+        string notes
+        int created_by FK "ห้ามว่าง NOT NULL"
+        datetime created_at
+    }
+
+    AUDIT_SCHEDULE_AUDITORS {
+        int id PK
+        int audit_schedule_id FK
+        int auditor_id FK "Users.id (Index)"
+        boolean is_lead "หัวหน้าทีมผู้ตรวจ"
+    }
+
+    %% ==========================================
+    %% DOMAIN 5: LIVE AUDIT & RECORDS (N/A & FILE PATHS)
+    %% ==========================================
+    AUDIT_DRAFTS {
+        int id PK
+        int location_id FK
+        int survey_form_id FK
+        int auditor_id FK
+        string draft_payload_json "JSON เก็บคำตอบ/รูป ระหว่างตรวจสด Auto-sync"
+        int current_section_idx
+        int total_answered
+        int total_questions
+        double start_latitude "พิกัด GPS ตอนกดปุ่มเริ่มตรวจข้อประเมิน (รอบใหม่)"
+        double start_longitude "พิกัด GPS ตอนกดปุ่มเริ่มตรวจข้อประเมิน (รอบใหม่)"
+        datetime started_at "วันเวลาที่กดปุ่มเริ่มตรวจข้อประเมิน"
+        datetime updated_at "เวลา auto-synced ล่าสุด"
+    }
+
+    AUDIT_RECORDS {
+        int id PK
+        int location_id FK "Index"
+        int survey_form_id FK
+        int primary_auditor_id FK "Users.id ผู้ตรวจหลัก"
+        int auditee_user_id FK "nullable - Users.id ผู้รับตรวจที่ลงนาม"
+        string auditee_name_text "nullable - ชื่อผู้รับตรวจ (Fallback ถ้าไม่มี account)"
+        int audit_schedule_id FK "nullable - เชื่อมโยงกับนัดหมาย (ถ้ามี)"
+        datetime audit_date "Index วันเวลาที่ทำการตรวจ"
+        double total_score "คะแนนที่ได้ (ไม่รวมข้อ N/A)"
+        double max_score "คะแนนเต็มที่คำนวณได้จริง (หักข้อ N/A ออก)"
+        double percentage_score "คิดเป็นเปอร์เซ็นต์"
+        boolean is_passed "ผ่านเกณฑ์หรือไม่ (>=85% และไม่มี Critical Breach)"
+        boolean has_critical_defect "มีข้อวิกฤตตกหรือไม่"
+        int staff_count "จำนวนพนักงานขณะตรวจ"
+        string audit_type
+        string notes
+        string auditor_signature_url "Path รูปลายเซ็น เช่น /uploads/signatures/auditor_1.webp"
+        string auditee_signature_url "Path รูปลายเซ็น เช่น /uploads/signatures/auditee_1.webp"
+        datetime signed_at "วันเวลาที่ลงนามเสร็จสมบูรณ์"
+        double start_latitude "พิกัด GPS ตอนเริ่มตรวจ (ดึงจาก Draft)"
+        double start_longitude "พิกัด GPS ตอนเริ่มตรวจ (ดึงจาก Draft)"
+        double end_latitude "พิกัด GPS ตอนกดยืนยันส่งผลตรวจ (ตรวจจบ)"
+        double end_longitude "พิกัด GPS ตอนกดยืนยันส่งผลตรวจ (ตรวจจบ)"
+        datetime started_at "วันเวลาที่เริ่มตรวจ (ดึงจาก Draft)"
+        datetime submitted_at "วันเวลาที่กดยืนยันส่งผลตรวจจริง (ล็อกถาวร)"
+    }
+
+    AUDIT_RESPONSES {
+        int id PK
+        int audit_record_id FK "Index"
+        int survey_item_id FK "Index"
+        double score_given "คะแนนที่ได้ในข้อนี้"
+        boolean is_passed "Index ผ่านหรือไม่ผ่าน"
+        boolean is_na "ไม่เกี่ยวข้องกับสาขานี้ (N/A: ไม่นำคะแนนเต็มไปนับรวมใน max_score)"
+        string notes "ข้อคิดเห็น/ข้อบกพร่องที่พบ (Notes)"
+    }
+
+    AUDIT_RESPONSE_IMAGES {
+        int id PK
+        int audit_response_id FK
+        string image_url "Path รูปถ่ายหลักฐาน เช่น /uploads/audit_images/img_1.webp"
+        int uploaded_by FK "Users.id ผู้ตรวจที่ถ่ายรูป"
+        datetime uploaded_at
+    }
+
+    %% ==========================================
+    %% DOMAIN 6: CAP REMEDIATION & CHAT (CHAT TIMELINE)
+    %% ==========================================
+    CAP_TASKS {
+        int id PK
+        int audit_record_id FK
+        int audit_response_id FK "nullable - รองรับ Manual CAP หน้างาน"
+        int location_id FK "Index"
+        string issue_item "หัวข้อข้อบกพร่อง"
+        string description "รายละเอียดสิ่งที่ต้องแก้ไข"
+        datetime submission_deadline "กำหนดส่งงานแก้ไข"
+        string status "Index: OPEN / SUBMITTED / REJECTED / CLOSED"
+        int assigned_to FK "Users.id ผู้รับผิดชอบ (Index)"
+        int verified_by FK "Users.id QA ผู้อนุมัติปิดงาน"
+        datetime completed_at "สาขาส่งงานแก้ไข"
+        datetime closed_at "QA อนุมัติและปิดงานแก้ไข"
+        datetime created_at
+    }
+
+    CAP_TASK_IMAGES {
+        int id PK
+        int cap_task_id FK
+        string phase "AFTER (รูปหลักฐานหลังแก้ไขเสร็จ)"
+        string image_url "Path รูปถ่าย เช่น /uploads/cap_images/after_1.webp"
+        int uploaded_by FK
+        datetime uploaded_at
+    }
+
+    CAP_TASK_COMMENTS {
+        int id PK
+        int cap_task_id FK "Index"
+        int sender_id FK
+        string sender_role "AUDITEE / QA / ADMIN"
+        string message "ข้อความพูดคุยปรึกษางานแก้ไข"
+        datetime created_at
+    }
+
+    %% ==========================================
+    %% RELATIONSHIPS
+    %% ==========================================
+    ROLES ||--o{ USERS : assigns
+    ROLES ||--o{ ROLE_PERMISSIONS : contains
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : defines
+    USERS ||--o{ USER_LOCATIONS : assigns_scope
+    LOCATIONS ||--o{ USER_LOCATIONS : scoped_to
+    USERS ||--o{ LOCATIONS : manages
+
+    LOCATION_TYPES ||--o{ LOCATIONS : classifies
+    LOCATION_TYPES ||--o{ SURVEY_FORMS : categorizes
+
+    SURVEY_FORMS ||--o{ SURVEY_FORMS : version_lineage
+    SURVEY_FORMS ||--o{ SURVEY_FORM_TARGET_LOCATIONS : assigns
+    LOCATIONS ||--o{ SURVEY_FORM_TARGET_LOCATIONS : targets
+    SURVEY_FORMS ||--o{ SURVEY_SECTIONS : contains
+    SURVEY_SECTIONS ||--o{ SURVEY_ITEMS : contains
+
+    LOCATIONS ||--o{ AUDIT_SCHEDULES : planned_at
+    SURVEY_FORMS ||--o{ AUDIT_SCHEDULES : uses
+    AUDIT_SCHEDULES ||--o{ AUDIT_SCHEDULE_AUDITORS : dispatches
+    USERS ||--o{ AUDIT_SCHEDULE_AUDITORS : assigned
+
+    LOCATIONS ||--o{ AUDIT_DRAFTS : drafts_for
+    SURVEY_FORMS ||--o{ AUDIT_DRAFTS : uses_form
+    USERS ||--o{ AUDIT_DRAFTS : authored_by
+
+    LOCATIONS ||--o{ AUDIT_RECORDS : audited_at
+    SURVEY_FORMS ||--o{ AUDIT_RECORDS : assessed_with
+    USERS ||--o{ AUDIT_RECORDS : audited_by
+    USERS ||--o{ AUDIT_RECORDS : signed_by
+    AUDIT_SCHEDULES ||--o{ AUDIT_RECORDS : fulfills
+
+    AUDIT_RECORDS ||--o{ AUDIT_RESPONSES : contains
+    SURVEY_ITEMS ||--o{ AUDIT_RESPONSES : answers
+    AUDIT_RESPONSES ||--o{ AUDIT_RESPONSE_IMAGES : attaches
+    USERS ||--o{ AUDIT_RESPONSE_IMAGES : uploaded_by
+
+    AUDIT_RECORDS ||--o{ CAP_TASKS : triggers
+    AUDIT_RESPONSES ||--o{ CAP_TASKS : defects
+    LOCATIONS ||--o{ CAP_TASKS : remedies_at
+    CAP_TASKS ||--o{ CAP_TASK_IMAGES : documents
+    CAP_TASKS ||--o{ CAP_TASK_COMMENTS : chats
