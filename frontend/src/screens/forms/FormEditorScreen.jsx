@@ -107,7 +107,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       ]
     };
     setSections([...sections, newSection]);
-    showToast("เพิ่มหมวดหมู่ใหม่เรียบร้อยแล้ว");
+    //showToast("เพิ่มหมวดหมู่ใหม่เรียบร้อยแล้ว");
 
     // Auto-scroll smooth to newly added section
     setTimeout(() => {
@@ -190,12 +190,12 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     if (deleteTarget.type === "section") {
       const next = sections.filter((_, idx) => idx !== deleteTarget.secIdx);
       setSections(next);
-      showToast("ลบหมวดหมู่ออกเรียบร้อยแล้ว");
+      //showToast("ลบหมวดหมู่ออกเรียบร้อยแล้ว");
     } else if (deleteTarget.type === "item") {
       const next = [...sections];
       next[deleteTarget.secIdx].items = next[deleteTarget.secIdx].items.filter(i => i.id !== deleteTarget.itemId);
       setSections(next);
-      showToast("ลบข้อคำถามเรียบร้อยแล้ว");
+      //showToast("ลบข้อคำถามเรียบร้อยแล้ว");
     }
 
     setDeleteTarget(null);
@@ -247,7 +247,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     next[secIdx] = next[targetIdx];
     next[targetIdx] = temp;
     setSections(next);
-    showToast("สลับลำดับหมวดหมู่เรียบร้อย");
+    //showToast("สลับลำดับหมวดหมู่เรียบร้อย");
   };
 
   // Drag handlers for reordering items inside a section
@@ -330,7 +330,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           items.splice(d.currentIdx, 0, movedItem);
           next[d.secIdx].items = items;
           setSections(next);
-          showToast("สลับลำดับข้อคำถามเรียบร้อย");
+          //showToast("สลับลำดับข้อคำถามเรียบร้อย");
         }
       }
       dragRef.current = null;
@@ -688,32 +688,15 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         <GripVertical size={16} />
                       </button>
 
-                      {/* Question Index, Score Config & Text Input */}
+                      {/* Question Index & Text Input */}
                       <div className="flex-1 min-w-0">
-                        {/* Header line: Question Number -> Score Setting -> Critical Badge */}
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        {/* Header line: Question Number */}
+                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-black text-slate-700 font-mono">ข้อ {itemIdx + 1}.</span>
-
-                          {/* ⭐️ Score Setting right after Question Number */}
-                          <div className="flex items-center gap-1.5 bg-white border border-slate-200/90 rounded-xl px-2 py-0.5 shadow-2xs">
-                            <span className="text-[11px] font-bold text-slate-400">คะแนน:</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="500"
-                              value={item.fullScore !== undefined ? item.fullScore : 10}
-                              onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
-                              className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
-                              title="กำหนดคะแนนเต็มของข้อนี้"
-                            />
-                            <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
-                          </div>
-
-                          {/* ⚠️ Critical Badge right after score */}
                           {item.critical && (
-                            <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-700 flex items-center gap-1">
-                              <ShieldAlert size={12} />
-                              <span>จุดวิกฤต (ตกทันที)</span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-700 flex items-center gap-1 sm:hidden">
+                              <ShieldAlert size={11} />
+                              <span>วิกฤต</span>
                             </span>
                           )}
                         </div>
@@ -745,21 +728,39 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         )}
                       </div>
 
-                      {/* Question Actions */}
-                      <div className="flex items-center gap-1 shrink-0">
+                      {/* ⭐️ Right Actions: Score Setting -> Critical Toggle Button -> Delete Button */}
+                      <div className="flex items-center gap-1.5 shrink-0 self-start mt-0.5">
+                        {/* Score Setting Input */}
+                        <div className="flex items-center gap-1 bg-white border border-slate-200/90 rounded-xl px-2 py-1 shadow-2xs hover:border-[#0F6659] transition-colors">
+                          <span className="text-[11px] font-bold text-slate-400">คะแนน:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="500"
+                            value={item.fullScore !== undefined ? item.fullScore : 10}
+                            onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
+                            className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
+                            title="กำหนดคะแนนเต็มของข้อนี้"
+                          />
+                          <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
+                        </div>
+
+                        {/* Critical Toggle Button */}
                         <button
                           type="button"
                           onClick={() => toggleItemCritical(secIdx, item.id)}
-                          className={`p-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs ${
                             item.critical
                               ? 'bg-red-50 text-red-600 border border-red-200'
-                              : 'text-slate-400 hover:text-red-500 hover:bg-red-50'
+                              : 'bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50'
                           }`}
                           title={item.critical ? "ปลดจุดวิกฤต" : "ตั้งเป็นจุดวิกฤต (ตกทันที)"}
                         >
-                          <ShieldAlert size={16} />
+                          <ShieldAlert size={15} />
+                          <span className="text-[11px] hidden sm:inline">{item.critical ? "จุดวิกฤต" : "วิกฤต"}</span>
                         </button>
 
+                        {/* Delete Question Button */}
                         <button
                           type="button"
                           onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
