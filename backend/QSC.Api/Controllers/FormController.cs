@@ -33,8 +33,18 @@ namespace QSC.Api.Controllers
             }
 
             var forms = await query.OrderBy(f => f.Id).ToListAsync();
-
             var formTargetLocations = await _context.SurveyFormTargetLocations.ToListAsync();
+
+            var auditCounts = await _context.AuditRecords
+                .GroupBy(a => a.SurveyFormId)
+                .Select(g => new { FormId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.FormId, x => x.Count);
+
+            var scheduleCounts = await _context.AuditSchedules
+                .Where(s => s.Status != "CANCELLED")
+                .GroupBy(s => s.SurveyFormId)
+                .Select(g => new { FormId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.FormId, x => x.Count);
 
             var result = forms.Select(f => new
             {
@@ -49,6 +59,9 @@ namespace QSC.Api.Controllers
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
                 createdAt = f.CreatedAt,
+                usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
+                scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
+                isInUse = auditCounts.GetValueOrDefault(f.Id, 0) > 0 || scheduleCounts.GetValueOrDefault(f.Id, 0) > 0,
                 targetLocationIds = formTargetLocations.Where(t => t.SurveyFormId == f.Id).Select(t => t.LocationId).ToList(),
                 sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
                 {
@@ -82,6 +95,9 @@ namespace QSC.Api.Controllers
 
             if (f == null) return NotFound();
 
+            var auditCount = await _context.AuditRecords.CountAsync(a => a.SurveyFormId == id);
+            var scheduleCount = await _context.AuditSchedules.CountAsync(s => s.SurveyFormId == id && s.Status != "CANCELLED");
+
             var targetLocationIds = await _context.SurveyFormTargetLocations
                 .Where(t => t.SurveyFormId == f.Id)
                 .Select(t => t.LocationId)
@@ -100,6 +116,9 @@ namespace QSC.Api.Controllers
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
                 createdAt = f.CreatedAt,
+                usedCount = auditCount,
+                scheduledCount = scheduleCount,
+                isInUse = auditCount > 0 || scheduleCount > 0,
                 targetLocationIds = targetLocationIds,
                 sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
                 {

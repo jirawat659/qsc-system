@@ -96,11 +96,14 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         version: f.version || "v1.0",
         date: f.createdAt ? new Date(f.createdAt).toLocaleDateString('th-TH') : "15 ส.ค. 2569",
         author: f.createdBy?.fullName || "ทีมมาตรฐาน QA",
-        type: f.locationType?.name || f.locationType?.code || "หน้าร้าน",
+        type: f.locationTypeName || f.locationType?.name || f.locationType?.code || "หน้าร้าน",
         locationTypeId: f.locationTypeId,
         status: f.isActive ? "active" : "draft",
-        usedCount: f.auditRecords?.length || 0,
+        usedCount: f.usedCount !== undefined ? f.usedCount : (f.auditRecords?.length || 0),
+        scheduledCount: f.scheduledCount || 0,
+        isInUse: f.isInUse || (f.usedCount > 0) || (f.scheduledCount > 0),
         itemCount: f.sections ? f.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0) : 11,
+        totalScore: f.sections ? f.sections.reduce((acc, s) => acc + (s.items ? s.items.reduce((iAcc, i) => iAcc + (Number(i.fullScore) || 10), 0) : 0), 0) : 100,
         sections: f.sections || []
       }));
     }
@@ -257,12 +260,22 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
                     {f.type}
                   </span>
-                  {/*<span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                    {f.version}
-                  </span>*/}
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F6659] border border-emerald-200">
                     เกณฑ์ ≥ {f.passingScore || 85}%
                   </span>
+                  <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200/80">
+                    {f.itemCount} ข้อ (รวม {f.totalScore || 100} แต้ม)
+                  </span>
+                  {f.usedCount > 0 && (
+                    <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/80">
+                      ตรวจแล้ว {f.usedCount} ครั้ง
+                    </span>
+                  )}
+                  {f.scheduledCount > 0 && (
+                    <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200/80">
+                      มีนัดตรวจ {f.scheduledCount} รายการ
+                    </span>
+                  )}
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
                     {f.targetMode === "specific" && f.targetUnits?.length ? `ใช้ ${f.targetUnits.length} สาขา` : "ใช้ได้ทุกสาขา"}
                   </span>
@@ -308,22 +321,58 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         )}
       </div>
 
-      {/* 🛑 Delete Form Confirmation Modal */}
+      {/* 🛑 Delete Form Confirmation Modal with Smart In-Use Warning */}
       {deleteModalForm && (
         <ModalWrapper onClose={() => !isDeleting && setDeleteModalForm(null)} maxWidth="max-w-md">
-          <div className="p-6 space-y-5 text-center">
-            <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
-              <Trash2 size={26} strokeWidth={2.2} />
+          <div className="p-6 space-y-4 text-center">
+            {/* Warning Icon */}
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-xs ${
+              deleteModalForm.isInUse || deleteModalForm.usedCount > 0 || deleteModalForm.scheduledCount > 0
+                ? "bg-amber-100 text-amber-600"
+                : "bg-rose-100 text-rose-600"
+            }`}>
+              {deleteModalForm.isInUse || deleteModalForm.usedCount > 0 || deleteModalForm.scheduledCount > 0 ? (
+                <AlertTriangle size={28} strokeWidth={2.2} />
+              ) : (
+                <Trash2 size={26} strokeWidth={2.2} />
+              )}
             </div>
 
             <div className="space-y-2">
               <h3 className="text-base sm:text-lg font-black text-slate-800">
-                ยืนยันการลบแบบฟอร์ม?
+                {deleteModalForm.isInUse || deleteModalForm.usedCount > 0 || deleteModalForm.scheduledCount > 0
+                  ? "คำเตือน: แบบฟอร์มนี้มีการใช้งานอยู่!"
+                  : "ยืนยันการลบแบบฟอร์ม?"}
               </h3>
-              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-sm mx-auto">
-                คุณต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteModalForm.name || deleteModalForm.title}"</strong> ออกจากระบบใช่หรือไม่?
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
+                ต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteModalForm.name || deleteModalForm.title}"</strong> ออกจากระบบใช่หรือไม่?
               </p>
             </div>
+
+            {/* In-Use Alert Box */}
+            {(deleteModalForm.isInUse || deleteModalForm.usedCount > 0 || deleteModalForm.scheduledCount > 0) ? (
+              <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-left space-y-1.5 text-xs text-amber-900">
+                <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                  <AlertTriangle size={14} className="shrink-0 text-amber-600" />
+                  <span>ประวัติการใช้งานในระบบปัจจุบัน:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-700 pl-1 text-[11px]">
+                  {deleteModalForm.usedCount > 0 && (
+                    <li>มีการใช้ตรวจประเมินไปแล้ว: <strong className="text-amber-900">{deleteModalForm.usedCount} ครั้ง</strong></li>
+                  )}
+                  {deleteModalForm.scheduledCount > 0 && (
+                    <li>มีกำหนดการนัดตรวจล่วงหน้า: <strong className="text-purple-900">{deleteModalForm.scheduledCount} รายการ</strong></li>
+                  )}
+                </ul>
+                <p className="text-[11px] text-slate-500 pt-1 border-t border-amber-200/60 leading-tight">
+                  * หากยืนยันลบ ระบบจะปิดการใช้งานฟอร์ม (Deactivate) เพื่อล็อกประวัติผลตรวจเดิมไว้ และจะไม่สามารถเลือกฟอร์มนี้ตรวจใหม่ได้
+                </p>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 text-center">
+                ✅ แบบฟอร์มนี้ยังไม่มีประวัติการนำไปใช้ตรวจ สามารถลบได้อย่างปลอดภัย
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
@@ -338,10 +387,14 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                 type="button"
                 disabled={isDeleting}
                 onClick={handleDeleteForm}
-                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-200 cursor-pointer transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                className={`py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold text-white shadow-md cursor-pointer transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                  deleteModalForm.isInUse || deleteModalForm.usedCount > 0 || deleteModalForm.scheduledCount > 0
+                    ? "bg-amber-600 hover:bg-amber-700 shadow-amber-200"
+                    : "bg-rose-600 hover:bg-rose-700 shadow-rose-200"
+                }`}
               >
                 <Trash2 size={16} />
-                <span>{isDeleting ? "กำลังลบ..." : "ยืนยันลบฟอร์ม"}</span>
+                <span>{isDeleting ? "กำลังดำเนินการ..." : "ยืนยันการลบ"}</span>
               </button>
             </div>
           </div>

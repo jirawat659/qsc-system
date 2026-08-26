@@ -400,6 +400,31 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         onBack={onBack}
       />
 
+      {/* ⚠️ IN-USE WARNING BANNER */}
+      {(form?.usedCount > 0 || form?.scheduledCount > 0) && (
+        <div className="rounded-2xl p-4 bg-amber-50/90 border border-amber-200 text-amber-950 flex items-start gap-3 shadow-2xs">
+          <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs sm:text-sm space-y-1">
+            <p className="font-bold text-amber-950 flex items-center gap-2 flex-wrap">
+              <span>แบบฟอร์มนี้มีการใช้งานอยู่ในระบบ</span>
+              {form.usedCount > 0 && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-mono text-xs font-bold">
+                  ตรวจแล้ว {form.usedCount} ครั้ง
+                </span>
+              )}
+              {form.scheduledCount > 0 && (
+                <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-mono text-xs font-bold">
+                  มีนัดตรวจ {form.scheduledCount} รายการ
+                </span>
+              )}
+            </p>
+            <p className="text-slate-600 text-xs leading-relaxed">
+              การแก้ไขข้อคำถามหรือเกณฑ์คะแนน ระบบจะจัดเก็บเป็นประวัติเวอร์ชันใหม่อัตโนมัติ เพื่อรักษาความถูกต้องของรายงานผลตรวจย้อนหลัง
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 🌟 2. STREAMLINED FORM SETTINGS CARD */}
       <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
@@ -815,25 +840,33 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       {/* 🛑 5. POPUP CONFIRMATION FOR DELETION */}
       {deleteTarget && (
         <ModalWrapper onClose={() => setDeleteTarget(null)} maxWidth="max-w-md">
-          <div className="p-6 space-y-5 text-center">
+          <div className="p-6 space-y-4 text-center">
             {/* Warning Icon */}
-            <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
-              <Trash2 size={26} strokeWidth={2.2} />
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto shadow-xs ${
+              deleteTarget.type === "form" && (form?.usedCount > 0 || form?.scheduledCount > 0)
+                ? "bg-amber-100 text-amber-600"
+                : "bg-rose-100 text-rose-600"
+            }`}>
+              {deleteTarget.type === "form" && (form?.usedCount > 0 || form?.scheduledCount > 0) ? (
+                <AlertTriangle size={28} strokeWidth={2.2} />
+              ) : (
+                <Trash2 size={26} strokeWidth={2.2} />
+              )}
             </div>
 
             {/* Content Message */}
             <div className="space-y-2">
               <h3 className="text-base sm:text-lg font-black text-slate-800">
                 {deleteTarget.type === "form"
-                  ? "ยืนยันการลบแบบฟอร์มนี้?"
+                  ? (form?.usedCount > 0 || form?.scheduledCount > 0 ? "คำเตือน: แบบฟอร์มนี้มีการใช้งานอยู่!" : "ยืนยันการลบแบบฟอร์มนี้?")
                   : deleteTarget.type === "section"
                   ? "ยืนยันการลบหมวดหมู่?"
                   : "ยืนยันการลบข้อคำถาม?"}
               </h3>
-              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-sm mx-auto">
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
                 {deleteTarget.type === "form" ? (
                   <>
-                    คุณต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteTarget.title}"</strong> ออกจากระบบใช่หรือไม่? ข้อมูลหมวดหมู่และข้อคำถามทั้งหมดจะถูกลบ
+                    คุณต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteTarget.title}"</strong> ออกจากระบบใช่หรือไม่?
                   </>
                 ) : deleteTarget.type === "section" ? (
                   <>
@@ -850,6 +883,27 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               </p>
             </div>
 
+            {/* In-Use Alert Box inside Modal */}
+            {deleteTarget.type === "form" && (form?.usedCount > 0 || form?.scheduledCount > 0) && (
+              <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200 text-left space-y-1.5 text-xs text-amber-900">
+                <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                  <AlertTriangle size={14} className="shrink-0 text-amber-600" />
+                  <span>ประวัติการใช้งานในระบบปัจจุบัน:</span>
+                </div>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-700 pl-1 text-[11px]">
+                  {form.usedCount > 0 && (
+                    <li>มีการใช้ตรวจประเมินไปแล้ว: <strong className="text-amber-900">{form.usedCount} ครั้ง</strong></li>
+                  )}
+                  {form.scheduledCount > 0 && (
+                    <li>มีกำหนดการนัดตรวจล่วงหน้า: <strong className="text-purple-900">{form.scheduledCount} รายการ</strong></li>
+                  )}
+                </ul>
+                <p className="text-[11px] text-slate-500 pt-1 border-t border-amber-200/60 leading-tight">
+                  * หากยืนยันลบ ระบบจะปิดการใช้งานฟอร์ม (Deactivate) เพื่อล็อกประวัติผลตรวจเดิมไว้ และจะไม่สามารถเลือกฟอร์มนี้ตรวจใหม่ได้
+                </p>
+              </div>
+            )}
+
             {/* Action Buttons */}
             <div className="grid grid-cols-2 gap-3 pt-2">
               <button
@@ -862,10 +916,14 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               <button
                 type="button"
                 onClick={handleConfirmDelete}
-                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-200 cursor-pointer transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+                className={`py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold text-white shadow-md cursor-pointer transition-colors active:scale-95 flex items-center justify-center gap-1.5 ${
+                  deleteTarget.type === "form" && (form?.usedCount > 0 || form?.scheduledCount > 0)
+                    ? "bg-amber-600 hover:bg-amber-700 shadow-amber-200"
+                    : "bg-rose-600 hover:bg-rose-700 shadow-rose-200"
+                }`}
               >
                 <Trash2 size={16} />
-                <span>ยืนยันลบ</span>
+                <span>ยืนยันการลบ</span>
               </button>
             </div>
           </div>
