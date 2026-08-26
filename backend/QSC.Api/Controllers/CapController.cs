@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
@@ -5,6 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class CapController : ControllerBase
@@ -131,6 +133,7 @@ namespace QSC.Api.Controllers
             public int? AssignedTo { get; set; }
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
         [HttpPost]
         public async Task<IActionResult> CreateManualCap([FromBody] CreateManualCapDto dto)
         {
@@ -208,6 +211,7 @@ namespace QSC.Api.Controllers
             public string? Note { get; set; }
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
         [HttpPost("{id}/close")]
         public async Task<IActionResult> CloseCap(int id, [FromBody] CloseCapDto dto)
         {
@@ -240,6 +244,7 @@ namespace QSC.Api.Controllers
             public string Reason { get; set; } = string.Empty;
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> RejectCap(int id, [FromBody] RejectCapDto dto)
         {

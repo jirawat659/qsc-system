@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
@@ -5,6 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
+    [Authorize(Roles = "ADMIN")]
     [ApiController]
     [Route("api/[controller]")]
     public class UserController : ControllerBase
@@ -178,6 +180,7 @@ namespace QSC.Api.Controllers
         }
     }
 
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class RoleController : ControllerBase
@@ -218,6 +221,7 @@ namespace QSC.Api.Controllers
             return Ok(result);
         }
 
+        [Authorize(Roles = "ADMIN")]
         [HttpPost]
         public async Task<IActionResult> CreateRole([FromBody] RoleDto dto)
         {
@@ -244,6 +248,7 @@ namespace QSC.Api.Controllers
             return Ok(role);
         }
 
+        [Authorize(Roles = "ADMIN")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateRole(int id, [FromBody] RoleDto dto)
         {

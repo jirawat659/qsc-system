@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
@@ -5,6 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class AuditController : ControllerBase
@@ -70,6 +72,7 @@ namespace QSC.Api.Controllers
             public DateTime? StartedAt { get; set; }
         }
 
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
         [HttpPut("draft")]
         public async Task<IActionResult> SaveDraft([FromBody] DraftSaveDto dto)
         {
@@ -113,6 +116,7 @@ namespace QSC.Api.Controllers
             return Ok(draft);
         }
 
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
         [HttpDelete("draft")]
         public async Task<IActionResult> DiscardDraft([FromQuery] int locationId, [FromQuery] int surveyFormId, [FromQuery] int auditorId)
         {
@@ -220,6 +224,7 @@ namespace QSC.Api.Controllers
             public List<string> ImageUrls { get; set; } = new();
         }
 
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> SubmitAudit([FromBody] SubmitAuditDto dto)
         {

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
@@ -5,6 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class LocationController : ControllerBase
@@ -59,6 +61,7 @@ namespace QSC.Api.Controllers
             return Ok(location);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateLocation([FromBody] Location location)
         {
@@ -68,6 +71,7 @@ namespace QSC.Api.Controllers
             return CreatedAtAction(nameof(GetLocation), new { id = location.Id }, location);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateLocation(int id, [FromBody] Location location)
         {
@@ -92,6 +96,7 @@ namespace QSC.Api.Controllers
             return Ok(existing);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteLocation(int id)
         {
@@ -104,6 +109,7 @@ namespace QSC.Api.Controllers
         }
     }
 
+    [Authorize]
     [ApiController]
     [Route("api/location-type")]
     public class LocationTypeController : ControllerBase
@@ -125,6 +131,7 @@ namespace QSC.Api.Controllers
             return Ok(types);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateLocationType([FromBody] LocationType type)
         {
@@ -133,6 +140,7 @@ namespace QSC.Api.Controllers
             return Ok(type);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateLocationType(int id, [FromBody] LocationType type)
         {

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
@@ -5,6 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class FormController : ControllerBase
@@ -149,6 +151,7 @@ namespace QSC.Api.Controllers
             public int OrderIndex { get; set; }
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateForm([FromBody] FormSaveDto dto)
         {
@@ -217,6 +220,7 @@ namespace QSC.Api.Controllers
             return CreatedAtAction(nameof(GetForm), new { id = form.Id }, form);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateForm(int id, [FromBody] FormSaveDto dto)
         {
@@ -359,6 +363,7 @@ namespace QSC.Api.Controllers
             }
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteForm(int id)
         {

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
@@ -5,6 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class ScheduleController : ControllerBase
@@ -75,6 +77,7 @@ namespace QSC.Api.Controllers
             return Ok(result);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] ScheduleSaveDto dto)
         {
@@ -112,6 +115,7 @@ namespace QSC.Api.Controllers
             return Ok(schedule);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateSchedule(int id, [FromBody] ScheduleSaveDto dto)
         {
@@ -155,6 +159,7 @@ namespace QSC.Api.Controllers
             return Ok(schedule);
         }
 
+        [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteSchedule(int id)
         {

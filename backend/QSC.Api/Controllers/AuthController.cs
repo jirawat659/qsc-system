@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -41,6 +42,7 @@ namespace QSC.Api.Controllers
             public string NewPassword { get; set; } = string.Empty;
         }
 
+        [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
@@ -133,6 +135,7 @@ namespace QSC.Api.Controllers
             });
         }
 
+        [Authorize]
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
         {
@@ -146,6 +149,7 @@ namespace QSC.Api.Controllers
             return Ok(new { message = "เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว" });
         }
 
+        [Authorize(Roles = "ADMIN")]
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
         {
