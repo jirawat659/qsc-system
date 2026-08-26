@@ -493,24 +493,19 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 </span>
 
                 {editingSecIdx === secIdx ? (
-                  <div className="flex items-center gap-2 flex-1">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
                     <input
                       type="text"
                       value={sec.title}
                       onChange={(e) => updateSectionTitle(secIdx, e.target.value)}
-                      className="text-sm sm:text-base font-medium px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 focus:text-slate-900 focus:border-[#0F6659] outline-none flex-1 shadow-2xs"
+                      onBlur={() => setEditingSecIdx(null)}
+                      onKeyDown={(e) => { if (e.key === "Enter") setEditingSecIdx(null); }}
+                      className="text-sm sm:text-base font-bold px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 focus:outline-none flex-1 shadow-2xs"
                       autoFocus
                     />
-                    <button
-                      type="button"
-                      onClick={() => setEditingSecIdx(null)}
-                      className="p-2 rounded-xl bg-[#0F6659] text-white hover:bg-[#0B4E44] cursor-pointer"
-                    >
-                      <Check size={14} />
-                    </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 min-w-0 group cursor-pointer" onClick={() => setEditingSecIdx(secIdx)}>
+                  <div className="flex items-center gap-2 min-w-0 group cursor-pointer flex-1" onClick={() => setEditingSecIdx(secIdx)}>
                     <h4 className="text-sm sm:text-base font-bold text-slate-800 truncate">{sec.title}</h4>
                     <Edit3 size={14} className="text-slate-300 group-hover:text-[#0F6659] shrink-0 transition-colors" />
                   </div>
@@ -606,26 +601,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
                               title="กำหนดคะแนนเต็มของข้อนี้"
                             />
-                            <span className="text-[10px] font-bold text-slate-400">แต้ม</span>
-                          </div>
-
-                          {/* Quick Score Presets */}
-                          <div className="flex items-center gap-1">
-                            {[5, 10, 15, 20].map((scorePreset) => (
-                              <button
-                                key={scorePreset}
-                                type="button"
-                                onClick={() => updateItemScore(secIdx, item.id, scorePreset)}
-                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold font-mono transition-all cursor-pointer ${
-                                  (item.fullScore || 10) === scorePreset
-                                    ? "bg-[#0F6659] text-white shadow-2xs"
-                                    : "bg-slate-100 hover:bg-slate-200 text-slate-600"
-                                }`}
-                                title={`ตั้งคะแนนเต็ม ${scorePreset} แต้ม`}
-                              >
-                                {scorePreset}
-                              </button>
-                            ))}
+                            <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
                           </div>
 
                           {/* ⚠️ Critical Badge right after score */}
@@ -644,17 +620,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               type="text"
                               value={item.text}
                               onChange={(e) => updateItemText(secIdx, item.id, e.target.value)}
-                              className="w-full text-xs sm:text-sm font-normal px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-2xs"
+                              onBlur={() => setEditingId(null)}
+                              onKeyDown={(e) => { if (e.key === "Enter") setEditingId(null); }}
+                              className="w-full text-xs sm:text-sm font-normal px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs"
                               autoFocus
                             />
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="p-2 rounded-xl bg-[#0F6659] text-white hover:bg-[#0B4E44] cursor-pointer"
-                              title="ยืนยันข้อความ"
-                            >
-                              <Check size={14} />
-                            </button>
                           </div>
                         ) : (
                           <div
