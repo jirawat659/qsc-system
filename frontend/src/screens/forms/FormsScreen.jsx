@@ -266,19 +266,6 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200/80">
                     {f.itemCount} ข้อ (รวม {f.totalScore || 100} แต้ม)
                   </span>
-                  {f.usedCount > 0 && (
-                    <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200/80">
-                      ตรวจแล้ว {f.usedCount} ครั้ง
-                    </span>
-                  )}
-                  {f.scheduledCount > 0 && (
-                    <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200/80">
-                      มีนัดตรวจ {f.scheduledCount} รายการ
-                    </span>
-                  )}
-                  <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
-                    {f.targetMode === "specific" && f.targetUnits?.length ? `ใช้ ${f.targetUnits.length} สาขา` : "ใช้ได้ทุกสาขา"}
-                  </span>
                 </div>
               </div>
             </div>

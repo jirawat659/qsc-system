@@ -85,6 +85,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   // Drag-to-reorder state and refs
   const itemRefs = useRef({});
+  const sectionRefs = useRef({});
   const dragRef = useRef(null);
   const [dragUI, setDragUI] = useState(null);
 
@@ -94,9 +95,10 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     toastTimerRef.current = setTimeout(() => setToastMessage(null), 2500);
   };
 
-  // Add a new section
+  // Add a new section and auto-scroll to it
   const addSection = () => {
     const newSecNumber = sections.length + 1;
+    const newSecIdx = sections.length;
     const newSection = {
       title: `${newSecNumber}. หมวดหมู่ใหม่ (New Section)`,
       weightPercent: 0,
@@ -105,7 +107,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       ]
     };
     setSections([...sections, newSection]);
+    setEditingSecIdx(newSecIdx);
     showToast("เพิ่มหมวดหมู่ใหม่เรียบร้อยแล้ว");
+
+    // Auto-scroll smooth to newly added section
+    setTimeout(() => {
+      const el = sectionRefs.current[newSecIdx];
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 80);
   };
 
   // Request remove section (Open popup confirm)
@@ -123,7 +134,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     });
   };
 
-  // Add question to section
+  // Add question to section and auto-scroll to it
   const addItemToSection = (secIdx) => {
     const next = [...sections];
     const newId = "q_" + Date.now();
@@ -136,6 +147,14 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     });
     setSections(next);
     setEditingId(newId);
+
+    // Auto-scroll smooth to newly added question
+    setTimeout(() => {
+      const itemEl = itemRefs.current[`${secIdx}-${newId}`];
+      if (itemEl) {
+        itemEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 80);
   };
 
   // Request remove question (Open popup confirm)
@@ -570,7 +589,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         {sections.map((sec, secIdx) => (
           <div
             key={secIdx}
-            className="rounded-3xl p-4 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4"
+            ref={(el) => { sectionRefs.current[secIdx] = el; }}
+            className="rounded-3xl p-4 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4 transition-all"
           >
             {/* Section Header Bar */}
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
@@ -804,6 +824,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             </button>
           </div>
         ))}
+
+        {/* Bottom Add Section Button */}
+        <button
+          type="button"
+          onClick={addSection}
+          className="w-full py-4 rounded-3xl bg-emerald-50/70 hover:bg-emerald-100 text-[#0F6659] font-extrabold text-xs sm:text-sm border-2 border-dashed border-emerald-300 flex items-center justify-center gap-2 cursor-pointer shadow-2xs transition-all active:scale-[0.99]"
+        >
+          <Plus size={18} strokeWidth={2.5} />
+          <span>+ เพิ่มหมวดหมู่ใหม่ (Add New Section)</span>
+        </button>
       </div>
 
       {/* Toast Notification */}
