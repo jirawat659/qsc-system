@@ -677,61 +677,33 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     }}
                     className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 space-y-3 relative transition-colors"
                   >
-                    <div className="flex items-start gap-2.5">
-                      {/* Drag Handle */}
-                      <button
-                        type="button"
-                        onPointerDown={(e) => handlePointerDown(e, secIdx, item.id)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing rounded-lg hover:bg-slate-200/60 shrink-0 touch-none mt-0.5"
-                        title="คลิกลากเพื่อสลับลำดับข้อ"
-                      >
-                        <GripVertical size={16} />
-                      </button>
-
-                      {/* Question Index & Text Input */}
-                      <div className="flex-1 min-w-0">
-                        {/* Header line: Question Number */}
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-black text-slate-700 font-mono">ข้อ {itemIdx + 1}.</span>
-                          {item.critical && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-700 flex items-center gap-1 sm:hidden">
-                              <ShieldAlert size={11} />
-                              <span>วิกฤต</span>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Question Text with Edit Pencil Icon */}
-                        {editingId === item.id ? (
-                          <div className="flex items-center gap-2 mt-1">
-                            <input
-                              type="text"
-                              value={item.text}
-                              onChange={(e) => updateItemText(secIdx, item.id, e.target.value)}
-                              onBlur={() => setEditingId(null)}
-                              onKeyDown={(e) => { if (e.key === "Enter") setEditingId(null); }}
-                              className="w-full text-xs sm:text-sm font-normal px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs"
-                              autoFocus
-                            />
-                          </div>
-                        ) : (
-                          <div
-                            onClick={() => setEditingId(item.id)}
-                            className="inline-flex items-center gap-2 group/text cursor-pointer hover:bg-emerald-50/50 p-1 -ml-1 rounded-xl transition-colors"
-                            title="คลิกเพื่อแก้ไขข้อความคำถาม"
-                          >
-                            <p className="text-xs sm:text-sm font-normal text-slate-700 group-hover/text:text-[#0F6659] transition-colors leading-relaxed">
-                              {item.text}
-                            </p>
-                            <Edit3 size={14} className="text-slate-300 group-hover/text:text-[#0F6659] shrink-0 transition-colors" />
-                          </div>
+                    {/* 1. Item Header Bar: Drag Handle + Question Number (Left) | Score + Critical + Delete (Right) */}
+                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/60">
+                      {/* Left: Drag Handle & Question Number Badge */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <button
+                          type="button"
+                          onPointerDown={(e) => handlePointerDown(e, secIdx, item.id)}
+                          className="p-1 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing rounded-lg hover:bg-slate-200/60 shrink-0 touch-none"
+                          title="คลิกลากเพื่อสลับลำดับข้อ"
+                        >
+                          <GripVertical size={16} />
+                        </button>
+                        <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg">
+                          ข้อ {itemIdx + 1}
+                        </span>
+                        {item.critical && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 flex items-center gap-1">
+                            <ShieldAlert size={12} />
+                            <span>จุดวิกฤต (ตกทันที)</span>
+                          </span>
                         )}
                       </div>
 
-                      {/* ⭐️ Right Actions: Score Setting -> Critical Toggle Button -> Delete Button */}
-                      <div className="flex items-center gap-1.5 shrink-0 self-start mt-0.5">
+                      {/* Right: Score Input + Critical Toggle + Delete */}
+                      <div className="flex items-center gap-1.5 shrink-0">
                         {/* Score Setting Input */}
-                        <div className="flex items-center gap-1 bg-white border border-slate-200/90 rounded-xl px-2 py-1 shadow-2xs hover:border-[#0F6659] transition-colors">
+                        <div className="flex items-center gap-1 bg-white border border-slate-200/90 rounded-xl px-2.5 py-1 shadow-2xs hover:border-[#0F6659] transition-colors">
                           <span className="text-[11px] font-bold text-slate-400">คะแนน:</span>
                           <input
                             type="number"
@@ -751,25 +723,59 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           onClick={() => toggleItemCritical(secIdx, item.id)}
                           className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs ${
                             item.critical
-                              ? 'bg-red-50 text-red-600 border border-red-200'
-                              : 'bg-white border border-slate-200 text-slate-400 hover:text-red-500 hover:bg-red-50'
+                              ? 'bg-rose-50 text-rose-600 border border-rose-200'
+                              : 'bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50'
                           }`}
                           title={item.critical ? "ปลดจุดวิกฤต" : "ตั้งเป็นจุดวิกฤต (ตกทันที)"}
                         >
-                          <ShieldAlert size={15} />
-                          <span className="text-[11px] hidden sm:inline">{item.critical ? "จุดวิกฤต" : "วิกฤต"}</span>
+                          <ShieldAlert size={14} />
+                          <span className="text-[11px] font-bold hidden sm:inline">{item.critical ? "จุดวิกฤต" : "ตั้งวิกฤต"}</span>
                         </button>
 
                         {/* Delete Question Button */}
                         <button
                           type="button"
                           onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
-                          className="p-1.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
                           title="ลบคำถามข้อนี้"
                         >
                           <Trash2 size={16} />
                         </button>
                       </div>
+                    </div>
+
+                    {/* 2. Full-Width Question Text Area */}
+                    <div className="w-full">
+                      {editingId === item.id ? (
+                        <div className="flex items-center gap-2 w-full">
+                          <textarea
+                            rows={2}
+                            value={item.text}
+                            onChange={(e) => updateItemText(secIdx, item.id, e.target.value)}
+                            onBlur={() => setEditingId(null)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                setEditingId(null);
+                              }
+                            }}
+                            placeholder="ระบุข้อความคำถามสำหรับการตรวจประเมิน..."
+                            className="w-full text-xs sm:text-sm font-medium p-3 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs resize-none leading-relaxed"
+                            autoFocus
+                          />
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => setEditingId(item.id)}
+                          className="w-full group/text cursor-pointer hover:bg-emerald-50/50 p-2.5 -mx-1 rounded-xl transition-all flex items-start justify-between gap-3"
+                          title="คลิกเพื่อแก้ไขข้อความคำถาม"
+                        >
+                          <p className="text-xs sm:text-sm font-medium text-slate-800 group-hover/text:text-[#0F6659] transition-colors leading-relaxed flex-1 break-words">
+                            {item.text}
+                          </p>
+                          <Edit3 size={15} className="text-slate-300 group-hover/text:text-[#0F6659] shrink-0 mt-0.5 transition-colors" />
+                        </div>
+                      )}
                     </div>
 
                     {/* Question Type Selector Buttons */}
