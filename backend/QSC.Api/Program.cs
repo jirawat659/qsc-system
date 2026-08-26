@@ -66,14 +66,14 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 
-// 🌟 Run Database Seeder on Startup
+// 🌟 Run Database Seeder on Startup (only seed if database is new or empty)
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: true);
-        Console.WriteLine("✅ Database migration and enterprise seeding completed successfully!");
+        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: false);
+        Console.WriteLine("✅ Database migration and enterprise seeding checked successfully!");
     }
     catch (Exception ex)
     {

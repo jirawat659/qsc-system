@@ -368,8 +368,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         items: (sec.items || []).map((item, iIdx) => ({
           id: typeof item.id === 'number' ? item.id : undefined,
           questionText: item.text,
-          questionType: item.type === "scale" ? "SCALE" : "YESNO",
-          fullScore: 10,
+          questionType: item.type === "scale" ? "SCALE" : (item.type === "text" ? "TEXT" : "YESNO"),
+          fullScore: Number(item.fullScore) || 10,
           isCritical: !!item.critical,
           orderIndex: iIdx + 1
         }))
@@ -379,13 +379,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     let backendId = form?.id;
     try {
       if (form?.id && typeof form.id === 'number') {
-        await api.put(`/form/${form.id}`, dto);
+        const res = await api.put(`/form/${form.id}`, dto);
+        if (res.data?.formId) backendId = res.data.formId;
       } else {
         const res = await api.post('/form', dto);
         if (res.data?.id) backendId = res.data.id;
       }
+      showToast("บันทึกแบบฟอร์มลงฐานข้อมูลเรียบร้อยแล้ว");
     } catch (err) {
-      console.warn("Could not save form directly to API, saving locally:", err);
+      console.error("Could not save form directly to API:", err);
+      // Still proceed with saving to state if network error, but notify user
     }
 
     const savedForm = {
