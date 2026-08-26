@@ -82,6 +82,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         status: f.isActive ? "active" : "draft",
         usedCount: f.auditRecords?.length || 0,
         itemCount: f.sections ? f.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0) : 11,
+        totalScore: f.sections ? f.sections.reduce((acc, s) => acc + (s.items ? s.items.reduce((iAcc, i) => iAcc + (Number(i.fullScore) || 10), 0) : 0), 0) : 100,
         sections: f.sections || []
       }));
     }
@@ -238,11 +239,11 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
                     {f.type}
                   </span>
-                  {/*<span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
-                    {f.version}
-                  </span>*/}
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F6659] border border-emerald-200">
                     เกณฑ์ ≥ {f.passingScore || 85}%
+                  </span>
+                  <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200/80">
+                    {f.itemCount} ข้อ (รวม {f.totalScore || 100} แต้ม)
                   </span>
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200">
                     {f.targetMode === "specific" && f.targetUnits?.length ? `ใช้ ${f.targetUnits.length} สาขา` : "ใช้ได้ทุกสาขา"}
