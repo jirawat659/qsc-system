@@ -42,7 +42,8 @@ import HistoryList from "../../shared/HistoryList";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 
 
-export default function NewRemediationModal({ onClose, onSubmit }) {
+export default function NewRemediationModal({ onClose, onSubmit, locations = INITIAL_UNITS, currentUser }) {
+  const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || 1);
   const [selectedIssue, setSelectedIssue] = useState("q1");
   const [remediationNote, setRemediationNote] = useState("");
   const [photoAttached, setPhotoAttached] = useState(false);
@@ -52,6 +53,8 @@ export default function NewRemediationModal({ onClose, onSubmit }) {
     { id: "q2", title: "ข้อ q2: พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน (ไม่ผ่าน)" },
     { id: "q6", title: "ข้อ q6: อุณหภูมิตู้แช่เย็นวัตถุดิบไม่เกินเกณฑ์กำหนด (≤ 4.0°C) (ไม่ผ่าน)" },
   ];
+
+  const selectedLoc = locations.find(l => l.id === Number(selectedLocationId)) || locations[0];
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
@@ -123,18 +126,19 @@ export default function NewRemediationModal({ onClose, onSubmit }) {
             }
             onSubmit({
               id: "CAP-" + Date.now().toString().slice(-3),
+              locationId: selectedLoc?.id || 1,
               title: availableIssues.find(x => x.id === selectedIssue)?.title.split(":")[1]?.trim() || "งานแก้ไขสุขอนามัย",
-              unit: "สาขาสยาม",
+              unit: selectedLoc?.name || selectedLoc?.fullName || "สาขาสยาม",
               status: "submitted",
               due: "รอผู้ตรวจอนุมัติ",
               overdue: false,
               issueItem: availableIssues.find(x => x.id === selectedIssue)?.title,
               desc: remediationNote,
-              assignedTo: "ผู้จัดการสาขาสยาม",
+              assignedTo: currentUser?.name || "ผู้จัดการสาขา",
               deadline: "24 ส.ค. 2569",
               auditScore: 76,
               timeline: [
-                { who: "ผู้จัดการสาขา (สาขาสยาม)", text: remediationNote + (photoAttached ? " (แนบรูปหลักฐานหลังแก้ไข)" : ""), time: "เมื่อสักครู่" }
+                { who: `${currentUser?.name || "ผู้จัดการสาขา"} (${selectedLoc?.name || "สาขา"})`, text: remediationNote + (photoAttached ? " (แนบรูปหลักฐานหลังแก้ไข)" : ""), time: "เมื่อสักครู่" }
               ]
             });
             onClose();

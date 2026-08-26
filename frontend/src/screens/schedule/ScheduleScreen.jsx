@@ -16,11 +16,12 @@ import NewScheduleModal from "../../modals/NewScheduleModal";
 import ScheduleItemDetail from "./ScheduleItemDetail";
 import AuditeeAuditHistoryView from "./AuditeeAuditHistoryView";
 
-export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, currentAuditorName, onBack }) {
+export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAuditDirect, currentAuditorName, onBack }) {
   if (role === "AUDITEE") {
     return <AuditeeAuditHistoryView />;
   }
 
+  const canCreateSchedule = role === "STANDARD" || role === "ADMIN";
   const [view, setView] = useState("calendar"); // 'calendar' | 'list'
   const isAggregate = role !== "AUDITOR" && role !== "AUDITEE";
   const [auditorFilter, setAuditorFilter] = useState(() => (role === "AUDITOR" && currentAuditorName) ? currentAuditorName : "ทั้งหมด");
@@ -150,15 +151,17 @@ export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, cu
           </div>
         </div>
 
-        {/* Row 2: Full Width Action Button */}
-        <button
-          type="button"
-          onClick={() => setShowNewScheduleModal(true)}
-          className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 text-white font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md active:scale-[0.99] transition-all cursor-pointer"
-        >
-          <Plus size={18} />
-          <span>กำหนดการตรวจใหม่</span>
-        </button>
+        {/* Row 2: Full Width Action Button (Visible for STANDARD & ADMIN) */}
+        {canCreateSchedule && (
+          <button
+            type="button"
+            onClick={() => setShowNewScheduleModal(true)}
+            className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 text-white font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md active:scale-[0.99] transition-all cursor-pointer"
+          >
+            <Plus size={18} />
+            <span>กำหนดการตรวจใหม่</span>
+          </button>
+        )}
       </div>
 
       {/* 🌟 2. AUDITOR FILTER BAR */}
@@ -419,10 +422,13 @@ export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, cu
       {showNewScheduleModal && (
         <NewScheduleModal
           defaultDay={selectedDay}
+          currentUser={currentUser}
+          locations={locations}
+          forms={forms}
           onClose={() => setShowNewScheduleModal(false)}
           onSave={(newSchedule) => {
-            setScheduleList((prev) => [newSchedule, ...prev]);
-            if (newSchedule.day) setSelectedDay(newSchedule.day);
+            if (refreshData) refreshData();
+            if (newSchedule?.day) setSelectedDay(newSchedule.day);
           }}
         />
       )}

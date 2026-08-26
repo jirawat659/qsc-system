@@ -266,6 +266,41 @@ namespace QSC.Api.Controllers
             return Ok(new { message = "ส่งข้อความตีกลับให้สาขาแก้ไขใหม่แล้ว", status = task.Status });
         }
 
+        public class UpdateStatusDto
+        {
+            public string Status { get; set; } = string.Empty;
+            public string? Note { get; set; }
+        }
+
+        [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
+        [HttpPut("{id}/status")]
+        public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
+        {
+            var task = await _context.CapTasks.FindAsync(id);
+            if (task == null) return NotFound();
+
+            task.Status = dto.Status.ToUpper();
+            if (task.Status == "CLOSED")
+            {
+                task.ClosedAt = DateTime.UtcNow;
+            }
+
+            if (!string.IsNullOrWhiteSpace(dto.Note))
+            {
+                _context.CapTaskComments.Add(new CapTaskComment
+                {
+                    CapTaskId = id,
+                    SenderId = 1,
+                    SenderRole = "QA",
+                    Message = $"[{dto.Status}] {dto.Note}",
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = $"ปรับปรุงสถานะเป็น {task.Status} สำเร็จ", status = task.Status });
+        }
+
         public class PostCommentDto
         {
             public int SenderId { get; set; }

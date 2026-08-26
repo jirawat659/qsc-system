@@ -11,7 +11,7 @@ import Header from "../../shared/Header";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 
-export default function CapDetailScreen({ item, onBack, role = "STANDARD" }) {
+export default function CapDetailScreen({ item, onBack, role = "STANDARD", currentUser }) {
   const [reply, setReply] = useState("");
   const [hasPhoto, setHasPhoto] = useState(false);
   const [photoBase64, setPhotoBase64] = useState(null);
@@ -61,7 +61,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD" }) {
     setIsSending(true);
 
     const newMsg = {
-      who: "คุณ (ผู้จัดการสาขา)",
+      who: role === "AUDITEE" ? "คุณ (ผู้จัดการสาขา)" : (currentUser?.name || "คุณ (ผู้ตรวจ)"),
       text: reply.trim() || "ส่งรูปภาพหลักฐานการดำเนินการแก้ไขเรียบร้อยแล้วครับ",
       time: "เมื่อสักครู่",
       isMe: true,
@@ -70,11 +70,18 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD" }) {
 
     try {
       if (item?.id && typeof item.id === 'number') {
-        if (reply.trim()) {
-          await api.post(`/cap/${item.id}/comment`, { message: reply.trim() });
-        }
         if (hasPhoto && photoBase64) {
-          await api.post(`/cap/${item.id}/evidence`, { base64Data: photoBase64 });
+          await api.post(`/cap/${item.id}/submit`, {
+            userId: currentUser?.id || 1,
+            message: reply.trim() || "ส่งรูปภาพหลักฐานการดำเนินการแก้ไขเรียบร้อยแล้วครับ",
+            imageUrls: [photoBase64]
+          });
+        } else if (reply.trim()) {
+          await api.post(`/cap/${item.id}/comments`, {
+            senderId: currentUser?.id || 1,
+            senderRole: role,
+            message: reply.trim()
+          });
         }
         await loadCapDetail();
       }
@@ -380,7 +387,10 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD" }) {
                   if (window.confirm("คุณต้องการตีกลับเพื่อให้สาขาแก้ไขเพิ่มเติมใช่หรือไม่?")) {
                     try {
                       if (item?.id && typeof item.id === 'number') {
-                        await api.put(`/cap/${item.id}/status`, { status: "REJECTED" });
+                        await api.post(`/cap/${item.id}/reject`, {
+                          verifierUserId: currentUser?.id || 1,
+                          reason: "หลักฐานยังไม่ครบถ้วนตามเกณฑ์มาตรฐาน กรุณาแก้ไขเพิ่มเติม"
+                        });
                       }
                     } catch (e) { console.warn(e); }
                     onBack();
@@ -398,7 +408,10 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD" }) {
                   if (window.confirm("คุณต้องการอนุมัติและปิดงานแก้ไข (CAP) นี้ใช่หรือไม่?")) {
                     try {
                       if (item?.id && typeof item.id === 'number') {
-                        await api.put(`/cap/${item.id}/status`, { status: "CLOSED" });
+                        await api.post(`/cap/${item.id}/close`, {
+                          verifierUserId: currentUser?.id || 1,
+                          note: "อนุมัติและปิดงานแก้ไขสมบูรณ์"
+                        });
                       }
                     } catch (e) { console.warn(e); }
                     onBack();

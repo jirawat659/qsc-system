@@ -44,31 +44,37 @@ import CapDetailScreen from "./CapDetailScreen";
 import NewRemediationModal from "./NewRemediationModal";
 
 
-export default function CapScreen({ isDesktop, onBack, role = "STANDARD" }) {
-  const { capTasks } = React.useContext(DataContext);
+export default function CapScreen({ isDesktop, onBack, role = "STANDARD", currentUser }) {
+  const { capTasks, locations, refreshData } = React.useContext(DataContext);
   const [selected, setSelected] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const capList = useMemo(() => {
-    if (capTasks && capTasks.length > 0) {
-      return capTasks.map(t => ({
-        id: t.id,
-        title: t.issueItem || "ข้อบกพร่องจากการตรวจ",
-        unit: t.location?.name || t.locationName || "สาขาสยาม",
-        issueItem: t.issueItem || t.description,
-        desc: t.description || "ต้องดำเนินการแก้ไขตามมาตรฐาน Q.S.C.",
-        status: t.status === "OPEN" ? "pending" : t.status === "SUBMITTED" ? "submitted" : t.status === "CLOSED" ? "approved" : t.status === "REJECTED" ? "rejected" : t.status,
-        deadline: t.submissionDeadline ? new Date(t.submissionDeadline).toLocaleDateString('th-TH') : "3 วันหลังจากตรวจ",
-        createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString('th-TH') : "วันนี้",
-        raw: t
-      }));
-    }
-    return INITIAL_CAP_LIST;
-  }, [capTasks]);
+    let tasks = (capTasks && capTasks.length > 0) ? capTasks : INITIAL_CAP_LIST;
 
-  if (selected) return <CapDetailScreen item={selected} role={role} onBack={() => setSelected(null)} />;
+    if (role === "AUDITEE" || (currentUser?.branchScope === "SPECIFIC" && currentUser?.allowedLocationIds?.length > 0)) {
+      const allowedIds = currentUser?.allowedLocationIds || [];
+      tasks = tasks.filter(t => allowedIds.includes(t.locationId || t.location?.id) || t.assignedTo === currentUser?.id);
+    }
+
+    return tasks.map(t => ({
+      id: t.id,
+      title: t.issueItem || "ข้อบกพร่องจากการตรวจ",
+      unit: t.location?.name || t.locationName || t.unit || "สาขาสยาม",
+      locationId: t.locationId || t.location?.id,
+      issueItem: t.issueItem || t.description,
+      desc: t.description || t.desc || "ต้องดำเนินการแก้ไขตามมาตรฐาน Q.S.C.",
+      status: t.status === "OPEN" ? "pending" : (t.status === "SUBMITTED" ? "submitted" : (t.status === "CLOSED" ? "approved" : (t.status === "REJECTED" ? "rejected" : t.status))),
+      statusRaw: t.status,
+      deadline: t.submissionDeadline ? new Date(t.submissionDeadline).toLocaleDateString('th-TH') : "3 วันหลังจากตรวจ",
+      createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString('th-TH') : "วันนี้",
+      raw: t
+    }));
+  }, [capTasks, role, currentUser]);
+
+  if (selected) return <CapDetailScreen item={selected} role={role} currentUser={currentUser} onBack={() => setSelected(null)} />;
 
   const filteredCapList = capList.filter(item => {
     const matchStatus = statusFilter === "all" || item.status === statusFilter;
@@ -197,8 +203,24 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD" }) {
 
       {showNewModal && (
         <NewRemediationModal
+          locations={locations}
+          currentUser={currentUser}
           onClose={() => setShowNewModal(false)}
-          onSubmit={(newItem) => setCapList([newItem, ...capList])}
+          onSubmit={async (createdData) => {
+            try {
+              if (createdData?.locationId) {
+                await api.post('/cap', {
+                  locationId: createdData.locationId,
+                  issueItem: createdData.issueItem || "ข้อบกพร่องจากการตรวจ",
+                  description: createdData.desc || "",
+                  assignedTo: currentUser?.id || 1
+                });
+              }
+              if (refreshData) await refreshData();
+            } catch (err) {
+              console.warn("Create manual CAP error:", err);
+            }
+          }}
         />
       )}
     </div>

@@ -65,13 +65,15 @@ const compressImageFile = (file, maxWidth = 1600, maxHeight = 1600, quality = 0.
 export default function LiveAuditScreen({
   preselectedPlan,
   onClearPlan,
+  currentUser: propUser,
   defaultAuditorName = "สมชาย ใจดี",
   initialDraft,
   onSaveDraft,
   onCompleteAudit,
   onActiveStateChange
 }) {
-  const { locations, forms, activeDraft, refreshData } = React.useContext(DataContext);
+  const { currentUser: ctxUser, locations, forms, activeDraft, refreshData } = React.useContext(DataContext);
+  const currentUser = propUser || ctxUser;
   const formList = (forms && forms.length > 0) ? forms : INITIAL_FORMS_LIST;
 
   // Step flow: select-unit -> select-form -> details -> section -> review-modal
@@ -197,11 +199,14 @@ export default function LiveAuditScreen({
         await api.put('/audit/draft', {
           locationId: unit.id,
           surveyFormId: selectedForm?.id || 1,
+          auditorId: currentUser?.id || 1,
           draftPayloadJson: JSON.stringify(payload),
           currentSectionIdx: sectionIdx,
           totalAnswered,
           totalQuestions,
-          auditorName
+          startLatitude: parsedDraftPayload?.startLatitude || userCoords.latitude,
+          startLongitude: parsedDraftPayload?.startLongitude || userCoords.longitude,
+          startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
         });
 
         setSyncStatus("synced");
@@ -214,7 +219,7 @@ export default function LiveAuditScreen({
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [unit, selectedForm, sectionIdx, answers, photos, comments, staffCount, auditorName, auditType, extraNote, step, hasUserAnswers]);
+  }, [unit, selectedForm, sectionIdx, answers, photos, comments, staffCount, auditorName, auditType, extraNote, step, hasUserAnswers, currentUser]);
 
   const currentSections = selectedForm?.sections || INITIAL_FORM_SECTIONS;
   const passingScore = selectedForm?.passingScore || 85;
@@ -224,6 +229,10 @@ export default function LiveAuditScreen({
   // Priority 2: สาขาอื่นๆ จัดเรียงตามระยะทางจริงจากน้อยไปมาก
   const sortedBranchList = useMemo(() => {
     let list = [...(locations || [])];
+
+    if (currentUser?.branchScope === "SPECIFIC" && Array.isArray(currentUser.allowedLocationIds) && currentUser.allowedLocationIds.length > 0) {
+      list = list.filter(u => currentUser.allowedLocationIds.includes(u.id));
+    }
 
     if (searchBranch.trim()) {
       const q = searchBranch.toLowerCase();
@@ -250,7 +259,7 @@ export default function LiveAuditScreen({
       const distB = getDistanceInMeters(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude);
       return distA - distB;
     });
-  }, [locations, searchBranch, activeDraft, parsedDraftPayload, userCoords]);
+  }, [locations, searchBranch, activeDraft, parsedDraftPayload, userCoords, currentUser]);
 
   // 📸 Handle Photo Upload with Client-side Compression
   const handlePhotoUpload = async (questionId, file) => {
@@ -362,7 +371,8 @@ export default function LiveAuditScreen({
       const payload = {
         locationId: unit.id,
         surveyFormId: selectedForm?.id || 1,
-        primaryAuditorId: 1, // Default auditor ID
+        primaryAuditorId: currentUser?.id || 1,
+        auditeeUserId: unit.managerUserId || null,
         auditeeNameText: unit.managerName || "ผู้จัดการสาขา",
         auditScheduleId: preselectedPlan?.id || null,
         staffCount: Number(staffCount) || 0,
@@ -406,7 +416,9 @@ export default function LiveAuditScreen({
     if (window.confirm("คุณต้องการยกเลิกและล้างคำตอบของแบบร่างนี้ทั้งหมดใช่หรือไม่?")) {
       try {
         if (unit?.id) {
-          await api.delete(`/audit/draft?locationId=${unit.id}`);
+          const sFormId = selectedForm?.id || parsedDraftPayload?.formId || 1;
+          const aId = currentUser?.id || 1;
+          await api.delete(`/audit/draft?locationId=${unit.id}&surveyFormId=${sFormId}&auditorId=${aId}`);
         }
         if (refreshData) await refreshData();
       } catch (e) {

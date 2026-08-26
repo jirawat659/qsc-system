@@ -181,6 +181,7 @@ export default function MainDashboard({ onLogout }) {
           <LiveAuditScreen
             preselectedPlan={preselectedPlan}
             initialDraft={activeAuditDraft}
+            currentUser={currentUser}
             onClearPlan={() => setPreselectedPlan(null)}
             defaultAuditorName={currentUser.name || "สมชาย ใจดี"}
             onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
@@ -197,11 +198,12 @@ export default function MainDashboard({ onLogout }) {
           />
         )}
         {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
-        {screen === "cap" && <CapScreen isDesktop={true} role={role} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
+        {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
         {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} onNavigate={handleNavClick} />}
         {screen === "schedule" && (
           <ScheduleScreen
             role={role}
+            currentUser={currentUser}
             isDesktop={true}
             onStartAuditDirect={handleStartAuditDirect}
             currentAuditorName={role === "AUDITOR" ? currentUser.name : null}
@@ -216,7 +218,7 @@ export default function MainDashboard({ onLogout }) {
   const topBarContextValue = React.useMemo(() => ({ subHeader, setSubHeader }), [subHeader]);
 
   return (
-    <DataContext.Provider value={{ locations, setLocations, schedules, setSchedules, forms, setForms, activeDraft, setActiveDraft, capTasks, setCapTasks, auditRecords, setAuditRecords, refreshData }}>
+    <DataContext.Provider value={{ currentUser, locations, setLocations, schedules, setSchedules, forms, setForms, activeDraft, setActiveDraft, capTasks, setCapTasks, auditRecords, setAuditRecords, refreshData }}>
     <TopBarContext.Provider value={topBarContextValue}>
     <div className="w-full min-h-screen" style={{ background: "#EBEAE5", fontFamily: sans }}>
       

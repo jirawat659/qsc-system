@@ -7,7 +7,7 @@ import { INITIAL_FORMS_LIST } from "../mocks/forms";
 import ModalWrapper from "../shared/ModalWrapper";
 import api from "../config/api";
 
-export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, locations = INITIAL_UNITS, forms = INITIAL_FORMS_LIST }) {
+export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, currentUser, locations = INITIAL_UNITS, forms = INITIAL_FORMS_LIST }) {
   const [selectedUnitName, setSelectedUnitName] = useState(locations[0]?.name || "สาขาสยามพารากอน");
   const [scheduledDate, setScheduledDate] = useState("2026-08-25");
   const [scheduledTime, setScheduledTime] = useState("10:00 - 12:00 น.");
@@ -45,10 +45,14 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, loc
 
     try {
       if (selectedUnit?.id) {
+        const chosenAuditor = dbAuditors.find(a => (a.fullName || a.username) === assignedAuditor);
+        const auditorId = chosenAuditor?.id || (currentUser?.id || 1);
+
         await api.post('/schedule', {
           locationId: selectedUnit.id,
           surveyFormId: typeof selectedFormId === 'number' ? selectedFormId : 1,
-          auditorName: assignedAuditor,
+          auditorIds: [auditorId],
+          createdBy: currentUser?.id || 1,
           auditType: auditType.toLowerCase(),
           scheduledDate: new Date(scheduledDate).toISOString(),
           notes: notes.trim()
