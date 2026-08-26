@@ -49,8 +49,10 @@ pnpm-debug.log*
 *.log
 
 # ==========================================
-# 🛑 OS Generated Files
+# 🛑 Exports & Clean Archives
 # ==========================================
+qsc-clean-source/
+*.zip
 .DS_Store
 Thumbs.db
 desktop.ini
