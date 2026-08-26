@@ -47,11 +47,6 @@ export default function AssignedAuditPlanScreen({ auditorName, onStart, activeDr
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[92%] mx-auto pb-12">
-      <div className="rounded-3xl p-4 bg-emerald-50 border border-emerald-200 shadow-2xs">
-        <div className="text-sm sm:text-base font-extrabold text-emerald-950">เลือกแผนตรวจที่ได้รับมอบหมาย</div>
-        <div className="text-xs font-medium text-emerald-800 mt-1">แผนการลงตรวจสาขาของคุณ{auditorName} ประจำสัปดาห์นี้</div>
-      </div>
-
       {/* 🌟 IN-PROGRESS DRAFT BANNER & RESUME CARD */}
       {activeDraft && (
         <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 text-white shadow-lg space-y-3 animate-in slide-in-from-top-3">

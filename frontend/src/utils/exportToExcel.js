@@ -1,6 +1,4 @@
-import * as LucideIcons from "lucide-react";
-
-export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "all", region = "all" }) {
+export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "all", region = "all", locations = [] }) {
   let csvContent = "\uFEFF"; // UTF-8 BOM so Excel opens Thai characters correctly
   let filename = "QSC_Report.csv";
 
@@ -19,7 +17,7 @@ export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "al
     csvContent += `เกณฑ์คะแนนผ่านการตรวจมาตรฐาน: 85%, เกณฑ์ดีเยี่ยม: 90%\n\n`;
     csvContent += "ลำดับ,ชื่อสาขา,ชื่อเต็ม,ภูมิภาค,ที่อยู่,เบอร์โทรศัพท์,คะแนนตรวจล่าสุด(%),ผลการตรวจ(เกณฑ์ 85%),วันที่ตรวจล่าสุด,ผู้ตรวจประเมินล่าสุด\n";
     
-    let branches = [...locations];
+    let branches = Array.isArray(locations) ? [...locations] : [];
     if (region !== "all") {
       branches = branches.filter(u => u.region.includes(region));
     }

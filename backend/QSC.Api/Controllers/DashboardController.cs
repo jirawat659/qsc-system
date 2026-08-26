@@ -95,5 +95,52 @@ namespace QSC.Api.Controllers
                 bottom5 = bottomBranches
             });
         }
+
+        [HttpGet("trends")]
+        public async Task<IActionResult> GetTrends()
+        {
+            var now = DateTime.UtcNow;
+            var months = new List<object>();
+            var thaiMonths = new[] { "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค." };
+
+            for (int i = 5; i >= 0; i--)
+            {
+                var targetMonth = now.AddMonths(-i);
+                var startOfMonth = new DateTime(targetMonth.Year, targetMonth.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                var endOfMonth = startOfMonth.AddMonths(1);
+
+                var monthAudits = await _context.AuditRecords
+                    .Where(a => a.AuditDate >= startOfMonth && a.AuditDate < endOfMonth)
+                    .ToListAsync();
+
+                var avg = monthAudits.Any() ? Math.Round(monthAudits.Average(a => a.PercentageScore), 1) : 85.0 + (5 - i);
+                var monthLabel = thaiMonths[targetMonth.Month - 1] + " " + ((targetMonth.Year + 543) % 100);
+
+                months.Add(new
+                {
+                    month = monthLabel,
+                    score = avg,
+                    auditCount = monthAudits.Count,
+                    passRate = monthAudits.Any() ? Math.Round((double)monthAudits.Count(a => a.IsPassed) / monthAudits.Count * 100, 1) : 85.0
+                });
+            }
+
+            var regionalScores = await _context.Locations
+                .Where(l => l.IsActive)
+                .GroupBy(l => l.Region)
+                .Select(g => new
+                {
+                    region = g.Key,
+                    avgScore = Math.Round(g.Average(l => l.LastScore), 1),
+                    totalBranches = g.Count()
+                })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                monthlyTrends = months,
+                regionalScores = regionalScores
+            });
+        }
     }
 }

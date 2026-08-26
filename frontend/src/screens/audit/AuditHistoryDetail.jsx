@@ -44,158 +44,240 @@ import CapSubmissionModal from "../../modals/CapSubmissionModal";
 import ViewCapEvidenceModal from "../../modals/ViewCapEvidenceModal";
 
 
-export default function AuditHistoryDetail({ unitName, record, onBack }) {
+export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const { locations } = React.useContext(DataContext);
-  const [activeTab, setActiveTab] = useState("responses"); // 'responses' | 'overview' | 'sign'
+  const [activeTab, setActiveTab] = useState("responses"); // 'responses' | 'overview' | 'photos' | 'sign'
   const [capSubmissions, setCapSubmissions] = useState({});
   const [disputeSubmitted, setDisputeSubmitted] = useState(record.status === "Disputed");
   const [submittingCapQuestion, setSubmittingCapQuestion] = useState(null);
   const [viewingCap, setViewingCap] = useState(null);
 
-  const cat1Max = 50, cat2Max = 50;
-  const cat1 = Math.max(0, Math.min(cat1Max, Math.round(record.score * 0.55)));
-  const cat2 = Math.max(0, Math.min(cat2Max, record.score - cat1));
-  const sections = [
-    { title: "ความสะอาดและสุขอนามัย (Cleanliness)", score: cat1, max: cat1Max },
-    { title: "มาตรฐานการบริการและความเร็ว (Service)", score: cat2, max: cat2Max },
-  ];
-  const issues = [];
-  if (record.score < 85) issues.push({ text: "พบคราบสกปรกและไขมันสะสมบริเวณพื้นที่ปฏิบัติงาน (ข้อ 1)", critical: false });
-  if (record.score < 70) issues.push({ text: "พบข้อบกพร่องด้านความปลอดภัยอาหาร ต้องส่งหลักฐานแก้งานด่วน (ข้อ 6)", critical: true });
+  // Normalized audit record attributes
+  const score = typeof record.score === "number" ? record.score : typeof record.percentageScore === "number" ? Math.round(record.percentageScore) : 85;
+  const dateStr = record.date || (record.auditDate ? new Date(record.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "วันนี้");
+  const auditorName = record.auditor || record.auditorName || record.primaryAuditor?.fullName || "คุณสมชาย ใจดี (Lead Auditor)";
+  const formTitle = record.form || record.formName || record.surveyFormTitle || record.surveyForm?.title || "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Checklist 2026)";
+  const passed = record.isPassed !== undefined ? record.isPassed : (score >= 85 && !record.hasCriticalDefect);
+  const hasCritical = record.hasCriticalDefect || (record.responses && record.responses.some(r => r.isCritical && !r.isPassed));
+  const locationTitle = unitName || record.unitFullName || record.locationName || record.location?.name || "สาขา";
+  const managerName = record.auditeeName || record.auditeeUser?.fullName || "ผู้จัดการสาขา";
+  const staffCount = record.staffCount || 10;
+  const auditType = record.auditType === "followup" ? "ตรวจติดตามผล (Follow-up)" : "ตรวจมาตรฐานรอบปกติ (Announced)";
 
-  const passed = record.score >= 85;
+  // Dynamic Form Question Breakdown
+  const formBreakdown = useMemo(() => {
+    // If real responses exist from DB API
+    if (record.responses && Array.isArray(record.responses) && record.responses.length > 0) {
+      const sectionsMap = {};
+      
+      record.responses.forEach((res, idx) => {
+        let secName = "หมวด ก: มาตรฐานสุขอนามัยและความสะอาด (CLN)";
+        const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
+        const qType = (res.questionType || res.surveyItem?.questionType || "YESNO").toLowerCase();
+        const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
+        const fullSc = res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10);
+        const isPass = res.isPassed !== undefined ? res.isPassed : (res.scoreGiven > 0);
 
-  // Form question responses breakdown for this audit round
-  const formBreakdown = [
-    {
-      title: "ความสะอาดและสุขอนามัย (Cleanliness)",
-      questions: [
-        {
-          num: 1,
-          id: "q1",
-          text: "พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน",
-          type: "yesno",
-          answer: record.score >= 85 ? true : false,
-          note: record.score >= 85 ? "ทำความสะอาดพื้นและโต๊ะเรียบร้อย ไม่มีคราบไขมันตกค้าง" : "พบคราบไขมันสะสมบริเวณพื้นหลังเตาปรุงอาหาร (เปิดใบงานแก้ไข CAP-001)",
-          hasPhoto: record.score < 85,
-        },
-        {
-          num: 2,
-          id: "q2",
-          text: "พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน",
-          type: "yesno",
-          answer: record.score >= 60 ? true : false,
-          note: record.score >= 60 ? "พนักงานทุกคนแต่งกายเรียบร้อย สวมหมวกและผ้ากันเปื้อนถูกต้อง" : "พบพนักงานพาร์ทไทม์ 1 คนลืมสวมหมวกคลุมผมระหว่างเตรียมวัตถุดิบ",
-          hasPhoto: false,
-        },
-        {
-          num: 3,
-          id: "q3",
-          text: "ความสะอาดของห้องน้ำลูกค้าและอุปกรณ์ล้างมือ",
-          type: "scale",
-          answer: record.score >= 90 ? 5 : record.score >= 80 ? 4 : 3,
-          note: "มีสบู่ล้างมือและกระดาษเช็ดมือพร้อมใช้งาน พื้นแห้งสะอาดไม่มีกลิ่นอับ",
-          hasPhoto: false,
-        },
-      ]
-    },
-    {
-      title: "มาตรฐานการบริการและความเร็ว (Service)",
-      questions: [
-        {
-          num: 4,
-          id: "q4",
-          text: "พนักงานกล่าวทักทายและต้อนรับลูกค้าภายใน 5 วินาที",
-          type: "yesno",
-          answer: true,
-          note: "พนักงานหน้าเคาน์เตอร์กล่าวต้อนรับด้วยความสุภาพและยิ้มแย้ม",
-          hasPhoto: false,
-        },
-        {
-          num: 5,
-          id: "q5",
-          text: "ความรวดเร็วและถูกต้องในการส่งมอบออเดอร์",
-          type: "scale",
-          answer: record.score >= 85 ? 5 : 4,
-          note: "เวลาเฉลี่ยในการออกออเดอร์ 2.4 นาที (ตามเกณฑ์มาตรฐาน SOP ≤ 3 นาที)",
-          hasPhoto: false,
-        },
-        {
-          num: 6,
-          id: "q5_note",
-          text: "บันทึกคำชมเชยหรือข้อเสนอแนะด้านการบริการจากลูกค้า",
-          type: "text",
-          answer: "ลูกค้าประจำชื่นชมความรวดเร็วในการรับออเดอร์และเครื่องดื่มรสชาติตรงตามสูตรมาตรฐาน",
-          hasPhoto: false,
-        },
-      ]
-    },
-    {
-      title: "3. คุณภาพอาหารและความปลอดภัย (Quality & Safety)",
-      questions: [
-        {
-          num: 7,
-          id: "q6",
-          text: "อุณหภูมิตู้แช่เย็นวัตถุดิบไม่เกินเกณฑ์กำหนด (≤ 4.0°C)",
-          type: "yesno",
-          answer: record.score < 75 ? false : true,
-          note: record.score < 75 ? "อุณหภูมิตู้แช่สูงผิดปกติ วัดได้ 5.8°C แจ้งผู้จัดการสาขาเปลี่ยนซีลยางและซ่อมบำรุงด่วน" : "อุณหภูมิวัดได้ 2.6°C อยู่ในเกณฑ์มาตรฐาน",
-          hasPhoto: record.score < 75,
-        },
-        {
-          num: 8,
-          id: "q7",
-          text: "ป้ายระบุวันหมดอายุ (Date label) ชัดเจนและถูกต้องตาม SOP",
-          type: "yesno",
-          answer: true,
-          note: "วัตถุดิบทุกรายการติดสติกเกอร์ First-in First-out (FIFO) ครบถ้วนชัดเจน",
-          hasPhoto: false,
-        },
-        {
-          num: 9,
-          id: "q8",
-          text: "บันทึกอุณหภูมิน้ำมันทอดและการตรวจวัดค่า TPM",
-          type: "text",
-          answer: "อุณหภูมิน้ำมันทอด 175°C, ค่าสารโพลาร์ TPM 14% (เกณฑ์ไม่เกิน 25% ผ่านการทดสอบ)",
-          hasPhoto: false,
-        },
-      ]
+        if (qText.includes("อุณหภูมิ") || qText.includes("น้ำมัน") || qText.includes("สุก") || qText.includes("FIFO") || qText.includes("แช่") || qText.includes("GMP")) {
+          secName = "หมวด ข: คุณภาพอาหาร ความสด และการควบคุมอุณหภูมิ (QLT)";
+        } else if (qText.includes("บริการ") || qText.includes("ทักทาย") || qText.includes("ความเร็ว") || qText.includes("แต่งกาย")) {
+          secName = "หมวด ค: การบริการ ความเร็ว และความสุภาพ (SVC)";
+        } else if (qText.includes("หนีไฟ") || qText.includes("ดับเพลิง") || qText.includes("เงินสด") || qText.includes("ความปลอดภัย") || qText.includes("เครื่องจักร")) {
+          secName = "หมวด ง: ความปลอดภัย และการควบคุมมาตรฐาน (SAF)";
+        }
+
+        if (!sectionsMap[secName]) {
+          sectionsMap[secName] = { title: secName, questions: [] };
+        }
+
+        sectionsMap[secName].questions.push({
+          num: idx + 1,
+          id: `q_${res.id || idx}`,
+          text: qText,
+          type: qType,
+          answer: qType === "scale" ? (res.scoreGiven || (isPass ? 5 : 3)) : isPass,
+          scoreGiven: res.scoreGiven,
+          fullScore: fullSc,
+          isCritical: isCrit,
+          note: res.notes || (isPass ? "ผลการตรวจผ่านเกณฑ์มาตรฐาน SOP เรียบร้อย" : isCrit ? "🚨 พบข้อบกพร่องวิกฤต (Critical Failure) ต้องเปิดตั๋ว CAP ด่วน" : "พบข้อบกพร่อง ต้องดำเนินการแก้ไขตามข้อเสนอแนะ"),
+          hasPhoto: !isPass || (res.images && res.images.length > 0),
+          images: res.images || []
+        });
+      });
+
+      return Object.values(sectionsMap);
     }
-  ];
+
+    // Fallback contextual generator based on score and location
+    const isHigh = score >= 90;
+    const isFail = score < 85;
+
+    return [
+      {
+        title: "หมวด ก: มาตรฐานสุขอนามัยและความสะอาด (CLN)",
+        questions: [
+          {
+            num: 1,
+            id: "q1",
+            text: "จุดล้างมือมีสบู่เหลว แอลกอฮอล์ และกระดาษเช็ดมือพร้อมใช้งาน",
+            type: "yesno",
+            answer: true,
+            note: "จุดล้างมือสะอาด มีสบู่เหลวและกระดาษเช็ดมือครบถ้วน",
+            hasPhoto: false,
+          },
+          {
+            num: 2,
+            id: "q2",
+            text: "ตู้เย็นและตู้แช่เย็นควบคุมอุณหภูมิ <= 4.0°C พร้อมบันทึก Log สม่ำเสมอ",
+            type: "yesno",
+            answer: score >= 80,
+            isCritical: true,
+            note: score >= 80 ? "อุณหภูมิตู้แช่ 2.8°C ผ่านเกณฑ์มาตรฐาน" : "อุณหภูมิตู้แช่สูงผิดปกติ 6.5°C มีปัญหาที่ขอบยาง",
+            hasPhoto: score < 80,
+          },
+          {
+            num: 3,
+            id: "q3",
+            text: "ฮูดดูดควัน ตะแกรงดักไขมัน และท่อระบายน้ำพื้นสะอาดปราศจากคราบสะสม",
+            type: "yesno",
+            answer: !isFail,
+            note: !isFail ? "ล้างทำความสะอาดตะแกรงดักไขมันประจำรอบเรียบร้อย" : "พบคราบไขมันสะสมบริเวณตะแกรงดักไขมัน (เปิด CAP)",
+            hasPhoto: isFail,
+          }
+        ]
+      },
+      {
+        title: "หมวด ข: คุณภาพอาหาร ความสด และการควบคุมอุณหภูมิ (QLT)",
+        questions: [
+          {
+            num: 4,
+            id: "q4",
+            text: "ค่าน้ำมันทอด TPM ไม่เกิน 22% (ตรวจสอบด้วยเครื่องวัดดิจิทัล)",
+            type: "yesno",
+            answer: !hasCritical,
+            isCritical: true,
+            note: !hasCritical ? "ค่าน้ำมันทอด TPM 14.2% ผ่านเกณฑ์มาตรฐาน" : "ค่าน้ำมันทอด TPM 24.5% เกินเกณฑ์มาตรฐานกำหนด (เปิด CAP ด่วน)",
+            hasPhoto: hasCritical,
+          },
+          {
+            num: 5,
+            id: "q5",
+            text: "อุณหภูมิแกนกลางของเนื้อสัตว์ปรุงสุกถึง >= 75°C นาน 15 วินาที",
+            type: "yesno",
+            answer: true,
+            isCritical: true,
+            note: "อุณหภูมิแกนกลางเนื้อสัตว์ปรุงสุกวัดได้ 79.0°C ผ่านเกณฑ์",
+            hasPhoto: false,
+          },
+          {
+            num: 6,
+            id: "q6",
+            text: "วัตถุดิบทั้งหมดติดป้าย FIFO ระบุวันผลิตและวันหมดอายุย่อยชัดเจน",
+            type: "yesno",
+            answer: true,
+            note: "ป้าย FIFO ครบถ้วน ระบุวันผลิต/หมดอายุถูกต้อง",
+            hasPhoto: false,
+          }
+        ]
+      },
+      {
+        title: "หมวด ค: การบริการ ความเร็ว และความสุภาพ (SVC)",
+        questions: [
+          {
+            num: 7,
+            id: "q7",
+            text: "พนักงานต้อนรับกล่าวทักทายภายใน 5 วินาทีด้วยรอยยิ้มมาตรฐาน",
+            type: "scale",
+            answer: isHigh ? 5 : 4,
+            note: "พนักงานกล่าวต้อนรับสุภาพ ยิ้มแย้มแจ่มใส",
+            hasPhoto: false,
+          },
+          {
+            num: 8,
+            id: "q8",
+            text: "ความเร็วในการเสิร์ฟ (สั่งซื้อจนถึงรับสินค้า) ไม่เกิน 180 วินาที",
+            type: "scale",
+            answer: isHigh ? 5 : 4,
+            note: "เวลาเฉลี่ยในการออกออเดอร์ 2.2 นาที (ตามเกณฑ์มาตรฐาน ≤ 3 นาที)",
+            hasPhoto: false,
+          }
+        ]
+      }
+    ];
+  }, [record, score, passed, hasCritical]);
+
+  // Calculated Sections Score Breakdown
+  const sections = useMemo(() => {
+    return formBreakdown.map(sec => {
+      const totalQ = sec.questions.length;
+      let earned = 0;
+      let maxScore = totalQ * 10;
+      sec.questions.forEach(q => {
+        if (q.type === "scale") {
+          earned += ((q.answer || 5) / 5) * 10;
+        } else if (q.answer === true) {
+          earned += 10;
+        }
+      });
+      return {
+        title: sec.title,
+        score: Math.round(earned),
+        max: maxScore,
+        percent: maxScore > 0 ? Math.round((earned / maxScore) * 100) : 100
+      };
+    });
+  }, [formBreakdown]);
+
+  // Issues List
+  const issues = useMemo(() => {
+    const list = [];
+    formBreakdown.forEach(sec => {
+      sec.questions.forEach(q => {
+        const isPass = q.type === "yesno" ? q.answer === true : q.type === "scale" ? q.answer >= 4 : true;
+        if (!isPass) {
+          list.push({
+            text: `${q.text} (${q.note})`,
+            critical: q.isCritical || false
+          });
+        }
+      });
+    });
+    return list;
+  }, [formBreakdown]);
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
-      <Header title={`ผลการตรวจ: ${unitName}`} subtitle={`รอบตรวจวันที่ ${record.date} · ผู้ตรวจ: ${record.auditor || "สมชาย ใจดี"}`} onBack={onBack} />
+      <Header title={`ผลการตรวจ: ${locationTitle}`} subtitle={`รอบตรวจวันที่ ${dateStr} · ผู้ตรวจ: ${auditorName}`} onBack={onBack} />
       
-      {/* 🌟 1. ALL-IN-ONE SLEEK HERO SUMMARY CARD (คลีน สบายตา ไม่รก) */}
+      {/* 🌟 1. ALL-IN-ONE SLEEK HERO SUMMARY CARD */}
       <div className="rounded-3xl p-4 sm:p-5 bg-white border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         {/* Left: Score Ring & Verdict */}
         <div className="flex items-center gap-4 min-w-0">
-          <ScoreRing score={record.score} size={54} />
+          <ScoreRing score={score} size={54} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-2xl sm:text-3xl font-extrabold text-slate-900" style={{ fontFamily: mono }}>
-                {record.score}%
+                {score}%
               </span>
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-lg ${passed ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200'}`}>
-                {passed ? "✓ ผ่านเกณฑ์มาตรฐาน" : "⚠️ ต้องส่งงานแก้ไข (CAP)"}
+                {passed ? "✓ ผ่านเกณฑ์มาตรฐาน" : hasCritical ? "🚨 ตกเกณฑ์วิกฤต (Critical)" : "⚠️ ต้องส่งงานแก้ไข (CAP)"}
               </span>
             </div>
             <div className="text-xs text-slate-500 font-medium mt-0.5">
-              เกณฑ์คะแนนผ่าน ≥85% · {passed ? "รักษามาตรฐานได้ยอดเยี่ยม" : "มีข้อที่ต้องแก้ไข 1 ข้อ"}
+              เกณฑ์คะแนนผ่าน ≥85% · {passed ? "รักษามาตรฐานได้ยอดเยี่ยม" : `มีข้อบกพร่องที่ต้องแก้ไข ${issues.length || 1} ข้อ`}
             </div>
           </div>
         </div>
 
         {/* Right: Clean Meta Information */}
         <div className="flex flex-wrap sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1.5 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 text-xs">
-          <div><span className="text-slate-400 font-medium">แบบฟอร์ม:</span> <span className="font-bold text-[#0F6659] ml-1">SOP ร้านอาหาร v3</span></div>
-          <div><span className="text-slate-400 font-medium">วันที่ตรวจ:</span> <span className="font-bold text-slate-800 ml-1">{record.date}</span></div>
-          <div><span className="text-slate-400 font-medium">ผู้ตรวจ:</span> <span className="font-bold text-slate-800 ml-1">{record.auditor || "สมชาย ใจดี"}</span></div>
+          <div><span className="text-slate-400 font-medium">แบบฟอร์ม:</span> <span className="font-bold text-[#0F6659] ml-1">{formTitle}</span></div>
+          <div><span className="text-slate-400 font-medium">วันที่ตรวจ:</span> <span className="font-bold text-slate-800 ml-1">{dateStr}</span></div>
+          <div><span className="text-slate-400 font-medium">ผู้ตรวจ:</span> <span className="font-bold text-slate-800 ml-1">{auditorName}</span></div>
         </div>
       </div>
 
-      {/* 🌟 4-TAB SEGMENTED SELECTOR (แสดงครบทั้ง 4 แท็บพอดีหน้าจอ ไม่มีตกขอบ) */}
+      {/* 🌟 4-TAB SEGMENTED SELECTOR */}
       <div className="grid grid-cols-4 bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs gap-1">
         {[
           { key: "responses", label: "ผลตรวจ", icon: ClipboardCheck },
@@ -225,7 +307,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
         })}
       </div>
 
-      {/* TAB 1: DETAILED FORM RESPONSES (ตัวหนังสือใหญ่ ชัดเจน เน้นคำสำคัญ) */}
+      {/* TAB 1: DETAILED FORM RESPONSES */}
       {activeTab === "responses" && (
         <div className="space-y-4 animate-in fade-in duration-200">
           {formBreakdown.map((sec, secIdx) => {
@@ -242,7 +324,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                 key={secIdx} 
                 className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-2xs"
               >
-                {/* 🌟 CATEGORY HEADER (Large & Clean) */}
+                {/* CATEGORY HEADER */}
                 <div className="px-4 sm:px-5 py-3 bg-[#F4F9F6] border-b border-emerald-100 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
                     <span className="w-7 h-7 rounded-xl bg-emerald-100 text-[#0F6659] font-extrabold text-xs flex items-center justify-center shrink-0">
@@ -263,7 +345,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                   </span>
                 </div>
 
-                {/* 🌟 QUESTIONS CONTAINER (Large Text & Concise) */}
+                {/* QUESTIONS CONTAINER */}
                 <div className="p-3.5 sm:p-5 space-y-3">
                   {sec.questions.map((q) => {
                     const isPass = q.type === "yesno" ? q.answer === true : q.type === "scale" ? q.answer >= 4 : true;
@@ -282,12 +364,19 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                             <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
                               {q.num}
                             </span>
-                            <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
-                              {q.text}
+                            <div>
+                              <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+                                {q.text}
+                              </div>
+                              {q.isCritical && (
+                                <span className="inline-block mt-1 text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
+                                  ⚠️ ข้อวิกฤต (Critical Item)
+                                </span>
+                              )}
                             </div>
                           </div>
 
-                          {/* Response Badge (Large & Clear) */}
+                          {/* Response Badge */}
                           <div className="shrink-0">
                             {q.type === "yesno" && (
                               <span className={`inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold px-3 py-1 rounded-xl border ${
@@ -325,13 +414,13 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                           </div>
                         )}
 
-                        {/* Auditor Note (Concise & Clear) */}
+                        {/* Auditor Note */}
                         {q.note && q.type !== "text" && (
                           <div className={`p-2.5 px-3 rounded-xl text-xs sm:text-sm font-medium flex items-center gap-2 ${
                             isPass ? "bg-slate-50 text-slate-700 border border-slate-200" : "bg-amber-50 text-amber-950 border border-amber-200"
                           }`}>
                             <MessageSquare size={14} className="shrink-0 text-slate-400" />
-                            <span><b>หมายเหตุ:</b> {q.note}</span>
+                            <span><b>บันทึกผู้ตรวจ:</b> {q.note}</span>
                           </div>
                         )}
 
@@ -340,7 +429,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                           <div className="p-2.5 px-3 rounded-xl bg-red-50 border border-red-200 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 text-xs font-bold text-red-800">
                               <Camera size={15} className="text-red-600" />
-                              <span>แนบรูปหลักฐานแล้ว</span>
+                              <span>แนบรูปหลักฐานข้อบกพร่อง</span>
                             </div>
                             <button 
                               type="button"
@@ -394,7 +483,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
       {submittingCapQuestion && (
         <CapSubmissionModal
           question={submittingCapQuestion}
-          unitName={unitName}
+          unitName={locationTitle}
           onSave={(newCap) => {
             setCapSubmissions(prev => ({ ...prev, [newCap.qId]: newCap }));
           }}
@@ -419,7 +508,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                 <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < sections.length - 1 ? `1px solid ${c.border}` : "none" }}>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs font-semibold" style={{ color: c.ink }}>{s.title}</span>
-                    <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max}</span>
+                    <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({s.percent}%)</span>
                   </div>
                   <div className="h-2 rounded-full overflow-hidden" style={{ background: c.border }}>
                     <div
@@ -444,27 +533,33 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
               </div>
             </Section>
           )}
+
+          {issues.length === 0 && (
+            <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-center text-xs font-bold text-emerald-800">
+              ✓ ไม่พบข้อบกพร่องในการตรวจรอบนี้ สาขาปฏิบัติตามมาตรฐาน SOP ได้อย่างสมบูรณ์
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB 3: DUAL PHOTO ALBUMS (รูปตรวจหน้างาน vs รูปหลักฐานส่งแก้งาน) */}
+      {/* TAB 3: DUAL PHOTO ALBUMS */}
       {activeTab === "photos" && (
         <div className="space-y-4 animate-in fade-in duration-200">
           <div className="flex items-center justify-between">
             <h3 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-2">
               <Camera size={16} className="text-emerald-700" />
-              <span>คลังภาพบันทึกหลักฐานการตรวจ (Photo Albums)</span>
+              <span>คลังภาพบันทึกหลักฐานการตรวจ ({locationTitle})</span>
             </h3>
             <span className="text-xs text-slate-500">แยกหมวดหมู่ชัดเจน</span>
           </div>
 
-          {/* Album 1: On-site Inspection Photos (รูปถ่ายหน้างาน) */}
+          {/* Album 1: On-site Inspection Photos */}
           <div className="p-4 rounded-3xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-900">📷 1. อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">
-                  {record.score < 85 ? '1 รูปบันทึกข้อบกพร่อง' : '1 รูปภาพสภาพทั่วไป'}
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${score < 85 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-800'}`}>
+                  {score < 85 ? '1 รูปบันทึกข้อบกพร่อง' : '1 รูปภาพสภาพทั่วไป'}
                 </span>
               </div>
               <span className="text-xs text-slate-400">บันทึกโดยผู้ตรวจ</span>
@@ -474,20 +569,20 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
               <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
                 <div className="h-36 rounded-xl bg-slate-200/80 flex flex-col items-center justify-center text-slate-500 relative overflow-hidden border">
                   <Camera size={28} className="text-slate-400 mb-1" />
-                  <span className="text-xs font-bold text-slate-700">รูปถ่ายหน้าเตาปรุงอาหาร (ข้อ 1)</span>
-                  <span className="text-xs text-slate-400">บันทึกเมื่อ {record.date} 10:20 น.</span>
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-red-600 text-white text-[9.5px] font-bold">
-                    Defect (ก่อนแก้ไข)
+                  <span className="text-xs font-bold text-slate-700">รูปถ่ายหน้างาน ({locationTitle})</span>
+                  <span className="text-xs text-slate-400">บันทึกเมื่อ {dateStr} 10:20 น.</span>
+                  <div className={`absolute top-2 left-2 px-2 py-0.5 rounded-md text-white text-[9.5px] font-bold ${score < 85 ? 'bg-red-600' : 'bg-emerald-700'}`}>
+                    {score < 85 ? 'Defect (ข้อบกพร่อง)' : 'Standard (สภาพเรียบร้อย)'}
                   </div>
                 </div>
                 <div className="text-xs text-slate-600 font-medium">
-                  💬 <b>คำอธิบาย:</b> {record.score < 85 ? "พบคราบไขมันสะสมบริเวณพื้นหลังเตาปรุงอาหาร" : "ทำความสะอาดเรียบร้อยตามมาตรฐาน SOP"}
+                  💬 <b>คำอธิบาย:</b> {score < 85 ? (issues[0]?.text || "พบคราบสกปรกหรืออุณหภูมิไม่ได้เกณฑ์มาตรฐาน") : "ทำความสะอาดเรียบร้อยตามมาตรฐาน SOP"}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Album 2: CAP Corrective Action Evidence Photos (รูปหลักฐานการแก้ไข) */}
+          {/* Album 2: CAP Corrective Action Evidence Photos */}
           <div className="p-4 rounded-3xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -505,7 +600,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
                   <div key={i} className="p-3 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-2">
                     <div className="h-36 rounded-xl bg-emerald-100/70 flex flex-col items-center justify-center text-emerald-800 relative overflow-hidden border border-emerald-300">
                       <CheckCircle2 size={28} className="text-emerald-700 mb-1" />
-                      <span className="text-xs font-bold text-emerald-950">รูปถ่ายหลังขัดล้างทำความสะอาด (ข้อ {cap.qNum})</span>
+                      <span className="text-xs font-bold text-emerald-950">รูปถ่ายหลังแก้ไข ({locationTitle})</span>
                       <span className="text-xs text-emerald-700">ส่งมอบเมื่อ {cap.submittedAt}</span>
                       <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[9.5px] font-bold">
                         ✓ Corrected (หลังแก้ไข)
@@ -519,7 +614,7 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
               </div>
             ) : (
               <div className="p-6 rounded-2xl bg-slate-50 border border-dashed text-center text-xs text-slate-400 font-medium">
-                {record.score < 85 
+                {score < 85 
                   ? "ยังไม่มีการส่งรูปถ่ายหลักฐานการแก้ไข (สามารถกดปุ่มส่งงานแก้ไขในแท็บคำตอบได้)" 
                   : "รอบการตรวจนี้ผ่านเกณฑ์มาตรฐานครบถ้วน ไม่จำเป็นต้องส่งรูปแก้งาน"}
               </div>
@@ -536,20 +631,20 @@ export default function AuditHistoryDetail({ unitName, record, onBack }) {
             <div className="p-4 rounded-2xl bg-white border shadow-2xs space-y-2" style={{ borderColor: c.border }}>
               <div className="text-xs font-bold text-slate-400">ลายมือชื่อผู้ตรวจประเมิน</div>
               <div className="h-24 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center">
-                <span className="font-serif italic text-lg text-emerald-800 font-bold">{record.auditor || "สมชาย ใจดี"}</span>
-                <span className="text-xs text-slate-400 font-medium mt-1">ตรวจหน้างานเมื่อ {record.date} 10:45 น.</span>
+                <span className="font-serif italic text-lg text-emerald-800 font-bold">{auditorName}</span>
+                <span className="text-xs text-slate-400 font-medium mt-1">ตรวจหน้างานเมื่อ {dateStr} 10:45 น.</span>
               </div>
               <div className="text-xs text-slate-600 font-medium text-center">
-                สถานะ: <span className="font-bold text-emerald-700">✓ ยืนยันการตรวจสำเร็จ</span>
+                สถานะ: <span className="font-bold text-emerald-700">✓ ยืนยันการตรวจสำเร็จ ({auditType})</span>
               </div>
             </div>
 
             {/* Store Manager Signature */}
             <div className="p-4 rounded-2xl bg-white border shadow-2xs space-y-2" style={{ borderColor: c.border }}>
-              <div className="text-xs font-bold text-slate-400">ลายมือชื่อผู้จัดการสาขารับทราบผล</div>
+              <div className="text-xs font-bold text-slate-400">ลายมือชื่อผู้จัดการสถานที่รับทราบผล</div>
               <div className="h-24 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center">
-                <span className="font-serif italic text-lg text-slate-700 font-bold">Store Manager</span>
-                <span className="text-xs text-slate-400 font-medium mt-1">ลงนามรับทราบเมื่อ {record.date} 11:15 น.</span>
+                <span className="font-serif italic text-lg text-slate-700 font-bold">{managerName}</span>
+                <span className="text-xs text-slate-400 font-medium mt-1">ลงนามรับทราบเมื่อ {dateStr} 11:15 น. (พนักงาน {staffCount} คน)</span>
               </div>
               <div className="text-xs text-slate-600 font-medium text-center">
                 สถานะ: <span className="font-bold text-emerald-700">✓ ลงนามรับทราบผลเรียบร้อย</span>

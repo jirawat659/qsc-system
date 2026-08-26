@@ -29,15 +29,15 @@
   }
 }
 
-/* ปรับขนาดตัวหนังสือระดับย่อย (text-xs / text-sm) ไม่ให้เล็กจิ๋วจนเพ่งสายตา */
+/* ปรับขนาดตัวหนังสือระดับย่อยให้อ่านสบายตาและเป็นมาตรฐาน */
 .text-xs {
-  font-size: 0.8125rem !important; /* ~12.5px ชัดเจน สระไม่ติดกัน */
-  line-height: 1.35rem !important;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
 }
 
 .text-sm {
-  font-size: 0.925rem !important; /* ~14px สบายตา อ่านง่าย */
-  line-height: 1.45rem !important;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
 }
 
 /* Custom scrollbar */

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Calendar, Clock, MapPin, User, FileText, Tag, Check, AlertCircle } from "lucide-react";
 import { c, sans, mono } from "../config/theme";
 import { INITIAL_UNITS } from "../mocks/locations";
@@ -16,6 +16,25 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, loc
   const [auditType, setAuditType] = useState("announced");
   const [notes, setNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [dbAuditors, setDbAuditors] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/user')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          const auditors = res.data.filter(u => 
+            u.roleCode === 'AUDITOR' || u.roleCode === 'STANDARD' || u.roleCode === 'ADMIN' || u.role === 'AUDITOR' || !u.roleCode
+          );
+          if (auditors.length > 0) {
+            setDbAuditors(auditors);
+            setAssignedAuditor(auditors[0].fullName || auditors[0].username);
+          }
+        }
+      })
+      .catch(err => console.warn("Could not load auditors from API:", err));
+    return () => { isMounted = false; };
+  }, []);
 
   const selectedUnit = locations.find(u => u.name === selectedUnitName || u.fullName === selectedUnitName) || locations[0];
   const selectedForm = forms.find(f => f.id === selectedFormId) || forms[0];
@@ -100,11 +119,15 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, loc
             onChange={(e) => setSelectedUnitName(e.target.value)}
             className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
           >
-            {locations.map((u) => (
-              <option key={u.id || u.name} value={u.name}>
-                {u.fullName || u.name} ({u.locationType === 'Office' ? 'สำนักงาน' : u.locationType === 'Plant' ? 'โรงงาน' : 'สาขา'})
-              </option>
-            ))}
+            {locations.map((u) => {
+              const typeCode = typeof u.locationType === 'object' ? (u.locationType?.code || u.locationType?.name) : u.locationType;
+              const typeLabel = typeCode === 'Office' ? 'สำนักงาน' : typeCode === 'Plant' ? 'โรงงาน' : 'สาขา';
+              return (
+                <option key={u.id || u.name} value={u.name}>
+                  {u.fullName || u.name} ({typeLabel})
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -150,9 +173,17 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, loc
               onChange={(e) => setAssignedAuditor(e.target.value)}
               className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
             >
-              {AUDITORS_LIST.map(a => (
-                <option key={a.name} value={a.name}>{a.name} ({a.role})</option>
-              ))}
+              {dbAuditors.length > 0 ? (
+                dbAuditors.map(a => (
+                  <option key={a.id} value={a.fullName || a.username}>
+                    {a.fullName || a.username} ({a.roleName || a.roleCode || a.role || 'ผู้ตรวจ'})
+                  </option>
+                ))
+              ) : (
+                AUDITORS_LIST.map(a => (
+                  <option key={a.name} value={a.name}>{a.name} ({a.role})</option>
+                ))
+              )}
             </select>
           </div>
           <div>

@@ -2,20 +2,42 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   FileText, Plus, Trash2, Edit3, GripVertical, Check, X,
   AlertTriangle, ShieldAlert, Sparkles, ChevronDown, ChevronUp,
-  Layers, CheckCircle2, ArrowUpDown, Info, Tag, SlidersHorizontal
+  Layers, CheckCircle2, ArrowUpDown, Info, Tag, SlidersHorizontal, Loader2
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
 import Section from "../../shared/Section";
+import api from "../../config/api";
 
 export default function FormEditorScreen({ form, onBack, onSave }) {
-  const [formName, setFormName] = useState(form ? form.name : "แบบฟอร์มมาตรฐานใหม่");
-  const [formType, setFormType] = useState(form ? form.type : "หน้าร้าน (Store Front)");
+  const [formName, setFormName] = useState(form ? (form.name || form.title) : "แบบฟอร์มมาตรฐานใหม่");
+  const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
+  const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
+  const [locationTypes, setLocationTypes] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
   const [description, setDescription] = useState(
     form?.description || "แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และสุขอนามัยประจำสาขา (Q.S.C. Standard)"
   );
   const [passingScore, setPassingScore] = useState(form ? form.passingScore : 85);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/location-type')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setLocationTypes(res.data);
+          if (!form?.locationTypeId && res.data.length > 0) {
+            setLocationTypeId(res.data[0].id);
+            setFormType(res.data[0].name || res.data[0].code);
+          }
+        }
+      })
+      .catch(err => {
+        console.warn("Could not load location types:", err);
+      });
+    return () => { isMounted = false; };
+  }, [form]);
 
   const [sections, setSections] = useState(form?.sections ? form.sections : [
     {
@@ -247,16 +269,53 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     return sections.reduce((sum, s) => sum + s.items.length, 0);
   }, [sections]);
 
-  const handleFormSave = () => {
+  const handleFormSave = async () => {
     if (!formName.trim()) {
       alert("กรุณาระบุชื่อแบบฟอร์ม");
       return;
     }
 
+    setIsSaving(true);
+    const dto = {
+      title: formName.trim(),
+      locationTypeId: locationTypeId || 1,
+      passingScore: Number(passingScore) || 85,
+      targetingMode: "ALL_LOCATIONS",
+      version: form?.version || "v1.0",
+      sections: sections.map((sec, sIdx) => ({
+        id: typeof sec.id === 'number' ? sec.id : undefined,
+        title: sec.title,
+        orderIndex: sIdx + 1,
+        weightPercent: 0,
+        items: (sec.items || []).map((item, iIdx) => ({
+          id: typeof item.id === 'number' ? item.id : undefined,
+          questionText: item.text,
+          questionType: item.type === "scale" ? "SCALE" : "YESNO",
+          fullScore: 10,
+          isCritical: !!item.critical,
+          orderIndex: iIdx + 1
+        }))
+      }))
+    };
+
+    let backendId = form?.id;
+    try {
+      if (form?.id && typeof form.id === 'number') {
+        await api.put(`/form/${form.id}`, dto);
+      } else {
+        const res = await api.post('/form', dto);
+        if (res.data?.id) backendId = res.data.id;
+      }
+    } catch (err) {
+      console.warn("Could not save form directly to API, saving locally:", err);
+    }
+
     const savedForm = {
-      id: form?.id || "f_" + Date.now(),
+      id: backendId || form?.id || "f_" + Date.now(),
       name: formName.trim(),
+      title: formName.trim(),
       type: formType,
+      locationTypeId: locationTypeId || 1,
       description: description.trim(),
       passingScore: Number(passingScore) || 85,
       sections: sections,
@@ -267,6 +326,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     if (onSave) {
       onSave(savedForm);
     }
+    setIsSaving(false);
     onBack();
   };
 
@@ -274,95 +334,131 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     <div className="page-transition p-4 sm:p-6 space-y-6 w-full max-w-[100%] sm:max-w-[92%] mx-auto pb-24">
       {/* 1. TOP HEADER */}
       <Header
-        title={form ? `แก้ไขแบบฟอร์ม: ${form.name}` : "สร้างแบบฟอร์มมาตรฐานใหม่"}
+        title={form ? `แก้ไขแบบฟอร์ม: ${form.name || form.title}` : "สร้างแบบฟอร์มมาตรฐานใหม่"}
         subtitle="กำหนดเกณฑ์คะแนน หัวข้อ และหมวดหมู่คำถามสำหรับการตรวจประเมิน"
         onBack={onBack}
       />
 
       {/* 🌟 2. STREAMLINED FORM SETTINGS CARD */}
       <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold shrink-0">
               <FileText size={18} />
             </div>
-            <h3 className="text-base font-extrabold text-slate-800">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
+            <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
           </div>
-          <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-[#0F6659] border border-emerald-200">
-            {sections.length} หมวดหมู่ · {totalQuestions} ข้อคำถาม
-          </span>
+          <div className="text-right shrink-0 px-2.5 py-1 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shadow-2xs">
+            <div className="text-[11px] font-normal leading-tight whitespace-nowrap text-emerald-800">
+              {sections.length} หมวดหมู่
+            </div>
+            <div className="text-[11px] font-normal leading-tight whitespace-nowrap text-emerald-700 mt-0.5">
+              {totalQuestions} ข้อคำถาม
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* ชื่อแบบฟอร์ม */}
-          <div className="sm:col-span-2">
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1.5">
-              <span>ชื่อแบบฟอร์มการตรวจ (Form Title) *</span>
+        <div className="space-y-4">
+          {/* 1. ชื่อแบบฟอร์ม */}
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1.5">
+              ชื่อแบบฟอร์มการตรวจ (Form Title) <span className="text-rose-500">*</span>
             </label>
             <input
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder="เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Store Audit)..."
-              className="w-full text-sm font-bold px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 outline-none text-slate-900 focus:bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-emerald-700/10 transition-all"
+              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
               required
             />
           </div>
 
-          {/* เกณฑ์คะแนนผ่าน (%) */}
-          <div>
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1.5">
-              <Sparkles size={14} className="text-amber-500" />
-              <span>เกณฑ์คะแนนผ่าน (%) *</span>
-            </label>
-            <div className="relative">
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={passingScore}
-                onChange={(e) => setPassingScore(Number(e.target.value))}
-                className="w-full text-sm font-bold px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 outline-none text-slate-900 focus:bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-emerald-700/10 transition-all font-mono"
-                required
-              />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
-                % ขึ้นไป
-              </span>
+          {/* 2. แถวเดียวกัน: เกณฑ์คะแนนผ่าน (ย่อสั้น) + ประเภทฟอร์ม */}
+          <div className="flex gap-3 items-start">
+            {/* เกณฑ์คะแนนผ่าน (%) */}
+            <div className="w-[115px] sm:w-[130px] shrink-0">
+              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
+                เกณฑ์ผ่าน (%) <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1">
+                <div className="flex items-center gap-1 min-w-0">
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={passingScore}
+                    onChange={(e) => setPassingScore(Math.min(100, Math.max(1, Number(e.target.value) || 0)))}
+                    className="w-7 text-sm sm:text-base font-normal text-slate-600 focus:text-slate-800 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    required
+                  />
+                  <span className="text-xs font-medium text-slate-400 select-none whitespace-nowrap">
+                    % ขึ้นไป
+                  </span>
+                </div>
+                <div className="flex flex-col items-center justify-center shrink-0 -my-1">
+                  <button
+                    type="button"
+                    onClick={() => setPassingScore(prev => Math.min(100, (Number(prev) || 0) + 1))}
+                    className="p-0.5 text-slate-400 hover:text-[#0F6659] hover:bg-slate-100 rounded cursor-pointer active:scale-90 transition-all leading-none"
+                    title="เพิ่มคะแนน"
+                  >
+                    <ChevronUp size={13} strokeWidth={2.5} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPassingScore(prev => Math.max(1, (Number(prev) || 0) - 1))}
+                    className="p-0.5 text-slate-400 hover:text-[#0F6659] hover:bg-slate-100 rounded cursor-pointer active:scale-90 transition-all leading-none"
+                    title="ลดคะแนน"
+                  >
+                    <ChevronDown size={13} strokeWidth={2.5} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* ประเภทฟอร์ม */}
+            <div className="flex-1 min-w-0">
+              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
+                ประเภทฟอร์ม (Category)
+              </label>
+              <select
+                value={locationTypeId || ""}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setLocationTypeId(val);
+                  const selectedObj = locationTypes.find(lt => lt.id === val);
+                  if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
+                }}
+                className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
+              >
+                {locationTypes.length > 0 ? (
+                  locationTypes.map(lt => (
+                    <option key={lt.id} value={lt.id}>{lt.name || lt.code}</option>
+                  ))
+                ) : (
+                  <>
+                    <option value={1}>สาขาหน้าร้าน (Store Front)</option>
+                    <option value={2}>ครัวและคลังสินค้า (Kitchen & Storage)</option>
+                    <option value={3}>ขับรถรับ (Drive-Thru)</option>
+                    <option value={4}>จัดส่งและเดลิเวอรี (Delivery)</option>
+                    <option value={5}>ตรวจความปลอดภัยอาหาร (Food Safety)</option>
+                  </>
+                )}
+              </select>
             </div>
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-          {/* ประเภทแบบฟอร์ม */}
+          {/* 3. คำอธิบายแบบฟอร์ม */}
           <div>
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1.5">
-              <Tag size={14} className="text-slate-400" />
-              <span>ประเภทฟอร์ม (Category)</span>
-            </label>
-            <select
-              value={formType}
-              onChange={(e) => setFormType(e.target.value)}
-              className="w-full text-sm font-bold px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 outline-none text-slate-900 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer"
-            >
-              <option value="หน้าร้าน (Store Front)">หน้าร้าน (Store Front)</option>
-              <option value="ครัวและคลังสินค้า (Kitchen & Storage)">ครัวและคลังสินค้า (Kitchen & Storage)</option>
-              <option value="ขับรถรับ (Drive-Thru)">ขับรถรับ (Drive-Thru)</option>
-              <option value="จัดส่งและเดลิเวอรี (Delivery)">จัดส่งและเดลิเวอรี (Delivery)</option>
-              <option value="ตรวจความปลอดภัยอาหาร (Food Safety)">ตรวจความปลอดภัยอาหาร (Food Safety)</option>
-            </select>
-          </div>
-
-          {/* คำอธิบายแบบฟอร์ม */}
-          <div className="sm:col-span-2">
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1.5">
-              <Info size={14} className="text-slate-400" />
-              <span>คำอธิบาย / วัตถุประสงค์การตรวจ</span>
+            <label className="block text-sm font-medium text-slate-600 mb-1.5">
+              คำอธิบาย / วัตถุประสงค์การตรวจ
             </label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="ระบุคำอธิบาย หรือข้อแนะนำสำหรับผู้ตรวจ..."
-              className="w-full text-sm font-medium px-4 py-3 rounded-2xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
+              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
             />
           </div>
         </div>
@@ -403,7 +499,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       type="text"
                       value={sec.title}
                       onChange={(e) => updateSectionTitle(secIdx, e.target.value)}
-                      className="text-sm sm:text-base font-extrabold px-3 py-1.5 rounded-xl border border-[#0F6659] bg-emerald-50/40 text-slate-900 outline-none flex-1"
+                      className="text-sm sm:text-base font-medium px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 focus:text-slate-900 focus:border-[#0F6659] outline-none flex-1 shadow-2xs"
                       autoFocus
                     />
                     <button
@@ -416,7 +512,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 min-w-0 group cursor-pointer" onClick={() => setEditingSecIdx(secIdx)}>
-                    <h4 className="text-sm sm:text-base font-extrabold text-slate-800 truncate">{sec.title}</h4>
+                    <h4 className="text-sm sm:text-base font-bold text-slate-800 truncate">{sec.title}</h4>
                     <Edit3 size={14} className="text-slate-300 group-hover:text-[#0F6659] shrink-0 transition-colors" />
                   </div>
                 )}
@@ -511,7 +607,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               type="text"
                               value={item.text}
                               onChange={(e) => updateItemText(secIdx, item.id, e.target.value)}
-                              className="w-full text-xs sm:text-sm font-bold px-3 py-2 rounded-xl border border-[#0F6659] bg-white outline-none text-slate-900"
+                              className="w-full text-xs sm:text-sm font-normal px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-2xs"
                               autoFocus
                             />
                             <button
@@ -525,7 +621,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         ) : (
                           <p
                             onClick={() => setEditingId(item.id)}
-                            className="text-xs sm:text-sm font-bold text-slate-800 cursor-pointer hover:text-[#0F6659] transition-colors"
+                            className="text-xs sm:text-sm font-normal text-slate-600 cursor-pointer hover:text-[#0F6659] transition-colors leading-relaxed"
                           >
                             {item.text}
                           </p>

@@ -40,11 +40,11 @@ export default function Header({ title, onBack, subtitle, action }) {
           </button>
         )}
         <div className="min-w-0">
-          <h1 className="text-lg sm:text-xl font-extrabold text-slate-900 leading-tight truncate tracking-tight">
+          <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight truncate">
             {title}
           </h1>
           {subtitle && (
-            <p className="text-xs font-bold text-slate-400 mt-0.5 truncate">
+            <p className="text-xs font-normal text-slate-500 mt-0.5 truncate">
               {subtitle}
             </p>
           )}

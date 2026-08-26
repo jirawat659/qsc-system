@@ -72,8 +72,8 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        DatabaseSeeder.Initialize(db, app.Environment);
-        Console.WriteLine("✅ Database migration and seeding completed successfully!");
+        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: true);
+        Console.WriteLine("✅ Database migration and enterprise seeding completed successfully!");
     }
     catch (Exception ex)
     {

@@ -39,15 +39,46 @@ import Section from "../shared/Section";
 import ScoreRing from "../shared/ScoreRing";
 import HistoryList from "../shared/HistoryList";
 import ErrorBoundary from "../shared/ErrorBoundary";
-
+import api from "../config/api";
 
 
 export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }) {
   const [search, setSearch] = useState("");
   const [teamTab, setTeamTab] = useState("all");
+  const [dbUsers, setDbUsers] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/user')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setDbUsers(res.data);
+        }
+      })
+      .catch(err => console.warn("Could not load users for AuditorSelectModal:", err));
+    return () => { isMounted = false; };
+  }, []);
+
+  const auditorsList = useMemo(() => {
+    if (dbUsers.length > 0) {
+      return dbUsers.map(u => ({
+        id: u.id,
+        name: u.fullName || u.username,
+        role: u.roleName || u.roleCode || u.role || "ผู้ตรวจประเมิน",
+        team: u.roleCode === 'AUDITOR' ? 'qa' : u.roleCode === 'STANDARD' ? 'qc' : 'ops',
+        teamLabel: u.roleName || u.roleCode || 'ทีมตรวจมาตรฐาน',
+        phone: u.phoneNumber || "02-123-4567",
+        avatar: (u.fullName || u.username || "AU").substring(0, 2),
+        rating: 4.9,
+        auditsCount: 12,
+        activeSchedules: 2
+      }));
+    }
+    return AUDITORS_DATA;
+  }, [dbUsers]);
 
   const filteredAuditors = useMemo(() => {
-    let list = [...AUDITORS_DATA];
+    let list = [...auditorsList];
     if (teamTab !== "all") {
       list = list.filter(a => a.team === teamTab);
     }
@@ -60,7 +91,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
       );
     }
     return list;
-  }, [search, teamTab]);
+  }, [auditorsList, teamTab, search]);
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-md">

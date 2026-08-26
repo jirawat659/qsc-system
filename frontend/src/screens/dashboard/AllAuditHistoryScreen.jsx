@@ -52,18 +52,39 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     if (auditRecords && auditRecords.length > 0) {
       return auditRecords.map((r) => {
         const score = Math.round(r.percentageScore || 0);
+        const branchName = r.locationName || r.location?.name || "สาขามาตรฐาน";
+        const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "สาขามาตรฐาน";
+        const dateFormatted = r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "15 ส.ค. 2569";
+        const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "นายสมชาย ใจดี";
+        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core)";
         return {
           id: r.id,
-          unitName: r.location?.name || r.locationName || "สาขามาตรฐาน",
-          unitFullName: r.location?.fullName || r.locationName || "สาขามาตรฐาน",
-          region: r.location?.region || "กรุงเทพและปริมณฑล",
-          date: r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH') : "15 ส.ค. 2569",
+          unitName: branchName,
+          unitFullName: branchFullName,
+          region: r.locationRegion || r.location?.region || "กรุงเทพฯ และปริมณฑล",
+          date: dateFormatted,
           score: score,
-          auditor: r.primaryAuditor?.fullName || r.auditorName || "นายสมชาย ใจดี",
-          formName: r.surveyForm?.title || "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core)",
+          auditor: auditorVal,
+          formName: formVal,
           auditType: r.auditType === 'followup' ? "ตรวจติดตามผล (Follow-up)" : "ตรวจมาตรฐานรอบปกติ (Announced)",
           status: r.isPassed ? "pass" : "fail",
-          record: r
+          record: {
+            ...r,
+            unitName: branchName,
+            unitFullName: branchFullName,
+            score: score,
+            percentageScore: score,
+            date: dateFormatted,
+            auditDate: r.auditDate,
+            auditor: auditorVal,
+            auditorName: auditorVal,
+            form: formVal,
+            formName: formVal,
+            surveyFormTitle: formVal,
+            status: r.isPassed ? "pass" : "fail",
+            isPassed: r.isPassed,
+            hasCriticalDefect: r.hasCriticalDefect
+          }
         };
       });
     }
@@ -307,97 +328,173 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           </div>
         )}
 
-        {/* ── Tab Content ── */}
+        {/* ── Tab Content: ตารางผลตรวจรายครั้งตามภาพตัวอย่าง ── */}
         {viewType === "history" ? (
-          <div className="p-3.5 sm:p-4 space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <span className="text-xs font-bold text-slate-700">รอบตรวจล่าสุด ({totalCount} รอบ)</span>
-              <button
-                type="button"
-                onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
-                className="flex items-center gap-1 text-[11px] font-bold text-[#0F6659] hover:underline cursor-pointer"
-              >
-                <ArrowUpDown size={11} />
-                <span>เรียงคะแนน {sortBy === 'score-desc' ? 'สูง➔ต่ำ' : sortBy === 'score-asc' ? 'ต่ำ➔สูง' : ''}</span>
-              </button>
-            </div>
+          <div className="space-y-2">
+            <div className="overflow-x-auto custom-tab-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[780px]">
+                {/* Table Header */}
+                <thead>
+                  <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
+                    <th className="py-3 px-4 w-[28%]">
+                      <button 
+                        type="button" 
+                        onClick={() => setSortBy(prev => prev === 'branch' ? 'date-desc' : 'branch')}
+                        className="flex items-center gap-1.5 hover:text-[#0F6659] transition-colors cursor-pointer"
+                      >
+                        <span>รอบตรวจ & สาขา</span>
+                        <ArrowUpDown size={13} className="text-slate-400" />
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 w-[12%] text-center">
+                      <button
+                        type="button"
+                        onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-2xs hover:border-[#0F6659] text-xs font-bold text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer"
+                      >
+                        <span>คะแนน</span>
+                        <span className="text-[10px] text-slate-400">▽</span>
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 w-[26%]">แบบฟอร์มการตรวจ</th>
+                    <th className="py-3 px-4 w-[14%]">
+                      <button 
+                        type="button" 
+                        onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
+                        className="flex items-center gap-1 hover:text-[#0F6659] transition-colors cursor-pointer"
+                      >
+                        <span>วันที่ตรวจ</span>
+                        <ArrowUpDown size={13} className="text-[#0F6659]" />
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 w-[12%]">ผู้ตรวจประเมิน</th>
+                    <th className="py-3 px-4 w-[12%] text-center pr-6">สถานะ</th>
+                  </tr>
+                </thead>
 
-            <div className="flex flex-col gap-2">
-              {paginatedLogs.map((log, idx) => {
-                const isPassed = log.score >= 85;
-                const isCritical = log.score < 70;
-                const scoreColor = isCritical ? "text-rose-700 bg-rose-50 border-rose-200" : isPassed ? "text-[#0F6659] bg-emerald-50 border-emerald-200" : "text-amber-800 bg-amber-50 border-amber-200";
-                const statusBadge = isCritical ? "bg-rose-100 text-rose-800" : isPassed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800";
-                const statusLabel = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ปรับปรุง";
+                {/* Table Body */}
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {paginatedLogs.map((log, idx) => {
+                    const rowNumber = (currentPage - 1) * pageSize + idx + 1;
+                    const isPassed = log.score >= 85;
+                    const isCritical = log.score < 70;
 
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => {
-                      if (onSelectLog) {
-                        onSelectLog({ unitName: log.unitFullName, record: log.record });
-                      } else {
-                        setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
-                      }
-                    }}
-                    className="w-full bg-white rounded-2xl p-3.5 border border-slate-200 shadow-2xs hover:border-[#0F6659] text-left transition-all active:scale-98 cursor-pointer flex flex-col gap-2.5 group"
-                  >
-                    <div className="flex items-start justify-between gap-2.5">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-sm font-black border shadow-2xs shrink-0 ${scoreColor}`} style={{ fontFamily: mono }}>
-                          {log.score}%
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-black text-slate-900 truncate group-hover:text-[#0F6659] transition-colors">
-                            {log.unitName}
+                    // Score Circle Color:
+                    const circleColor = isCritical
+                      ? "border-rose-600 text-rose-700"
+                      : isPassed
+                      ? "border-emerald-600 text-emerald-800"
+                      : "border-amber-600 text-amber-800";
+
+                    // Percentage Pill:
+                    const scorePill = isCritical
+                      ? "bg-rose-50 text-rose-700 border border-rose-200/60"
+                      : isPassed
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                      : "bg-amber-50 text-amber-700 border border-amber-200/60";
+
+                    // Status Pill:
+                    const statusBadge = isCritical
+                      ? "bg-rose-100 text-rose-800"
+                      : isPassed
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-900";
+
+                    const statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+
+                    return (
+                      <tr
+                        key={log.id || idx}
+                        onClick={() => {
+                          if (onSelectLog) {
+                            onSelectLog({ unitName: log.unitFullName, record: log.record });
+                          } else {
+                            setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
+                          }
+                        }}
+                        className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                      >
+                        {/* 1. รอบตรวจ & สาขา */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
+                              {rowNumber}
+                            </span>
+                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
+                              {log.score}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
+                                {log.unitName}
+                              </div>
+                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                                {log.region}
+                              </div>
+                            </div>
                           </div>
-                          <div className="text-[11px] font-semibold text-slate-400 truncate flex items-center gap-1 mt-0.5">
-                            <MapPin size={11} className="shrink-0" />
-                            <span>{log.region}</span>
+                        </td>
+
+                        {/* 2. คะแนน */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
+                            {log.score}%
+                          </span>
+                        </td>
+
+                        {/* 3. แบบฟอร์มการตรวจ */}
+                        <td className="py-3.5 px-4">
+                          <div className="min-w-0 max-w-[240px]">
+                            <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                              {log.formName}
+                            </div>
+                            <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                              {log.auditType}
+                            </div>
                           </div>
-                        </div>
-                      </div>
+                        </td>
 
-                      <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md shrink-0 ${statusBadge}`}>
-                        {statusLabel}
-                      </span>
-                    </div>
+                        {/* 4. วันที่ตรวจ */}
+                        <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
+                          {log.date}
+                        </td>
 
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 gap-2">
-                      <div className="flex items-center gap-3 min-w-0 truncate">
-                        <span className="flex items-center gap-1 truncate font-medium">
-                          <Calendar size={12} className="text-slate-400 shrink-0" />
-                          <span>{log.date}</span>
-                        </span>
-                        <span className="flex items-center gap-1 truncate font-medium">
-                          <User size={12} className="text-slate-400 shrink-0" />
-                          <span className="truncate">{log.auditor}</span>
-                        </span>
-                      </div>
-                      <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
-                    </div>
-                  </button>
-                );
-              })}
+                        {/* 5. ผู้ตรวจประเมิน */}
+                        <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
+                          {log.auditor}
+                        </td>
+
+                        {/* 6. สถานะ & Arrow */}
+                        <td className="py-3.5 px-4 whitespace-nowrap text-center pr-5">
+                          <div className="flex items-center justify-end gap-3">
+                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${statusBadge}`}>
+                              {statusText}
+                            </span>
+                            <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
 
               {filteredAndSortedLogs.length === 0 && (
-                <div className="text-center text-xs py-10 text-slate-400 font-bold">
-                  ไม่พบประวัติการตรวจที่ตรงกับคำค้นหา
+                <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white">
+                  ไม่พบข้อมูลผลการตรวจที่ตรงกับคำค้นหา
                 </div>
               )}
             </div>
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs font-medium text-slate-500">
+              <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs font-medium text-slate-500 bg-white">
                 <span>หน้า {currentPage} จาก {totalPages} ({totalCount} รายการ)</span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
                   >
                     ก่อนหน้า
                   </button>
@@ -405,7 +502,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                     type="button"
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-2.5 py-1 rounded-lg bg-slate-100 font-bold disabled:opacity-40"
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
                   >
                     ถัดไป
                   </button>
@@ -413,7 +510,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               </div>
             )}
           </div>
-
         ) : viewType === "table" ? (
           /* ── Tab: สาขา (Branch Ranking) ── */
           <div className="p-3.5 sm:p-4 space-y-3">
@@ -444,50 +540,108 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              {rankedBranches.map((u, idx) => {
-                const rankBadge = idx === 0 
-                  ? "bg-amber-100 text-amber-900 font-black border border-amber-300"
-                  : idx === 1
-                  ? "bg-slate-200 text-slate-800 font-bold"
-                  : idx === 2
-                  ? "bg-amber-50 text-amber-800 font-bold"
-                  : "bg-slate-100 text-slate-600 font-medium";
+            <div className="overflow-x-auto custom-tab-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[760px]">
+                <thead>
+                  <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
+                    <th className="py-3 px-4 w-[30%]">อันดับ & ชื่อสาขา</th>
+                    <th className="py-3 px-4 w-[14%] text-center">คะแนน</th>
+                    <th className="py-3 px-4 w-[24%]">ภูมิภาค / ประเภท</th>
+                    <th className="py-3 px-4 w-[16%]">ตรวจล่าสุด</th>
+                    <th className="py-3 px-4 w-[16%] text-center pr-6">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {rankedBranches.map((u, idx) => {
+                    const isPassed = u.lastScore >= 85;
+                    const isCritical = u.lastScore < 70;
 
-                const isPassed = u.lastScore >= 85;
-                const isCritical = u.lastScore < 70;
+                    const circleColor = isCritical
+                      ? "border-rose-600 text-rose-700"
+                      : isPassed
+                      ? "border-emerald-600 text-emerald-800"
+                      : "border-amber-600 text-amber-800";
 
-                return (
-                  <div
-                    key={u.name}
-                    className="w-full rounded-2xl p-3 sm:p-3.5 bg-white border border-slate-200 flex items-center justify-between gap-3 shadow-2xs"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className={`w-6 h-6 rounded-xl flex items-center justify-center text-xs shrink-0 ${rankBadge}`}>
-                        #{idx + 1}
-                      </div>
-                      <ScoreRing score={u.lastScore} size={36} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs sm:text-sm font-bold text-slate-900 truncate">
-                          {u.name}
-                        </div>
-                        <div className="text-[10.5px] text-slate-400 truncate">{u.region}</div>
-                      </div>
-                    </div>
+                    const scorePill = isCritical
+                      ? "bg-rose-50 text-rose-700 border border-rose-200/60"
+                      : isPassed
+                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                      : "bg-amber-50 text-amber-700 border border-amber-200/60";
 
-                    <div className="text-right shrink-0">
-                      <div className={`text-xs sm:text-sm font-bold ${
-                        isCritical ? 'text-red-700' : isPassed ? 'text-emerald-800' : 'text-amber-800'
-                      }`} style={{ fontFamily: mono }}>
-                        {u.lastScore}%
-                      </div>
-                      <div className="text-[10px] font-bold text-slate-400">
-                        {isPassed ? "ผ่านเกณฑ์" : isCritical ? "วิกฤต" : "ปรับปรุง"}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    const statusBadge = isCritical
+                      ? "bg-rose-100 text-rose-800"
+                      : isPassed
+                      ? "bg-emerald-100 text-emerald-800"
+                      : "bg-amber-100 text-amber-900";
+
+                    const statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+
+                    return (
+                      <tr
+                        key={u.name || idx}
+                        onClick={() => {
+                          if (onSelectLog) {
+                            onSelectLog({ unitName: u.fullName || u.name, record: u.history?.[0] });
+                          }
+                        }}
+                        className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                      >
+                        {/* 1. อันดับ & สาขา */}
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
+                              #{idx + 1}
+                            </span>
+                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
+                              {u.lastScore}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
+                                {u.name}
+                              </div>
+                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                                {u.fullName || u.region}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* 2. คะแนน */}
+                        <td className="py-3.5 px-4 text-center">
+                          <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
+                            {u.lastScore}%
+                          </span>
+                        </td>
+
+                        {/* 3. ภูมิภาค */}
+                        <td className="py-3.5 px-4">
+                          <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                            {u.region}
+                          </div>
+                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                            {u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "สาขามาตรฐาน"}
+                          </div>
+                        </td>
+
+                        {/* 4. ตรวจล่าสุด */}
+                        <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
+                          {u.history && u.history[0]?.date ? u.history[0].date : "-"}
+                        </td>
+
+                        {/* 5. สถานะ & Arrow */}
+                        <td className="py-3.5 px-4 whitespace-nowrap text-center pr-5">
+                          <div className="flex items-center justify-end gap-3">
+                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${statusBadge}`}>
+                              {statusText}
+                            </span>
+                            <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
 

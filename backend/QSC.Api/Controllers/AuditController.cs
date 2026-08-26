@@ -410,6 +410,10 @@ namespace QSC.Api.Controllers
                 .Include(r => r.SurveyForm)
                 .Include(r => r.PrimaryAuditor)
                 .Include(r => r.AuditeeUser)
+                .Include(r => r.Responses)
+                    .ThenInclude(res => res.SurveyItem)
+                .Include(r => r.Responses)
+                    .ThenInclude(res => res.Images)
                 .AsQueryable();
 
             if (locationId.HasValue) query = query.Where(r => r.LocationId == locationId.Value);
@@ -427,6 +431,8 @@ namespace QSC.Api.Controllers
                 locationId = r.LocationId,
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,
+                locationRegion = r.Location?.Region,
+                locationBrand = r.Location?.BrandName,
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 primaryAuditorId = r.PrimaryAuditorId,
@@ -441,6 +447,7 @@ namespace QSC.Api.Controllers
                 hasCriticalDefect = r.HasCriticalDefect,
                 staffCount = r.StaffCount,
                 auditType = r.AuditType,
+                notes = r.Notes,
                 auditorSignatureUrl = r.AuditorSignatureUrl,
                 auditeeSignatureUrl = r.AuditeeSignatureUrl,
                 signedAt = r.SignedAt,
@@ -449,7 +456,27 @@ namespace QSC.Api.Controllers
                 endLatitude = r.EndLatitude,
                 endLongitude = r.EndLongitude,
                 startedAt = r.StartedAt,
-                submittedAt = r.SubmittedAt
+                submittedAt = r.SubmittedAt,
+                responses = r.Responses?.Select(res => new
+                {
+                    id = res.Id,
+                    surveyItemId = res.SurveyItemId,
+                    questionText = res.SurveyItem?.QuestionText,
+                    questionType = res.SurveyItem?.QuestionType,
+                    fullScore = res.SurveyItem?.FullScore,
+                    isCritical = res.SurveyItem?.IsCritical,
+                    orderIndex = res.SurveyItem?.OrderIndex,
+                    scoreGiven = res.ScoreGiven,
+                    isPassed = res.IsPassed,
+                    isNa = res.IsNa,
+                    notes = res.Notes,
+                    images = res.Images?.Select(img => new
+                    {
+                        id = img.Id,
+                        imageUrl = img.ImageUrl,
+                        uploadedAt = img.UploadedAt
+                    }).ToList()
+                }).ToList()
             });
 
             return Ok(result);

@@ -219,10 +219,10 @@ export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, cu
               </button>
 
               <div className="text-center">
-                <span className="text-base sm:text-lg font-black text-slate-800 tracking-tight">
+                <span className="text-base sm:text-lg font-bold text-slate-800 tracking-tight">
                   {MONTH_LABELS[monthOffset]}
                 </span>
-                <span className="text-xs text-slate-400 font-medium block mt-0.5">
+                <span className="text-xs text-slate-400 font-normal block mt-0.5">
                   {filtered.length} รายการตรวจในระบบ
                 </span>
               </div>
@@ -244,7 +244,7 @@ export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, cu
             )}
 
             {/* Weekday Names Header */}
-            <div className="grid grid-cols-7 gap-1 text-center text-xs font-black text-slate-400">
+            <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-400">
               {["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."].map((d) => (
                 <div key={d} className="py-1">{d}</div>
               ))}
@@ -271,7 +271,7 @@ export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, cu
                     style={{
                       background: isSelected ? "#0F6659" : isToday ? "#E3F0ED" : "transparent",
                       color: isSelected ? "#fff" : isPast ? "#9CA3AF" : "#1C2129",
-                      fontWeight: isSelected || isToday ? 800 : 600,
+                      fontWeight: isSelected || isToday ? 600 : 400,
                       border: isToday && !isSelected ? "1.5px solid #0F6659" : "1px solid transparent",
                       opacity: isPast && !isSelected ? 0.6 : 1,
                     }}
@@ -295,11 +295,11 @@ export default function ScheduleScreen({ role, isDesktop, onStartAuditDirect, cu
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-2.5 h-2.5 rounded-full bg-[#0F6659] shrink-0" />
-                <h3 className="text-sm sm:text-base font-black text-slate-800 truncate">
+                <h3 className="text-sm sm:text-base font-bold text-slate-800 truncate">
                   วันที่ {selectedDay} {MONTH_LABELS[monthOffset]}
                 </h3>
               </div>
-              <span className="text-xs font-black px-2.5 py-1 rounded-full bg-emerald-50 text-[#0F6659] border border-emerald-200 shrink-0">
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200 shrink-0">
                 {dayItems.length} นัดหมาย
               </span>
             </div>

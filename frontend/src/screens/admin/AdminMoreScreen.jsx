@@ -222,11 +222,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
   }
 
   if (open === "forms") {
-    return (
-      <AdminSubScreen title="จัดการแบบฟอร์มการตรวจ" onBack={() => setOpen(null)}>
-        <FormsScreen isDesktop={true} />
-      </AdminSubScreen>
-    );
+    return <FormsScreen isDesktop={true} onBack={() => setOpen(null)} />;
   }
 
   if (open === "users") {

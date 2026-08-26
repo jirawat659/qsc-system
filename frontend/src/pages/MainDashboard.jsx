@@ -140,10 +140,13 @@ export default function MainDashboard({ onLogout }) {
     setRoleMenuOpen(false);
   };
 
+  const [navResetKey, setNavResetKey] = useState(0);
+
   const handleNavClick = (key) => {
     if (key === "audit") {
       setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
     }
+    setNavResetKey(prev => prev + 1);
     setScreen(key);
   };
 
@@ -193,7 +196,7 @@ export default function MainDashboard({ onLogout }) {
             }}
           />
         )}
-        {screen === "forms" && <FormsScreen isDesktop={true} onBack={role !== "ADMIN" ? () => setScreen("more") : undefined} />}
+        {screen === "forms" && <FormsScreen isDesktop={true} onBack={() => setScreen("more")} />}
         {screen === "cap" && <CapScreen isDesktop={true} role={role} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
         {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} onNavigate={handleNavClick} />}
         {screen === "schedule" && (
@@ -237,16 +240,16 @@ export default function MainDashboard({ onLogout }) {
                 Q
               </div>
               <div>
-                <div className="text-base font-black leading-tight text-slate-900 tracking-tight">Q.S.C. System</div>
-                <div className="text-xs font-bold text-slate-400 mt-0.5">Quality Compliance</div>
+                <div className="text-base font-bold leading-tight text-slate-900">Q.S.C. System</div>
+                <div className="text-xs font-normal text-slate-400 mt-0.5">Quality Compliance</div>
               </div>
             </div>
 
             
 
             {/* Sidebar Navigation */}
-            <nav className="space-y-2">
-              <div className="text-xs font-extrabold uppercase tracking-wider px-3.5 mb-2.5 text-slate-400">เมนูการทำงาน</div>
+            <nav className="space-y-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wider px-3.5 mb-2 text-slate-400">เมนูการทำงาน</div>
               {nav.map((item) => {
                 const Icon = item.icon;
                 const active = screen === item.key;
@@ -255,13 +258,13 @@ export default function MainDashboard({ onLogout }) {
                     key={item.key}
                     type="button"
                     onClick={() => handleNavClick(item.key)}
-                    className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-sm sm:text-base font-extrabold text-left transition-all cursor-pointer ${
+                    className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl text-sm font-semibold text-left transition-all cursor-pointer ${
                       active 
                         ? 'bg-[#E3F0ED] text-[#0F6659] shadow-2xs' 
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
-                    <Icon size={22} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
+                    <Icon size={20} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
                     <span className="tracking-tight">{item.label}</span>
                   </button>
                 );
@@ -273,12 +276,12 @@ export default function MainDashboard({ onLogout }) {
           <div className="p-4 border-t bg-slate-50/50" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between gap-2.5">
               <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm shadow-2xs shrink-0 text-white bg-[#0F6659]">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shadow-2xs shrink-0 text-white bg-[#0F6659]">
                   {currentUser.avatar}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-extrabold truncate text-slate-800">{currentUser.name}</div>
-                  <div className="text-xs truncate font-bold text-slate-400 mt-0.5">{currentUser.title}</div>
+                  <div className="text-sm font-semibold truncate text-slate-800">{currentUser.name}</div>
+                  <div className="text-xs font-normal truncate text-slate-500 mt-0.5">{currentUser.title}</div>
                 </div>
               </div>
 
@@ -311,11 +314,11 @@ export default function MainDashboard({ onLogout }) {
                 </button>
               )}
               <div className="min-w-0 flex-1">
-                <div className="text-sm sm:text-base font-extrabold text-slate-900 leading-tight truncate">
+                <div className="text-sm sm:text-base font-bold text-slate-900 leading-tight truncate">
                   {subHeader.title}
                 </div>
                 {subHeader.subtitle && (
-                  <div className="text-xs sm:text-xs text-slate-500 font-medium truncate mt-0.5">
+                  <div className="text-xs font-normal text-slate-500 truncate mt-0.5">
                     {subHeader.subtitle}
                   </div>
                 )}
@@ -357,7 +360,7 @@ export default function MainDashboard({ onLogout }) {
 
         {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
         <main className="flex-1 flex flex-col overflow-y-auto min-h-screen pb-16 lg:pb-8">
-          <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col">
+          <div key={`${role}_${screen}_${navResetKey}`} className="page-transition flex-1 flex flex-col">
             {renderCurrentScreen()}
           </div>
         </main>

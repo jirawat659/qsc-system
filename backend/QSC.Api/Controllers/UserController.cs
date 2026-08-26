@@ -127,7 +127,8 @@ namespace QSC.Api.Controllers
 
             if (dto.BranchScope == "SPECIFIC" && dto.LocationIds.Any())
             {
-                foreach (var locId in dto.LocationIds)
+                var distinctLocIds = dto.LocationIds.Distinct().ToList();
+                foreach (var locId in distinctLocIds)
                 {
                     _context.UserLocations.Add(new UserLocation { UserId = user.Id, LocationId = locId });
                 }
@@ -154,7 +155,8 @@ namespace QSC.Api.Controllers
 
             if (dto.BranchScope == "SPECIFIC" && dto.LocationIds.Any())
             {
-                foreach (var locId in dto.LocationIds)
+                var distinctLocIds = dto.LocationIds.Distinct().ToList();
+                foreach (var locId in distinctLocIds)
                 {
                     _context.UserLocations.Add(new UserLocation { UserId = id, LocationId = locId });
                 }

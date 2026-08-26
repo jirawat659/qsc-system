@@ -33,7 +33,7 @@ export default function ProfileModal({ user, onClose, onLogout }) {
           </div>
           <div>
             <h4 className="text-lg font-black text-slate-900 leading-tight">{user.name || user.fullName || user.username}</h4>
-            <p className="text-xs font-mono text-slate-400 mt-0.5">@{user.username}</p>
+            <p className="text-xs font-mono text-slate-400 mt-0.5">{user.username}</p>
           </div>
           <div>
             <span className="inline-flex items-center gap-1 text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">

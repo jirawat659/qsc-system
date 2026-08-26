@@ -3,7 +3,8 @@ import {
   Users, Store, Building2, ShieldCheck, Plus, Search, Edit3, Trash2,
   Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw,
   MapPin, Phone, Shield, ArrowUpDown, UserCheck, Layers, ExternalLink,
-  SlidersHorizontal, CheckSquare, Square, Globe, Lock
+  SlidersHorizontal, CheckSquare, Square, Globe, Lock, ArrowLeft,
+  ChevronDown, ChevronUp
 } from 'lucide-react';
 import api from '../../config/api';
 import Header from '../../shared/Header';
@@ -22,11 +23,14 @@ export default function MasterManagementScreen({ onBack }) {
   const [roles, setRoles] = useState([]);
   const [availablePermissions, setAvailablePermissions] = useState([]);
 
-  // Filter & Search
+  // Filter, Search, Pagination & Status
   const [searchTerm, setSearchTerm] = useState('');
-  const [userStatusFilter, setUserStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'INACTIVE'
-  const [userRoleFilter, setUserRoleFilter] = useState('ALL'); // 'ALL' | roleId
+  const [userRoleFilter, setUserRoleFilter] = useState('ALL'); // 'ALL' | roleId / roleCode
   const [locationStatusFilter, setLocationStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'INACTIVE'
+  const [userPage, setUserPage] = useState(1);
+  const [locationPage, setLocationPage] = useState(1);
+  const [loadError, setLoadError] = useState(false);
+  const pageSize = 10;
 
   // ── Modals State ──
   // 1. User Modals
@@ -40,6 +44,15 @@ export default function MasterManagementScreen({ onBack }) {
     locationIds: [],
     newPassword: ''
   });
+
+  // 1.1 Branch Selector Sub-Modal (จัดการสาขาที่ได้รับอนุญาต)
+  const [showBranchSelectorModal, setShowBranchSelectorModal] = useState(false);
+  const [branchSelectorTarget, setBranchSelectorTarget] = useState('edit'); // 'edit' | 'create'
+  const [tempBranchLocationIds, setTempBranchLocationIds] = useState([]);
+  const [branchSearchTerm, setBranchSearchTerm] = useState('');
+  const [branchRegionFilter, setBranchRegionFilter] = useState('ALL');
+  const [branchShowSelectedOnly, setBranchShowSelectedOnly] = useState(false);
+  const [collapsedRegions, setCollapsedRegions] = useState({});
 
   // 2. Location Modals
   const [showAddLocationModal, setShowAddLocationModal] = useState(false);
@@ -119,6 +132,7 @@ export default function MasterManagementScreen({ onBack }) {
 
   const loadAllData = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [uRes, lRes, ltRes, rRes, pRes] = await Promise.allSettled([
         api.get('/user'),
@@ -128,13 +142,35 @@ export default function MasterManagementScreen({ onBack }) {
         api.get('/role/permissions')
       ]);
 
+      const anySuccess = [uRes, lRes, ltRes, rRes, pRes].some(r => r.status === 'fulfilled');
+      if (!anySuccess) {
+        setLoadError(true);
+      }
+
       if (uRes.status === 'fulfilled' && uRes.value.data) setUsers(uRes.value.data);
       if (lRes.status === 'fulfilled' && lRes.value.data) setLocations(lRes.value.data);
-      if (ltRes.status === 'fulfilled' && ltRes.value.data) setLocationTypes(ltRes.value.data);
-      if (rRes.status === 'fulfilled' && rRes.value.data) setRoles(rRes.value.data);
+      if (ltRes.status === 'fulfilled' && ltRes.value.data) {
+        setLocationTypes(ltRes.value.data);
+        if (ltRes.value.data.length > 0) {
+          setLocationForm(prev => ({
+            ...prev,
+            locationTypeId: prev.locationTypeId && ltRes.value.data.some(t => t.id === prev.locationTypeId) ? prev.locationTypeId : ltRes.value.data[0].id
+          }));
+        }
+      }
+      if (rRes.status === 'fulfilled' && rRes.value.data) {
+        setRoles(rRes.value.data);
+        if (rRes.value.data.length > 0) {
+          setUserForm(prev => ({
+            ...prev,
+            roleId: prev.roleId && rRes.value.data.some(r => r.id === prev.roleId) ? prev.roleId : rRes.value.data[0].id
+          }));
+        }
+      }
       if (pRes.status === 'fulfilled' && pRes.value.data) setAvailablePermissions(pRes.value.data);
     } catch (err) {
       console.error('Error loading master data:', err);
+      setLoadError(true);
       showToast('ไม่สามารถโหลดข้อมูลหลักได้', true);
     } finally {
       setLoading(false);
@@ -369,26 +405,36 @@ export default function MasterManagementScreen({ onBack }) {
     });
   };
 
-  // ── Filtered lists ──
+  // ── Role Helpers & Filtered lists ──
+  const roleOptions = useMemo(() => {
+    return roles || [];
+  }, [roles]);
+
+  const getRoleUserCount = (role) => {
+    return users.filter(u => {
+      const matchId = role.id !== undefined && (u.roleId === role.id || u.role?.id === role.id || String(u.roleId) === String(role.id));
+      const matchCode = role.code && (u.roleCode === role.code || u.role?.code === role.code || u.roleCode === role.id);
+      return matchId || matchCode;
+    }).length;
+  };
+
   const filteredUsers = useMemo(() => {
     let list = [...users];
 
-    // 1. Status Filter (ALL | ACTIVE | INACTIVE)
-    if (userStatusFilter === 'ACTIVE') list = list.filter(u => u.isActive !== false);
-    if (userStatusFilter === 'INACTIVE') list = list.filter(u => u.isActive === false);
-
-    // 2. Role Filter (ALL | specific roleId or roleCode)
+    // 1. Role Filter (ALL | specific roleId or roleCode)
     if (userRoleFilter !== 'ALL') {
-      const targetId = parseInt(userRoleFilter);
-      list = list.filter(u =>
-        u.roleId === targetId ||
-        u.role?.id === targetId ||
-        u.roleCode === userRoleFilter ||
-        u.role?.code === userRoleFilter
-      );
+      list = list.filter(u => {
+        const matchId = u.roleId === userRoleFilter ||
+          String(u.roleId) === String(userRoleFilter) ||
+          u.role?.id === userRoleFilter ||
+          String(u.role?.id) === String(userRoleFilter);
+        const matchCode = u.roleCode === userRoleFilter ||
+          u.role?.code === userRoleFilter;
+        return matchId || matchCode;
+      });
     }
 
-    // 3. Search Query
+    // 2. Search Query
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       list = list.filter(u =>
@@ -401,7 +447,7 @@ export default function MasterManagementScreen({ onBack }) {
       );
     }
 
-    // 4. Strict Sorting: 🟢 Active accounts on TOP, 🔴 Inactive accounts at BOTTOM
+    // 3. Strict Sorting: 🟢 Active accounts on TOP, 🔴 Inactive accounts at BOTTOM
     list.sort((a, b) => {
       const aActive = a.isActive !== false ? 1 : 0;
       const bActive = b.isActive !== false ? 1 : 0;
@@ -412,7 +458,175 @@ export default function MasterManagementScreen({ onBack }) {
     });
 
     return list;
-  }, [users, searchTerm, userStatusFilter, userRoleFilter]);
+  }, [users, searchTerm, userRoleFilter]);
+
+  const activeUsers = useMemo(() => filteredUsers.filter(u => u.isActive !== false), [filteredUsers]);
+  const inactiveUsers = useMemo(() => filteredUsers.filter(u => u.isActive === false), [filteredUsers]);
+
+  // ── Specific Branch Selection Helpers (จัดการสาขาที่ได้รับอนุญาต) ──
+  const uniqueRegions = useMemo(() => {
+    const set = new Set();
+    locations.forEach(loc => {
+      if (loc.region && loc.region.trim()) {
+        set.add(loc.region.trim());
+      }
+    });
+    return Array.from(set);
+  }, [locations]);
+
+  const filteredBranchLocations = useMemo(() => {
+    let list = locations;
+
+    // 1. Region filter
+    if (branchRegionFilter !== 'ALL') {
+      list = list.filter(loc => loc.region === branchRegionFilter);
+    }
+
+    // 2. Selected only filter
+    if (branchShowSelectedOnly) {
+      list = list.filter(loc => tempBranchLocationIds.includes(loc.id));
+    }
+
+    // 3. Search query
+    if (branchSearchTerm.trim()) {
+      const q = branchSearchTerm.toLowerCase();
+      list = list.filter(loc =>
+        loc.code?.toLowerCase().includes(q) ||
+        loc.name?.toLowerCase().includes(q) ||
+        loc.region?.toLowerCase().includes(q)
+      );
+    }
+
+    return list;
+  }, [locations, branchRegionFilter, branchShowSelectedOnly, branchSearchTerm, tempBranchLocationIds]);
+
+  const groupedLocations = useMemo(() => {
+    const groups = {};
+    filteredBranchLocations.forEach(loc => {
+      const region = loc.region || 'กรุงเทพมหานคร';
+      if (!groups[region]) {
+        groups[region] = [];
+      }
+      groups[region].push(loc);
+    });
+    return groups;
+  }, [filteredBranchLocations]);
+
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredBranchLocations.length === 0) return false;
+    return filteredBranchLocations.every(loc => tempBranchLocationIds.includes(loc.id));
+  }, [filteredBranchLocations, tempBranchLocationIds]);
+
+  const handleOpenBranchSelector = (target = 'edit') => {
+    setBranchSelectorTarget(target);
+    const initialIds = target === 'edit'
+      ? (editUserForm.locationIds || [])
+      : (userForm.allowedLocationIds || userForm.locationIds || []);
+    setTempBranchLocationIds([...initialIds]);
+    setBranchSearchTerm('');
+    setBranchRegionFilter('ALL');
+    setBranchShowSelectedOnly(false);
+    setShowBranchSelectorModal(true);
+  };
+
+  const handleSaveBranchSelection = () => {
+    if (branchSelectorTarget === 'edit') {
+      setEditUserForm(prev => ({
+        ...prev,
+        locationIds: tempBranchLocationIds
+      }));
+    } else {
+      setUserForm(prev => ({
+        ...prev,
+        allowedLocationIds: tempBranchLocationIds
+      }));
+    }
+    setShowBranchSelectorModal(false);
+  };
+
+  const toggleBranchSelection = (locId) => {
+    setTempBranchLocationIds(prev =>
+      prev.includes(locId) ? prev.filter(id => id !== locId) : [...prev, locId]
+    );
+  };
+
+  const toggleRegionCollapse = (region) => {
+    setCollapsedRegions(prev => ({
+      ...prev,
+      [region]: !prev[region]
+    }));
+  };
+
+  const handleToggleSelectAllBranches = () => {
+    if (isAllFilteredSelected) {
+      const filteredIds = new Set(filteredBranchLocations.map(l => l.id));
+      setTempBranchLocationIds(prev => prev.filter(id => !filteredIds.has(id)));
+    } else {
+      const newIds = new Set([...tempBranchLocationIds, ...filteredBranchLocations.map(l => l.id)]);
+      setTempBranchLocationIds(Array.from(newIds));
+    }
+  };
+
+  const renderUserCard = (u) => {
+    const isActive = u.isActive !== false;
+    return (
+      <div
+        key={u.id}
+        onClick={() => handleOpenEditUser(u)}
+        className={`p-4 rounded-2xl border transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 flex flex-col justify-between gap-3.5 group ${
+          isActive
+            ? 'border-slate-200 hover:border-[#0F6659] bg-white'
+            : 'border-slate-300/80 bg-slate-50/70 hover:border-[#0F6659] hover:bg-white'
+        }`}
+      >
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-base shadow-2xs shrink-0 ${
+                isActive
+                  ? 'bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white'
+                  : 'bg-slate-300 text-slate-600'
+              }`}>
+                {(u.fullName || u.username).substring(0, 2)}
+              </div>
+              <div className="min-w-0">
+                <div className={`text-sm font-black truncate group-hover:text-[#0F6659] transition-colors ${
+                  isActive ? 'text-slate-900' : 'text-slate-600'
+                }`}>
+                  {u.fullName}
+                </div>
+                <div className="text-xs font-mono text-slate-400 truncate">{u.username}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg border ${
+                isActive
+                  ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
+                  : 'bg-slate-200 text-slate-600 border-slate-300'
+              }`}>
+                {u.roleName || u.role?.name || u.roleCode || u.role?.code}
+              </span>
+              <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+          <span className="text-slate-400 group-hover:text-[#0F6659] font-bold transition-colors">
+            {isActive ? 'แตะเพื่อแก้ไข' : 'แตะเพื่อเปิดใช้งาน / แก้ไข'}
+          </span>
+          <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full border ${
+            isActive
+              ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+              : 'text-rose-700 bg-rose-50 border-rose-200'
+          }`}>
+            {isActive ? '✓ ใช้งานอยู่' : '✕ ไม่ใช้งาน'}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   const filteredLocations = useMemo(() => {
     let list = locations;
@@ -449,6 +663,27 @@ export default function MasterManagementScreen({ onBack }) {
     );
   }, [roles, searchTerm]);
 
+  // ── 📄 Pagination Computations & Resets ──
+  const totalUserPages = Math.ceil(filteredUsers.length / pageSize) || 1;
+  const paginatedUsers = useMemo(() => {
+    const start = (userPage - 1) * pageSize;
+    return filteredUsers.slice(start, start + pageSize);
+  }, [filteredUsers, userPage, pageSize]);
+
+  const totalLocationPages = Math.ceil(filteredLocations.length / pageSize) || 1;
+  const paginatedLocations = useMemo(() => {
+    const start = (locationPage - 1) * pageSize;
+    return filteredLocations.slice(start, start + pageSize);
+  }, [filteredLocations, locationPage, pageSize]);
+
+  useEffect(() => {
+    setUserPage(1);
+  }, [searchTerm, userRoleFilter]);
+
+  useEffect(() => {
+    setLocationPage(1);
+  }, [searchTerm, locationStatusFilter]);
+
   return (
     <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
       
@@ -480,6 +715,29 @@ export default function MasterManagementScreen({ onBack }) {
         }
       />
 
+      {/* Error Alert State if connection fails */}
+      {loadError && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-2xs animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+              <AlertCircle size={20} />
+            </div>
+            <div>
+              <div className="text-sm font-bold">ไม่สามารถเชื่อมต่อฐานข้อมูลหลักได้</div>
+              <div className="text-xs text-rose-600">กรุณาตรวจสอบการทำงานของเซิร์ฟเวอร์ Backend หรือลองใหม่อีกครั้ง</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={loadAllData}
+            className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0 flex items-center gap-1.5"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            <span>ลองใหม่อีกครั้ง</span>
+          </button>
+        </div>
+      )}
+
       {/* ── 🌟 4 CATEGORY TABS ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         {[
@@ -509,12 +767,12 @@ export default function MasterManagementScreen({ onBack }) {
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isActive ? 'bg-[#0F6659] text-white' : 'bg-slate-100 text-slate-600'}`}>
                   <Icon size={18} />
                 </div>
-                <span className="text-xs font-black px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono">
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono">
                   {tab.count}
                 </span>
               </div>
               <div>
-                <div className={`text-xs sm:text-sm font-black leading-tight ${isActive ? 'text-[#0F6659]' : 'text-slate-800'}`}>
+                <div className={`text-xs sm:text-sm font-bold leading-tight ${isActive ? 'text-[#0F6659]' : 'text-slate-800'}`}>
                   {tab.label}
                 </div>
               </div>
@@ -538,139 +796,190 @@ export default function MasterManagementScreen({ onBack }) {
               />
             </div>
 
-            {/* Filter by Role Dropdown */}
-            <div className="flex items-center gap-2">
-              <div className="relative shrink-0">
-                <select
-                  value={userRoleFilter}
-                  onChange={(e) => setUserRoleFilter(e.target.value)}
-                  className="px-3.5 py-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs sm:text-sm font-bold text-slate-700 focus:bg-white focus:border-[#0F6659] outline-none cursor-pointer"
-                >
-                  <option value="ALL">🛡️ ทุกบทบาท ({users.length})</option>
-                  {roles.map(r => {
-                    const count = users.filter(u => u.roleId === r.id || u.role?.id === r.id || u.roleCode === r.code || u.role?.code === r.code).length;
-                    return (
-                      <option key={r.id} value={r.id}>
-                        {r.name} ({count})
-                      </option>
-                    );
-                  })}
-                  {roles.length === 0 && (
-                    <>
-                      <option value="ADMIN">ผู้ดูแลระบบ (ADMIN)</option>
-                      <option value="AUDITOR">ผู้ตรวจหน้างาน (AUDITOR)</option>
-                      <option value="AUDITEE">ผู้จัดการสาขา (AUDITEE)</option>
-                      <option value="STANDARD">ผู้ดูแลมาตรฐาน (STANDARD)</option>
-                      <option value="EXEC">ผู้บริหาร (EXEC)</option>
-                    </>
-                  )}
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowAddUserModal(true)}
-                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
-              >
-                <Plus size={16} />
-                <span>เพิ่มผู้ใช้งานใหม่</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddUserModal(true)}
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
+            >
+              <Plus size={16} />
+              <span>เพิ่มผู้ใช้งานใหม่</span>
+            </button>
           </div>
 
-          {/* Quick Status Filter Pills for Users */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            {[
-              { id: 'ALL', label: `ทั้งหมด (${users.length})` },
-              { id: 'ACTIVE', label: `🟢 ใช้งานอยู่ (${users.filter(u => u.isActive).length})` },
-              { id: 'INACTIVE', label: `🔴 ระงับการใช้งาน (${users.filter(u => !u.isActive).length})` },
-            ].map((pill) => (
-              <button
-                key={pill.id}
-                type="button"
-                onClick={() => setUserStatusFilter(pill.id)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
-                  userStatusFilter === pill.id
-                    ? 'bg-[#0F6659] text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {pill.label}
-              </button>
-            ))}
-          </div>
+          {/* Role Filter Selector Pills (เลือกตามบทบาท) */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
+            <button
+              type="button"
+              onClick={() => setUserRoleFilter('ALL')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
+                userRoleFilter === 'ALL'
+                  ? 'bg-[#0F6659] text-white shadow-2xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              ทั้งหมด ({users.length})
+            </button>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredUsers.map((u) => {
-              const isActive = u.isActive !== false;
+            {roleOptions.map((r) => {
+              const count = getRoleUserCount(r);
+              const isSelected = String(userRoleFilter) === String(r.id) || userRoleFilter === r.code;
               return (
-                <div
-                  key={u.id}
-                  onClick={() => handleOpenEditUser(u)}
-                  className={`p-4 rounded-2xl border transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 flex flex-col justify-between gap-3.5 group ${
-                    isActive
-                      ? 'border-slate-200 hover:border-[#0F6659] bg-white'
-                      : 'border-slate-300/80 bg-slate-50/70 hover:border-[#0F6659] hover:bg-white'
+                <button
+                  key={r.id || r.code}
+                  type="button"
+                  onClick={() => setUserRoleFilter(r.id || r.code)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap active:scale-95 ${
+                    isSelected
+                      ? 'bg-[#0F6659] text-white shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-black text-base shadow-2xs shrink-0 ${
-                          isActive
-                            ? 'bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white'
-                            : 'bg-slate-300 text-slate-600'
-                        }`}>
-                          {(u.fullName || u.username).substring(0, 2)}
-                        </div>
-                        <div className="min-w-0">
-                          <div className={`text-sm font-black truncate group-hover:text-[#0F6659] transition-colors ${
-                            isActive ? 'text-slate-900' : 'text-slate-600'
-                          }`}>
-                            {u.fullName}
-                          </div>
-                          <div className="text-xs font-mono text-slate-400 truncate">@{u.username}</div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`text-xs font-extrabold px-2.5 py-1 rounded-lg border ${
-                          isActive
-                            ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
-                            : 'bg-slate-200 text-slate-600 border-slate-300'
-                        }`}>
-                          {u.roleName || u.role?.name || u.roleCode || u.role?.code}
-                        </span>
-                        <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
-                      </div>
-                    </div>
-
-                    <div className="pt-2.5 border-t border-slate-100 text-xs text-slate-500 space-y-1.5">
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold">ขอบเขตสาขา:</span>
-                        <span className="font-extrabold text-slate-800">
-                          {u.branchScope === 'SPECIFIC' ? `เฉพาะที่กำหนด (${u.locationIds?.length || 0} สาขา)` : 'ทุกสาขาในองค์กร'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
-                    <span className="text-slate-400 group-hover:text-[#0F6659] font-bold transition-colors">
-                      {isActive ? 'แตะเพื่อแก้ไข' : 'แตะเพื่อเปิดใช้งาน / แก้ไข'}
-                    </span>
-                    <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full border ${
-                      isActive
-                        ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                        : 'text-rose-700 bg-rose-50 border-rose-200'
-                    }`}>
-                      {isActive ? '✓ ใช้งานอยู่' : '✕ ระงับการใช้งาน'}
-                    </span>
-                  </div>
-                </div>
+                  {r.name || r.code} ({count})
+                </button>
               );
             })}
           </div>
+
+          {/* Loading Skeleton */}
+          {loading && users.length === 0 ? (
+            <div className="space-y-3 py-4 animate-pulse">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="h-16 bg-slate-100 rounded-2xl w-full" />
+              ))}
+            </div>
+          ) : filteredUsers.length === 0 ? (
+            /* Empty State */
+            <div className="py-12 text-center text-slate-400 space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+                <Users size={28} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-700">ไม่พบข้อมูลผู้ใช้งานที่ตรงกับเงื่อนไข</p>
+                <p className="text-xs text-slate-400 mt-0.5">ลองเปลี่ยนคำค้นหา หรือรีเซ็ตตัวกรองบทบาท</p>
+              </div>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600 cursor-pointer transition-all"
+                >
+                  ล้างการค้นหา
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* 🖥️ Desktop Table View (>= 768px) */}
+              <div className="hidden md:block overflow-hidden rounded-2xl border border-slate-200">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/90 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="py-3.5 px-4">ผู้ใช้งาน</th>
+                      <th className="py-3.5 px-4">บทบาท (Role)</th>
+                      <th className="py-3.5 px-4">ขอบเขตสาขา (Scope)</th>
+                      <th className="py-3.5 px-4">สถานะ</th>
+                      <th className="py-3.5 px-4 text-right">การจัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm bg-white">
+                    {paginatedUsers.map(u => {
+                      const isActive = u.isActive !== false;
+                      return (
+                        <tr key={u.id} className="hover:bg-slate-50/60 transition-colors group">
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs ${
+                                isActive ? 'bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white' : 'bg-slate-200 text-slate-500'
+                              }`}>
+                                {(u.fullName || u.username).substring(0, 2)}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-800 truncate">{u.fullName}</div>
+                                <div className="text-xs font-mono text-slate-400">@{u.username}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
+                              isActive ? 'bg-purple-50 text-purple-800 border border-purple-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                            }`}>
+                              {u.roleName || u.role?.name || u.roleCode || u.role?.code}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {u.branchScope === 'SPECIFIC' ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                <Store size={13} />
+                                <span>เฉพาะสาขา ({u.locationIds?.length || 0})</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                <Globe size={13} />
+                                <span>ทุกสาขา (ALL)</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                              isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                              {isActive ? 'ใช้งานอยู่' : 'ระงับการใช้งาน'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditUser(u)}
+                              className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:border-[#0F6659] hover:bg-[#0F6659]/5 text-xs font-bold text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer inline-flex items-center gap-1.5 active:scale-95 shadow-2xs"
+                            >
+                              <Edit3 size={13} />
+                              <span>แก้ไข</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 📱 Mobile Cards View (< 768px) */}
+              <div className="md:hidden space-y-3">
+                {paginatedUsers.map(renderUserCard)}
+              </div>
+
+              {/* Pagination Controls */}
+              {filteredUsers.length > pageSize && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div>
+                    แสดง {(userPage - 1) * pageSize + 1} - {Math.min(userPage * pageSize, filteredUsers.length)} จากทั้งหมด {filteredUsers.length} รายการ
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={userPage === 1}
+                      onClick={() => setUserPage(p => Math.max(1, p - 1))}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-bold cursor-pointer transition-all shadow-2xs"
+                    >
+                      ก่อนหน้า
+                    </button>
+                    <span className="px-2.5 font-bold font-mono text-slate-700">
+                      หน้า {userPage} / {totalUserPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={userPage >= totalUserPages}
+                      onClick={() => setUserPage(p => Math.min(totalUserPages, p + 1))}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-bold cursor-pointer transition-all shadow-2xs"
+                    >
+                      ถัดไป
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -699,7 +1008,7 @@ export default function MasterManagementScreen({ onBack }) {
           </div>
 
           {/* Quick Status Filter Pills for Locations */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
             {[
               { id: 'ALL', label: `ทั้งหมด (${locations.length})` },
               { id: 'ACTIVE', label: `🟢 เปิดให้บริการ (${locations.filter(l => l.isActive).length})` },
@@ -720,74 +1029,213 @@ export default function MasterManagementScreen({ onBack }) {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredLocations.map((loc) => {
-              const isActive = loc.isActive !== false;
-              return (
-                <div
-                  key={loc.id}
-                  onClick={() => handleOpenEditLocation(loc)}
-                  className={`p-4.5 rounded-2xl border transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-3.5 flex flex-col justify-between group ${
-                    isActive
-                      ? 'border-slate-200 hover:border-[#0F6659] bg-white'
-                      : 'border-slate-300/80 bg-slate-50/70 hover:border-[#0F6659] hover:bg-white'
-                  }`}
+          {/* Loading Skeleton */}
+          {loading && locations.length === 0 ? (
+            <div className="space-y-3 py-4 animate-pulse">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="h-16 bg-slate-100 rounded-2xl w-full" />
+              ))}
+            </div>
+          ) : filteredLocations.length === 0 ? (
+            /* Empty State */
+            <div className="py-12 text-center text-slate-400 space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+                <Store size={28} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-slate-700">ไม่พบข้อมูลสาขาที่ตรงกับเงื่อนไข</p>
+                <p className="text-xs text-slate-400 mt-0.5">ลองเปลี่ยนคำค้นหา หรือรีเซ็ตตัวกรองสถานะ</p>
+              </div>
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-600 cursor-pointer transition-all"
                 >
-                  <div className="space-y-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="text-xs font-mono font-bold text-slate-400 block">{loc.code}</span>
-                        <h4 className={`text-base font-black group-hover:text-[#0F6659] transition-colors ${
-                          isActive ? 'text-slate-900' : 'text-slate-600'
-                        }`}>{loc.name}</h4>
-                        <p className="text-xs text-slate-500 font-medium">{loc.brandName || "Urban Burger"}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200">
-                          {loc.locationType?.name || loc.locationType?.code || "STORE"}
-                        </span>
-                        <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
-                      </div>
-                    </div>
+                  ล้างการค้นหา
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* 🖥️ Desktop Table View (>= 768px) */}
+              <div className="hidden md:block overflow-hidden rounded-2xl border border-slate-200">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/90 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="py-3.5 px-4">รหัส / ชื่อสาขา</th>
+                      <th className="py-3.5 px-4">ภูมิภาค</th>
+                      <th className="py-3.5 px-4">ประเภท</th>
+                      <th className="py-3.5 px-4">ผู้จัดการสาขา</th>
+                      <th className="py-3.5 px-4">คะแนนล่าสุด</th>
+                      <th className="py-3.5 px-4">สถานะ</th>
+                      <th className="py-3.5 px-4 text-right">การจัดการ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm bg-white">
+                    {paginatedLocations.map(loc => {
+                      const isActive = loc.isActive !== false;
+                      return (
+                        <tr key={loc.id} className="hover:bg-slate-50/60 transition-colors group">
+                          <td className="py-3.5 px-4">
+                            <div>
+                              <span className="text-xs font-mono font-bold text-slate-400">{loc.code}</span>
+                              <div className="font-bold text-slate-800">{loc.name}</div>
+                              <div className="text-xs text-slate-400">{loc.brandName || "Urban Burger"}</div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-600 text-xs font-medium">
+                            <div className="flex items-center gap-1.5">
+                              <MapPin size={13} className="text-slate-400 shrink-0" />
+                              <span>{loc.region}</span>
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                              {loc.locationType?.name || loc.locationType?.code || "STORE"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-xs font-semibold text-slate-700">
+                            {loc.managerUser ? (
+                              <div className="flex items-center gap-1.5">
+                                <UserCheck size={13} className="text-emerald-600 shrink-0" />
+                                <span>{loc.managerUser.fullName}</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400">-</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className="text-emerald-800 font-mono font-black text-sm">
+                              {loc.lastScore ? `${loc.lastScore}%` : "-"}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                              isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                              {isActive ? 'เปิดบริการ' : 'ปิดปรับปรุง'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditLocation(loc)}
+                              className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:border-[#0F6659] hover:bg-[#0F6659]/5 text-xs font-bold text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer inline-flex items-center gap-1.5 active:scale-95 shadow-2xs"
+                            >
+                              <Edit3 size={13} />
+                              <span>แก้ไข</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-                    <div className="text-xs text-slate-600 space-y-2 pt-2.5 border-t border-slate-100">
-                      <div className="flex items-center gap-2">
-                        <MapPin size={14} className="text-slate-400 shrink-0" />
-                        <span className="truncate">{loc.region} · {loc.address || "กรุงเทพฯ"}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Phone size={14} className="text-slate-400 shrink-0" />
-                        <span>{loc.phone || "02-999-9999"}</span>
-                      </div>
-                      {loc.managerUser && (
-                        <div className="flex items-center gap-2">
-                          <UserCheck size={14} className="text-emerald-600 shrink-0" />
-                          <span className="font-semibold">ผู้จัดการ: {loc.managerUser.fullName}</span>
+              {/* 📱 Mobile Cards View (< 768px) */}
+              <div className="md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {paginatedLocations.map((loc) => {
+                  const isActive = loc.isActive !== false;
+                  return (
+                    <div
+                      key={loc.id}
+                      onClick={() => handleOpenEditLocation(loc)}
+                      className={`p-4.5 rounded-2xl border transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-3.5 flex flex-col justify-between group ${
+                        isActive
+                          ? 'border-slate-200 hover:border-[#0F6659] bg-white'
+                          : 'border-slate-300/80 bg-slate-50/70 hover:border-[#0F6659] hover:bg-white'
+                      }`}
+                    >
+                      <div className="space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="text-xs font-mono font-bold text-slate-400 block">{loc.code}</span>
+                            <h4 className={`text-base font-black group-hover:text-[#0F6659] transition-colors ${
+                              isActive ? 'text-slate-900' : 'text-slate-600'
+                            }`}>{loc.name}</h4>
+                            <p className="text-xs text-slate-500 font-medium">{loc.brandName || "Urban Burger"}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200">
+                              {loc.locationType?.name || loc.locationType?.code || "STORE"}
+                            </span>
+                            <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
 
-                  <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-slate-400 font-semibold">คะแนน: </span>
-                      <span className="text-emerald-800 font-mono font-black text-sm">{loc.lastScore ? `${loc.lastScore}%` : "ยังไม่ตรวจ"}</span>
+                        <div className="text-xs text-slate-600 space-y-2 pt-2.5 border-t border-slate-100">
+                          <div className="flex items-center gap-2">
+                            <MapPin size={14} className="text-slate-400 shrink-0" />
+                            <span className="truncate">{loc.region} · {loc.address || "กรุงเทพฯ"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Phone size={14} className="text-slate-400 shrink-0" />
+                            <span>{loc.phone || "02-999-9999"}</span>
+                          </div>
+                          {loc.managerUser && (
+                            <div className="flex items-center gap-2">
+                              <UserCheck size={14} className="text-emerald-600 shrink-0" />
+                              <span className="font-semibold">ผู้จัดการ: {loc.managerUser.fullName}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-slate-400 font-semibold">คะแนน: </span>
+                          <span className="text-emerald-800 font-mono font-black text-sm">{loc.lastScore ? `${loc.lastScore}%` : "ยังไม่ตรวจ"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-400 group-hover:text-[#0F6659] font-extrabold transition-colors">
+                            {isActive ? 'แตะเพื่อแก้ไข' : 'แตะเพื่อเปิดใช้งาน'}
+                          </span>
+                          {!isActive && (
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                              ✕ ระงับ
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-slate-400 group-hover:text-[#0F6659] font-extrabold transition-colors">
-                        {isActive ? 'แตะเพื่อแก้ไข' : 'แตะเพื่อเปิดใช้งาน'}
-                      </span>
-                      {!isActive && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                          ✕ ระงับ
-                        </span>
-                      )}
-                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pagination Controls */}
+              {filteredLocations.length > pageSize && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div>
+                    แสดง {(locationPage - 1) * pageSize + 1} - {Math.min(locationPage * pageSize, filteredLocations.length)} จากทั้งหมด {filteredLocations.length} รายการ
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={locationPage === 1}
+                      onClick={() => setLocationPage(p => Math.max(1, p - 1))}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-bold cursor-pointer transition-all shadow-2xs"
+                    >
+                      ก่อนหน้า
+                    </button>
+                    <span className="px-2.5 font-bold font-mono text-slate-700">
+                      หน้า {locationPage} / {totalLocationPages}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={locationPage >= totalLocationPages}
+                      onClick={() => setLocationPage(p => Math.min(totalLocationPages, p + 1))}
+                      className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-bold cursor-pointer transition-all shadow-2xs"
+                    >
+                      ถัดไป
+                    </button>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -815,30 +1263,45 @@ export default function MasterManagementScreen({ onBack }) {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            {filteredTypes.map((t) => (
-              <div
-                key={t.id}
-                onClick={() => handleOpenEditType(t)}
-                className="p-4.5 rounded-2xl border border-slate-200 hover:border-[#0F6659] bg-white transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-2.5 flex flex-col justify-between group"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
-                      {t.code}
-                    </span>
-                    <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
-                  </div>
-                  <h4 className="text-base font-black text-slate-900 group-hover:text-[#0F6659] transition-colors mt-2.5">{t.name}</h4>
-                  <p className="text-xs text-slate-500 leading-relaxed mt-1">{t.description || "ประเภทสถานที่มาตรฐาน Q.S.C."}</p>
-                </div>
-
-                <div className="pt-2.5 border-t border-slate-100 flex justify-between text-xs text-slate-400">
-                  <span className="group-hover:text-[#0F6659] font-extrabold transition-colors">แตะเพื่อแก้ไข</span>
-                </div>
+          {loading && locationTypes.length === 0 ? (
+            <div className="space-y-3 py-4 animate-pulse">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-16 bg-slate-100 rounded-2xl w-full" />
+              ))}
+            </div>
+          ) : filteredTypes.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+                <Building2 size={28} />
               </div>
-            ))}
-          </div>
+              <p className="text-sm font-bold text-slate-700">ไม่พบประเภทสถานที่ที่ตรงกับเงื่อนไข</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {filteredTypes.map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => handleOpenEditType(t)}
+                  className="p-4.5 rounded-2xl border border-slate-200 hover:border-[#0F6659] bg-white transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-2.5 flex flex-col justify-between group"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-mono font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+                        {t.code}
+                      </span>
+                      <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                    <h4 className="text-base font-black text-slate-900 group-hover:text-[#0F6659] transition-colors mt-2.5">{t.name}</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed mt-1">{t.description || "ประเภทสถานที่มาตรฐาน Q.S.C."}</p>
+                  </div>
+
+                  <div className="pt-2.5 border-t border-slate-100 flex justify-between text-xs text-slate-400">
+                    <span className="group-hover:text-[#0F6659] font-extrabold transition-colors">แตะเพื่อแก้ไข</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -866,48 +1329,63 @@ export default function MasterManagementScreen({ onBack }) {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {filteredRoles.map((r) => (
-              <div
-                key={r.id}
-                onClick={() => handleOpenEditRole(r)}
-                className="p-4.5 rounded-2xl border border-slate-200 hover:border-purple-500 bg-white transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-3.5 flex flex-col justify-between group"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-black text-purple-900 bg-purple-100 px-2.5 py-1 rounded-md border border-purple-200 font-mono">
-                      {r.code}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <Shield size={18} className="text-purple-600" />
-                      <ChevronRight size={18} className="text-slate-300 group-hover:text-purple-600 group-hover:translate-x-0.5 transition-all" />
-                    </div>
-                  </div>
-                  <div className="mt-2.5">
-                    <h4 className="text-base font-black text-slate-900 group-hover:text-purple-700 transition-colors">{r.name}</h4>
-                    <p className="text-xs text-slate-500 mt-1">{r.description || "บทบาทการทำงานในระบบ"}</p>
-                  </div>
-                  <div className="pt-2.5 border-t border-slate-100 mt-2">
-                    <span className="text-xs font-extrabold text-slate-400">สิทธิ์ที่เปิดใช้งาน ({r.permissions?.length || 0}):</span>
-                    <div className="flex flex-wrap gap-1.5 mt-2 max-h-28 overflow-y-auto">
-                      {(r.permissions || []).map((p, i) => (
-                        <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
-                          ✓ {p}
-                        </span>
-                      ))}
-                      {(!r.permissions || r.permissions.length === 0) && (
-                        <span className="text-xs text-slate-400">สิทธิ์มาตรฐานตามบทบาท</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-2.5 border-t border-slate-100 flex justify-between text-xs text-slate-400">
-                  <span className="group-hover:text-purple-700 font-extrabold transition-colors">แตะเพื่อจัดการสิทธิ์</span>
-                </div>
+          {loading && roles.length === 0 ? (
+            <div className="space-y-3 py-4 animate-pulse">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-16 bg-slate-100 rounded-2xl w-full" />
+              ))}
+            </div>
+          ) : filteredRoles.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 space-y-3">
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center">
+                <ShieldCheck size={28} />
               </div>
-            ))}
-          </div>
+              <p className="text-sm font-bold text-slate-700">ไม่พบบทบาทที่ตรงกับเงื่อนไข</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {filteredRoles.map((r) => (
+                <div
+                  key={r.id}
+                  onClick={() => handleOpenEditRole(r)}
+                  className="p-4.5 rounded-2xl border border-slate-200 hover:border-purple-500 bg-white transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-3.5 flex flex-col justify-between group"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-purple-900 bg-purple-100 px-2.5 py-1 rounded-md border border-purple-200 font-mono">
+                        {r.code}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <Shield size={18} className="text-purple-600" />
+                        <ChevronRight size={18} className="text-slate-300 group-hover:text-purple-600 group-hover:translate-x-0.5 transition-all" />
+                      </div>
+                    </div>
+                    <div className="mt-2.5">
+                      <h4 className="text-base font-black text-slate-900 group-hover:text-purple-700 transition-colors">{r.name}</h4>
+                      <p className="text-xs text-slate-500 mt-1">{r.description || "บทบาทการทำงานในระบบ"}</p>
+                    </div>
+                    <div className="pt-2.5 border-t border-slate-100 mt-2">
+                      <span className="text-xs font-extrabold text-slate-400">สิทธิ์ที่เปิดใช้งาน ({r.permissions?.length || 0}):</span>
+                      <div className="flex flex-wrap gap-1.5 mt-2 max-h-28 overflow-y-auto">
+                        {(r.permissions || []).map((p, i) => (
+                          <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
+                            ✓ {p}
+                          </span>
+                        ))}
+                        {(!r.permissions || r.permissions.length === 0) && (
+                          <span className="text-xs text-slate-400">สิทธิ์มาตรฐานตามบทบาท</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2.5 border-t border-slate-100 flex justify-between text-xs text-slate-400">
+                    <span className="group-hover:text-purple-700 font-extrabold transition-colors">แตะเพื่อกำหนดสิทธิ์</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -916,7 +1394,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 1. MODAL: EDIT USER */}
       {editUser && (
         <ModalWrapper onClose={() => setEditUser(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
@@ -926,7 +1404,7 @@ export default function MasterManagementScreen({ onBack }) {
                 </div>
                 <div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-800 leading-tight">แก้ไขข้อมูลผู้ใช้งาน</h3>
-                  <span className="text-xs font-mono text-slate-400">@{editUser.username}</span>
+                  <span className="text-xs font-mono text-slate-400">{editUser.username}</span>
                 </div>
               </div>
               <button
@@ -943,90 +1421,112 @@ export default function MasterManagementScreen({ onBack }) {
               
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  ชื่อ-นามสกุล (Full Name) <span className="text-rose-400">*</span>
+                  ชื่อ-นามสกุล (Full Name) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={editUserForm.fullName}
                   onChange={(e) => setEditUserForm({ ...editUserForm, fullName: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-300"
-                  placeholder="เช่น นายสมศักดิ์ มั่นคง"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                  placeholder="เช่น นายวันทร์ หนวดเขี้ยว"
                   required
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  บทบาทในระบบ (Role) <span className="text-rose-400">*</span>
+                  บทบาทในระบบ (Role) <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={editUserForm.roleId}
                   onChange={(e) => setEditUserForm({ ...editUserForm, roleId: parseInt(e.target.value) })}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
                 >
-                  {roles.map(r => (
-                    <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
-                  ))}
-                  {roles.length === 0 && (
-                    <>
-                      <option value={1}>ผู้ดูแลระบบ (ADMIN)</option>
-                      <option value={2}>ผู้ตรวจหน้างาน (AUDITOR)</option>
-                      <option value={3}>ผู้รับการตรวจ/ผู้จัดการสาขา (AUDITEE)</option>
-                      <option value={4}>ผู้ดูแลมาตรฐาน (STANDARD)</option>
-                      <option value={5}>ผู้บริหาร (EXEC)</option>
-                    </>
+                  {roles.length === 0 ? (
+                    <option value="">กำลังโหลดบทบาท...</option>
+                  ) : (
+                    roles.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+                    ))
                   )}
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  ขอบเขตสาขาที่เข้าถึงได้ (Branch Scope)
+                  ขอบเขตการเข้าถึง
                 </label>
                 <select
                   value={editUserForm.branchScope}
                   onChange={(e) => setEditUserForm({ ...editUserForm, branchScope: e.target.value })}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
                 >
-                  <option value="ALL">🌐 เข้าถึงได้ทุกสาขาในองค์กร (ALL)</option>
-                  <option value="SPECIFIC">🎯 เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
+                  <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
+                  <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
                 </select>
               </div>
 
-              {/* Specific Locations Selection */}
+              {/* Specific Locations Selection Preview Card */}
               {editUserForm.branchScope === 'SPECIFIC' && (
                 <div className="space-y-2 pt-1 animate-in fade-in">
-                  <label className="block text-sm font-medium text-slate-600">เลือกสาขาที่ได้รับอนุญาต:</label>
-                  <div className="max-h-44 overflow-y-auto rounded-2xl border border-slate-200 p-2.5 space-y-1.5 bg-slate-50">
-                    {locations.map(loc => {
-                      const isSelected = editUserForm.locationIds.includes(loc.id);
-                      return (
-                        <button
-                          type="button"
-                          key={loc.id}
-                          onClick={() => {
-                            const exists = editUserForm.locationIds.includes(loc.id);
-                            setEditUserForm({
-                              ...editUserForm,
-                              locationIds: exists ? editUserForm.locationIds.filter(id => id !== loc.id) : [...editUserForm.locationIds, loc.id]
-                            });
-                          }}
-                          className={`w-full p-3 rounded-xl text-left text-sm font-normal flex items-center justify-between transition-colors cursor-pointer ${
-                            isSelected ? 'bg-emerald-50 text-[#0F6659] border border-emerald-200 font-medium' : 'bg-white text-slate-600 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="truncate">{loc.code} - {loc.name}</span>
-                          {isSelected ? <CheckSquare size={18} className="text-[#0F6659] shrink-0" /> : <Square size={18} className="text-slate-300 shrink-0" />}
-                        </button>
-                      );
-                    })}
+                  <label className="block text-sm font-medium text-slate-600">
+                    เลือกสาขาที่ได้รับอนุญาต:
+                  </label>
+                  <div className="p-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 space-y-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
+                        <Store size={18} />
+                      </div>
+                      <span className="text-sm font-bold text-slate-800">
+                        เลือกแล้ว {editUserForm.locationIds?.length || 0} จาก {locations.length} สาขา
+                      </span>
+                    </div>
+
+                    {/* Previews of selected branches */}
+                    {(editUserForm.locationIds?.length || 0) > 0 ? (
+                      <div className="space-y-1.5">
+                        {editUserForm.locationIds.slice(0, 2).map(locId => {
+                          const loc = locations.find(l => l.id === locId);
+                          return (
+                            <div
+                              key={locId}
+                              className="px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 truncate shadow-2xs"
+                            >
+                              {loc ? `${loc.code} - ${loc.name}` : `สาขารหัส #${locId}`}
+                            </div>
+                          );
+                        })}
+                        {editUserForm.locationIds.length > 2 && (
+                          <div className="text-xs text-slate-400 font-medium pl-1">
+                            + อีก {editUserForm.locationIds.length - 2} สาขา
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 py-1 pl-1">
+                        ยังไม่ได้เลือกสาขา (แตะปุ่มด้านล่างเพื่อเลือกสาขา)
+                      </div>
+                    )}
+
+                    {/* Button to open branch manager modal */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenBranchSelector('edit')}
+                      className="w-full py-2.5 rounded-xl border border-[#0F6659] text-[#0F6659] hover:bg-[#0F6659] hover:text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 bg-white"
+                    >
+                      <SlidersHorizontal size={15} />
+                      <span>จัดการสาขา</span>
+                    </button>
+                    <p className="text-[11px] text-slate-400 text-center font-normal">
+                      ค้นหาหรือเปลี่ยนรายการสาขาที่อนุญาต
+                    </p>
                   </div>
                 </div>
               )}
 
-              {/* 🔑 Integrated Password Reset Section */}
+              {/* Integrated Password Reset Section */}
               <div className="p-4.5 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-2.5">
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
                   <Key size={17} className="text-[#0F6659]" />
                   <span>รีเซ็ตรหัสผ่านใหม่ (Reset Password)</span>
                 </div>
@@ -1035,11 +1535,8 @@ export default function MasterManagementScreen({ onBack }) {
                   placeholder="กรอกรหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)"
                   value={editUserForm.newPassword || ''}
                   onChange={(e) => setEditUserForm({ ...editUserForm, newPassword: e.target.value })}
-                  className="w-full px-4.5 py-3 rounded-xl bg-white border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-300"
+                  className="w-full px-4.5 py-3 rounded-xl bg-white border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
                 />
-                <p className="text-xs text-slate-400 font-normal leading-relaxed">
-                  * หากต้องการเปลี่ยนรหัสผ่าน ให้กรอกรหัสใหม่ในช่องนี้ ระบบจะอัปเดตให้ทันทีที่กดบันทึก
-                </p>
               </div>
 
               {/* Active Toggle Switch */}
@@ -1047,7 +1544,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <div>
                   <div className="text-sm font-medium text-slate-700">สถานะการใช้งานบัญชี</div>
                   <div className="text-xs text-slate-400 font-normal mt-0.5">
-                    {editUserForm.isActive ? 'เปิดใช้งานปกติ (สามารถเข้าสู่ระบบได้)' : 'ระงับการใช้งานชั่วคราว'}
+                    {editUserForm.isActive ? 'เปิดใช้งาน (สามารถเข้าสู่ระบบได้)' : 'ปิดใช้งาน (ไม่สามารถเข้าสู่ระบบได้)'}
                   </div>
                 </div>
                 <button
@@ -1068,7 +1565,7 @@ export default function MasterManagementScreen({ onBack }) {
               </div>
 
               {/* Sticky Modal Action Footer */}
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setEditUser(null)}
@@ -1080,7 +1577,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="submit"
                   className="flex-1 py-3.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-sm font-bold text-white shadow-md cursor-pointer active:scale-98 transition-all"
                 >
-                  บันทึกการเปลี่ยนแปลง
+                  บันทึก
                 </button>
               </div>
             </form>
@@ -1091,7 +1588,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 2. MODAL: CREATE USER */}
       {showAddUserModal && (
         <ModalWrapper onClose={() => setShowAddUserModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1111,13 +1608,13 @@ export default function MasterManagementScreen({ onBack }) {
             <form onSubmit={handleCreateUser} className="space-y-4 overflow-y-auto flex-1 pr-1">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  ชื่อผู้ใช้งาน (Username) <span className="text-rose-400">*</span>
+                  ชื่อผู้ใช้งาน (Username) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={userForm.username}
                   onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-300"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
                   placeholder="เช่น somsak_bkk"
                   required
                 />
@@ -1125,13 +1622,13 @@ export default function MasterManagementScreen({ onBack }) {
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  ชื่อ-นามสกุล (Full Name) <span className="text-rose-400">*</span>
+                  ชื่อ-นามสกุล (Full Name) <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={userForm.fullName}
                   onChange={(e) => setUserForm({ ...userForm, fullName: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-300"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
                   placeholder="เช่น นายสมศักดิ์ มั่นคง"
                   required
                 />
@@ -1139,47 +1636,107 @@ export default function MasterManagementScreen({ onBack }) {
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  รหัสผ่านเริ่มต้น <span className="text-rose-400">*</span>
+                  รหัสผ่านเริ่มต้น <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="password"
                   value={userForm.password}
                   onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-300"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
                   required
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  บทบาท (Role) <span className="text-rose-400">*</span>
+                  บทบาทในระบบ (Role) <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={userForm.roleId}
                   onChange={(e) => setUserForm({ ...userForm, roleId: parseInt(e.target.value) })}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
                 >
-                  {roles.map(r => (
-                    <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
-                  ))}
+                  {roles.length === 0 ? (
+                    <option value="">กำลังโหลดบทบาท...</option>
+                  ) : (
+                    roles.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+                    ))
+                  )}
                 </select>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  ขอบเขตสาขา
+                  ขอบเขตสาขาที่เข้าถึงได้ (Branch Scope)
                 </label>
                 <select
                   value={userForm.branchScope}
                   onChange={(e) => setUserForm({ ...userForm, branchScope: e.target.value })}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
                 >
-                  <option value="ALL">🌐 เข้าถึงได้ทุกสาขา (องค์กร)</option>
-                  <option value="SPECIFIC">🎯 เฉพาะสาขาที่กำหนด</option>
+                  <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
+                  <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
                 </select>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              {/* Specific Locations Selection Preview for Create User */}
+              {userForm.branchScope === 'SPECIFIC' && (
+                <div className="space-y-2 pt-1 animate-in fade-in">
+                  <label className="block text-sm font-medium text-slate-700">
+                    เลือกสาขาที่ได้รับอนุญาต:
+                  </label>
+                  <div className="p-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 space-y-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
+                        <Store size={18} />
+                      </div>
+                      <span className="text-sm font-bold text-slate-800">
+                        เลือกแล้ว {userForm.allowedLocationIds?.length || 0} จาก {locations.length} สาขา
+                      </span>
+                    </div>
+
+                    {(userForm.allowedLocationIds?.length || 0) > 0 ? (
+                      <div className="space-y-1.5">
+                        {userForm.allowedLocationIds.slice(0, 2).map(locId => {
+                          const loc = locations.find(l => l.id === locId);
+                          return (
+                            <div
+                              key={locId}
+                              className="px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 truncate shadow-2xs"
+                            >
+                              {loc ? `${loc.code} - ${loc.name}` : `สาขารหัส #${locId}`}
+                            </div>
+                          );
+                        })}
+                        {userForm.allowedLocationIds.length > 2 && (
+                          <div className="text-xs text-slate-400 font-medium pl-1">
+                            + อีก {userForm.allowedLocationIds.length - 2} สาขา
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-slate-400 py-1 pl-1">
+                        ยังไม่ได้เลือกสาขา (แตะปุ่มด้านล่างเพื่อเลือกสาขา)
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenBranchSelector('create')}
+                      className="w-full py-2.5 rounded-xl border border-[#0F6659] text-[#0F6659] hover:bg-[#0F6659] hover:text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 bg-white"
+                    >
+                      <SlidersHorizontal size={15} />
+                      <span>จัดการสาขา</span>
+                    </button>
+                    <p className="text-[11px] text-slate-400 text-center font-normal">
+                      ค้นหาหรือเปลี่ยนรายการสาขาที่อนุญาต
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setShowAddUserModal(false)}
@@ -1199,10 +1756,183 @@ export default function MasterManagementScreen({ onBack }) {
         </ModalWrapper>
       )}
 
+      {/* ── 🏬 SUB-MODAL: MANAGE SPECIFIC BRANCHES (จัดการสาขาที่ได้รับอนุญาต) ── */}
+      {showBranchSelectorModal && (
+        <ModalWrapper onClose={() => setShowBranchSelectorModal(false)} maxWidth="max-w-md sm:max-w-lg">
+          <div className="p-5 sm:p-6 pb-6 sm:pb-8 space-y-4 flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center gap-3 pb-3.5 border-b border-slate-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowBranchSelectorModal(false)}
+                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700 transition-colors cursor-pointer"
+                title="ย้อนกลับ"
+              >
+                <ArrowLeft size={18} />
+              </button>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">จัดการสาขาที่ได้รับอนุญาต</h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  เลือกแล้ว {tempBranchLocationIds.length} จาก {locations.length} สาขา
+                </p>
+              </div>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative shrink-0">
+              <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="ค้นหาชื่อสาขา หรือรหัสสาขา"
+                value={branchSearchTerm}
+                onChange={(e) => setBranchSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-[#0F6659] outline-none transition-colors"
+              />
+            </div>
+
+            {/* Filters Row */}
+            <div className="flex items-center gap-2.5 shrink-0">
+              {/* Region Filter Dropdown */}
+              <div className="relative flex-1">
+                <select
+                  value={branchRegionFilter}
+                  onChange={(e) => setBranchRegionFilter(e.target.value)}
+                  className={`w-full py-2.5 pl-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-bold outline-none cursor-pointer appearance-none transition-all ${
+                    branchRegionFilter !== 'ALL'
+                      ? 'border-[#0F6659] text-[#0F6659] bg-emerald-50/40 ring-1 ring-[#0F6659]/20'
+                      : 'border-[#0F6659] text-[#0F6659] bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <option value="ALL">พื้นที่ทั้งหมด</option>
+                  {uniqueRegions.map(reg => (
+                    <option key={reg} value={reg}>{reg}</option>
+                  ))}
+                </select>
+                <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#0F6659] pointer-events-none" />
+              </div>
+
+              {/* Show Selected Only Button */}
+              <button
+                type="button"
+                onClick={() => setBranchShowSelectedOnly(!branchShowSelectedOnly)}
+                className={`flex-1 py-2.5 px-3.5 rounded-xl border text-xs sm:text-sm font-bold transition-all cursor-pointer text-center ${
+                  branchShowSelectedOnly
+                    ? 'border-[#0F6659] text-[#0F6659] bg-emerald-50 ring-1 ring-[#0F6659]/20'
+                    : 'border-slate-300 text-slate-600 bg-white hover:bg-slate-50'
+                }`}
+              >
+                เฉพาะที่เลือก
+              </button>
+            </div>
+
+            {/* Subheader: Item count & Select All */}
+            <div className="flex items-center justify-between pt-1 pb-0.5 text-xs text-slate-500 font-medium shrink-0">
+              <span>สาขาทั้งหมด {filteredBranchLocations.length} รายการ</span>
+              <button
+                type="button"
+                onClick={handleToggleSelectAllBranches}
+                className="font-bold text-[#0F6659] hover:underline cursor-pointer"
+              >
+                {isAllFilteredSelected ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
+              </button>
+            </div>
+
+            {/* Scrollable Grouped Branch List */}
+            <div className="space-y-3 overflow-y-auto flex-1 pr-1 pb-1">
+              {Object.keys(groupedLocations).length === 0 ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Store size={32} className="mx-auto mb-2 opacity-40" />
+                  <p className="text-sm font-medium">ไม่พบสาขาที่ตรงกับเงื่อนไขการค้นหา</p>
+                </div>
+              ) : (
+                Object.entries(groupedLocations).map(([region, locList]) => {
+                  const isCollapsed = !!collapsedRegions[region];
+                  return (
+                    <div key={region} className="space-y-2">
+                      {/* Region Header Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => toggleRegionCollapse(region)}
+                        className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/90 hover:bg-slate-100 border border-slate-200/80 cursor-pointer transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Store size={18} className="text-[#0F6659]" />
+                          <span className="text-sm font-bold text-slate-800">{region} ({locList.length})</span>
+                        </div>
+                        {isCollapsed ? (
+                          <ChevronDown size={18} className="text-slate-400" />
+                        ) : (
+                          <ChevronUp size={18} className="text-slate-400" />
+                        )}
+                      </button>
+
+                      {/* Region Branch Cards */}
+                      {!isCollapsed && (
+                        <div className="space-y-2">
+                          {locList.map((loc) => {
+                            const isSelected = tempBranchLocationIds.includes(loc.id);
+                            return (
+                              <div
+                                key={loc.id}
+                                onClick={() => toggleBranchSelection(loc.id)}
+                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between bg-white ${
+                                  isSelected
+                                    ? 'border-[#0F6659] ring-1 ring-[#0F6659]/20 shadow-2xs'
+                                    : 'border-slate-200 hover:border-slate-300'
+                                }`}
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <div className="text-xs font-bold text-emerald-800 font-mono">{loc.code}</div>
+                                  <div className="text-sm font-bold text-slate-900 truncate mt-0.5">{loc.name}</div>
+                                </div>
+                                <div className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
+                                  isSelected
+                                    ? 'bg-[#0F6659] text-white shadow-2xs'
+                                    : 'border-2 border-slate-300 bg-white'
+                                }`}>
+                                  {isSelected && <Check size={16} strokeWidth={3} />}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Bottom Action Footer */}
+            <div className="flex items-center justify-between pt-4 pb-2 sm:pb-3 border-t border-slate-100 shrink-0 bg-white">
+              <span className="text-sm font-normal text-slate-800">
+                เลือกแล้ว {tempBranchLocationIds.length} สาขา
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowBranchSelectorModal(false)}
+                  className="text-sm font-bold text-slate-600 hover:text-slate-900 cursor-pointer px-2 py-2"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveBranchSelection}
+                  className="px-5 py-2.5 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all"
+                >
+                  บันทึก
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
+
       {/* 3. MODAL: EDIT LOCATION */}
       {editLocation && (
         <ModalWrapper onClose={() => setEditLocation(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1241,9 +1971,13 @@ export default function MasterManagementScreen({ onBack }) {
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, locationTypeId: parseInt(e.target.value) })}
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
                   >
-                    {locationTypes.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
+                    {locationTypes.length === 0 ? (
+                      <option value="">กำลังโหลดประเภทสถานที่...</option>
+                    ) : (
+                      locationTypes.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>
@@ -1307,7 +2041,7 @@ export default function MasterManagementScreen({ onBack }) {
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
                   >
                     <option value="">-- ไม่ระบุ --</option>
-                    {users.filter(u => u.roleCode === 'AUDITEE' || u.roleId === 3 || u.role?.code === 'AUDITEE').map(u => (
+                    {users.filter(u => u.roleCode === 'AUDITEE' || u.role?.code === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
                       <option key={u.id} value={u.id}>{u.fullName}</option>
                     ))}
                   </select>
@@ -1339,7 +2073,7 @@ export default function MasterManagementScreen({ onBack }) {
                 </button>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setEditLocation(null)}
@@ -1362,7 +2096,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 4. MODAL: CREATE LOCATION */}
       {showAddLocationModal && (
         <ModalWrapper onClose={() => setShowAddLocationModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1399,9 +2133,13 @@ export default function MasterManagementScreen({ onBack }) {
                     onChange={(e) => setLocationForm({ ...locationForm, locationTypeId: parseInt(e.target.value) })}
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
                   >
-                    {locationTypes.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
+                    {locationTypes.length === 0 ? (
+                      <option value="">กำลังโหลดประเภทสถานที่...</option>
+                    ) : (
+                      locationTypes.map(t => (
+                        <option key={t.id} value={t.id}>{t.name}</option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>
@@ -1459,14 +2197,14 @@ export default function MasterManagementScreen({ onBack }) {
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
                   >
                     <option value="">-- ไม่ระบุ --</option>
-                    {users.filter(u => u.role?.code === 'AUDITEE' || u.roleId === 3).map(u => (
+                    {users.filter(u => u.role?.code === 'AUDITEE' || u.roleCode === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
                       <option key={u.id} value={u.id}>{u.fullName}</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setShowAddLocationModal(false)}
@@ -1489,7 +2227,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 5. MODAL: EDIT LOCATION TYPE */}
       {editType && (
         <ModalWrapper onClose={() => setEditType(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1542,7 +2280,7 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setEditType(null)}
@@ -1565,7 +2303,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 6. MODAL: CREATE LOCATION TYPE */}
       {showAddTypeModal && (
         <ModalWrapper onClose={() => setShowAddTypeModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1618,7 +2356,7 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setShowAddTypeModal(false)}
@@ -1641,7 +2379,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 7. MODAL: EDIT ROLE */}
       {editRole && (
         <ModalWrapper onClose={() => setEditRole(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center">
@@ -1736,7 +2474,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 8. MODAL: CREATE ROLE */}
       {showAddRoleModal && (
         <ModalWrapper onClose={() => setShowAddRoleModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1789,7 +2527,7 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              <div className="flex gap-3 pt-4 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-3 pt-4 pb-2 border-t border-slate-100 shrink-0 bg-white">
                 <button
                   type="button"
                   onClick={() => setShowAddRoleModal(false)}

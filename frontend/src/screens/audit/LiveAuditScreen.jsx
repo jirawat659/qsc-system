@@ -440,70 +440,6 @@ export default function LiveAuditScreen({
           onBack={onClearPlan}
         />
 
-        {/* 🌟 UNIFIED AUDITOR STATUS BAR (สไตล์เดียวกับหน้าภาพรวม) */}
-        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
-                สถานะระบบตรวจและพิกัด GPS
-              </h3>
-              <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                <Navigation size={11} /> GPS ทำงานปกติ
-              </span>
-            </div>
-            <span className="text-xs font-bold text-slate-400">
-              ผู้ตรวจ: {auditorName}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-3 divide-x divide-slate-100 pt-0.5">
-            <div className="px-2 sm:px-4 py-1 text-center flex flex-col justify-between gap-1">
-              <div className="flex items-center justify-center gap-1 text-xs font-bold text-slate-500">
-                <Store size={14} className="text-[#0F6659] shrink-0" />
-                <span>สถานที่ทั้งหมด</span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-slate-900 leading-tight" style={{ fontFamily: mono }}>
-                {(locations || []).length} <span className="text-xs font-bold text-slate-400">แห่ง</span>
-              </div>
-              <div>
-                <span className="inline-block text-[10px] sm:text-[11px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-                  เรียงตามระยะทางใกล้สุด
-                </span>
-              </div>
-            </div>
-
-            <div className="px-2 sm:px-4 py-1 text-center flex flex-col justify-between gap-1">
-              <div className="flex items-center justify-center gap-1 text-xs font-bold text-slate-500">
-                <Clock size={14} className="text-amber-600 shrink-0" />
-                <span>ตรวจค้างอยู่ (Draft)</span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-amber-900 leading-tight" style={{ fontFamily: mono }}>
-                {draftCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
-              </div>
-              <div>
-                <span className="inline-block text-[10px] sm:text-[11px] font-bold text-amber-900 bg-amber-100/70 px-2 py-0.5 rounded-md">
-                  {draftCount > 0 ? "ตรวจต่อได้ทันที" : "ไม่มีงานค้าง"}
-                </span>
-              </div>
-            </div>
-
-            <div className="px-2 sm:px-4 py-1 text-center flex flex-col justify-between gap-1">
-              <div className="flex items-center justify-center gap-1 text-xs font-bold text-slate-500">
-                <ShieldCheck size={14} className="text-emerald-700 shrink-0" />
-                <span>เกณฑ์ผ่าน</span>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-emerald-800 leading-tight" style={{ fontFamily: mono }}>
-                85%
-              </div>
-              <div>
-                <span className="inline-block text-[10px] sm:text-[11px] font-bold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-md">
-                  มาตรฐาน 5 ดาว
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Search Box */}
         <div className="relative">
           <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -569,8 +505,8 @@ export default function LiveAuditScreen({
                     </div>
 
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
-                        {u.locationType === 'Office' ? '🏢 สำนักงาน' : u.locationType === 'Plant' ? '🏭 โรงงาน' : '🏪 สาขา'} · {u.region}
+                      <span className="text-xs font-medium px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
+                        {((u.locationType?.code === 'Office' || u.locationType === 'Office') ? '🏢 สำนักงาน' : (u.locationType?.code === 'Plant' || u.locationType === 'Plant') ? '🏭 โรงงาน' : '🏪 สาขา')} · {u.region}
                       </span>
                       <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-emerald-100 text-emerald-800 flex items-center gap-1">
                         <Navigation size={11} /> {distLabel}
@@ -769,23 +705,23 @@ export default function LiveAuditScreen({
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-xs font-black text-slate-400">#{idx + 1}</span>
+                    <span className="text-xs font-semibold text-slate-400">#{idx + 1}</span>
                     {q.isCritical && (
-                      <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">
                         🚨 จุดวิกฤต (Critical)
                       </span>
                     )}
                     {isNa ? (
-                      <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 border border-slate-300">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 border border-slate-300">
                         ⚪ ข้าม (N/A: ไม่คิดคะแนน)
                       </span>
                     ) : (
-                      <span className="text-[10.5px] font-bold text-slate-400">
+                      <span className="text-[11px] font-normal text-slate-400">
                         คะแนนเต็ม {q.fullScore || 10}
                       </span>
                     )}
                   </div>
-                  <h4 className={`text-sm sm:text-base font-bold leading-snug ${isNa ? "text-slate-500 line-through" : "text-slate-900"}`}>
+                  <h4 className={`text-sm sm:text-base font-medium leading-snug ${isNa ? "text-slate-500 line-through" : "text-slate-900"}`}>
                     {q.questionText || q.text}
                   </h4>
                 </div>
@@ -835,7 +771,7 @@ export default function LiveAuditScreen({
                         return next;
                       });
                     }}
-                    className={`py-3 rounded-2xl text-xs sm:text-sm font-extrabold border cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1 ${
+                    className={`py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold border cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1 ${
                       answers[q.id] === "yes" || answers[q.id] === true
                         ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
                         : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'

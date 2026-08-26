@@ -67,6 +67,33 @@ export default function DashboardScreen({ role, isDesktop }) {
     : 1;
   const scoped = role === "AUDITEE";
   const [periodFilter, setPeriodFilter] = useState("month"); // 'month' | 'last_month' | '3m' | '6m' | 'ytd'
+
+  // 🌟 Dynamic Current Thai Month & Year labels
+  const { currentMonthLabel, lastMonthLabel, currentYearLabel, currentMonthFullLabel } = useMemo(() => {
+    const now = new Date();
+    const THAI_MONTHS_SHORT = [
+      "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+      "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ];
+    const THAI_MONTHS_FULL = [
+      "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+      "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ];
+    const thaiYear = now.getFullYear() + 543;
+    const curMonth = `${THAI_MONTHS_SHORT[now.getMonth()]} ${thaiYear}`;
+    const curMonthFull = `${THAI_MONTHS_FULL[now.getMonth()]} ${thaiYear}`;
+
+    const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthThaiYear = lastMonthDate.getFullYear() + 543;
+    const prevMonth = `${THAI_MONTHS_SHORT[lastMonthDate.getMonth()]} ${lastMonthThaiYear}`;
+
+    return {
+      currentMonthLabel: curMonth,
+      currentMonthFullLabel: curMonthFull,
+      lastMonthLabel: prevMonth,
+      currentYearLabel: `ทั้งปี (YTD ${thaiYear})`
+    };
+  }, []);
   const [viewType, setViewType] = useState("history"); // 'table' | 'history' | 'chart'
   const [rankMode, setRankMode] = useState("top5"); // 'top5' | 'bottom5'
   const [leaderboardFilter, setLeaderboardFilter] = useState("all"); // 'all' | 'top5' | 'risk' | 'bkk' | 'north' | 'east'
@@ -111,16 +138,41 @@ export default function DashboardScreen({ role, isDesktop }) {
   const allAuditLogs = useMemo(() => {
     let logs = [];
     if (auditRecords && auditRecords.length > 0) {
-      logs = auditRecords.map(r => ({
-        unitName: r.location?.name || r.locationName || "สาขาสยาม",
-        unitFullName: r.location?.fullName || r.locationName || "สาขาสยามพารากอน",
-        region: r.location?.region || "กรุงเทพและปริมณฑล",
-        date: r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH') : "วันนี้",
-        score: Math.round(r.percentageScore || 0),
-        auditor: r.auditorName || "สมชาย ใจดี",
-        status: r.isPassed ? "pass" : "fail",
-        record: r
-      }));
+      logs = auditRecords.map(r => {
+        const branchName = r.locationName || r.location?.name || "สาขา";
+        const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "สาขา";
+        const dateFormatted = r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "วันนี้";
+        const scoreVal = Math.round(r.percentageScore !== undefined ? r.percentageScore : (r.score || 0));
+        const auditorVal = r.auditorName || r.primaryAuditor?.fullName || r.auditor || "สมชาย ใจดี";
+        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core)";
+
+        return {
+          unitName: branchName,
+          unitFullName: branchFullName,
+          region: r.locationRegion || r.location?.region || "กรุงเทพฯ และปริมณฑล",
+          date: dateFormatted,
+          score: scoreVal,
+          auditor: auditorVal,
+          form: formVal,
+          status: r.isPassed ? "pass" : "fail",
+          record: {
+            ...r,
+            unitName: branchName,
+            unitFullName: branchFullName,
+            score: scoreVal,
+            percentageScore: scoreVal,
+            date: dateFormatted,
+            auditDate: r.auditDate,
+            auditor: auditorVal,
+            auditorName: auditorVal,
+            form: formVal,
+            surveyFormTitle: formVal,
+            status: r.isPassed ? "pass" : "fail",
+            isPassed: r.isPassed,
+            hasCriticalDefect: r.hasCriticalDefect
+          }
+        };
+      });
     } else {
       activeLocations.forEach(u => {
         (u.history || []).forEach(h => {
@@ -203,27 +255,28 @@ export default function DashboardScreen({ role, isDesktop }) {
         {/* Top Header Row */}
         <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
-            <h2 className="text-base font-extrabold text-slate-800">
-              ภาพรวมคุณภาพเดือนนี้
+            <h2 className="text-base font-bold text-slate-800">
+              {periodFilter === "month" ? `ภาพรวมคุณภาพ (${currentMonthLabel})` : periodFilter === "last_month" ? `ภาพรวมคุณภาพ (${lastMonthLabel})` : periodFilter === "ytd" ? "ภาพรวมคุณภาพทั้งปี" : "ภาพรวมคุณภาพตามช่วงเวลา"}
             </h2>
-            <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
               {passRate >= 80 ? "✓ มาตรฐานดีเยี่ยม" : "⚠️ ต้องปรับปรุง"}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 cursor-pointer transition-colors">
+          <div className="relative flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 cursor-pointer transition-colors shadow-2xs group">
             <CalendarDays size={14} className="text-[#0F6659] shrink-0" />
             <select
               value={periodFilter}
               onChange={(e) => setPeriodFilter(e.target.value)}
-              className="bg-transparent text-xs font-bold outline-none cursor-pointer text-slate-700"
+              className="bg-transparent text-xs font-semibold outline-none cursor-pointer text-slate-700 appearance-none pr-5"
             >
-              <option value="month">เดือนนี้ (ส.ค. 2569)</option>
-              <option value="last_month">เดือนก่อน (ก.ค. 2569)</option>
+              <option value="month">เดือนนี้ ({currentMonthLabel})</option>
+              <option value="last_month">เดือนก่อน ({lastMonthLabel})</option>
               <option value="3m">ย้อนหลัง 3 เดือน</option>
               <option value="6m">ย้อนหลัง 6 เดือน</option>
-              <option value="ytd">ทั้งปี (YTD 2569)</option>
+              <option value="ytd">{currentYearLabel}</option>
             </select>
+            <ChevronDown size={13} className="text-slate-400 pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 group-hover:text-slate-600 transition-colors" />
           </div>
         </div>
 
@@ -233,14 +286,14 @@ export default function DashboardScreen({ role, isDesktop }) {
           <div className="col-span-5 flex items-center gap-4 pr-5 border-r border-slate-200/80">
             <ScoreRing score={avgScore} size={86} strokeWidth={6} />
             <div className="min-w-0 flex-1 space-y-1">
-              <div className="text-xs sm:text-sm font-extrabold text-slate-500">
+              <div className="text-xs sm:text-sm font-semibold text-slate-500">
                 คะแนนเฉลี่ยภาพรวม
               </div>
-              <div className="text-3xl sm:text-4xl font-black text-slate-900 leading-none tracking-tight" style={{ fontFamily: mono }}>
+              <div className="text-3xl sm:text-4xl font-bold text-slate-900 leading-none tracking-tight" style={{ fontFamily: mono }}>
                 {avgScore}%
               </div>
               <div>
-                <span className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-extrabold text-[#0F6659] bg-emerald-50 border border-emerald-200/80 px-2.5 py-1 rounded-xl shadow-2xs">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0F6659] bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-lg shadow-2xs">
                   <CheckCircle2 size={13} className="text-[#0F6659]" />
                   <span>{avgScore >= 85 ? "ผ่านเกณฑ์มาตรฐาน (≥85%)" : "ต้องปรับปรุง (เกณฑ์ ≥85%)"}</span>
                 </span>
@@ -252,15 +305,15 @@ export default function DashboardScreen({ role, isDesktop }) {
           <div className="col-span-7 grid grid-cols-3 divide-x divide-slate-100">
             {/* Stat 1: ตรวจแล้ว */}
             <div className="px-3 text-center flex flex-col justify-between gap-1.5">
-              <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-600">
+              <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600">
                 <ClipboardCheck size={15} className="text-emerald-700 shrink-0" />
                 <span>สาขาที่ตรวจแล้ว</span>
               </div>
-              <div className="text-2xl lg:text-3xl font-black text-slate-900 leading-tight" style={{ fontFamily: mono }}>
-                {auditedCount} <span className="text-xs font-bold text-slate-400">/ {totalBranches}</span>
+              <div className="text-2xl lg:text-3xl font-bold text-slate-900 leading-tight" style={{ fontFamily: mono }}>
+                {auditedCount} <span className="text-xs font-normal text-slate-400">/ {totalBranches}</span>
               </div>
               <div>
-                <span className="inline-block text-[11px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-2.5 py-0.5 rounded-lg">
+                <span className="inline-block text-[11px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-2 py-0.5 rounded-md">
                   คิดเป็น {Math.round((auditedCount / totalBranches) * 100)}%
                 </span>
               </div>
@@ -268,15 +321,15 @@ export default function DashboardScreen({ role, isDesktop }) {
 
             {/* Stat 2: ผ่านเกณฑ์ */}
             <div className="px-3 text-center flex flex-col justify-between gap-1.5">
-              <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-600">
+              <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600">
                 <Award size={15} className="text-amber-700 shrink-0" />
                 <span>อัตราผ่านเกณฑ์</span>
               </div>
-              <div className="text-2xl lg:text-3xl font-black text-slate-900 leading-tight" style={{ fontFamily: mono }}>
+              <div className="text-2xl lg:text-3xl font-bold text-slate-900 leading-tight" style={{ fontFamily: mono }}>
                 {passRate}%
               </div>
               <div>
-                <span className="inline-block text-[11px] font-extrabold text-amber-900 bg-amber-50 border border-amber-200/60 px-2.5 py-0.5 rounded-lg">
+                <span className="inline-block text-[11px] font-medium text-amber-900 bg-amber-50 border border-amber-200/60 px-2 py-0.5 rounded-md">
                   {passedCount} จาก {totalBranches} สาขา
                 </span>
               </div>
@@ -284,15 +337,15 @@ export default function DashboardScreen({ role, isDesktop }) {
 
             {/* Stat 3: งานค้าง CAP */}
             <div className="px-3 text-center flex flex-col justify-between gap-1.5">
-              <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-600">
+              <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600">
                 <AlertTriangle size={15} className="text-rose-600 shrink-0" />
                 <span>งานค้างส่ง CAP</span>
               </div>
-              <div className="text-2xl lg:text-3xl font-black text-rose-700 leading-tight" style={{ fontFamily: mono }}>
-                {pendingCapCount} <span className="text-xs font-bold text-slate-400">งาน</span>
+              <div className="text-2xl lg:text-3xl font-bold text-rose-700 leading-tight" style={{ fontFamily: mono }}>
+                {pendingCapCount} <span className="text-xs font-normal text-slate-400">งาน</span>
               </div>
               <div>
-                <span className="inline-block text-[11px] font-extrabold text-rose-800 bg-rose-50 border border-rose-200/60 px-2.5 py-0.5 rounded-lg">
+                <span className="inline-block text-[11px] font-medium text-rose-800 bg-rose-50 border border-rose-200/60 px-2 py-0.5 rounded-md">
                   รออนุมัติหลักฐาน
                 </span>
               </div>
@@ -301,14 +354,27 @@ export default function DashboardScreen({ role, isDesktop }) {
         </div>
       </div>
 
-      {/* 📱 MOBILE VIEW: 2 Stacked Horizontal Cards (ตรงตามภาพวาดร่างเป๊ะๆ) */}
+      {/* 📱 MOBILE VIEW: 2 Stacked Horizontal Cards */}
       <div className="block md:hidden space-y-2.5">
         {/* Mobile Header */}
         <div className="flex items-center justify-between px-1">
-          <h2 className="text-sm font-extrabold text-slate-800">ภาพรวมคุณภาพเดือนนี้</h2>
-          <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs text-[11px] font-bold text-slate-700">
-            <CalendarDays size={12} className="text-[#0F6659]" />
-            <span>ส.ค. 2569</span>
+          <h2 className="text-sm font-bold text-slate-800">
+            {periodFilter === "month" ? `ภาพรวมคุณภาพ (${currentMonthLabel})` : periodFilter === "last_month" ? `ภาพรวมคุณภาพ (${lastMonthLabel})` : periodFilter === "ytd" ? "ภาพรวมคุณภาพทั้งปี" : "ภาพรวมคุณภาพตามช่วงเวลา"}
+          </h2>
+          <div className="relative flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs hover:border-[#0F6659] transition-colors cursor-pointer group">
+            <CalendarDays size={12} className="text-[#0F6659] shrink-0" />
+            <select
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value)}
+              className="bg-transparent text-[11px] font-semibold text-slate-700 outline-none cursor-pointer appearance-none pr-4.5"
+            >
+              <option value="month">{currentMonthLabel} (เดือนนี้)</option>
+              <option value="last_month">{lastMonthLabel} (เดือนก่อน)</option>
+              <option value="3m">ย้อนหลัง 3 เดือน</option>
+              <option value="6m">ย้อนหลัง 6 เดือน</option>
+              <option value="ytd">{currentYearLabel}</option>
+            </select>
+            <ChevronDown size={11} className="text-slate-400 pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 group-hover:text-slate-600 transition-colors" />
           </div>
         </div>
 
@@ -317,10 +383,10 @@ export default function DashboardScreen({ role, isDesktop }) {
           <ScoreRing score={avgScore} size={48} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-extrabold text-slate-400">คะแนนเฉลี่ยภาพรวม</span>
-              <span className="text-xs font-black text-slate-900" style={{ fontFamily: mono }}>{avgScore}%</span>
+              <span className="text-xs font-normal text-slate-500">คะแนนเฉลี่ยภาพรวม</span>
+              <span className="text-xs font-bold text-slate-900" style={{ fontFamily: mono }}>{avgScore}%</span>
             </div>
-            <div className="text-xs font-bold text-emerald-800 mt-0.5 truncate">
+            <div className="text-xs font-medium text-emerald-800 mt-0.5 truncate">
               ✓ ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
             </div>
           </div>
@@ -333,14 +399,14 @@ export default function DashboardScreen({ role, isDesktop }) {
           </div>
           <div className="min-w-0 flex-1 grid grid-cols-2 gap-2">
             <div>
-              <div className="text-[11px] font-bold text-slate-400">ตรวจแล้ว</div>
-              <div className="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5" style={{ fontFamily: mono }}>
+              <div className="text-[11px] font-normal text-slate-500">ตรวจแล้ว</div>
+              <div className="text-xs sm:text-sm font-bold text-slate-900 mt-0.5" style={{ fontFamily: mono }}>
                 {auditedCount} / {totalBranches} สาขา
               </div>
             </div>
             <div>
-              <div className="text-[11px] font-bold text-slate-400">งานค้างส่ง CAP</div>
-              <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5" style={{ fontFamily: mono }}>
+              <div className="text-[11px] font-normal text-slate-500">งานค้างส่ง CAP</div>
+              <div className="text-xs sm:text-sm font-bold text-rose-700 mt-0.5" style={{ fontFamily: mono }}>
                 {pendingCapCount} รายการ
               </div>
             </div>
@@ -451,7 +517,7 @@ export default function DashboardScreen({ role, isDesktop }) {
 
                 return (
                   <button
-                    key={u.name}
+                    key={u.name || idx}
                     type="button"
                     onClick={() => setViewUnit(u)}
                     className="w-full rounded-2xl p-3 sm:p-3.5 bg-white border border-slate-200 hover:border-emerald-500 hover:shadow-xs transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 shadow-2xs"
@@ -491,7 +557,7 @@ export default function DashboardScreen({ role, isDesktop }) {
             </div>
 
             <div className="pt-2 text-center text-[11px] font-semibold text-slate-400">
-              แสดง Top 5 บนภาพรวม · ดูข้อมูลทั้งหมดได้ที่ ระบบ → รายงานรวม
+              แสดง Top 5 บนภาพรวม · ดูข้อมูลทั้งหมดได้ที่ เพิ่มเติม → สาขาทั้งหมด
             </div>
           </div>
 
@@ -543,7 +609,7 @@ export default function DashboardScreen({ role, isDesktop }) {
             </div>
 
             <div className="pt-2 text-center text-[11px] font-semibold text-slate-400">
-              แสดง 5 รอบล่าสุด · ดูผลตรวจรายครั้งทั้งหมดได้ที่ ระบบ → รายงานรวม
+              แสดง 5 รอบล่าสุด · ดูผลตรวจรายครั้งทั้งหมดได้ที่ เพิ่มเติม → รายงานผลการตรวจ
             </div>
           </div>
 

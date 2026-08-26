@@ -265,82 +265,144 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
 
       {/* 🌟 4. Mobile-Friendly Horizontal Scroll Table */}
       <div className="rounded-3xl bg-white border border-slate-200 shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto" style={{ scrollbarWidth: "thin" }}>
-          <table className="w-full min-w-[700px] text-left">
+        <div className="overflow-x-auto custom-tab-scrollbar">
+          <table className="w-full min-w-[780px] text-left border-collapse">
             <thead>
-              <tr className="border-b bg-[#FAF9F5]" style={{ borderColor: c.border }}>
-                <th className="px-4 py-3 text-xs font-bold text-slate-500 whitespace-nowrap bg-[#FAF9F5]" style={{ minWidth: 180 }}>
-                  อันดับ & ชื่อสาขา
+              <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
+                <th className="py-3 px-4 w-[28%]">
+                  <button 
+                    type="button" 
+                    onClick={() => setSortBy(prev => prev === 'name' ? 'score-desc' : 'name')}
+                    className="flex items-center gap-1.5 hover:text-[#0F6659] transition-colors cursor-pointer"
+                  >
+                    <span>อันดับ & ชื่อสาขา</span>
+                    <ArrowUpDown size={13} className="text-slate-400" />
+                  </button>
                 </th>
-                <th className="px-3.5 py-3 text-xs font-bold text-slate-500 text-center whitespace-nowrap" style={{ minWidth: 90 }}>คะแนน</th>
-                <th className="px-3.5 py-3 text-xs font-bold text-slate-500 whitespace-nowrap" style={{ minWidth: 130 }}>ภูมิภาค</th>
-                <th className="px-3.5 py-3 text-xs font-bold text-slate-500 whitespace-nowrap" style={{ minWidth: 120 }}>ตรวจล่าสุด</th>
-                <th className="px-3.5 py-3 text-xs font-bold text-slate-500 whitespace-nowrap" style={{ minWidth: 110 }}>ผู้ตรวจ</th>
-                <th className="px-3.5 py-3 text-xs font-bold text-slate-500 text-center whitespace-nowrap" style={{ minWidth: 100 }}>สถานะ</th>
-                <th className="px-3 py-3" style={{ minWidth: 40 }}></th>
+                <th className="py-3 px-4 w-[12%] text-center">
+                  <button
+                    type="button"
+                    onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-2xs hover:border-[#0F6659] text-xs font-bold text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer"
+                  >
+                    <span>คะแนน</span>
+                    <span className="text-[10px] text-slate-400">▽</span>
+                  </button>
+                </th>
+                <th className="py-3 px-4 w-[20%]">ภูมิภาค / ประเภท</th>
+                <th className="py-3 px-4 w-[16%]">
+                  <button 
+                    type="button" 
+                    onClick={() => setSortBy(prev => prev === 'date' ? 'score-desc' : 'date')}
+                    className="flex items-center gap-1 hover:text-[#0F6659] transition-colors cursor-pointer"
+                  >
+                    <span>ตรวจล่าสุด</span>
+                    <ArrowUpDown size={13} className="text-[#0F6659]" />
+                  </button>
+                </th>
+                <th className="py-3 px-4 w-[12%]">ผู้ตรวจประเมิน</th>
+                <th className="py-3 px-4 w-[12%] text-center pr-6">สถานะ</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100 bg-white">
               {paginatedUnits.map((u, idx) => {
                 const isPassed = u.lastScore >= 85;
                 const isCritical = u.lastScore < 70;
-                const scoreColor = isCritical ? "bg-red-50 text-red-800" : isPassed ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800";
-                const statusLabel = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
-                const statusStyle = isCritical ? "bg-red-100 text-red-700" : isPassed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800";
+
+                const circleColor = isCritical
+                  ? "border-rose-600 text-rose-700"
+                  : isPassed
+                  ? "border-emerald-600 text-emerald-800"
+                  : "border-amber-600 text-amber-800";
+
+                const scorePill = isCritical
+                  ? "bg-rose-50 text-rose-700 border border-rose-200/60"
+                  : isPassed
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                  : "bg-amber-50 text-amber-700 border border-amber-200/60";
+
+                const statusBadge = isCritical
+                  ? "bg-rose-100 text-rose-800"
+                  : isPassed
+                  ? "bg-emerald-100 text-emerald-800"
+                  : "bg-amber-100 text-amber-900";
+
+                const statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
                 const overallIdx = startIndex + idx + 1;
 
                 return (
                   <tr
-                    key={u.name}
+                    key={u.name || idx}
                     onClick={() => onSelectUnit(u)}
-                    className={`border-b cursor-pointer transition-colors hover:bg-emerald-50/50 active:bg-emerald-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'}`}
-                    style={{ borderColor: c.border }}
+                    className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                   >
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-xs font-bold text-slate-400 w-4 text-center shrink-0">
+                    {/* 1. อันดับ & ชื่อสาขา */}
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
                           {overallIdx}
                         </span>
-                        <ScoreRing score={u.lastScore} size={34} />
+                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
+                          {u.lastScore}
+                        </div>
                         <div className="min-w-0">
-                          <div className="text-xs sm:text-sm font-bold text-slate-900 truncate hover:text-[#0F6659] transition-colors">{u.name}</div>
-                          <div className="text-xs text-slate-400 truncate">{u.fullName}</div>
+                          <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
+                            {u.name}
+                          </div>
+                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                            {u.fullName || u.region}
+                          </div>
                         </div>
                       </div>
                     </td>
 
-                    <td className="px-3.5 py-3.5 text-center">
-                      <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold ${scoreColor}`} style={{ fontFamily: mono }}>
+                    {/* 2. คะแนน */}
+                    <td className="py-3.5 px-4 text-center">
+                      <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
                         {u.lastScore}%
                       </span>
                     </td>
 
-                    <td className="px-3.5 py-3.5">
-                      <span className="text-xs font-medium text-slate-700">{u.region}</span>
+                    {/* 3. ภูมิภาค */}
+                    <td className="py-3.5 px-4">
+                      <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        {u.region}
+                      </div>
+                      <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                        {u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "สาขามาตรฐาน"}
+                      </div>
                     </td>
 
-                    <td className="px-3.5 py-3.5">
-                      <span className="text-xs font-medium text-slate-600">{u.history[0]?.date || "-"}</span>
+                    {/* 4. วันที่ตรวจล่าสุด */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
+                      {u.history && u.history[0]?.date ? u.history[0].date : (u.lastAuditDate ? new Date(u.lastAuditDate).toLocaleDateString('th-TH') : "-")}
                     </td>
 
-                    <td className="px-3.5 py-3.5">
-                      <span className="text-xs font-medium text-slate-600 truncate block max-w-[110px]">{u.history[0]?.auditor || "-"}</span>
+                    {/* 5. ผู้ตรวจประเมิน */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
+                      {u.history && u.history[0]?.auditor ? u.history[0].auditor : (u.auditorName || "สมชาย ใจดี")}
                     </td>
 
-                    <td className="px-3.5 py-3.5 text-center">
-                      <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-lg whitespace-nowrap ${statusStyle}`}>
-                        {statusLabel}
-                      </span>
-                    </td>
-
-                    <td className="px-3.5 py-3.5 text-center">
-                      <ChevronRight size={16} className="text-slate-400" />
+                    {/* 6. สถานะ & Arrow */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-center pr-5">
+                      <div className="flex items-center justify-end gap-3">
+                        <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${statusBadge}`}>
+                          {statusText}
+                        </span>
+                        <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+
+          {paginatedUnits.length === 0 && (
+            <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white">
+              ไม่พบข้อมูลสาขาที่ตรงกับคำค้นหา
+            </div>
+          )}
         </div>
 
         {/* 🌟 5. Pagination & Summary Footer */}

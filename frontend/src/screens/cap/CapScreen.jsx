@@ -163,10 +163,10 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD" }) {
                     {item.title}
                   </h3>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700">
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
                       {item.unit}
                     </span>
-                    <span className="text-xs font-medium text-slate-500">
+                    <span className="text-xs font-normal text-slate-500">
                       ครบกำหนด {item.deadline}
                     </span>
                   </div>
@@ -176,22 +176,20 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD" }) {
               {/* Right Status Badge & Arrow */}
               <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
                 <span
-                  className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold px-3 py-1.5 rounded-xl border"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-lg border"
                   style={{ background: st.bg, color: st.fg, borderColor: `${st.fg}40` }}
                 >
                   <span className="w-2 h-2 rounded-full" style={{ background: st.fg }} />
                   {st.label}
                 </span>
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-slate-50 text-slate-400 group-hover:text-emerald-800 group-hover:bg-emerald-50 transition-all">
-                  <ChevronRight size={18} />
-                </div>
+                <ChevronRight size={18} className="text-slate-400 group-hover:text-slate-700 transition-colors" />
               </div>
             </button>
           );
         })}
 
         {filteredCapList.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-slate-200 text-sm text-slate-400 font-bold">
+          <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-slate-200 text-sm text-slate-400 font-medium">
             ไม่พบรายการส่งมอบงานแก้ไขที่ตรงกับคำค้นหา
           </div>
         )}

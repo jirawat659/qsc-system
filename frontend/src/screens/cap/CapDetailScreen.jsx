@@ -2,20 +2,38 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   MessageSquare, Camera, Send, Check, X, AlertTriangle, Clock,
   ChevronLeft, ChevronRight, Info, ShieldAlert, Store, Calendar,
-  CheckCircle2, Sparkles, ImagePlus, User, FileText, ArrowLeft
+  CheckCircle2, Sparkles, ImagePlus, User, FileText, ArrowLeft, Loader2
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { CAP_STATUS_MAP } from "../../config/constants";
 import Header from "../../shared/Header";
 import ModalWrapper from "../../shared/ModalWrapper";
+import api from "../../config/api";
 
 export default function CapDetailScreen({ item, onBack }) {
   const [reply, setReply] = useState("");
   const [hasPhoto, setHasPhoto] = useState(false);
+  const [photoBase64, setPhotoBase64] = useState(null);
   const [viewingPhoto, setViewingPhoto] = useState(null);
   const [showInfoDrawer, setShowInfoDrawer] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [capDetail, setCapDetail] = useState(null);
   const chatContainerRef = useRef(null);
+
+  const loadCapDetail = async () => {
+    if (!item?.id) return;
+    try {
+      const res = await api.get(`/cap/${item.id}`);
+      if (res.data) setCapDetail(res.data);
+    } catch (e) {
+      console.warn("Could not fetch CAP detail from API:", e);
+    }
+  };
+
+  useEffect(() => {
+    loadCapDetail();
+  }, [item?.id]);
 
   const [timeline, setTimeline] = useState(() => {
     if (item.timeline && item.timeline.length > 0) {
@@ -28,35 +46,47 @@ export default function CapDetailScreen({ item, onBack }) {
     return [
       {
         who: "สมชาย ใจดี (ผู้ตรวจ)",
-        text: "ตรวจพบคราบไขมันสะสมหลังเตาปรุงอาหาร ไม่ผ่านเกณฑ์มาตรฐาน SOP ข้อ 1 กรุณาขัดล้างทำความสะอาดและส่งหลักฐาน",
+        text: item.desc || "ตรวจพบคราบไขมันสะสมหลังเตาปรุงอาหาร ไม่ผ่านเกณฑ์มาตรฐาน SOP ข้อ 1 กรุณาขัดล้างทำความสะอาดและส่งหลักฐาน",
         time: "18 ส.ค. 09:30 น.",
         isMe: false,
         photo: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60"
-      },
-      {
-        who: "ผู้จัดการสาขา (สาขาสยาม)",
-        text: "รับทราบปัญหาและแนวทาง SOP กำลังจัดทีมทำความสะอาดกะค่ำวันนี้ครับ",
-        time: "18 ส.ค. 11:15 น.",
-        isMe: true,
-        photo: null
-      },
+      }
     ];
   });
 
   const st = CAP_STATUS_MAP[item.status] || CAP_STATUS_MAP.pending;
 
-  const send = () => {
+  const send = async () => {
     if (!reply.trim() && !hasPhoto) return;
+    setIsSending(true);
+
     const newMsg = {
       who: "คุณ (ผู้จัดการสาขา)",
       text: reply.trim() || "ส่งรูปภาพหลักฐานการดำเนินการแก้ไขเรียบร้อยแล้วครับ",
       time: "เมื่อสักครู่",
       isMe: true,
-      photo: hasPhoto ? "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=500&auto=format&fit=crop&q=60" : null
+      photo: hasPhoto ? (photoBase64 || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=500&auto=format&fit=crop&q=60") : null
     };
+
+    try {
+      if (item?.id && typeof item.id === 'number') {
+        if (reply.trim()) {
+          await api.post(`/cap/${item.id}/comment`, { message: reply.trim() });
+        }
+        if (hasPhoto && photoBase64) {
+          await api.post(`/cap/${item.id}/evidence`, { base64Data: photoBase64 });
+        }
+        await loadCapDetail();
+      }
+    } catch (err) {
+      console.warn("Could not post comment/evidence to API:", err);
+    }
+
     setTimeline(prev => [...prev, newMsg]);
     setReply("");
     setHasPhoto(false);
+    setPhotoBase64(null);
+    setIsSending(false);
   };
 
   // Ensure page stays at top on load, and scroll ONLY inside the chat container
@@ -342,15 +372,42 @@ export default function CapDetailScreen({ item, onBack }) {
           </div>
 
           {/* 🌟 APPROVE & CLOSE CAP BUTTON UNDER CHAT */}
-          {item.status !== "done" && (
-            <div className="pt-2 border-t border-slate-100">
+          {item.status !== "approved" && item.status !== "CLOSED" && (
+            <div className="pt-2 border-t border-slate-100 flex gap-2">
               <button 
                 type="button"
-                onClick={onBack}
-                className="w-full py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
+                onClick={async () => {
+                  if (window.confirm("คุณต้องการตีกลับเพื่อให้สาขาแก้ไขเพิ่มเติมใช่หรือไม่?")) {
+                    try {
+                      if (item?.id && typeof item.id === 'number') {
+                        await api.put(`/cap/${item.id}/status`, { status: "REJECTED" });
+                      }
+                    } catch (e) { console.warn(e); }
+                    onBack();
+                  }
+                }}
+                className="flex-1 py-3 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 active:scale-95 transition-all"
               >
-                <Check size={18} />
-                <span>อนุมัติและปิดงานแก้ไข (Approve CAP)</span>
+                <X size={15} />
+                <span>สั่งแก้ไขซ้ำ (Reject)</span>
+              </button>
+
+              <button 
+                type="button"
+                onClick={async () => {
+                  if (window.confirm("คุณต้องการอนุมัติและปิดงานแก้ไข (CAP) นี้ใช่หรือไม่?")) {
+                    try {
+                      if (item?.id && typeof item.id === 'number') {
+                        await api.put(`/cap/${item.id}/status`, { status: "CLOSED" });
+                      }
+                    } catch (e) { console.warn(e); }
+                    onBack();
+                  }
+                }}
+                className="flex-2 py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 cursor-pointer text-white active:scale-95 bg-[#0F6659] hover:bg-emerald-800 transition-all shadow-xs"
+              >
+                <Check size={16} />
+                <span>อนุมัติและปิดงาน (Approve)</span>
               </button>
             </div>
           )}
