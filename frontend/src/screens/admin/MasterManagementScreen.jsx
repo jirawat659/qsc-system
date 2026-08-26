@@ -25,6 +25,7 @@ export default function MasterManagementScreen({ onBack }) {
   // Filter & Search
   const [searchTerm, setSearchTerm] = useState('');
   const [userStatusFilter, setUserStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'INACTIVE'
+  const [userRoleFilter, setUserRoleFilter] = useState('ALL'); // 'ALL' | roleId
   const [locationStatusFilter, setLocationStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'INACTIVE'
 
   // ── Modals State ──
@@ -370,21 +371,48 @@ export default function MasterManagementScreen({ onBack }) {
 
   // ── Filtered lists ──
   const filteredUsers = useMemo(() => {
-    let list = users;
-    if (userStatusFilter === 'ACTIVE') list = list.filter(u => u.isActive);
-    if (userStatusFilter === 'INACTIVE') list = list.filter(u => !u.isActive);
+    let list = [...users];
 
-    if (!searchTerm.trim()) return list;
-    const q = searchTerm.toLowerCase();
-    return list.filter(u =>
-      u.username?.toLowerCase().includes(q) ||
-      u.fullName?.toLowerCase().includes(q) ||
-      u.role?.name?.toLowerCase().includes(q) ||
-      u.role?.code?.toLowerCase().includes(q) ||
-      u.roleName?.toLowerCase().includes(q) ||
-      u.roleCode?.toLowerCase().includes(q)
-    );
-  }, [users, searchTerm, userStatusFilter]);
+    // 1. Status Filter (ALL | ACTIVE | INACTIVE)
+    if (userStatusFilter === 'ACTIVE') list = list.filter(u => u.isActive !== false);
+    if (userStatusFilter === 'INACTIVE') list = list.filter(u => u.isActive === false);
+
+    // 2. Role Filter (ALL | specific roleId or roleCode)
+    if (userRoleFilter !== 'ALL') {
+      const targetId = parseInt(userRoleFilter);
+      list = list.filter(u =>
+        u.roleId === targetId ||
+        u.role?.id === targetId ||
+        u.roleCode === userRoleFilter ||
+        u.role?.code === userRoleFilter
+      );
+    }
+
+    // 3. Search Query
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter(u =>
+        u.username?.toLowerCase().includes(q) ||
+        u.fullName?.toLowerCase().includes(q) ||
+        u.role?.name?.toLowerCase().includes(q) ||
+        u.role?.code?.toLowerCase().includes(q) ||
+        u.roleName?.toLowerCase().includes(q) ||
+        u.roleCode?.toLowerCase().includes(q)
+      );
+    }
+
+    // 4. Strict Sorting: 🟢 Active accounts on TOP, 🔴 Inactive accounts at BOTTOM
+    list.sort((a, b) => {
+      const aActive = a.isActive !== false ? 1 : 0;
+      const bActive = b.isActive !== false ? 1 : 0;
+      if (aActive !== bActive) {
+        return bActive - aActive; // 1 (Active) comes before 0 (Inactive)
+      }
+      return (a.id || 0) - (b.id || 0); // secondary sort by ID
+    });
+
+    return list;
+  }, [users, searchTerm, userStatusFilter, userRoleFilter]);
 
   const filteredLocations = useMemo(() => {
     let list = locations;
@@ -509,14 +537,45 @@ export default function MasterManagementScreen({ onBack }) {
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none"
               />
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAddUserModal(true)}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
-            >
-              <Plus size={16} />
-              <span>เพิ่มผู้ใช้งานใหม่</span>
-            </button>
+
+            {/* Filter by Role Dropdown */}
+            <div className="flex items-center gap-2">
+              <div className="relative shrink-0">
+                <select
+                  value={userRoleFilter}
+                  onChange={(e) => setUserRoleFilter(e.target.value)}
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs sm:text-sm font-bold text-slate-700 focus:bg-white focus:border-[#0F6659] outline-none cursor-pointer"
+                >
+                  <option value="ALL">🛡️ ทุกบทบาท ({users.length})</option>
+                  {roles.map(r => {
+                    const count = users.filter(u => u.roleId === r.id || u.role?.id === r.id || u.roleCode === r.code || u.role?.code === r.code).length;
+                    return (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({count})
+                      </option>
+                    );
+                  })}
+                  {roles.length === 0 && (
+                    <>
+                      <option value="ADMIN">ผู้ดูแลระบบ (ADMIN)</option>
+                      <option value="AUDITOR">ผู้ตรวจหน้างาน (AUDITOR)</option>
+                      <option value="AUDITEE">ผู้จัดการสาขา (AUDITEE)</option>
+                      <option value="STANDARD">ผู้ดูแลมาตรฐาน (STANDARD)</option>
+                      <option value="EXEC">ผู้บริหาร (EXEC)</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowAddUserModal(true)}
+                className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
+              >
+                <Plus size={16} />
+                <span>เพิ่มผู้ใช้งานใหม่</span>
+              </button>
+            </div>
           </div>
 
           {/* Quick Status Filter Pills for Users */}

@@ -1,7 +1,7 @@
 # 📊 Q.S.C. System — ผังกระบวนการทำงานแยกตามเคส (System Flowcharts by Use Case)
 
-> **เวอร์ชัน:** 2.6 (รองรับ N/A, ลายเซ็นและไฟล์ Storage, แชทไทม์ไลน์ CAP, และ กฎข้อวิกฤต)  
-> **อัปเดตล่าสุด:** 25 สิงหาคม 2569
+> **เวอร์ชัน:** 2.8 (รองรับ Master Data Management 4 หมวด, สวิตช์เลื่อนเปิด/ระงับ, จัดเรียง Active-First, ตัวกรองบทบาท, N/A, ลายเซ็นดิจิทัล, แชท CAP และ กฎข้อวิกฤต)  
+> **อัปเดตล่าสุด:** 26 สิงหาคม 2569
 
 ---
 
@@ -11,7 +11,7 @@
 2. [Case 2: การตรวจสดหน้างาน การลงนาม N/A และ Auto-Sync (Live Audit & Signature Workflow)](#case-2-การตรวจสดหน้างาน-การลงนาม-na-และ-auto-sync-live-audit--signature-workflow)
 3. [Case 3: การประเมินคะแนนแบบ Dynamic หัก N/A กฎข้อวิกฤต และเปิดตั๋ว CAP (Fair Scoring & CAP Workflow)](#case-3-การประเมินคะแนนแบบ-dynamic-หัก-na-กฎข้อวิกฤต-และเปิดตั๋ว-cap-fair-scoring--cap-workflow)
 4. [Case 4: ลูปการแก้ไขข้อบกพร่องและห้องแชทอนุมัติ CAP (CAP Chat Remediation Workflow)](#case-4-ลูปการแก้ไขข้อบกพร่องและห้องแชทอนุมัติ-cap-cap-chat-remediation-workflow)
-5. [Case 5: การจัดการสิทธิ์ รีเซ็ตรหัสผ่าน และประเภทสถานที่ของ Admin (Admin Management Workflow)](#case-5-การจัดการสิทธิ์-รีเซ็ตรหัสผ่าน-และประเภทสถานที่ของ-admin-admin-management-workflow)
+5. [Case 5: ศูนย์การจัดการข้อมูลหลักระบบ (Master Data Management & RBAC Workflow)](#case-5-ศูนย์การจัดการข้อมูลหลักระบบ-master-data-management--rbac-workflow)
 
 ---
 
@@ -58,218 +58,178 @@ flowchart TD
     StartAudit(["เริ่มต้น: ผู้ตรวจเปิดแอปตรวจหน้างาน"]) --> GPSDistance["อ่านพิกัด GPS บนเครื่องผู้ตรวจเพื่อคำนวณระยะทาง (แสดงสาขาใกล้สุด)"]
     GPSDistance --> BranchList["แสดงรายการสาขา: สาขาตรวจค้างอยู่บนสุด + สาขาอื่นเรียงตามระยะทางใกล้ไปไกล"]
     
-    BranchList --> SelectBranch{"เลือกสาขาที่จะตรวจ"}
+    BranchList --> PickBranch["ผู้ตรวจเลือกสาขาที่จะเข้าตรวจ"]
+    PickBranch --> LoadDraft{"มีแบบร่างตรวจค้าง (AUDIT_DRAFTS) หรือไม่?"}
     
-    SelectBranch -->|"มีงานตรวจค้างอยู่ (Draft)"| LoadDraft[("โหลด Draft เดิมจาก AUDIT_DRAFTS มาทำต่อทันที (ไม่เก็บพิกัดเริ่มซ้ำ)")]
-    SelectBranch -->|"เริ่มตรวจรอบใหม่"| StepForm["เลือกแบบฟอร์ม ➔ ไปที่หน้า 3. รายละเอียดการตรวจ"]
+    LoadDraft -->|"มี"| ResumeDraft["โหลดคำตอบเดิม + รูปภาพ มาทำต่อทันที"]
+    LoadDraft -->|"ไม่มี"| CreateDraft["สร้างร่างใหม่: บันทึก StartLatitude, StartLongitude, StartTime"]
     
-    StepForm --> ClickStartBtn["ผู้ตรวจกดปุ่ม 'เริ่มตรวจข้อประเมิน >'"]
-    ClickStartBtn --> CaptureStartGPS["📍 บันทึกพิกัดตอนเริ่ม: start_latitude, start_longitude, started_at ลง AUDIT_DRAFTS"]
+    ResumeDraft --> Answering["ทำข้อประเมิน (YES/NO, SCALE, TEXT)"]
+    CreateDraft --> Answering
     
-    CaptureStartGPS --> QuestionScreen["หน้าจอแสดงข้อคำถามประเมิน (Step 4)"]
-    LoadDraft --> QuestionScreen
+    Answering --> CheckNA{"ข้อนี้ใช้บังคับกับสาขานี้หรือไม่?"}
+    CheckNA -->|"ไม่เกี่ยวข้อง"| MarkNA["🚩 ติ๊ก 'N/A' ➔ ไม่นำข้อนี้ไปคิดเป็นคะแนนเต็ม (Max Score)"]
+    CheckNA -->|"ประเมินปกติ"| GradeItem["ให้คะแนนตามความเป็นจริง"]
     
-    QuestionScreen --> UserAction{"การกระทำของผู้ตรวจ"}
+    GradeItem --> CheckFail{"ข้อนี้ได้คะแนนตกหรือไม่?"}
+    CheckFail -->|"ตก (Failed)"| UploadPhoto["📸 ถ่ายภาพหลักฐานข้อบกพร่อง (BEFORE Image)"]
+    UploadPhoto --> AutoSaveDraft["⚡ Auto-sync บันทึกร่างลง AUDIT_DRAFTS อัตโนมัติ"]
+    CheckFail -->|"ผ่าน (Passed)"| AutoSaveDraft
+    MarkNA --> AutoSaveDraft
     
-    UserAction -->|"เลือก Pass / Fail / Scale"| AnswerAction["บันทึกคำตอบลง State"]
-    UserAction -->|"เลือก 'ไม่เกี่ยวข้อง (N/A)'"| SetNAAction["ตั้งค่า is_na = TRUE ➔ ข้อนี้จะไม่ถูกคิดใน max_score"]
-    UserAction -->|"คลิกซ้ำที่คำตอบเดิม"| ToggleUnselect["ยกเลิกการเลือก ➔ คืนค่าเป็นยังไม่ได้ตอบ"]
-    UserAction -->|"ถ่ายรูปหลักฐาน (ปุ่มกล้อง)"| CompressPhoto["ย่อขนาดรูปในเครื่อง Client เหลือ ~200KB"]
-    UserAction -->|"พิมพ์ข้อคิดเห็น (ปุ่มคอมเมนต์)"| AddComment["บันทึกข้อคิดเห็น/ข้อบกพร่องลง notes"]
+    AutoSaveDraft --> CheckFinish{"ตรวจครบทุกข้อหรือยัง?"}
+    CheckFinish -->|"ยังไม่ครบ"| Answering
+    CheckFinish -->|"ครบแล้ว"| SignPage["เข้าสู่หน้าสรุปผลและลงนามดิจิทัล (Signatures)"]
     
-    AnswerAction --> CheckFirstAns{"มีคำตอบอย่างน้อย 1 ข้อ?"}
-    SetNAAction --> CheckFirstAns
-    ToggleUnselect --> CheckFirstAns
-    CompressPhoto --> CheckFirstAns
-    AddComment --> CheckFirstAns
+    SignPage --> AuditorSign["ผู้ตรวจลงนามดิจิทัล (Auditor Signature)"]
+    AuditorSign --> AuditeeSign["ผู้จัดการสาขาตรวจสอบและลงนามรับทราบ (Auditee Signature)"]
+    AuditeeSign --> FinalSubmit["กดยืนยันส่งผลตรวจขั้นสุดท้าย (Final Submit)"]
     
-    CheckFirstAns -->|"ใช่"| AutoSync["⚡ Background Auto-Sync 600ms บันทึกลง AUDIT_DRAFTS"]
-    CheckFirstAns -->|"ไม่ใช่/ล้างหมด"| HideBadge["ซ่อนป้าย Auto-synced และไม่ส่งเซิร์ฟเวอร์"]
-    
-    AutoSync --> ShowSynced["แสดงป้ายสถานะ '✓ Auto-synced'"]
-    ShowSynced --> NextSection{"ตรวจครบทุกหมวดหรือยัง?"}
-    
-    NextSection -->|"ยังไม่ครบ"| QuestionScreen
-    NextSection -->|"ครบทุกข้อแล้ว"| SignStep["✍️ หน้าสรุปและลงนาม (Signatures Screen)"]
-    
-    SignStep --> SignAction["ผู้ตรวจและผู้รับการตรวจร่วมลงนามผ่าน Signature Pad"]
-    SignAction --> SaveStorage["เซิร์ฟเวอร์บันทึกไฟล์ภาพลายเซ็นลง Storage Folder (/uploads/signatures/)"]
-    SaveStorage --> CaptureSignInfo["บันทึก Relative Path, auditee_user_id/name_text, signed_at"]
-    
-    CaptureSignInfo --> SummaryModal["เปิดป๊อปอัปสรุปผลคะแนนรวม (คำนวณหัก N/A) และรายการข้อตกเกณฑ์"]
-    
-    SummaryModal --> ConfirmSubmit{"กดยืนยันส่งผลตรวจรอบสุดท้าย?"}
-    
-    ConfirmSubmit -->|"ย้อนกลับไปแก้"| QuestionScreen
-    ConfirmSubmit -->|"ยืนยันส่งจริง"| CaptureEndGPS["📍 บันทึกพิกัดตอนส่ง: อ่านค่า end_latitude, end_longitude และเวลา submitted_at"]
-    
-    CaptureEndGPS --> FinalSubmit[("บันทึกลง AUDIT_RECORDS + อัปเดต Cache last_score & last_audit_date ใน LOCATIONS")]
-    FinalSubmit --> SaveImages[("บันทึกรูปภาพลง Storage และเก็บ Path ใน AUDIT_RESPONSE_IMAGES")]
-    SaveImages --> DeleteDraft[("ลบแบบร่างออกจาก AUDIT_DRAFTS ทันที")]
-    DeleteDraft --> LockAudit["🔒 ผลตรวจถูกล็อกถาวร ห้ามแก้ไข"]
-    LockAudit --> EndAudit(["สิ้นสุดการตรวจหน้างาน"])
+    FinalSubmit --> DBCommit[("บันทึก AUDIT_RECORDS + AUDIT_RESPONSES + AUDIT_RESPONSE_IMAGES")]
+    DBCommit --> DelDraft["🗑️ ลบร่างตรวจใน AUDIT_DRAFTS ออก"]
+    DelDraft --> UpdateCache["⚡ อัปเดต Cache: last_score และ last_audit_date ในตาราง LOCATIONS"]
+    UpdateCache --> EndAudit(["สิ้นสุดกระบวนการตรวจหน้างาน"])
 
     style StartAudit fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
-    style SignStep fill:#fef3c7,stroke:#d97706,stroke-width:2px
-    style CaptureEndGPS fill:#fef3c7,stroke:#d97706,stroke-width:2px
-    style FinalSubmit fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style AutoSaveDraft fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style DBCommit fill:#dcfce7,stroke:#16a34a,stroke-width:2px
     style EndAudit fill:#dcfce7,stroke:#16a34a,stroke-width:2px
 ```
 
 ---
 
 ## Case 3: การประเมินคะแนนแบบ Dynamic หัก N/A กฎข้อวิกฤต และเปิดตั๋ว CAP (Fair Scoring & CAP Workflow)
-> **ผู้ใช้งาน:** ระบบอัตโนมัติ (Backend Business Logic)  
-> **ตารางที่เกี่ยวข้อง:** `AUDIT_RECORDS`, `AUDIT_RESPONSES`, `SURVEY_ITEMS`, `CAP_TASKS`
+> **ผู้ใช้งาน:** ระบบคำนวณอัตโนมัติ (Business Engine)  
+> **ตารางที่เกี่ยวข้อง:** `SURVEY_ITEMS`, `AUDIT_RESPONSES`, `AUDIT_RECORDS`, `CAP_TASKS`
 
 ```mermaid
 flowchart TD
-    SubmitTrigger(["ผู้ตรวจกดยืนยันส่งผลตรวจ"]) --> CalcDynamicMax["คำนวณ max_score เฉพาะข้อที่ is_na == FALSE"]
-    CalcDynamicMax --> CalcScore["คำนวณ total_score และ percentage_score = (total / max) * 100"]
+    CalculateStart(["เริ่มคำนวณคะแนนและตัดเกรด"]) --> LoopItems["อ่านผลคะแนน AUDIT_RESPONSES ทีละข้อ"]
     
-    CalcScore --> CheckCritical{"มีข้อใดที่เป็น is_critical = TRUE แล้วตกเกณฑ์ (is_passed = FALSE) ไหม?"}
+    LoopItems --> CheckItemNA{"ข้อนี้เป็น is_na == TRUE หรือไม่?"}
+    CheckItemNA -->|"ใช่ (N/A)"| ExcludeNA["ตัดคะแนนเต็มข้อนี้ออกจาก max_score รวม"]
+    CheckItemNA -->|"ไม่ใช่ (ตรวจจริง)"| AddScore["บวก score_earned เข้าคะแนนได้รวม และบวก max_score รวม"]
     
-    CheckCritical -->|"🚨 มีข้อวิกฤตตก!"| ForceFail["บังคับ is_passed = FALSE และ has_critical_defect = TRUE ทันที (Auto-Fail แม้คะแนนรวมจะถึง 85%)"]
+    ExcludeNA --> CheckCritical{"ข้อนี้ตก และเป็น is_critical == TRUE หรือไม่?"}
+    AddScore --> CheckCritical
     
-    CheckCritical -->|"ไม่มีข้อวิกฤตตก"| CheckPassingPercent{"คะแนนรวม >= PassingScore 85%?"}
+    CheckCritical -->|"ใช่ (ข้อวิกฤตตก)"| FlagCritical["🚨 ตั้งค่า has_critical_defect = TRUE (ตกทันทีไม่สนคะแนนรวม)"]
+    CheckCritical -->|"ไม่ใช่"| CheckNext{"มีข้อถัดไปหรือไม่?"}
+    FlagCritical --> CheckNext
     
-    CheckPassingPercent -->|"ใช่"| PassAudit["กำหนด is_passed = TRUE: ผ่านเกณฑ์มาตรฐาน"]
-    CheckPassingPercent -->|"ไม่ใช่"| NormalFail["กำหนด is_passed = FALSE: คะแนนไม่ถึงเกณฑ์"]
+    CheckNext -->|"มี"| LoopItems
+    CheckNext -->|"ครบทุกข้อแล้ว"| CalcPercent["คำนวณเปอร์เซ็นต์: total_score = (score_earned / max_score) * 100"]
     
-    ForceFail --> IterateResponses["วนตรวจสอบคำตอบทุกข้อใน AUDIT_RESPONSES"]
-    PassAudit --> IterateResponses
-    NormalFail --> IterateResponses
+    CalcPercent --> EvaluatePassing{"has_critical_defect == TRUE หรือ total_score < 85% ?"}
     
-    IterateResponses --> CheckDefect{"มีข้อที่ไม่ผ่าน (is_passed = FALSE และ is_na = FALSE) ไหม?"}
+    EvaluatePassing -->|"ใช่"| ResultFailed["❌ ผลการตรวจ: 'ไม่ผ่านเกณฑ์ (FAILED)'"]
+    EvaluatePassing -->|"ไม่ใช่"| ResultPassed["✅ ผลการตรวจ: 'ผ่านเกณฑ์มาตรฐาน (PASSED)'"]
     
-    CheckDefect -->|"ผ่านทุกข้อ ไม่มีข้อบกพร่อง"| NoCap["บันทึกผลสำเร็จ ไม่ต้องเปิดตั๋ว CAP"]
+    ResultFailed --> AutoCAP["⚡ สร้างตั๋วงานแก้ไขข้อบกพร่อง (CAP_TASKS) อัตโนมัติสำหรับข้อที่ตก"]
+    AutoCAP --> SaveRecord[("บันทึก total_score, is_passed, has_critical_defect ลง AUDIT_RECORDS")]
+    ResultPassed --> SaveRecord
     
-    CheckDefect -->|"พบข้อไม่ผ่าน / Critical"| AutoCreateCap["สร้างตั๋วงานแก้ไข CAP_TASKS อัตโนมัติ"]
-    
-    AutoCreateCap --> SetCapFields["กำหนด: AuditRecordId, AuditResponseId, IssueItem, Status='OPEN'"]
-    SetCapFields --> SetDeadline["คำนวณ SubmissionDeadline ตามข้อกำหนด เช่น ภายใน 3-7 วัน"]
-    SetDeadline --> AssignStore["มอบหมาย AssignedTo ไปยังผู้รับตรวจ (ผู้จัดการสาขา)"]
-    
-    AssignStore --> NotifyAuditee["ส่งแจ้งเตือนไปยังผู้จัดการสาขาเพื่อเริ่มดำเนินการแก้ไข"]
-    
-    NotifyAuditee --> EndCapTrigger(["บันทึกผลตรวจและตั๋ว CAP สมบูรณ์"])
-    NoCap --> EndCapTrigger
+    SaveRecord --> EndCalc(["สิ้นสุดการประเมินผล"])
 
-    style SubmitTrigger fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
-    style ForceFail fill:#fee2e2,stroke:#dc2626,stroke-width:3px
-    style AutoCreateCap fill:#fee2e2,stroke:#dc2626,stroke-width:2px
-    style EndCapTrigger fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style CalculateStart fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
+    style FlagCritical fill:#fee2e2,stroke:#dc2626,stroke-width:2px
+    style ResultFailed fill:#fee2e2,stroke:#dc2626,stroke-width:2px
+    style ResultPassed fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style EndCalc fill:#dcfce7,stroke:#16a34a,stroke-width:2px
 ```
 
 ---
 
 ## Case 4: ลูปการแก้ไขข้อบกพร่องและห้องแชทอนุมัติ CAP (CAP Chat Remediation Workflow)
-> **ผู้ใช้งาน:** ผู้จัดการสาขา (Auditee) ➔ เจ้าหน้าที่ QA / Auditor  
-> **ตารางที่เกี่ยวข้อง:** `CAP_TASKS`, `CAP_TASK_IMAGES`, `CAP_TASK_COMMENTS`, `AUDIT_RESPONSE_IMAGES`
+> **ผู้ใช้งาน:** ผู้จัดการสาขา (Auditee) + ผู้ตรวจสอบมาตรฐาน (QA/QC / Auditor)  
+> **ตารางที่เกี่ยวข้อง:** `CAP_TASKS`, `CAP_TASK_IMAGES`, `CAP_TASK_COMMENTS`
 
 ```mermaid
 flowchart TD
-    StartCAP(["เริ่มต้น: ผู้จัดการสาขาได้รับตั๋ว CAP (Status: OPEN)"]) --> ViewDetail["เปิดดูรายละเอียดข้อบกพร่องและรูปภาพตอนตรวจ (ดึงรูป BEFORE จาก AUDIT_RESPONSE_IMAGES ตรงๆ)"]
+    CAPStart(["เริ่มต้น: ตั๋วงาน CAP ถูกสร้าง (Status = 'OPEN')"]) --> AuditeeNotify["ผจก. สาขา ได้รับแจ้งเตือนข้อบกพร่อง (แสดงรูป BEFORE)"]
     
-    ViewDetail --> BranchAction["สาขาดำเนินการปรับปรุงแก้ไขหน้างานจริง"]
-    BranchAction --> TakePhoto["ถ่ายรูปหลักฐานหลังปรับปรุงเสร็จ"]
+    AuditeeNotify --> AuditeeAction["สาขาดำเนินการแก้ไขข้อบกพร่องในพื้นที่จริง"]
+    AuditeeAction --> AuditeeSubmit["ผจก. สาขา ถ่ายภาพหลักฐานหลังแก้ไข (AFTER Image) + พิมพ์ชี้แจง"]
     
-    TakePhoto --> UploadAfterImg[("อัปโหลดรูปลง Storage และบันทึกลง CAP_TASK_IMAGES")]
-    UploadAfterImg --> ChatMsg[("พิมพ์ข้อความชี้แจงลง CAP_TASK_COMMENTS")]
+    AuditeeSubmit --> SaveSubmitted[("อัปเดต CAP_TASKS: Status = 'SUBMITTED', บันทึก CAP_TASK_IMAGES")]
     
-    ChatMsg --> SubmitCapBtn["ผู้จัดการสาขากดปุ่ม 'ส่งมอบงานแก้ไข'"]
-    SubmitCapBtn --> UpdateStatusSub[("อัปเดต CAP_TASKS: Status = 'SUBMITTED'")]
+    SaveSubmitted --> QAReview["QA / ผู้ตรวจ เปิดห้องแชทตรวจสอบหลักฐาน"]
+    QAReview --> ChatMessage["QA และ สาขา สามารถพิมพ์แชทตอบโต้ผ่าน CAP_TASK_COMMENTS ได้ตลอดเวลา"]
     
-    UpdateStatusSub --> QAReview["เจ้าหน้าที่ QA / ผู้ตรวจ เปิดห้องแชทตรวจสอบหลักฐานเรียงตามเวลา"]
+    ChatMessage --> QAApproveChoice{"QA ตรวจสอบผลงานแก้ไข"}
     
-    QAReview --> QAInspect{"ผลการแก้ไขถูกต้องตามมาตรฐานหรือไม่?"}
+    QAApproveChoice -->|"ไม่ผ่านเกณฑ์ / หลักฐานไม่ชัด"| StatusRejected[("อัปเดต Status = 'REJECTED'")]
+    StatusRejected --> NotifyFixAgain["ส่งกลับให้สาขาแก้ไขใหม่ พร้อมข้อความระบุจุดที่ต้องปรับปรุง"]
+    NotifyFixAgain --> AuditeeAction
     
-    QAInspect -->|"ยังไม่เรียบร้อย / รูปไม่ชัด"| RejectAction["QA พิมพ์คอมเมนต์แจ้งจุดที่ต้องแก้เพิ่มในแชท"]
-    RejectAction --> StatusRejected[("อัปเดต Status = 'REJECTED'")]
-    StatusRejected --> NotifyBranchReject["ส่งแจ้งเตือนกลับไปยังสาขาให้แก้ไขซ้ำ (แสดงประวัติแชทต่อเนื่อง)"]
-    NotifyBranchReject --> BranchAction
-    
-    QAInspect -->|"ผ่านเกณฑ์สมบูรณ์"| ApproveAction["QA กดปุ่ม 'อนุมัติและปิดงานแก้ไข'"]
-    ApproveAction --> StatusClosed[("อัปเดต Status = 'CLOSED' ทันที")]
-    StatusClosed --> RecordVerifier["บันทึก VerifiedBy และ ClosedAt"]
-    RecordVerifier --> EndCAP(["ปิดตั๋วงานแก้ไข CAP สมบูรณ์ 100%"])
+    QAApproveChoice -->|"ผ่านเกณฑ์มาตรฐานสมบูรณ์"| StatusClosed[("อัปเดต Status = 'CLOSED', บันทึก resolved_at")]
+    StatusClosed --> EndCAP(["🔒 ปิดตั๋ว CAP สมบูรณ์ 100%"])
 
-    style StartCAP fill:#fee2e2,stroke:#dc2626,stroke-width:2px
-    style UpdateStatusSub fill:#fef3c7,stroke:#d97706,stroke-width:2px
-    style StatusRejected fill:#fee2e2,stroke:#ef4444,stroke-width:2px
+    style CAPStart fill:#fee2e2,stroke:#dc2626,stroke-width:2px
+    style SaveSubmitted fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style StatusRejected fill:#fee2e2,stroke:#dc2626,stroke-width:2px
     style StatusClosed fill:#dcfce7,stroke:#16a34a,stroke-width:2px
     style EndCAP fill:#dcfce7,stroke:#16a34a,stroke-width:2px
 ```
 
 ---
 
-## Case 5: การจัดการสิทธิ์ รีเซ็ตรหัสผ่าน และประเภทสถานที่ของ Admin (Admin Management Workflow)
+## Case 5: ศูนย์การจัดการข้อมูลหลักระบบ (Master Data Management & RBAC Workflow)
 > **ผู้ใช้งาน:** ผู้ดูแลระบบ (Admin)  
-> **ตารางที่เกี่ยวข้อง:** `ROLES`, `PERMISSIONS`, `ROLE_PERMISSIONS`, `USERS`, `USER_LOCATIONS`, `LOCATIONS`, `LOCATION_TYPES`, `SURVEY_FORMS`
+> **ตารางที่เกี่ยวข้อง:** `ROLES`, `PERMISSIONS`, `ROLE_PERMISSIONS`, `USERS`, `USER_LOCATIONS`, `LOCATIONS`, `LOCATION_TYPES`
 
 ```mermaid
 flowchart TD
-    AdminLogin(["Admin เข้าสู่เมนูจัดการระบบ"]) --> AdminChoice{"เลือกฟังก์ชันที่ต้องการจัดการ"}
+    AdminLogin(["Admin เข้าสู่เมนูการจัดการระบบ (Master Management)"]) --> MasterCategory{"เลือกหมวดหมู่ข้อมูลหลัก 4 หมวด"}
     
-    %% สายที่ 1: จัดการบทบาทและสิทธิ์
-    AdminChoice -->|"1. จัดการบทบาท (Roles)"| RoleMgmt["หน้าต่างจัดการ ROLES"]
-    RoleMgmt --> CreateRole["สร้าง Role ใหม่ เช่น 'ผู้จัดการเขต Area QA'"]
-    CreateRole --> CheckboxPerms["ติ๊กเลือก Checkbox สิทธิ์ตามหมวดหมู่ module"]
-    CheckboxPerms --> SaveRolePerms[("บันทึกลง ROLE_PERMISSIONS")]
+    %% 👥 หมวด 1: จัดการผู้ใช้งาน
+    MasterCategory -->|"1. ผู้ใช้งาน (Users)"| UserTab["หน้าจัดการ USERS พร้อม Role Filter & Status Filter"]
+    UserTab --> UserAction{"เลือกการทำงาน"}
+    UserAction -->|"เพิ่มผู้ใช้ใหม่"| OpenAddUserModal["เปิด Pop-up เพิ่มผู้ใช้ (Username, FullName, Password, Role, Scope)"]
+    UserAction -->|"แตะการ์ดผู้ใช้"| OpenEditUserModal["เปิด Pop-up แก้ไขข้อมูลผู้ใช้ + รีเซ็ตรหัสผ่านในตัว + สวิตช์เปิด/ระงับ"]
+    OpenAddUserModal --> SaveUserAPI[("POST /api/user ➔ บันทึกลง USERS & USER_LOCATIONS")]
+    OpenEditUserModal --> SaveEditUserAPI[("PUT /api/user/{id} + POST /api/user/{id}/reset-password")]
     
-    %% สายที่ 2: จัดการผู้ใช้งานและรีเซ็ตรหัสผ่าน
-    AdminChoice -->|"2. จัดการผู้ใช้ (Users)"| UserMgmt["หน้าต่างจัดการ USERS"]
-    UserMgmt --> UserActionChoice{"เลือกการกระทำ"}
+    %% 🏬 หมวด 2: จัดการสถานที่ / สาขา
+    MasterCategory -->|"2. สถานที่/สาขา (Locations)"| LocTab["หน้าจัดการ LOCATIONS พร้อม Status Filter"]
+    LocTab --> LocAction{"เลือกการทำงาน"}
+    LocAction -->|"เพิ่มสาขาใหม่"| OpenAddLocModal["เปิด Pop-up เพิ่มสาขา (Code, Name, Type, Region, GPS, Manager)"]
+    LocAction -->|"แตะการ์ดสาขา"| OpenEditLocModal["เปิด Pop-up แก้ไขสาขา + สวิตช์เปิดให้บริการ/ปิดปรับปรุง"]
+    OpenAddLocModal --> SaveLocAPI[("POST /api/location ➔ บันทึกลง LOCATIONS")]
+    OpenEditLocModal --> SaveEditLocAPI[("PUT /api/location/{id}")]
     
-    UserActionChoice -->|"เพิ่มผู้ใช้ใหม่"| CreateUser["กรอก Username, รหัสผ่านเริ่มต้น, ชื่อ-นามสกุล, must_change_password = TRUE"]
-    CreateUser --> ChooseScope{"เลือกขอบเขตสาขา Branch Scope"}
-    ChooseScope -->|"ทุกสาขา"| ScopeAll["กำหนด branch_scope = 'ALL'"]
-    ChooseScope -->|"เฉพาะสาขา (1 หรือหลายสาขา)"| ScopeSpecific["กำหนด branch_scope = 'SPECIFIC' และเลือกสาขาลง USER_LOCATIONS"]
-    ScopeAll --> SaveUser[("บันทึกผู้ใช้ลงตาราง USERS")]
-    ScopeSpecific --> SaveUser
+    %% 🏷️ หมวด 3: จัดการประเภทสถานที่
+    MasterCategory -->|"3. ประเภทสถานที่ (Location Types)"| TypeTab["หน้าจัดการ LOCATION_TYPES"]
+    TypeTab --> TypeAction{"เลือกการทำงาน"}
+    TypeAction -->|"เพิ่มประเภทใหม่"| OpenAddTypeModal["เปิด Pop-up เพิ่มประเภท (Code, Name, Description)"]
+    TypeAction -->|"แตะการ์ดประเภท"| OpenEditTypeModal["เปิด Pop-up แก้ไขประเภทสถานที่"]
+    OpenAddTypeModal --> SaveTypeAPI[("POST /api/location-type ➔ บันทึกลง LOCATION_TYPES")]
+    OpenEditTypeModal --> SaveEditTypeAPI[("PUT /api/location-type/{id}")]
     
-    UserActionChoice -->|"รีเซ็ตรหัสผ่าน (Reset Password)"| ResetPwd["กดปุ่ม 'รีเซ็ตรหัสผ่าน' ที่บัญชีผู้ใช้"]
-    ResetPwd --> InputNewPwd["กำหนดรหัสผ่านชั่วคราว + ตั้ง must_change_password = TRUE"]
-    InputNewPwd --> SaveNewPwd[("อัปเดต password_hash ในตาราง USERS")]
+    %% 🛡️ หมวด 4: จัดการบทบาทและสิทธิ์
+    MasterCategory -->|"4. บทบาทและสิทธิ์ (Roles)"| RoleTab["หน้าจัดการ ROLES & Permissions Matrix"]
+    RoleTab --> RoleAction{"เลือกการทำงาน"}
+    RoleAction -->|"เพิ่มบทบาทใหม่"| OpenAddRoleModal["เปิด Pop-up เพิ่ม Role (Code, Name, Description)"]
+    RoleAction -->|"แตะการ์ดบทบาท"| OpenEditRoleModal["เปิด Pop-up กำหนดสิทธิ์ Checkbox Permissions Matrix"]
+    OpenAddRoleModal --> SaveRoleAPI[("POST /api/role ➔ บันทึกลง ROLES")]
+    OpenEditRoleModal --> SaveEditRoleAPI[("PUT /api/role/{id} ➔ Sync ลง ROLE_PERMISSIONS")]
     
-    %% สายที่ 3: จัดการประเภทสถานที่ (Location Types)
-    AdminChoice -->|"3. จัดการประเภทสถานที่"| LocTypeMgmt["หน้าต่างจัดการ LOCATION_TYPES"]
-    LocTypeMgmt --> AddLocType["กดปุ่ม '➕ เพิ่มประเภทใหม่' เช่น ครัวกลาง (Cloud Kitchen)"]
-    AddLocType --> SaveLocType[("บันทึกลงตาราง LOCATION_TYPES")]
-    SaveLocType --> ShowDropdown["ประเภทใหม่จะโผล่ใน Dropdown หน้าสร้างสาขาอัตโนมัติ"]
-
-    %% สายที่ 4: จัดการเวอร์ชันแบบฟอร์ม (Form Lineage)
-    AdminChoice -->|"4. จัดการและแก้ไขแบบฟอร์ม"| FormMgmt["หน้าต่างจัดการ SURVEY_FORMS"]
-    FormMgmt --> EditFormCheck{"ฟอร์มนี้เคยถูกใช้ตรวจไปแล้วหรือยัง?"}
-    EditFormCheck -->|"ยังไม่เคยใช้ตรวจ"| DirectUpdate["อนุญาตให้ Update ข้อความคำถามทับได้โดยตรง"]
-    EditFormCheck -->|"เคยใช้ตรวจแล้ว (มี AUDIT_RECORDS อ้างอิง)"| LineageUpdate["🔒 บังคับสร้างเวอร์ชันใหม่: ฟอร์มเดิม is_latest = FALSE, INSERT ฟอร์มใหม่ form_group_id เดิม"]
-    DirectUpdate --> SaveForm[("บันทึกลง SURVEY_FORMS & SURVEY_ITEMS")]
-    LineageUpdate --> SaveForm
-    
-    %% การเข้าใช้งานจริง
-    SaveUser --> UserLogin["ผู้ใช้ทำการ Login เข้าสู่ระบบ"]
-    SaveNewPwd --> UserLogin
-    UserLogin --> CheckMustChange{"must_change_password == TRUE?"}
-    CheckMustChange -->|"ใช่"| ForceChangePwdScreen["บังคับเปิดหน้าต่างตั้งรหัสผ่านใหม่ก่อนเข้าสู่ระบบ"]
-    ForceChangePwdScreen --> SetNewPwd["ผู้ใช้ตั้งรหัสผ่านใหม่ส่วนตัว ➔ must_change_password = FALSE"]
-    SetNewPwd --> TokenGen["ระบบสร้าง JWT Token พร้อม Roles, Permissions, Scope"]
-    CheckMustChange -->|"ไม่ใช่"| TokenGen
-    
-    TokenGen --> RenderUI["Frontend ตรวจสอบสิทธิ์"]
-    RenderUI --> FilterMenu["แสดงเฉพาะเมนูที่ได้รับสิทธิ์ตาม PERMISSIONS"]
-    RenderUI --> FilterBranch["แสดงเฉพาะสาขาตาม branch_scope และ USER_LOCATIONS"]
-    
-    FilterMenu --> EndRBAC(["ผู้ใช้เข้าถึงระบบตามสิทธิ์ที่ถูกต้อง 100%"])
-    FilterBranch --> EndRBAC
-    ShowDropdown --> EndRBAC
-    SaveForm --> EndRBAC
+    %% การจัดเรียงและการแสดงผล
+    SaveUserAPI --> SortUsers["⚡ จัดเรียงอัตโนมัติ: บัญชีใช้งานอยู่บนสุด ➔ บัญชีระงับอยู่ล่างสุด"]
+    SaveEditUserAPI --> SortUsers
+    SortUsers --> EndMaster(["ข้อมูลอัปเดตและพร้อมใช้งานทั่วทั้งระบบทันที 100%"])
+    SaveLocAPI --> EndMaster
+    SaveEditLocAPI --> EndMaster
+    SaveTypeAPI --> EndMaster
+    SaveEditTypeAPI --> EndMaster
+    SaveRoleAPI --> EndMaster
+    SaveEditRoleAPI --> EndMaster
 
     style AdminLogin fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
-    style SaveRolePerms fill:#dcfce7,stroke:#16a34a,stroke-width:2px
-    style SaveUser fill:#dcfce7,stroke:#16a34a,stroke-width:2px
-    style LineageUpdate fill:#fef3c7,stroke:#d97706,stroke-width:2px
-    style ForceChangePwdScreen fill:#fee2e2,stroke:#dc2626,stroke-width:2px
-    style EndRBAC fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style OpenAddUserModal fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style OpenEditUserModal fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style SortUsers fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style EndMaster fill:#dcfce7,stroke:#16a34a,stroke-width:2px
 ```
 
 ---

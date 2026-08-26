@@ -1,6 +1,6 @@
 # 📖 Q.S.C. System — พจนานุกรมข้อมูล (Data Dictionary)
-> **เวอร์ชัน:** 2.6 (Streamlined Production Schema — 20 ตารางสมบูรณ์แบบ)  
-> **อัปเดตล่าสุด:** 25 สิงหาคม 2569  
+> **เวอร์ชัน:** 2.8 (Enterprise Production Schema — 20 ตารางสมบูรณ์แบบ รองรับ Master Management CRUD & Dynamic RBAC)  
+> **อัปเดตล่าสุด:** 26 สิงหาคม 2569  
 > **ฐานข้อมูลเป้าหมาย:** SQLite / PostgreSQL / SQL Server
 
 ---
