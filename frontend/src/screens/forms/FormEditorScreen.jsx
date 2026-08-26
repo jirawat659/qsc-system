@@ -39,42 +39,23 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     return () => { isMounted = false; };
   }, [form]);
 
-  const [sections, setSections] = useState(() => {
-    if (form?.sections && form.sections.length > 0) {
-      return form.sections.map(s => ({
-        id: s.id,
-        title: s.title,
-        orderIndex: s.orderIndex,
-        weightPercent: s.weightPercent || 0,
-        items: (s.items || []).map(i => ({
-          id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
-          text: i.questionText || i.text || i.title || "",
-          type: (i.questionType || i.type || "yesno").toLowerCase(),
-          fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
-          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical)
-        }))
-      }));
+  const [sections, setSections] = useState(form?.sections ? form.sections : [
+    {
+      title: "1. ความสะอาดและสุขอนามัย (Cleanliness)",
+      items: [
+        { id: "q1", text: "พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน", type: "yesno", critical: false },
+        { id: "q2", text: "พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน", type: "yesno", critical: false },
+        { id: "q3", text: "ความสะอาดของห้องน้ำลูกค้าและอุปกรณ์ล้างมือ", type: "scale", critical: false }
+      ]
+    },
+    {
+      title: "2. มาตรฐานการบริการและความเร็ว (Service)",
+      items: [
+        { id: "q4", text: "พนักงานกล่าวทักทายและต้อนรับลูกค้าภายใน 5 วินาที", type: "yesno", critical: false },
+        { id: "q5", text: "ความรวดเร็วและถูกต้องในการส่งมอบออเดอร์", type: "scale", critical: false }
+      ]
     }
-    return [
-      {
-        title: "1. ความสะอาดและสุขอนามัย (Cleanliness)",
-        weightPercent: 0,
-        items: [
-          { id: "q1", text: "พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน", type: "yesno", fullScore: 10, critical: false },
-          { id: "q2", text: "พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน", type: "yesno", fullScore: 10, critical: false },
-          { id: "q3", text: "ความสะอาดของห้องน้ำลูกค้าและอุปกรณ์ล้างมือ", type: "scale", fullScore: 10, critical: false }
-        ]
-      },
-      {
-        title: "2. มาตรฐานการบริการและความเร็ว (Service)",
-        weightPercent: 0,
-        items: [
-          { id: "q4", text: "พนักงานกล่าวทักทายและต้อนรับลูกค้าภายใน 5 วินาที", type: "yesno", fullScore: 10, critical: false },
-          { id: "q5", text: "ความรวดเร็วและถูกต้องในการส่งมอบออเดอร์", type: "scale", fullScore: 10, critical: false }
-        ]
-      }
-    ];
-  });
+  ]);
 
   const [editingId, setEditingId] = useState(null);
   const [editingSecIdx, setEditingSecIdx] = useState(null);
@@ -97,9 +78,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     const newSecNumber = sections.length + 1;
     const newSection = {
       title: `${newSecNumber}. หมวดหมู่ใหม่ (New Section)`,
-      weightPercent: 0,
       items: [
-        { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", fullScore: 10, critical: false }
+        { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", critical: false }
       ]
     };
     setSections([...sections, newSection]);
@@ -125,7 +105,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       id: newId,
       text: "ระบุข้อคำถามใหม่...",
       type: "yesno",
-      fullScore: 10,
       critical: false
     });
     setSections(next);
@@ -153,17 +132,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     }
   };
 
-  // Update question full score (คะแนนเต็มรายข้อ)
-  const updateItemScore = (secIdx, itemId, newScore) => {
-    const val = Math.max(1, Math.min(500, Number(newScore) || 1));
-    const next = [...sections];
-    const targetItem = next[secIdx].items.find(i => i.id === itemId);
-    if (targetItem) {
-      targetItem.fullScore = val;
-      setSections(next);
-    }
-  };
-
   // Update question type (yesno / scale / text)
   const updateItemType = (secIdx, itemId, newType) => {
     const next = [...sections];
@@ -181,7 +149,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     if (targetItem) {
       targetItem.critical = !targetItem.critical;
       setSections(next);
-      showToast(targetItem.critical ? "⚠️ ตั้งเป็นจุดวิกฤต (Critical Item)" : "ปลดจุดวิกฤตแล้ว");
     }
   };
 
@@ -301,10 +268,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     return sections.reduce((sum, s) => sum + s.items.length, 0);
   }, [sections]);
 
-  const totalMaxScore = useMemo(() => {
-    return sections.reduce((sum, s) => sum + s.items.reduce((iSum, i) => iSum + (Number(i.fullScore) || 10), 0), 0);
-  }, [sections]);
-
   const handleFormSave = async () => {
     if (!formName.trim()) {
       alert("กรุณาระบุชื่อแบบฟอร์ม");
@@ -322,12 +285,12 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         id: typeof sec.id === 'number' ? sec.id : undefined,
         title: sec.title,
         orderIndex: sIdx + 1,
-        weightPercent: sec.weightPercent || 0,
+        weightPercent: 0,
         items: (sec.items || []).map((item, iIdx) => ({
           id: typeof item.id === 'number' ? item.id : undefined,
           questionText: item.text,
-          questionType: item.type === "scale" ? "SCALE" : (item.type === "text" ? "TEXT" : "YESNO"),
-          fullScore: Number(item.fullScore) > 0 ? Number(item.fullScore) : 10,
+          questionType: item.type === "scale" ? "SCALE" : "YESNO",
+          fullScore: 10,
           isCritical: !!item.critical,
           orderIndex: iIdx + 1
         }))
@@ -384,12 +347,12 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             </div>
             <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
           </div>
-          <div className="text-right shrink-0 px-3 py-1.5 rounded-2xl bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shadow-2xs">
-            <div className="text-xs font-black text-emerald-900 leading-tight">
-              คะแนนเต็มรวม {totalMaxScore} แต้ม
+          <div className="text-right shrink-0 px-2.5 py-1 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shadow-2xs">
+            <div className="text-[11px] font-normal leading-tight whitespace-nowrap text-emerald-800">
+              {sections.length} หมวดหมู่
             </div>
-            <div className="text-[11px] font-bold text-emerald-700 mt-0.5">
-              {sections.length} หมวด · {totalQuestions} ข้อ
+            <div className="text-[11px] font-normal leading-tight whitespace-nowrap text-emerald-700 mt-0.5">
+              {totalQuestions} ข้อคำถาม
             </div>
           </div>
         </div>
@@ -576,7 +539,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 </button>
 
                 <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600">
-                  {sec.items.length} ข้อ · {sec.items.reduce((sum, i) => sum + (Number(i.fullScore) || 10), 0)} คะแนน
+                  {sec.items.length} ข้อ
                 </span>
 
                 <button
@@ -625,13 +588,47 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         <GripVertical size={16} />
                       </button>
 
-                      {/* Question Index, Score Badge & Text Input */}
+                      {/* Question Index, Score Config & Text Input */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-xs font-black text-slate-500 font-mono">ข้อ {itemIdx + 1}.</span>
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F6659] border border-emerald-200/80 font-mono flex items-center gap-1">
-                            <span>⭐️ เต็ม {item.fullScore || 10} แต้ม</span>
-                          </span>
+                        {/* Header line: Question Number -> Score Setting -> Critical Badge */}
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <span className="text-xs font-black text-slate-700 font-mono">ข้อ {itemIdx + 1}.</span>
+
+                          {/* ⭐️ Score Setting right after Question Number */}
+                          <div className="flex items-center gap-1.5 bg-white border border-slate-200/90 rounded-xl px-2 py-0.5 shadow-2xs">
+                            <span className="text-[11px] font-bold text-slate-400">คะแนน:</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="500"
+                              value={item.fullScore !== undefined ? item.fullScore : 10}
+                              onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
+                              className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
+                              title="กำหนดคะแนนเต็มของข้อนี้"
+                            />
+                            <span className="text-[10px] font-bold text-slate-400">แต้ม</span>
+                          </div>
+
+                          {/* Quick Score Presets */}
+                          <div className="flex items-center gap-1">
+                            {[5, 10, 15, 20].map((scorePreset) => (
+                              <button
+                                key={scorePreset}
+                                type="button"
+                                onClick={() => updateItemScore(secIdx, item.id, scorePreset)}
+                                className={`px-2 py-0.5 rounded-lg text-[11px] font-bold font-mono transition-all cursor-pointer ${
+                                  (item.fullScore || 10) === scorePreset
+                                    ? "bg-[#0F6659] text-white shadow-2xs"
+                                    : "bg-slate-100 hover:bg-slate-200 text-slate-600"
+                                }`}
+                                title={`ตั้งคะแนนเต็ม ${scorePreset} แต้ม`}
+                              >
+                                {scorePreset}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* ⚠️ Critical Badge right after score */}
                           {item.critical && (
                             <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-700 flex items-center gap-1">
                               <ShieldAlert size={12} />
@@ -640,8 +637,9 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           )}
                         </div>
 
+                        {/* Question Text with Edit Pencil Icon */}
                         {editingId === item.id ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 mt-1">
                             <input
                               type="text"
                               value={item.text}
@@ -653,17 +651,22 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               type="button"
                               onClick={() => setEditingId(null)}
                               className="p-2 rounded-xl bg-[#0F6659] text-white hover:bg-[#0B4E44] cursor-pointer"
+                              title="ยืนยันข้อความ"
                             >
                               <Check size={14} />
                             </button>
                           </div>
                         ) : (
-                          <p
+                          <div
                             onClick={() => setEditingId(item.id)}
-                            className="text-xs sm:text-sm font-normal text-slate-600 cursor-pointer hover:text-[#0F6659] transition-colors leading-relaxed"
+                            className="inline-flex items-center gap-2 group/text cursor-pointer hover:bg-emerald-50/50 p-1 -ml-1 rounded-xl transition-colors"
+                            title="คลิกเพื่อแก้ไขข้อความคำถาม"
                           >
-                            {item.text}
-                          </p>
+                            <p className="text-xs sm:text-sm font-normal text-slate-700 group-hover/text:text-[#0F6659] transition-colors leading-relaxed">
+                              {item.text}
+                            </p>
+                            <Edit3 size={14} className="text-slate-300 group-hover/text:text-[#0F6659] shrink-0 transition-colors" />
+                          </div>
                         )}
                       </div>
 
@@ -693,9 +696,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       </div>
                     </div>
 
-                    {/* Question Type & Score Selector Controls */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100/80">
-                      {/* Question Type */}
+                    {/* Question Type Selector Buttons */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100/80">
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] font-bold text-slate-400">ประเภทคำตอบ:</span>
                         <div className="flex rounded-xl p-0.5 bg-slate-200/70 text-xs font-bold">
@@ -726,41 +728,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           >
                             ข้อความ/บันทึก
                           </button>
-                        </div>
-                      </div>
-
-                      {/* Item Full Score Setting (ตั้งค่าคะแนนเต็มรายข้อ) */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold text-slate-400">คะแนนเต็มรายข้อ:</span>
-                        <div className="flex items-center gap-1.5">
-                          {[5, 10, 15, 20].map((scorePreset) => (
-                            <button
-                              key={scorePreset}
-                              type="button"
-                              onClick={() => updateItemScore(secIdx, item.id, scorePreset)}
-                              className={`px-2.5 py-1 rounded-xl text-xs font-black font-mono transition-all cursor-pointer ${
-                                (item.fullScore || 10) === scorePreset
-                                  ? "bg-[#0F6659] text-white shadow-2xs"
-                                  : "bg-slate-100 hover:bg-slate-200 text-slate-600"
-                              }`}
-                            >
-                              {scorePreset}
-                            </button>
-                          ))}
-
-                          {/* Custom Input */}
-                          <div className="flex items-center ml-0.5 px-2 py-0.5 rounded-xl bg-white border border-slate-200 shadow-2xs gap-1">
-                            <input
-                              type="number"
-                              min="1"
-                              max="500"
-                              value={item.fullScore || 10}
-                              onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
-                              className="w-8 text-xs font-black text-center font-mono outline-none text-[#0F6659] p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              title="กำหนดคะแนนเต็มเอง"
-                            />
-                            <span className="text-[10px] font-bold text-slate-400">แต้ม</span>
-                          </div>
                         </div>
                       </div>
                     </div>
