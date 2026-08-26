@@ -8,6 +8,7 @@ import {
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
 import Section from "../../shared/Section";
+import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 
 export default function FormEditorScreen({ form, onBack, onSave }) {
@@ -39,27 +40,47 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     return () => { isMounted = false; };
   }, [form]);
 
-  const [sections, setSections] = useState(form?.sections ? form.sections : [
-    {
-      title: "1. ความสะอาดและสุขอนามัย (Cleanliness)",
-      items: [
-        { id: "q1", text: "พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน", type: "yesno", critical: false },
-        { id: "q2", text: "พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน", type: "yesno", critical: false },
-        { id: "q3", text: "ความสะอาดของห้องน้ำลูกค้าและอุปกรณ์ล้างมือ", type: "scale", critical: false }
-      ]
-    },
-    {
-      title: "2. มาตรฐานการบริการและความเร็ว (Service)",
-      items: [
-        { id: "q4", text: "พนักงานกล่าวทักทายและต้อนรับลูกค้าภายใน 5 วินาที", type: "yesno", critical: false },
-        { id: "q5", text: "ความรวดเร็วและถูกต้องในการส่งมอบออเดอร์", type: "scale", critical: false }
-      ]
+  const [sections, setSections] = useState(() => {
+    if (form?.sections && form.sections.length > 0) {
+      return form.sections.map(s => ({
+        id: s.id,
+        title: s.title,
+        orderIndex: s.orderIndex,
+        weightPercent: s.weightPercent || 0,
+        items: (s.items || []).map(i => ({
+          id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
+          text: i.questionText || i.text || i.title || "",
+          type: (i.questionType || i.type || "yesno").toLowerCase(),
+          fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
+          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical)
+        }))
+      }));
     }
-  ]);
+    return [
+      {
+        title: "1. ความสะอาดและสุขอนามัย (Cleanliness)",
+        weightPercent: 0,
+        items: [
+          { id: "q1", text: "พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน", type: "yesno", fullScore: 10, critical: false },
+          { id: "q2", text: "พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน", type: "yesno", fullScore: 10, critical: false },
+          { id: "q3", text: "ความสะอาดของห้องน้ำลูกค้าและอุปกรณ์ล้างมือ", type: "scale", fullScore: 10, critical: false }
+        ]
+      },
+      {
+        title: "2. มาตรฐานการบริการและความเร็ว (Service)",
+        weightPercent: 0,
+        items: [
+          { id: "q4", text: "พนักงานกล่าวทักทายและต้อนรับลูกค้าภายใน 5 วินาที", type: "yesno", fullScore: 10, critical: false },
+          { id: "q5", text: "ความรวดเร็วและถูกต้องในการส่งมอบออเดอร์", type: "scale", fullScore: 10, critical: false }
+        ]
+      }
+    ];
+  });
 
   const [editingId, setEditingId] = useState(null);
   const [editingSecIdx, setEditingSecIdx] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'section' | 'item', secIdx, itemId?, title?, text?, itemIdx? }
   const toastTimerRef = useRef(null);
 
   // Drag-to-reorder state and refs
@@ -78,23 +99,28 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     const newSecNumber = sections.length + 1;
     const newSection = {
       title: `${newSecNumber}. หมวดหมู่ใหม่ (New Section)`,
+      weightPercent: 0,
       items: [
-        { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", critical: false }
+        { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", fullScore: 10, critical: false }
       ]
     };
     setSections([...sections, newSection]);
     showToast("เพิ่มหมวดหมู่ใหม่เรียบร้อยแล้ว");
   };
 
-  // Remove a section
-  const removeSection = (secIdx) => {
+  // Request remove section (Open popup confirm)
+  const handleRequestRemoveSection = (secIdx) => {
     if (sections.length <= 1) {
       alert("แบบฟอร์มต้องมีอย่างน้อย 1 หมวดหมู่");
       return;
     }
-    const next = sections.filter((_, idx) => idx !== secIdx);
-    setSections(next);
-    showToast("ลบหมวดหมู่ออกเรียบร้อยแล้ว");
+    const sec = sections[secIdx];
+    setDeleteTarget({
+      type: "section",
+      secIdx,
+      title: sec.title,
+      itemCount: sec.items?.length || 0
+    });
   };
 
   // Add question to section
@@ -105,21 +131,44 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       id: newId,
       text: "ระบุข้อคำถามใหม่...",
       type: "yesno",
+      fullScore: 10,
       critical: false
     });
     setSections(next);
     setEditingId(newId);
   };
 
-  // Remove question from section
-  const removeItem = (secIdx, itemId) => {
-    const next = [...sections];
-    if (next[secIdx].items.length <= 1) {
+  // Request remove question (Open popup confirm)
+  const handleRequestRemoveItem = (secIdx, item, itemIdx) => {
+    if (sections[secIdx].items.length <= 1) {
       alert("หมวดหมู่นี้ต้องมีคำถามอย่างน้อย 1 ข้อ");
       return;
     }
-    next[secIdx].items = next[secIdx].items.filter(item => item.id !== itemId);
-    setSections(next);
+    setDeleteTarget({
+      type: "item",
+      secIdx,
+      itemId: item.id,
+      itemIdx: itemIdx + 1,
+      text: item.text
+    });
+  };
+
+  // Execute confirmed deletion
+  const handleConfirmDelete = () => {
+    if (!deleteTarget) return;
+
+    if (deleteTarget.type === "section") {
+      const next = sections.filter((_, idx) => idx !== deleteTarget.secIdx);
+      setSections(next);
+      showToast("ลบหมวดหมู่ออกเรียบร้อยแล้ว");
+    } else if (deleteTarget.type === "item") {
+      const next = [...sections];
+      next[deleteTarget.secIdx].items = next[deleteTarget.secIdx].items.filter(i => i.id !== deleteTarget.itemId);
+      setSections(next);
+      showToast("ลบข้อคำถามเรียบร้อยแล้ว");
+    }
+
+    setDeleteTarget(null);
   };
 
   // Update question text
@@ -539,7 +588,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
                 <button
                   type="button"
-                  onClick={() => removeSection(secIdx)}
+                  onClick={() => handleRequestRemoveSection(secIdx)}
                   className="p-2 rounded-xl text-red-500 hover:bg-red-50 cursor-pointer transition-colors"
                   title="ลบหมวดหมู่นี้"
                 >
@@ -657,7 +706,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
                         <button
                           type="button"
-                          onClick={() => removeItem(secIdx, item.id)}
+                          onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
                           className="p-1.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
                           title="ลบคำถามข้อนี้"
                         >
@@ -738,6 +787,58 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           <span>บันทึกและเผยแพร่แบบฟอร์ม</span>
         </button>
       </div>
+
+      {/* 🛑 5. POPUP CONFIRMATION FOR DELETION */}
+      {deleteTarget && (
+        <ModalWrapper onClose={() => setDeleteTarget(null)} maxWidth="max-w-md">
+          <div className="p-6 space-y-5 text-center">
+            {/* Warning Icon */}
+            <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
+              <Trash2 size={26} strokeWidth={2.2} />
+            </div>
+
+            {/* Content Message */}
+            <div className="space-y-2">
+              <h3 className="text-base sm:text-lg font-black text-slate-800">
+                {deleteTarget.type === "section" ? "ยืนยันการลบหมวดหมู่?" : "ยืนยันการลบข้อคำถาม?"}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-sm mx-auto">
+                {deleteTarget.type === "section" ? (
+                  <>
+                    คุณต้องการลบหมวดหมู่ <strong className="text-slate-800">"{deleteTarget.title}"</strong> ใช่หรือไม่? ข้อคำถามทั้งหมด <strong className="text-rose-600 font-bold">{deleteTarget.itemCount} ข้อ</strong> ในหมวดนี้จะถูกลบออกด้วย
+                  </>
+                ) : (
+                  <>
+                    คุณต้องการลบข้อคำถาม <strong className="text-slate-800">ข้อ {deleteTarget.itemIdx}</strong> ใช่หรือไม่?
+                    <span className="italic text-slate-700 block mt-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-xs text-left">
+                      "{deleteTarget.text}"
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors active:scale-95"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-200 cursor-pointer transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 size={16} />
+                <span>ยืนยันลบ</span>
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
     </div>
   );
 }
