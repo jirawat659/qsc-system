@@ -50,8 +50,27 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [locationTypes, setLocationTypes] = useState([]);
+  const [deleteModalForm, setDeleteModalForm] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const canManageForms = role === "STANDARD" || role === "ADMIN";
+
+  const handleDeleteForm = async () => {
+    if (!deleteModalForm) return;
+    setIsDeleting(true);
+    try {
+      if (deleteModalForm.id && typeof deleteModalForm.id === 'number') {
+        await api.delete(`/form/${deleteModalForm.id}`);
+      }
+      if (refreshData) refreshData();
+    } catch (err) {
+      console.error("Error deleting form:", err);
+      alert("ไม่สามารถลบแบบฟอร์มได้ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsDeleting(false);
+      setDeleteModalForm(null);
+    }
+  };
 
   // Fetch location types / categories dynamically from database
   useEffect(() => {
@@ -264,6 +283,20 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                 <span>แก้ไขฟอร์ม</span>
                 <ChevronRight size={14} />
               </button>
+
+              {canManageForms && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteModalForm(f);
+                  }}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 cursor-pointer shadow-2xs active:scale-90 transition-all"
+                  title="ลบแบบฟอร์มนี้"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -274,6 +307,46 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
           </div>
         )}
       </div>
+
+      {/* 🛑 Delete Form Confirmation Modal */}
+      {deleteModalForm && (
+        <ModalWrapper onClose={() => !isDeleting && setDeleteModalForm(null)} maxWidth="max-w-md">
+          <div className="p-6 space-y-5 text-center">
+            <div className="w-14 h-14 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto shadow-xs">
+              <Trash2 size={26} strokeWidth={2.2} />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-base sm:text-lg font-black text-slate-800">
+                ยืนยันการลบแบบฟอร์ม?
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-sm mx-auto">
+                คุณต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteModalForm.name || deleteModalForm.title}"</strong> ออกจากระบบใช่หรือไม่?
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeleteModalForm(null)}
+                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors active:scale-95 disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteForm}
+                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold bg-rose-600 text-white hover:bg-rose-700 shadow-md shadow-rose-200 cursor-pointer transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                <Trash2 size={16} />
+                <span>{isDeleting ? "กำลังลบ..." : "ยืนยันลบฟอร์ม"}</span>
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
     </div>
   );
 }

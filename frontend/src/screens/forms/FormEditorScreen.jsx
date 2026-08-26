@@ -154,8 +154,21 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   };
 
   // Execute confirmed deletion
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
+
+    if (deleteTarget.type === "form") {
+      try {
+        if (typeof deleteTarget.id === 'number') {
+          await api.delete(`/form/${deleteTarget.id}`);
+        }
+      } catch (err) {
+        console.warn("Could not delete from api:", err);
+      }
+      setDeleteTarget(null);
+      onBack();
+      return;
+    }
 
     if (deleteTarget.type === "section") {
       const next = sections.filter((_, idx) => idx !== deleteTarget.secIdx);
@@ -776,12 +789,23 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         </div>
       )}
 
-      {/* 🌟 4. BOTTOM SAVE BUTTON */}
-      <div className="pt-3">
+      {/* 🌟 4. BOTTOM ACTION BUTTONS */}
+      <div className="pt-3 flex items-center gap-3">
+        {form?.id && (
+          <button
+            type="button"
+            onClick={() => setDeleteTarget({ type: "form", title: formName, id: form.id })}
+            className="px-4 py-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer shadow-xs active:scale-95 transition-all shrink-0"
+            title="ลบแบบฟอร์มนี้ออกจากระบบ"
+          >
+            <Trash2 size={16} />
+            <span className="hidden sm:inline">ลบแบบฟอร์มนี้</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={handleFormSave}
-          className="w-full py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
+          className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
         >
           <Check size={18} />
           <span>บันทึกและเผยแพร่แบบฟอร์ม</span>
@@ -800,10 +824,18 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             {/* Content Message */}
             <div className="space-y-2">
               <h3 className="text-base sm:text-lg font-black text-slate-800">
-                {deleteTarget.type === "section" ? "ยืนยันการลบหมวดหมู่?" : "ยืนยันการลบข้อคำถาม?"}
+                {deleteTarget.type === "form"
+                  ? "ยืนยันการลบแบบฟอร์มนี้?"
+                  : deleteTarget.type === "section"
+                  ? "ยืนยันการลบหมวดหมู่?"
+                  : "ยืนยันการลบข้อคำถาม?"}
               </h3>
               <p className="text-xs sm:text-sm text-slate-500 leading-relaxed max-w-sm mx-auto">
-                {deleteTarget.type === "section" ? (
+                {deleteTarget.type === "form" ? (
+                  <>
+                    คุณต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteTarget.title}"</strong> ออกจากระบบใช่หรือไม่? ข้อมูลหมวดหมู่และข้อคำถามทั้งหมดจะถูกลบ
+                  </>
+                ) : deleteTarget.type === "section" ? (
                   <>
                     คุณต้องการลบหมวดหมู่ <strong className="text-slate-800">"{deleteTarget.title}"</strong> ใช่หรือไม่? ข้อคำถามทั้งหมด <strong className="text-rose-600 font-bold">{deleteTarget.itemCount} ข้อ</strong> ในหมวดนี้จะถูกลบออกด้วย
                   </>
