@@ -68,7 +68,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD" }) {
     return INITIAL_CAP_LIST;
   }, [capTasks]);
 
-  if (selected) return <CapDetailScreen item={selected} onBack={() => setSelected(null)} />;
+  if (selected) return <CapDetailScreen item={selected} role={role} onBack={() => setSelected(null)} />;
 
   const filteredCapList = capList.filter(item => {
     const matchStatus = statusFilter === "all" || item.status === statusFilter;

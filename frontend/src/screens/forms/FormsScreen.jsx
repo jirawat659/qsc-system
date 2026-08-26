@@ -44,12 +44,14 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import FormEditorScreen from "./FormEditorScreen";
 
 
-export default function FormsScreen({ isDesktop, onBack }) {
+export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   const { forms, refreshData } = React.useContext(DataContext);
   const [editing, setEditing] = useState(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [locationTypes, setLocationTypes] = useState([]);
+
+  const canManageForms = role === "STANDARD" || role === "ADMIN";
 
   // Fetch location types / categories dynamically from database
   useEffect(() => {
@@ -124,6 +126,7 @@ export default function FormsScreen({ isDesktop, onBack }) {
     return (
       <FormEditorScreen
         form={editing}
+        readOnly={!canManageForms}
         onBack={() => {
           setEditing(undefined);
           if (refreshData) refreshData();
@@ -184,14 +187,16 @@ export default function FormsScreen({ isDesktop, onBack }) {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setEditing(null)}
-          className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
-        >
-          <Plus size={15} />
-          <span>สร้างฟอร์มใหม่</span>
-        </button>
+        {canManageForms && (
+          <button
+            type="button"
+            onClick={() => setEditing(null)}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
+          >
+            <Plus size={15} />
+            <span>สร้างฟอร์มใหม่</span>
+          </button>
+        )}
       </div>
 
       {/* Dynamic Filter Pills from Database */}

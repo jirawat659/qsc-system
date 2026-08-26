@@ -196,7 +196,7 @@ export default function MainDashboard({ onLogout }) {
             }}
           />
         )}
-        {screen === "forms" && <FormsScreen isDesktop={true} onBack={() => setScreen("more")} />}
+        {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
         {screen === "cap" && <CapScreen isDesktop={true} role={role} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
         {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} onNavigate={handleNavClick} />}
         {screen === "schedule" && (

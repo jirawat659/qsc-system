@@ -11,7 +11,7 @@ import Header from "../../shared/Header";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 
-export default function CapDetailScreen({ item, onBack }) {
+export default function CapDetailScreen({ item, onBack, role = "STANDARD" }) {
   const [reply, setReply] = useState("");
   const [hasPhoto, setHasPhoto] = useState(false);
   const [photoBase64, setPhotoBase64] = useState(null);
@@ -371,8 +371,8 @@ export default function CapDetailScreen({ item, onBack }) {
             </button>
           </div>
 
-          {/* 🌟 APPROVE & CLOSE CAP BUTTON UNDER CHAT */}
-          {item.status !== "approved" && item.status !== "CLOSED" && (
+          {/* 🌟 APPROVE & CLOSE CAP BUTTON UNDER CHAT (Visible only for QA / Admin) */}
+          {role !== "AUDITEE" && item.status !== "approved" && item.status !== "CLOSED" && (
             <div className="pt-2 border-t border-slate-100 flex gap-2">
               <button 
                 type="button"
