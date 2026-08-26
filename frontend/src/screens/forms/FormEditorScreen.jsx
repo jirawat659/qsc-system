@@ -107,7 +107,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       ]
     };
     setSections([...sections, newSection]);
-    setEditingSecIdx(newSecIdx);
     showToast("เพิ่มหมวดหมู่ใหม่เรียบร้อยแล้ว");
 
     // Auto-scroll smooth to newly added section
@@ -146,7 +145,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       critical: false
     });
     setSections(next);
-    setEditingId(newId);
 
     // Auto-scroll smooth to newly added question
     setTimeout(() => {
@@ -824,16 +822,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             </button>
           </div>
         ))}
-
-        {/* Bottom Add Section Button */}
-        <button
-          type="button"
-          onClick={addSection}
-          className="w-full py-4 rounded-3xl bg-emerald-50/70 hover:bg-emerald-100 text-[#0F6659] font-extrabold text-xs sm:text-sm border-2 border-dashed border-emerald-300 flex items-center justify-center gap-2 cursor-pointer shadow-2xs transition-all active:scale-[0.99]"
-        >
-          <Plus size={18} strokeWidth={2.5} />
-          <span>+ เพิ่มหมวดหมู่ใหม่ (Add New Section)</span>
-        </button>
       </div>
 
       {/* Toast Notification */}
