@@ -291,15 +291,15 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-slate-50 px-2.5 py-1.5 rounded-xl border border-slate-200 flex-1 sm:flex-none">
-                <Filter size={12} className="text-[#0F6659]" />
+            <div className="flex items-center gap-2 flex-1 w-full">
+              <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] transition-colors">
+                <Filter size={13} className="text-[#0F6659] shrink-0" />
                 <select
                   value={filterCategory}
                   onChange={(e) => setFilterCategory(e.target.value)}
-                  className="bg-transparent text-xs font-bold outline-none cursor-pointer text-slate-700"
+                  className="bg-transparent text-xs font-bold outline-none cursor-pointer text-slate-700 flex-1 w-full"
                 >
-                  <option value="all">ทุกสาขา</option>
+                  <option value="all">ทุกสาขา (ทั้งหมด)</option>
                   <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
                   <option value="improve">ต้องปรับปรุง (70-84%)</option>
                   <option value="critical">วิกฤต (&lt;70%)</option>

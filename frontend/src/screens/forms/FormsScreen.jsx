@@ -264,7 +264,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                     เกณฑ์ ≥ {f.passingScore || 85}%
                   </span>
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200/80">
-                    {f.itemCount} ข้อ (รวม {f.totalScore || 100} แต้ม)
+                    {f.itemCount} {f.totalScore || 100} คะแนน
                   </span>
                 </div>
               </div>

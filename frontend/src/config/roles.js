@@ -36,7 +36,7 @@ export const NAV_BY_ROLE = {
   ADMIN: [
     { key: "dashboard", label: "ภาพรวม", icon: LayoutDashboard },
     { key: "more", label: "จัดการระบบ", icon: Settings, isPrimary: true },
-    { key: "forms", label: "ฟอร์ม", icon: ClipboardList },
+    { key: "audit", label: "ฟอร์ม", icon: ClipboardList },
   ],
 };
 
