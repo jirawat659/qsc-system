@@ -19,19 +19,10 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../../config/roles";
+import { ROLES, NAV_BY_ROLE } from "../../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../../mocks/locations";
-import { INITIAL_SCHEDULE } from "../../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../../mocks/trends";
-import { AI_INSIGHTS } from "../../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../../mocks/admin";
 import { exportToExcel } from "../../utils/exportToExcel";
 
 import ModalWrapper from "../../shared/ModalWrapper";
@@ -40,90 +31,175 @@ import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import HistoryList from "../../shared/HistoryList";
 import ErrorBoundary from "../../shared/ErrorBoundary";
+import { compressImageFile } from "../../utils/imageCompressor";
 
-
-export default function NewRemediationModal({ onClose, onSubmit, locations = INITIAL_UNITS, currentUser }) {
+export default function NewRemediationModal({ onClose, onSubmit, locations = [], currentUser }) {
   const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || 1);
   const [selectedIssue, setSelectedIssue] = useState("q1");
   const [remediationNote, setRemediationNote] = useState("");
-  const [photoAttached, setPhotoAttached] = useState(false);
+  const [photoBase64, setPhotoBase64] = useState(null);
+  const [formError, setFormError] = useState(null);
+  const fileInputRef = useRef(null);
 
-  const availableIssues = [
-    { id: "q1", title: "ข้อ q1: พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน (ไม่ผ่าน)" },
-    { id: "q2", title: "ข้อ q2: พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน (ไม่ผ่าน)" },
-    { id: "q6", title: "ข้อ q6: อุณหภูมิตู้แช่เย็นวัตถุดิบไม่เกินเกณฑ์กำหนด (≤ 4.0°C) (ไม่ผ่าน)" },
-  ];
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file);
+      setPhotoBase64(compressed);
+      if (formError) setFormError(null);
+    } catch (err) {
+      console.warn("Compression failed:", err);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPhotoBase64(ev.target.result);
+        if (formError) setFormError(null);
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = "";
+  };
 
   const selectedLoc = locations.find(l => l.id === Number(selectedLocationId)) || locations[0];
 
-  return (
-    <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
-      <div className="p-6 space-y-4 flex-1 overflow-y-auto min-h-0" style={{ background: c.surface }}>
-        <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: c.border }}>
-          <div className="flex items-center gap-2">
-            <Scale size={18} style={{ color: c.accent }} />
-            <span className="text-sm font-bold" style={{ color: c.ink }}>เปิดส่งมอบงานแก้ไขใหม่ (จากผลตรวจล่าสุด)</span>
-          </div>
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-100 cursor-pointer"><X size={14} /></button>
-        </div>
+  const availableIssues = [
+    { id: "q1", title: "ข้อ 1: พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน" },
+    { id: "q2", title: "ข้อ 2: พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน" },
+    { id: "q7", title: "ข้อ 7: อุณหภูมิตู้แช่เย็นวัตถุดิบไม่เกินเกณฑ์กำหนด (≤ 4.0°C)" },
+  ];
 
-        <p className="text-xs text-slate-500 font-medium leading-relaxed">
-          📌 <strong>หมายเหตุ:</strong> การส่งมอบงานแก้ไขเป็นการบันทึกการปฏิบัติตาม SOP ให้ถูกต้อง ไม่มีการแก้ไขคะแนนเดิมของการตรวจ เพื่อรักษาประวัติการประเมินที่โปร่งใส
-        </p>
+  return (
+    <ModalWrapper onClose={onClose} maxWidth="max-w-md">
+      <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center text-teal-800">
+            <Wrench size={16} />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">ส่งมอบงานแก้ไขใหม่ (Manual CAP)</h3>
+            <p className="text-[11px] text-slate-500">สำหรับสาขาที่ต้องการส่งหลักฐานแก้ไขเพิ่มเติม</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 cursor-pointer">
+          <X size={16} style={{ color: c.faint }} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-3.5">
+        {formError && (
+          <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+            <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+            <span>{formError}</span>
+          </div>
+        )}
 
         <div>
-          <label className="text-xs font-bold block mb-1.5" style={{ color: c.muted }}>เลือกข้อคำถามที่ไม่ผ่านที่ต้องการส่งงานแก้ไข</label>
+          <label className="text-xs font-bold text-slate-700 block mb-1">เลือกสาขา</label>
           <select
-            value={selectedIssue}
-            onChange={(e) => setSelectedIssue(e.target.value)}
-            className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
-            style={{ background: c.bg, color: c.ink, borderColor: c.border }}
+            value={selectedLocationId}
+            onChange={(e) => setSelectedLocationId(e.target.value)}
+            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800"
           >
-            {availableIssues.map((it) => (
-              <option key={it.id} value={it.id}>{it.title}</option>
+            {locations.map(loc => (
+              <option key={loc.id} value={loc.id}>{loc.name} - {loc.fullName || loc.name}</option>
             ))}
           </select>
         </div>
 
         <div>
-          <label className="text-xs font-bold block mb-1.5" style={{ color: c.muted }}>รายละเอียดการดำเนินการแก้ไข</label>
+          <label className="text-xs font-bold text-slate-700 block mb-1">ข้อบกพร่องที่ต้องการแก้ไข</label>
+          <select
+            value={selectedIssue}
+            onChange={(e) => setSelectedIssue(e.target.value)}
+            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800"
+          >
+            {availableIssues.map(issue => (
+              <option key={issue.id} value={issue.id}>{issue.title}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-xs font-bold text-slate-700 block mb-1">รายละเอียดการดำเนินการแก้ไข</label>
           <textarea
-            rows={3}
             value={remediationNote}
-            onChange={(e) => setRemediationNote(e.target.value)}
-            placeholder="อธิบายขั้นตอนการแก้ไข การทำความสะอาด หรือการซ่อมบำรุงตามมาตรฐาน..."
-            className="w-full text-xs p-3 rounded-xl outline-none font-medium border"
-            style={{ background: c.bg, color: c.ink, borderColor: c.border }}
+            onChange={(e) => {
+              setRemediationNote(e.target.value);
+              if (formError) setFormError(null);
+            }}
+            placeholder="อธิบายสิ่งที่สาขาได้ดำเนินการปรับปรุงแก้ไข..."
+            rows={3}
+            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800 placeholder-slate-400"
           />
         </div>
 
-        <div className="rounded-2xl p-4 flex items-center justify-between border" style={{ borderColor: c.border, background: c.bg }}>
-          <div>
-            <span className="text-xs font-bold block" style={{ color: c.ink }}>แนบรูปภาพหลักฐานหลังแก้ไข (After Photo)</span>
-            <span className="text-xs text-slate-400">{photoAttached ? "✓ แนบรูปภาพสำเร็จ (1 ภาพ)" : "ยังไม่ได้แนบรูปภาพ"}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setPhotoAttached(!photoAttached)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer ${
-              photoAttached ? 'bg-[#0F6659] text-white' : 'bg-white border text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <Camera size={14} />
-            <span>{photoAttached ? "เปลี่ยนรูป" : "ถ่ายรูป/แนบไฟล์"}</span>
-          </button>
+        <div>
+          <label className="text-xs font-bold text-slate-700 block mb-1">
+            รูปภาพหลักฐานหลังแก้ไข <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+          />
+
+          {photoBase64 ? (
+            <div className="relative rounded-2xl border border-emerald-300 bg-emerald-50/70 p-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={photoBase64}
+                  alt="Evidence"
+                  className="w-14 h-14 rounded-xl object-cover border border-emerald-400 shrink-0 shadow-2xs"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-emerald-950 truncate">แนบรูปถ่ายหลักฐานแล้ว</div>
+                  <div className="text-[11px] text-emerald-700 font-medium truncate">พร้อมส่งเพื่อขออนุมัติปิดงาน</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-2.5 py-1 text-xs font-bold rounded-xl border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 cursor-pointer"
+                >
+                  เปลี่ยนรูป
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPhotoBase64(null)}
+                  className="p-1.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer"
+                  title="ลบรูป"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full p-4 rounded-2xl border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/40 flex flex-col items-center justify-center gap-1.5 text-slate-600 transition-all cursor-pointer"
+            >
+              <Camera size={22} className="text-slate-400 group-hover:text-emerald-700" />
+              <div className="text-xs font-bold text-slate-700">แตะเพื่อถ่ายรูปหรือเลือกรูปหลักฐานจากเครื่อง</div>
+              <div className="text-[11px] text-slate-400">รองรับไฟล์ภาพ JPG, PNG พร้อมบีบอัดให้อัตโนมัติ</div>
+            </button>
+          )}
         </div>
 
         <button
           onClick={() => {
             if (!remediationNote.trim()) {
-              alert("กรุณากรอกรายละเอียดการแก้ไข");
+              setFormError("กรุณากรอกรายละเอียดการแก้ไข");
               return;
             }
-            if (!photoAttached) {
-              alert("กรุณาแนบรูปภาพหลักฐานหลังแก้ไขก่อนส่งงาน");
+            if (!photoBase64) {
+              setFormError("กรุณาแนบรูปภาพหลักฐานหลังแก้ไขก่อนส่งงาน");
               return;
             }
+            setFormError(null);
             onSubmit({
               id: "CAP-" + Date.now().toString().slice(-3),
               locationId: selectedLoc?.id || 1,
@@ -134,11 +210,19 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = INI
               overdue: false,
               issueItem: availableIssues.find(x => x.id === selectedIssue)?.title,
               desc: remediationNote,
+              photo: photoBase64,
+              images: [photoBase64],
               assignedTo: currentUser?.name || "ผู้จัดการสาขา",
               deadline: "24 ส.ค. 2569",
               auditScore: 76,
               timeline: [
-                { who: `${currentUser?.name || "ผู้จัดการสาขา"} (${selectedLoc?.name || "สาขา"})`, text: remediationNote + (photoAttached ? " (แนบรูปหลักฐานหลังแก้ไข)" : ""), time: "เมื่อสักครู่" }
+                { 
+                  who: `${currentUser?.name || "ผู้จัดการสาขา"} (${selectedLoc?.name || "สาขา"})`, 
+                  text: remediationNote, 
+                  photo: photoBase64,
+                  time: "เมื่อสักครู่",
+                  isMe: true
+                }
               ]
             });
             onClose();

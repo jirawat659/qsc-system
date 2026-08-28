@@ -33,12 +33,11 @@ export default function ModalWrapper({ children, onClose, maxWidth = "max-w-2xl"
 
   const content = (
     <div
-      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden animate-in fade-in duration-200"
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden animate-in fade-in duration-200 h-[100dvh] w-full"
       onClick={onClose}
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, width: "100vw", height: "100vh" }}
     >
       <div
-        className={`modal-transition bg-white rounded-3xl ${maxWidth} w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh] my-auto border`}
+        className={`modal-transition bg-white rounded-3xl ${maxWidth} w-full shadow-2xl overflow-hidden flex flex-col max-h-[82dvh] sm:max-h-[88dvh] my-auto border`}
         style={{ borderColor: c.border }}
         onClick={(e) => e.stopPropagation()}
       >

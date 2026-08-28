@@ -6,21 +6,26 @@ export default function Header({ title, onBack, subtitle, action }) {
   const { setSubHeader } = React.useContext(TopBarContext);
   const onBackRef = React.useRef(onBack);
   onBackRef.current = onBack;
+  const actionRef = React.useRef(action);
+  actionRef.current = action;
   const hasBack = Boolean(onBack);
 
   // Sync with mobile TopBarContext
   React.useEffect(() => {
-    if (title) {
+    if (title && setSubHeader) {
       setSubHeader({
         title,
         subtitle,
+        action,
         onBack: hasBack ? () => {
           if (onBackRef.current) onBackRef.current();
         } : null
       });
-      return () => setSubHeader(null);
+      return () => {
+        if (setSubHeader) setSubHeader(null);
+      };
     }
-  }, [title, subtitle, hasBack, setSubHeader]);
+  }, [title, subtitle, hasBack]);
 
   if (!title && !onBack) return null;
 

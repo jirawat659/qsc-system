@@ -20,20 +20,12 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../../config/roles";
+import { ROLES, NAV_BY_ROLE } from "../../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../../mocks/locations";
-import { INITIAL_SCHEDULE } from "../../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../../mocks/trends";
-import { AI_INSIGHTS } from "../../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../../mocks/admin";
 import { exportToExcel } from "../../utils/exportToExcel";
+import api from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -44,18 +36,21 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import AdminSubScreen from "./AdminSubScreen";
 import ConsolidatedReportsScreen from "./ConsolidatedReportsScreen";
 import MasterManagementScreen from "./MasterManagementScreen";
+import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
-export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
+export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser }) {
+  const { locations = [] } = React.useContext(DataContext);
   const [open, setOpen] = useState(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const tools = [
     {
       key: "master_management",
       icon: Layers,
-      label: "การจัดการ",
+      label: "การจัดการระบบและข้อมูลหลัก",
       desc: "จัดการข้อมูลผู้ใช้งาน, เพิ่มสถานที่/สาขา และประเภทสถานที่",
-      roles: ["STANDARD", "ADMIN"]
+      roles: ["ADMIN"]
     },
     {
       key: "reports",
@@ -92,14 +87,14 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
       icon: Users, 
       label: "จัดการผู้ใช้งานและบทบาท", 
       desc: "กำหนดสิทธิ์ผู้ตรวจ ผู้จัดการสาขา และผู้บริหาร",
-      roles: ["STANDARD", "ADMIN"]
+      roles: ["ADMIN"]
     },
     { 
       key: "org", 
       icon: Store, 
       label: "ผังโครงสร้างองค์กรและสาขา", 
-      desc: "ผังแบรนด์ พื้นที่ และสาขาทั้งหมด 105 แห่ง",
-      roles: ["STANDARD", "ADMIN", "EXEC"]
+      desc: "ผังแบรนด์ พื้นที่ และสาขาทั้งหมด",
+      roles: ["ADMIN"]
     },
     { 
       key: "permissions", 
@@ -155,48 +150,71 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
   }
 
   if (open === "auditor_profile") {
+    const displayName = currentUser?.fullName || currentUser?.name || "คุณสมชาย ใจดี";
+    const initialLetter = displayName.charAt(0) || "ส";
     return (
       <AdminSubScreen title="ข้อมูลผู้ตรวจประเมิน" onBack={() => setOpen(null)}>
         <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-[#0F6659] flex items-center justify-center text-xl font-bold">
-              ส
+              {initialLetter}
             </div>
             <div>
-              <div className="text-base sm:text-lg font-bold text-slate-900">คุณสมชาย ใจดี</div>
-              <div className="text-xs text-slate-500 font-medium">ตำแหน่ง: เจ้าหน้าที่ตรวจสอบคุณภาพ (QC Lead)</div>
+              <div className="text-base sm:text-lg font-bold text-slate-900">{displayName}</div>
+              <div className="text-xs text-slate-500 font-medium">ตำแหน่ง: {currentUser?.title || "เจ้าหน้าที่ตรวจสอบคุณภาพ (QC Lead)"}</div>
               <div className="text-xs text-emerald-700 font-semibold mt-0.5">สถานะ: ปฏิบัติหน้าที่หน้าร้าน (Active)</div>
             </div>
           </div>
           <div className="border-t pt-4 space-y-2 text-xs sm:text-sm text-slate-700">
             <div className="flex justify-between py-1.5 border-b border-slate-100">
               <span className="text-slate-400">สังกัดฝ่าย:</span>
-              <span className="font-semibold">Quality Control (QC)</span>
+              <span className="font-semibold">{currentUser?.department || "Quality Control (QC)"}</span>
             </div>
             <div className="flex justify-between py-1.5 border-b border-slate-100">
               <span className="text-slate-400">พื้นที่รับผิดชอบ:</span>
-              <span className="font-semibold">กรุงเทพฯ ตอนกลาง & เหนือ</span>
+              <span className="font-semibold">{currentUser?.regionScope || "กรุงเทพฯ ตอนกลาง & เหนือ"}</span>
             </div>
             <div className="flex justify-between py-1.5">
               <span className="text-slate-400">สิทธิ์การใช้งาน:</span>
               <span className="font-semibold text-emerald-800">ตรวจหน้างานตามแผนที่ได้รับมอบหมาย</span>
             </div>
           </div>
+
+          <div className="pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setShowChangePassword(true)}
+              className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-extrabold text-xs sm:text-sm border border-slate-200 shadow-2xs flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-98 hover:border-[#0F6659] hover:text-[#0F6659]"
+            >
+              <Key size={17} className="text-[#0F6659]" />
+              <span>เปลี่ยนรหัสผ่าน (Change Password)</span>
+            </button>
+          </div>
         </div>
+
+        {showChangePassword && (
+          <ChangePasswordModal
+            user={currentUser}
+            onClose={() => setShowChangePassword(false)}
+          />
+        )}
       </AdminSubScreen>
     );
   }
 
   if (open === "branch_info") {
+    const branchName = currentUser?.locationName || (locations && locations.length > 0 ? locations[0].name : "ทุกสาขา");
+    const matchedLoc = locations && locations.find(l => l.name === branchName || l.fullName === branchName);
+    const branchAddress = matchedLoc?.address || "-";
     return (
       <AdminSubScreen title="ข้อมูลสาขาและคู่มือ SOP" onBack={() => setOpen(null)}>
         <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
-          <div className="text-base font-bold text-slate-900">🏬 Urban Burger - สาขาสยามพารากอน</div>
-          <p className="text-xs text-slate-500 font-medium">รหัสสาขา: UB-BKK-001 · ชั้น G โซน Food Passage</p>
+          <div className="text-base font-bold text-slate-900">🏬 {branchName}</div>
+          <p className="text-xs text-slate-500 font-medium">{branchAddress}</p>
           <div className="border-t pt-3 space-y-2 text-xs sm:text-sm">
             <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
-              <div className="font-bold text-slate-800">📘 คู่มือมาตรฐานสุขอนามัยและความปลอดภัย v3.2</div>
-              <div className="text-xs text-slate-500 mt-1">อัปเดตล่าสุด: 15 สิงหาคม 2569</div>
+              <div className="font-bold text-slate-800">📘 คู่มือมาตรฐานสุขอนามัยและความปลอดภัย (Q.S.C. SOP)</div>
+              <div className="text-xs text-slate-500 mt-1">อัปเดตล่าสุด: {new Date().toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
             </div>
           </div>
         </div>
@@ -213,9 +231,9 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
           <p className="text-xs text-slate-500 font-medium max-w-sm mx-auto">
             หากมีข้อสงสัยเกี่ยวกับเกณฑ์คะแนนหรือต้องการคำแนะนำในการแก้ไขข้อบกพร่อง สามารถติดต่อได้ที่
           </p>
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-50 text-[#0F6659] text-xs font-bold border border-emerald-200">
+          <a className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-50 text-[#0F6659] text-xs font-bold border border-emerald-200" href="tel:029999999">
             📞 02-999-9999 ต่อ 102 (ทีม QA)
-          </div>
+          </a>
         </div>
       </AdminSubScreen>
     );
@@ -225,87 +243,27 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
     return <FormsScreen isDesktop={true} onBack={() => setOpen(null)} />;
   }
 
-  if (open === "users") {
-    return (
-      <AdminSubScreen title="จัดการผู้ใช้งานและบทบาท" onBack={() => setOpen(null)}>
-        <div className="space-y-3">
-          {MOCK_USERS.map((u) => (
-            <div key={u.id} className="rounded-3xl p-4 bg-white border border-slate-200 shadow-2xs flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold text-sm shrink-0">
-                {u.name[0]}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm sm:text-base font-extrabold text-slate-900 truncate">{u.name}</div>
-                <div className="text-xs sm:text-sm text-slate-500 font-medium truncate mt-0.5">{u.role} · {u.email}</div>
-              </div>
-              <span className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${
-                u.status === "ใช้งานอยู่" ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-500'
-              }`}>
-                {u.status}
-              </span>
-            </div>
-          ))}
-        </div>
-      </AdminSubScreen>
-    );
-  }
-
-  if (open === "org") {
-    return (
-      <AdminSubScreen title="ผังโครงสร้างองค์กรและสาขา" onBack={() => setOpen(null)}>
-        <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
-          <div className="text-base sm:text-lg font-extrabold text-[#0F6659] border-b pb-3">{ORG_TREE.company}</div>
-          {ORG_TREE.brands.map((b) => (
-            <div key={b.name} className="ml-2 pl-4 border-l-2 border-emerald-400 space-y-2">
-              <div className="text-sm sm:text-base font-bold text-slate-900">{b.name}</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {b.regions.map((r) => (
-                  <div key={r} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-medium text-slate-700">
-                    📍 {r}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </AdminSubScreen>
-    );
-  }
-
-  if (open === "permissions") {
-    return (
-      <AdminSubScreen title="กำหนดสิทธิ์การเข้าถึงระบบ" onBack={() => setOpen(null)}>
-        <div className="flex flex-col gap-3">
-          {ROLE_PERMISSIONS_LIST.map((r) => (
-            <div key={r.role} className="rounded-3xl p-5 bg-white border border-slate-200 shadow-2xs space-y-2.5">
-              <div className="text-sm sm:text-base font-extrabold text-slate-900">{r.role}</div>
-              <div className="flex flex-wrap gap-2">
-                {r.perms.map((p) => (
-                  <span key={p} className="text-xs sm:text-sm font-bold px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200">
-                    ✓ {p}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </AdminSubScreen>
-    );
+  if (open === "users" || open === "org" || open === "permissions") {
+    return <MasterManagementScreen onBack={() => setOpen(null)} />;
   }
 
   if (open === "integrations") {
+    const integrations = [
+      { name: "ERP Enterprise Sync", desc: "เชื่อมต่อข้อมูลสาขาและสต็อกวัตถุดิบ", status: "ยังไม่เชื่อมต่อ (Coming Soon)" },
+      { name: "POS Transaction Feed", desc: "ดึงข้อมูลยอดขายและเวลาให้บริการหน้าร้าน", status: "ยังไม่เชื่อมต่อ (Coming Soon)" },
+      { name: "LINE Notify Alert Service", desc: "แจ้งเตือนงานตรวจและงานแก้ไข CAP ไปยัง LINE", status: "ยังไม่เชื่อมต่อ (Coming Soon)" }
+    ];
+
     return (
       <AdminSubScreen title="การเชื่อมต่อ API & Webhook" onBack={() => setOpen(null)}>
         <div className="rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-2xs divide-y divide-slate-100">
-          {API_INTEGRATIONS.map((a) => (
-            <div key={a.name} className="flex items-center gap-4 px-5 py-4">
+          {integrations.map((a) => (
+            <div key={a.name} className="flex items-center justify-between gap-4 px-5 py-4">
               <div className="flex-1 min-w-0">
                 <div className="text-sm sm:text-base font-extrabold text-slate-900 truncate">{a.name}</div>
-                <div className="text-xs text-slate-500 font-medium mt-0.5">ซิงก์ข้อมูลล่าสุด {a.lastSync}</div>
+                <div className="text-xs text-slate-500 font-medium mt-0.5">{a.desc}</div>
               </div>
-              <span className={`text-xs font-bold px-3 py-1 rounded-full shrink-0 ${
-                a.status === "เชื่อมต่อแล้ว" ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-600'
-              }`}>
+              <span className="text-xs font-bold px-3 py-1 rounded-full shrink-0 bg-slate-100 text-slate-600 border border-slate-200">
                 {a.status}
               </span>
             </div>
@@ -325,7 +283,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
                 <div className="font-bold text-slate-800 text-sm">เกณฑ์คะแนนผ่านขั้นต่ำ (Passing Threshold)</div>
                 <div className="text-xs text-slate-500">กำหนดคะแนนร้อยละขั้นต่ำเพื่อให้ถือว่าผ่านการตรวจ</div>
               </div>
-              <span className="text-base font-bold text-emerald-800 font-mono">85%</span>
+              <span className="text-sm font-bold text-emerald-800 font-mono">85% (ค่าเริ่มต้น)</span>
             </div>
 
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
@@ -333,7 +291,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate }) {
                 <div className="font-bold text-slate-800 text-sm">กำหนดเวลาส่งแผนแก้ไข (CAP SLA)</div>
                 <div className="text-xs text-slate-500">จำนวนวันที่สาขาต้องส่งหลักฐานหลังพบข้อบกพร่อง</div>
               </div>
-              <span className="text-base font-bold text-amber-800 font-mono">3 วัน</span>
+              <span className="text-sm font-bold text-amber-800 font-mono">3 วัน (ค่าเริ่มต้น)</span>
             </div>
           </div>
         </div>

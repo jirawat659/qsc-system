@@ -1,22 +1,21 @@
 import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import MainDashboard from './pages/MainDashboard';
+import authStorage from './config/storage';
 
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem('token'));
+  const [token, setToken] = useState(() => authStorage.getToken());
 
   useEffect(() => {
     const handleStorage = () => {
-      setToken(localStorage.getItem('token'));
+      setToken(authStorage.getToken());
     };
     window.addEventListener('storage', handleStorage);
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    localStorage.removeItem('username');
+    authStorage.clearSession();
     setToken(null);
   };
 

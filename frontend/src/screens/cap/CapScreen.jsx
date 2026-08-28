@@ -19,19 +19,10 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../../config/roles";
+import { ROLES, NAV_BY_ROLE } from "../../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../../mocks/locations";
-import { INITIAL_SCHEDULE } from "../../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../../mocks/trends";
-import { AI_INSIGHTS } from "../../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../../mocks/admin";
 import { exportToExcel } from "../../utils/exportToExcel";
 
 import ModalWrapper from "../../shared/ModalWrapper";
@@ -42,6 +33,7 @@ import HistoryList from "../../shared/HistoryList";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import CapDetailScreen from "./CapDetailScreen";
 import NewRemediationModal from "./NewRemediationModal";
+import api from "../../config/api";
 
 
 export default function CapScreen({ isDesktop, onBack, role = "STANDARD", currentUser }) {
@@ -52,29 +44,62 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
   const [statusFilter, setStatusFilter] = useState("all");
 
   const capList = useMemo(() => {
-    let tasks = (capTasks && capTasks.length > 0) ? capTasks : INITIAL_CAP_LIST;
+    let tasks = capTasks || [];
 
     if (role === "AUDITEE" || (currentUser?.branchScope === "SPECIFIC" && currentUser?.allowedLocationIds?.length > 0)) {
       const allowedIds = currentUser?.allowedLocationIds || [];
       tasks = tasks.filter(t => allowedIds.includes(t.locationId || t.location?.id) || t.assignedTo === currentUser?.id);
     }
 
-    return tasks.map(t => ({
-      id: t.id,
-      title: t.issueItem || "ข้อบกพร่องจากการตรวจ",
-      unit: t.location?.name || t.locationName || t.unit || "สาขาสยาม",
-      locationId: t.locationId || t.location?.id,
-      issueItem: t.issueItem || t.description,
-      desc: t.description || t.desc || "ต้องดำเนินการแก้ไขตามมาตรฐาน Q.S.C.",
-      status: t.status === "OPEN" ? "pending" : (t.status === "SUBMITTED" ? "submitted" : (t.status === "CLOSED" ? "approved" : (t.status === "REJECTED" ? "rejected" : t.status))),
-      statusRaw: t.status,
-      deadline: t.submissionDeadline ? new Date(t.submissionDeadline).toLocaleDateString('th-TH') : "3 วันหลังจากตรวจ",
-      createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString('th-TH') : "วันนี้",
-      raw: t
-    }));
+    const mapped = tasks.map(t => {
+      const isDone = (t.status === "CLOSED" || t.status === "approved" || t.status === "done" || t.status === "closed");
+      const deadlineDate = t.submissionDeadline ? new Date(t.submissionDeadline) : null;
+      const deadlineTime = deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.getTime() : Infinity;
+      const createdDate = t.createdAt ? new Date(t.createdAt) : null;
+      const createdTime = createdDate && !isNaN(createdDate.getTime()) ? createdDate.getTime() : 0;
+
+      return {
+        id: t.id,
+        title: t.issueItem || "ข้อบกพร่องจากการตรวจ",
+        unit: t.location?.name || t.locationName || t.unit || "สาขามาตรฐาน",
+        locationId: t.locationId || t.location?.id,
+        issueItem: t.issueItem || t.description,
+        desc: t.description || t.desc || "ต้องดำเนินการแก้ไขตามมาตรฐาน Q.S.C.",
+        status: isDone ? "done" : "pending",
+        statusRaw: t.status,
+        deadline: deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.toLocaleDateString('th-TH') : "-",
+        createdAt: createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleDateString('th-TH') : "-",
+        deadlineTime,
+        createdTime,
+        raw: t
+      };
+    });
+
+    // 🌟 จัดเรียง: สถานะกำลังแก้ไขงาน (pending) อยู่บนสุด เรียงตามวันครบกำหนดที่ถึงก่อน (Ascending)
+    // จากนั้นสถานะอนุมัติปิดงานแล้ว (done) อยู่ทีหลัง เรียงตามวันที่ล่าสุด (Descending)
+    return mapped.sort((a, b) => {
+      if (a.status !== b.status) {
+        return a.status === "pending" ? -1 : 1;
+      }
+      if (a.status === "pending") {
+        return a.deadlineTime - b.deadlineTime;
+      }
+      return b.createdTime - a.createdTime;
+    });
   }, [capTasks, role, currentUser]);
 
-  if (selected) return <CapDetailScreen item={selected} role={role} currentUser={currentUser} onBack={() => setSelected(null)} />;
+  if (selected) return (
+    <CapDetailScreen
+      item={selected}
+      role={role}
+      currentUser={currentUser}
+      refreshData={refreshData}
+      onBack={() => {
+        setSelected(null);
+        if (refreshData) refreshData();
+      }}
+    />
+  );
 
   const filteredCapList = capList.filter(item => {
     const matchStatus = statusFilter === "all" || item.status === statusFilter;
@@ -94,16 +119,18 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         title={role === "AUDITEE" ? "แชทติดตามงานแก้ไข (CAP Threads)" : "ส่งมอบงานแก้ไขข้อบกพร่อง (CAP)"}
         subtitle={role === "AUDITEE" ? "รายการงานแก้ไขที่ยื่นเรื่องแล้ว และประวัติการพูดคุยกับ QA/QC" : "ติดตามและส่งมอบหลักฐานการแก้ไขข้อบกพร่องจากการตรวจประเมิน"}
         onBack={onBack}
-        action={
-          <button
-            type="button"
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-bold cursor-pointer shadow-sm hover:bg-emerald-800 transition-all text-white bg-[#0F6659] shrink-0"
-          >
-            <Plus size={16} /> ส่งงานแก้ไขใหม่
-          </button>
-        }
       />
+
+      {/* 🌟 ปุ่มส่งงานแก้ไขใหม่ (อยู่บนช่องค้นหา) */}
+      <div className="flex justify-end sm:justify-start">
+        <button
+          type="button"
+          onClick={() => setShowNewModal(true)}
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold cursor-pointer shadow-sm hover:bg-emerald-800 active:scale-[0.98] transition-all text-white bg-[#0F6659]"
+        >
+          <Plus size={18} /> ส่งงานแก้ไขใหม่
+        </button>
+      </div>
 
       {/* Search & Filter Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
@@ -126,15 +153,14 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
           {[
             { key: "all", label: "ทั้งหมด" },
-            { key: "pending", label: "เกินกำหนด SLA" },
-            { key: "submitted", label: "รออนุมัติ" },
-            { key: "done", label: "ปิดงานแล้ว" },
+            { key: "pending", label: "กำลังแก้ไขงาน" },
+            { key: "done", label: "อนุมัติปิดงานแล้ว" },
           ].map(tab => (
             <button
               key={tab.key}
               type="button"
               onClick={() => setStatusFilter(tab.key)}
-              className={`px-3 py-2 rounded-xl text-xs font-bold shrink-0 cursor-pointer transition-colors ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 cursor-pointer transition-colors ${
                 statusFilter === tab.key
                   ? 'bg-[#0F6659] text-white shadow-xs'
                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -209,12 +235,18 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           onSubmit={async (createdData) => {
             try {
               if (createdData?.locationId) {
-                await api.post('/cap', {
+                const res = await api.post('/cap', {
                   locationId: createdData.locationId,
                   issueItem: createdData.issueItem || "ข้อบกพร่องจากการตรวจ",
                   description: createdData.desc || "",
                   assignedTo: currentUser?.id || 1
                 });
+                if (res.data?.id && createdData.photo) {
+                  await api.post(`/cap/${res.data.id}/submit`, {
+                    message: createdData.desc || "ส่งหลักฐานการแก้ไขเพิ่มเติมเรียบร้อยแล้ว",
+                    imageUrls: [createdData.photo]
+                  });
+                }
               }
               if (refreshData) await refreshData();
             } catch (err) {

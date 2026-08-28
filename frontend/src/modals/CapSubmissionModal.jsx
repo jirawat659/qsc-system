@@ -19,52 +19,61 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../config/roles";
-import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../config/constants";
-import { TopBarContext } from "../context/TopBarContext";
-import { DataContext } from "../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../mocks/locations";
-import { INITIAL_SCHEDULE } from "../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../mocks/trends";
-import { AI_INSIGHTS } from "../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../mocks/admin";
-import { exportToExcel } from "../utils/exportToExcel";
 import ModalWrapper from "../shared/ModalWrapper";
 import Header from "../shared/Header";
 import Section from "../shared/Section";
 import ScoreRing from "../shared/ScoreRing";
 import HistoryList from "../shared/HistoryList";
 import ErrorBoundary from "../shared/ErrorBoundary";
-
-
+import { compressImageFile } from "../utils/imageCompressor";
 
 export default function CapSubmissionModal({ question, unitName, onSave, onClose }) {
   const [actionText, setActionText] = useState("");
-  const [photoAttached, setPhotoAttached] = useState(false);
+  const [photoBase64, setPhotoBase64] = useState(null);
   const [responsibleName, setResponsibleName] = useState("ผู้จัดการสาขา (Store Manager)");
   const [dueDate, setDueDate] = useState("ภายใน 24 ชม. (เร่งด่วน)");
+  const [formError, setFormError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file);
+      setPhotoBase64(compressed);
+      if (formError) setFormError(null);
+    } catch (err) {
+      console.warn("Compression failed:", err);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPhotoBase64(ev.target.result);
+        if (formError) setFormError(null);
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = "";
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!actionText.trim()) {
-      alert("กรุณากรอกรายละเอียดการดำเนินการแก้ไข");
+      setFormError("กรุณากรอกรายละเอียดการดำเนินการแก้ไข");
       return;
     }
-    if (!photoAttached) {
-      alert("กรุณาแนบรูปถ่ายหลักฐานหลังการแก้ไขก่อนส่งงาน");
+    if (!photoBase64) {
+      setFormError("กรุณาแนบรูปถ่ายหลักฐานหลังการแก้ไขก่อนส่งงาน");
       return;
     }
+    setFormError(null);
     onSave({
       qId: question.id,
       qNum: question.num,
       qText: question.text,
       auditorNote: question.note,
       actionText,
-      photoAttached,
+      photoAttached: true,
+      photo: photoBase64,
+      imageUrls: [photoBase64],
       responsibleName,
       dueDate,
       submittedAt: new Date().toLocaleDateString("th-TH", { day: 'numeric', month: 'short', year: '2-digit' }) + " " + new Date().toLocaleTimeString("th-TH", { hour: '2-digit', minute: '2-digit' }) + " น.",
@@ -93,6 +102,13 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
 
         {/* Modal Body Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+          {formError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+              <AlertTriangle size={15} className="shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
           {/* Issue Summary Box */}
           <div className="p-3.5 rounded-2xl bg-red-50/80 border border-red-200 space-y-1.5">
             <div className="text-xs font-bold text-red-900 flex items-center gap-1.5">
@@ -126,26 +142,62 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
           {/* Upload After Photo Evidence */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700 block">
-              2. แนบรูปถ่ายหลักฐานหลังการแก้ไข (After Photo)
+              2. แนบรูปถ่ายหลักฐานหลังการแก้ไข (After Photo) <span className="text-red-500">*</span>
             </label>
-            <div
-              onClick={() => setPhotoAttached(!photoAttached)}
-              className={`p-4 rounded-2xl border-2 border-dashed flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
-                photoAttached
-                  ? 'bg-emerald-50 border-emerald-500 text-emerald-800'
-                  : 'bg-slate-50 border-slate-300 hover:bg-slate-100 text-slate-600'
-              }`}
-            >
-              <Camera size={22} className={photoAttached ? 'text-emerald-700' : 'text-slate-400'} />
-              <div className="text-center">
-                <div className="text-xs font-bold">
-                  {photoAttached ? "✓ แนบรูปถ่ายหลักฐานหลังแก้ไขเรียบร้อย (1 รูป)" : "แตะเพื่อถ่ายรูปหรืออัปโหลดหลักฐานหลังแก้ไข"}
+            <input
+              type="file"
+              accept="image/*"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {photoBase64 ? (
+              <div className="relative rounded-2xl border border-emerald-300 bg-emerald-50/70 p-3.5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <img
+                    src={photoBase64}
+                    alt="Evidence Preview"
+                    className="w-14 h-14 rounded-xl object-cover border border-emerald-400 shrink-0 shadow-2xs"
+                  />
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-emerald-950 truncate">แนบรูปถ่ายหลักฐานสำเร็จ</div>
+                    <div className="text-[11px] text-emerald-700 font-medium truncate">พร้อมส่งเพื่อขออนุมัติปิดงาน</div>
+                  </div>
                 </div>
-                <div className="text-xs text-slate-400 mt-0.5">
-                  {photoAttached ? "แตะอีกครั้งหากต้องการเปลี่ยนรูป" : "รองรับไฟล์ JPG, PNG พร้อมประทับเวลา GPS"}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-2.5 py-1 text-xs font-bold rounded-xl border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 cursor-pointer"
+                  >
+                    เปลี่ยนรูป
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPhotoBase64(null)}
+                    className="p-1.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer"
+                    title="ลบรูป"
+                  >
+                    <Trash2 size={15} />
+                  </button>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="p-4 rounded-2xl border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/30 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all text-slate-600"
+              >
+                <Camera size={24} className="text-slate-400" />
+                <div className="text-center">
+                  <div className="text-xs font-bold text-slate-700">
+                    แตะเพื่อถ่ายรูปหรืออัปโหลดหลักฐานหลังแก้ไข
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    รองรับไฟล์ JPG, PNG พร้อมบีบอัดอัตโนมัติ
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Responsible Person */}

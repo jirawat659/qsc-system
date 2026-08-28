@@ -55,7 +55,7 @@ namespace QSC.Api.Controllers
                 return Unauthorized(new { message = "ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง" });
             }
 
-            // Verify BCrypt or fallback to plain text if needed
+            // Verify BCrypt Password
             bool passwordValid = false;
             try
             {
@@ -63,7 +63,7 @@ namespace QSC.Api.Controllers
             }
             catch
             {
-                passwordValid = (user.PasswordHash == dto.Password);
+                passwordValid = false;
             }
 
             if (!passwordValid)
@@ -94,9 +94,9 @@ namespace QSC.Api.Controllers
             }
 
             // Generate JWT Token
-            var jwtKey = _config["Jwt:Key"] ?? "QSC_Secret_Key_Super_Secure_2026_Enterprise_Auth_JWT_Token_Key!";
-            var jwtIssuer = _config["Jwt:Issuer"] ?? "QSC.Api";
-            var jwtAudience = _config["Jwt:Audience"] ?? "QSC.App";
+            var jwtKey = _config["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!");
+            var jwtIssuer = _config["Jwt:Issuer"] ?? "QscApi";
+            var jwtAudience = _config["Jwt:Audience"] ?? "QscFrontend";
 
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.UTF8.GetBytes(jwtKey);
@@ -139,8 +139,56 @@ namespace QSC.Api.Controllers
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordDto dto)
         {
+            var currentUserIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var currentUserRole = User.FindFirst(ClaimTypes.Role)?.Value;
+
+            if (string.IsNullOrEmpty(currentUserIdStr))
+            {
+                return Unauthorized(new { message = "กรุณาเข้าสู่ระบบก่อนทำรายการ" });
+            }
+
+            if (dto.UserId <= 0 && int.TryParse(currentUserIdStr, out var parsedMyId))
+            {
+                dto.UserId = parsedMyId;
+            }
+
+            // Non-admin users can only change their own password
+            if (currentUserRole != "ADMIN" && currentUserIdStr != dto.UserId.ToString())
+            {
+                return StatusCode(403, new { message = "ไม่มีสิทธิ์เปลี่ยนรหัสผ่านของผู้ใช้อื่น" });
+            }
+
             var user = await _context.Users.FindAsync(dto.UserId);
             if (user == null) return NotFound(new { message = "ไม่พบผู้ใช้ในระบบ" });
+
+            if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            {
+                return BadRequest(new { message = "รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
+            }
+
+            // Verify old password
+            if (!string.IsNullOrWhiteSpace(dto.OldPassword) || currentUserRole != "ADMIN")
+            {
+                if (string.IsNullOrWhiteSpace(dto.OldPassword))
+                {
+                    return BadRequest(new { message = "กรุณาระบุรหัสผ่านเดิม" });
+                }
+
+                bool oldValid = false;
+                try
+                {
+                    oldValid = BCrypt.Net.BCrypt.Verify(dto.OldPassword, user.PasswordHash);
+                }
+                catch
+                {
+                    oldValid = false;
+                }
+
+                if (!oldValid)
+                {
+                    return BadRequest(new { message = "รหัสผ่านเดิมไม่ถูกต้อง" });
+                }
+            }
 
             user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
             user.MustChangePassword = false;
@@ -153,6 +201,11 @@ namespace QSC.Api.Controllers
         [HttpPost("reset-password")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.NewPassword) || dto.NewPassword.Length < 6)
+            {
+                return BadRequest(new { message = "รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
+            }
+
             var user = await _context.Users.FindAsync(dto.UserId);
             if (user == null) return NotFound(new { message = "ไม่พบผู้ใช้ในระบบ" });
 

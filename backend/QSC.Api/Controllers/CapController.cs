@@ -1,8 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using QSC.Api.Data;
 using QSC.Api.Models;
+
+using QSC.Api.Helpers;
 
 namespace QSC.Api.Controllers
 {
@@ -20,17 +23,87 @@ namespace QSC.Api.Controllers
             _env = env;
         }
 
+        private static bool IsValidImageSignature(byte[] bytes)
+        {
+            if (bytes == null || bytes.Length < 12) return false;
+            if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return true;
+            if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return true;
+            if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
+                bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) return true;
+            if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x38) return true;
+            return false;
+        }
+
+        private async Task<string> SaveBase64IfPresentAsync(string? input, string subfolder, string prefix)
+        {
+            if (string.IsNullOrWhiteSpace(input) || !input.StartsWith("data:image/")) return input ?? string.Empty;
+
+            try
+            {
+                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+                var dir = Path.Combine(webRoot, "uploads", subfolder);
+                Directory.CreateDirectory(dir);
+
+                var base64Clean = input;
+                var ext = "webp";
+                if (input.Contains("data:image/png")) ext = "png";
+                else if (input.Contains("data:image/jpeg") || input.Contains("data:image/jpg")) ext = "jpg";
+
+                if (base64Clean.Contains(",")) base64Clean = base64Clean.Split(',')[1];
+                var bytes = Convert.FromBase64String(base64Clean);
+
+                if (bytes.Length > 0 && bytes.Length <= 10 * 1024 * 1024 && IsValidImageSignature(bytes))
+                {
+                    var fileName = $"{prefix}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.{ext}";
+                    var filePath = Path.Combine(dir, fileName);
+                    await System.IO.File.WriteAllBytesAsync(filePath, bytes);
+                    return $"/uploads/{subfolder}/{fileName}";
+                }
+            }
+            catch
+            {
+                // Fallback
+            }
+            return input;
+        }
+
         [HttpGet]
         public async Task<IActionResult> GetCapTasks([FromQuery] int? locationId, [FromQuery] int? assignedTo, [FromQuery] string? status)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var query = _context.CapTasks
+                .AsNoTracking()
                 .Include(t => t.Location)
                 .Include(t => t.Assignee)
                 .Include(t => t.Verifier)
                 .Include(t => t.AuditRecord)
                 .AsQueryable();
 
-            if (locationId.HasValue) query = query.Where(t => t.LocationId == locationId.Value);
+            if (role == "AUDITEE")
+            {
+                if (allowedLocationIds != null)
+                {
+                    query = query.Where(t => allowedLocationIds.Contains(t.LocationId) || t.AssignedTo == currentUserId);
+                }
+                else
+                {
+                    return Ok(new List<object>());
+                }
+            }
+            else if (allowedLocationIds != null)
+            {
+                query = query.Where(t => allowedLocationIds.Contains(t.LocationId));
+            }
+
+            if (locationId.HasValue)
+            {
+                if (allowedLocationIds != null && !allowedLocationIds.Contains(locationId.Value))
+                {
+                    return Ok(new List<object>());
+                }
+                query = query.Where(t => t.LocationId == locationId.Value);
+            }
             if (assignedTo.HasValue) query = query.Where(t => t.AssignedTo == assignedTo.Value);
             if (!string.IsNullOrEmpty(status)) query = query.Where(t => t.Status == status);
 
@@ -63,22 +136,34 @@ namespace QSC.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetCapTaskDetail(int id)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var task = await _context.CapTasks
+                .AsNoTracking()
                 .Include(t => t.Location)
                 .Include(t => t.Assignee)
                 .Include(t => t.Verifier)
                 .Include(t => t.Images)
+                    .ThenInclude(img => img.Uploader)
+                        .ThenInclude(u => u!.Role)
                 .Include(t => t.Comments)
                     .ThenInclude(c => c.Sender)
+                        .ThenInclude(u => u!.Role)
                 .FirstOrDefaultAsync(t => t.Id == id);
 
             if (task == null) return NotFound();
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
+            {
+                return Forbid();
+            }
 
             // Fetch BEFORE images directly from AuditResponseImage
             var beforeImages = new List<string>();
             if (task.AuditResponseId.HasValue)
             {
                 beforeImages = await _context.AuditResponseImages
+                    .AsNoTracking()
                     .Where(img => img.AuditResponseId == task.AuditResponseId.Value)
                     .Select(img => img.ImageUrl)
                     .ToListAsync();
@@ -109,14 +194,16 @@ namespace QSC.Api.Controllers
                     id = img.Id,
                     imageUrl = img.ImageUrl,
                     uploadedBy = img.UploadedBy,
+                    uploaderName = img.Uploader?.FullName ?? "ผู้ใช้งาน",
+                    uploaderRole = img.Uploader?.Role?.Code ?? "STANDARD",
                     uploadedAt = img.UploadedAt
                 }).ToList(),
                 comments = task.Comments.OrderBy(c => c.CreatedAt).Select(c => new
                 {
                     id = c.Id,
                     senderId = c.SenderId,
-                    senderName = c.Sender?.FullName,
-                    senderRole = c.SenderRole,
+                    senderName = c.Sender?.FullName ?? "ผู้ใช้งาน",
+                    senderRole = c.Sender?.Role?.Code ?? c.SenderRole,
                     message = c.Message,
                     createdAt = c.CreatedAt
                 }).ToList()
@@ -158,7 +245,6 @@ namespace QSC.Api.Controllers
 
         public class SubmitRemediationDto
         {
-            public int UserId { get; set; }
             public string Message { get; set; } = string.Empty;
             public List<string> ImageUrls { get; set; } = new();
         }
@@ -166,20 +252,27 @@ namespace QSC.Api.Controllers
         [HttpPost("{id}/submit")]
         public async Task<IActionResult> SubmitRemediation(int id, [FromBody] SubmitRemediationDto dto)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
+            {
+                return Forbid();
+            }
 
             task.Status = "SUBMITTED";
             task.CompletedAt = DateTime.UtcNow;
 
-            // Add Chat Comment
+            // Add Chat Comment - sender is strictly the authenticated user
             if (!string.IsNullOrWhiteSpace(dto.Message))
             {
                 _context.CapTaskComments.Add(new CapTaskComment
                 {
                     CapTaskId = id,
-                    SenderId = dto.UserId,
-                    SenderRole = "AUDITEE",
+                    SenderId = currentUserId,
+                    SenderRole = role,
                     Message = dto.Message,
                     CreatedAt = DateTime.UtcNow
                 });
@@ -188,15 +281,17 @@ namespace QSC.Api.Controllers
             // Save AFTER images
             if (dto.ImageUrls.Any())
             {
+                var now = DateTime.UtcNow;
                 foreach (var url in dto.ImageUrls)
                 {
+                    var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "cap");
                     _context.CapTaskImages.Add(new CapTaskImage
                     {
                         CapTaskId = id,
                         Phase = "AFTER",
-                        ImageUrl = url,
-                        UploadedBy = dto.UserId,
-                        UploadedAt = DateTime.UtcNow
+                        ImageUrl = savedUrl,
+                        UploadedBy = currentUserId,
+                        UploadedAt = now
                     });
                 }
             }
@@ -207,7 +302,6 @@ namespace QSC.Api.Controllers
 
         public class CloseCapDto
         {
-            public int VerifierUserId { get; set; }
             public string? Note { get; set; }
         }
 
@@ -215,11 +309,18 @@ namespace QSC.Api.Controllers
         [HttpPost("{id}/close")]
         public async Task<IActionResult> CloseCap(int id, [FromBody] CloseCapDto dto)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
 
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId))
+            {
+                return Forbid();
+            }
+
             task.Status = "CLOSED";
-            task.VerifiedBy = dto.VerifierUserId;
+            task.VerifiedBy = currentUserId;
             task.ClosedAt = DateTime.UtcNow;
 
             if (!string.IsNullOrWhiteSpace(dto.Note))
@@ -227,8 +328,8 @@ namespace QSC.Api.Controllers
                 _context.CapTaskComments.Add(new CapTaskComment
                 {
                     CapTaskId = id,
-                    SenderId = dto.VerifierUserId,
-                    SenderRole = "QA",
+                    SenderId = currentUserId,
+                    SenderRole = role,
                     Message = $"[อนุมัติปิดงาน] {dto.Note}",
                     CreatedAt = DateTime.UtcNow
                 });
@@ -240,7 +341,6 @@ namespace QSC.Api.Controllers
 
         public class RejectCapDto
         {
-            public int VerifierUserId { get; set; }
             public string Reason { get; set; } = string.Empty;
         }
 
@@ -248,16 +348,23 @@ namespace QSC.Api.Controllers
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> RejectCap(int id, [FromBody] RejectCapDto dto)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId))
+            {
+                return Forbid();
+            }
 
             task.Status = "REJECTED";
 
             _context.CapTaskComments.Add(new CapTaskComment
             {
                 CapTaskId = id,
-                SenderId = dto.VerifierUserId,
-                SenderRole = "QA",
+                SenderId = currentUserId,
+                SenderRole = role,
                 Message = $"[ตีกลับให้แก้ไขใหม่] {dto.Reason}",
                 CreatedAt = DateTime.UtcNow
             });
@@ -276,8 +383,15 @@ namespace QSC.Api.Controllers
         [HttpPut("{id}/status")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId))
+            {
+                return Forbid();
+            }
 
             task.Status = dto.Status.ToUpper();
             if (task.Status == "CLOSED")
@@ -290,8 +404,8 @@ namespace QSC.Api.Controllers
                 _context.CapTaskComments.Add(new CapTaskComment
                 {
                     CapTaskId = id,
-                    SenderId = 1,
-                    SenderRole = "QA",
+                    SenderId = currentUserId,
+                    SenderRole = role,
                     Message = $"[{dto.Status}] {dto.Note}",
                     CreatedAt = DateTime.UtcNow
                 });
@@ -303,19 +417,27 @@ namespace QSC.Api.Controllers
 
         public class PostCommentDto
         {
-            public int SenderId { get; set; }
-            public string SenderRole { get; set; } = "AUDITEE";
             public string Message { get; set; } = string.Empty;
         }
 
         [HttpPost("{id}/comments")]
         public async Task<IActionResult> PostComment(int id, [FromBody] PostCommentDto dto)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
+            var task = await _context.CapTasks.FindAsync(id);
+            if (task == null) return NotFound();
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
+            {
+                return Forbid();
+            }
+
             var comment = new CapTaskComment
             {
                 CapTaskId = id,
-                SenderId = dto.SenderId,
-                SenderRole = dto.SenderRole,
+                SenderId = currentUserId,
+                SenderRole = role,
                 Message = dto.Message,
                 CreatedAt = DateTime.UtcNow
             };
@@ -341,6 +463,12 @@ namespace QSC.Api.Controllers
             var base64Clean = dto.Base64Data;
             if (base64Clean.Contains(",")) base64Clean = base64Clean.Split(',')[1];
             var bytes = Convert.FromBase64String(base64Clean);
+
+            if (bytes.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest(new { message = "ขนาดไฟล์รูปภาพเกินกำหนด (ไม่เกิน 10MB)" });
+            }
+
             await System.IO.File.WriteAllBytesAsync(filePath, bytes);
 
             var relativeUrl = $"/uploads/cap_images/{fileName}";

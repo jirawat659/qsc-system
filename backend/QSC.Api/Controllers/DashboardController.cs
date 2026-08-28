@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
 
+using QSC.Api.Helpers;
+
 namespace QSC.Api.Controllers
 {
     [Authorize]
@@ -18,38 +20,19 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet("overview")]
-        public async Task<IActionResult> GetOverviewStats([FromQuery] int? userId)
+        public async Task<IActionResult> GetOverviewStats()
         {
-            var locQuery = _context.Locations.Where(l => l.IsActive).AsQueryable();
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
 
-            if (userId.HasValue)
+            var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive).AsQueryable();
+
+            if (allowedLocationIds != null)
             {
-                var user = await _context.Users.FindAsync(userId.Value);
-                if (user != null && user.BranchScope == "SPECIFIC")
-                {
-                    var allowedIds = await _context.UserLocations
-                        .Where(ul => ul.UserId == user.Id)
-                        .Select(ul => ul.LocationId)
-                        .ToListAsync();
-
-                    locQuery = locQuery.Where(l => allowedIds.Contains(l.Id));
-                }
+                locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
             }
 
-            var locations = await locQuery.ToListAsync();
+            var locations = await locQuery.Select(l => new { l.Id, l.LastScore }).ToListAsync();
             var locIds = locations.Select(l => l.Id).ToList();
-
-            var audits = await _context.AuditRecords
-                .Where(r => locIds.Contains(r.LocationId))
-                .ToListAsync();
-
-            var caps = await _context.CapTasks
-                .Where(c => locIds.Contains(c.LocationId))
-                .ToListAsync();
-
-            var schedules = await _context.AuditSchedules
-                .Where(s => locIds.Contains(s.LocationId))
-                .ToListAsync();
 
             var totalBranches = locations.Count;
             var passedBranches = locations.Count(l => l.LastScore >= 85);
@@ -57,8 +40,21 @@ namespace QSC.Api.Controllers
             var criticalBranches = locations.Count(l => l.LastScore < 70);
 
             var avgScore = locations.Any() ? Math.Round(locations.Average(l => l.LastScore), 1) : 0;
-            var pendingCaps = caps.Count(c => c.Status == "OPEN" || c.Status == "SUBMITTED" || c.Status == "REJECTED");
-            var upcomingAudits = schedules.Count(s => s.Status == "pending");
+
+            var totalAuditsCompleted = await _context.AuditRecords
+                .AsNoTracking()
+                .Where(r => locIds.Contains(r.LocationId))
+                .CountAsync();
+
+            var pendingCaps = await _context.CapTasks
+                .AsNoTracking()
+                .Where(c => locIds.Contains(c.LocationId) && (c.Status == "OPEN" || c.Status == "SUBMITTED" || c.Status == "REJECTED"))
+                .CountAsync();
+
+            var upcomingAudits = await _context.AuditSchedules
+                .AsNoTracking()
+                .Where(s => locIds.Contains(s.LocationId) && s.Status == "pending")
+                .CountAsync();
 
             return Ok(new
             {
@@ -70,22 +66,29 @@ namespace QSC.Api.Controllers
                 avgScore,
                 pendingCaps,
                 upcomingAudits,
-                totalAuditsCompleted = audits.Count
+                totalAuditsCompleted
             });
         }
 
         [HttpGet("rankings")]
         public async Task<IActionResult> GetRankings()
         {
-            var topBranches = await _context.Locations
-                .Where(l => l.IsActive)
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
+            var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive).AsQueryable();
+
+            if (allowedLocationIds != null)
+            {
+                locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            }
+
+            var topBranches = await locQuery
                 .OrderByDescending(l => l.LastScore)
                 .Take(5)
                 .Select(l => new { l.Id, l.Code, l.Name, l.Region, l.LastScore, l.LastAuditDate })
                 .ToListAsync();
 
-            var bottomBranches = await _context.Locations
-                .Where(l => l.IsActive)
+            var bottomBranches = await locQuery
                 .OrderBy(l => l.LastScore)
                 .Take(5)
                 .Select(l => new { l.Id, l.Code, l.Name, l.Region, l.LastScore, l.LastAuditDate })
@@ -101,7 +104,25 @@ namespace QSC.Api.Controllers
         [HttpGet("trends")]
         public async Task<IActionResult> GetTrends()
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var now = DateTime.UtcNow;
+            var startOf6Months = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-5);
+            var endOfPeriod = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1);
+
+            var auditQuery = _context.AuditRecords
+                .AsNoTracking()
+                .Where(a => a.AuditDate >= startOf6Months && a.AuditDate < endOfPeriod);
+
+            if (allowedLocationIds != null)
+            {
+                auditQuery = auditQuery.Where(a => allowedLocationIds.Contains(a.LocationId));
+            }
+
+            var periodAudits = await auditQuery
+                .Select(a => new { a.AuditDate, a.PercentageScore, a.IsPassed })
+                .ToListAsync();
+
             var months = new List<object>();
             var thaiMonths = new[] { "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค." };
 
@@ -111,11 +132,12 @@ namespace QSC.Api.Controllers
                 var startOfMonth = new DateTime(targetMonth.Year, targetMonth.Month, 1, 0, 0, 0, DateTimeKind.Utc);
                 var endOfMonth = startOfMonth.AddMonths(1);
 
-                var monthAudits = await _context.AuditRecords
+                var monthAudits = periodAudits
                     .Where(a => a.AuditDate >= startOfMonth && a.AuditDate < endOfMonth)
-                    .ToListAsync();
+                    .ToList();
 
-                var avg = monthAudits.Any() ? Math.Round(monthAudits.Average(a => a.PercentageScore), 1) : 85.0 + (5 - i);
+                double? avg = monthAudits.Any() ? Math.Round(monthAudits.Average(a => a.PercentageScore), 1) : null;
+                double? passRate = monthAudits.Any() ? Math.Round((double)monthAudits.Count(a => a.IsPassed) / monthAudits.Count * 100, 1) : null;
                 var monthLabel = thaiMonths[targetMonth.Month - 1] + " " + ((targetMonth.Year + 543) % 100);
 
                 months.Add(new
@@ -123,12 +145,17 @@ namespace QSC.Api.Controllers
                     month = monthLabel,
                     score = avg,
                     auditCount = monthAudits.Count,
-                    passRate = monthAudits.Any() ? Math.Round((double)monthAudits.Count(a => a.IsPassed) / monthAudits.Count * 100, 1) : 85.0
+                    passRate = passRate
                 });
             }
 
-            var regionalScores = await _context.Locations
-                .Where(l => l.IsActive)
+            var locQuery = _context.Locations.Where(l => l.IsActive).AsQueryable();
+            if (allowedLocationIds != null)
+            {
+                locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            }
+
+            var regionalScores = await locQuery
                 .GroupBy(l => l.Region)
                 .Select(g => new
                 {

@@ -6,7 +6,7 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
 {
-    [Authorize(Roles = "ADMIN")]
+    [Authorize]
     [ApiController]
     [Route("api/[controller]")]
     public class UserController : ControllerBase
@@ -41,6 +41,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetUsers([FromQuery] bool? activeOnly)
         {
             var query = _context.Users
+                .AsNoTracking()
                 .Include(u => u.Role)
                 .AsQueryable();
 
@@ -54,7 +55,7 @@ namespace QSC.Api.Controllers
                 .ThenBy(u => u.Id)
                 .ToListAsync();
 
-            var userLocations = await _context.UserLocations.ToListAsync();
+            var userLocations = await _context.UserLocations.AsNoTracking().ToListAsync();
 
             var result = users.Select(u => new
             {
@@ -78,12 +79,14 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetUser(int id)
         {
             var user = await _context.Users
+                .AsNoTracking()
                 .Include(u => u.Role)
                 .FirstOrDefaultAsync(u => u.Id == id);
 
             if (user == null) return NotFound();
 
             var locationIds = await _context.UserLocations
+                .AsNoTracking()
                 .Where(ul => ul.UserId == user.Id)
                 .Select(ul => ul.LocationId)
                 .ToListAsync();
@@ -104,9 +107,20 @@ namespace QSC.Api.Controllers
             });
         }
 
+        [Authorize(Roles = "ADMIN")]
         [HttpPost]
         public async Task<IActionResult> CreateUser([FromBody] CreateUserDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.Username))
+            {
+                return BadRequest(new { message = "กรุณาระบุชื่อผู้ใช้งาน" });
+            }
+
+            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
+            {
+                return BadRequest(new { message = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
+            }
+
             if (await _context.Users.AnyAsync(u => u.Username.ToLower() == dto.Username.ToLower()))
             {
                 return BadRequest(new { message = "ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว" });
@@ -140,6 +154,7 @@ namespace QSC.Api.Controllers
             return CreatedAtAction(nameof(GetUser), new { id = user.Id }, user);
         }
 
+        [Authorize(Roles = "ADMIN")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateUser(int id, [FromBody] UpdateUserDto dto)
         {
@@ -168,6 +183,7 @@ namespace QSC.Api.Controllers
             return Ok(user);
         }
 
+        [Authorize(Roles = "ADMIN")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteUser(int id)
         {
@@ -203,8 +219,9 @@ namespace QSC.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetRoles()
         {
-            var roles = await _context.Roles.OrderBy(r => r.Id).ToListAsync();
+            var roles = await _context.Roles.AsNoTracking().OrderBy(r => r.Id).ToListAsync();
             var rolePerms = await _context.RolePermissions
+                .AsNoTracking()
                 .Include(rp => rp.Permission)
                 .ToListAsync();
 
@@ -278,6 +295,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetPermissions()
         {
             var permissions = await _context.Permissions
+                .AsNoTracking()
                 .OrderBy(p => p.Module)
                 .ThenBy(p => p.Id)
                 .ToListAsync();

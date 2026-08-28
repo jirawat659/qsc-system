@@ -20,7 +20,52 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const [description, setDescription] = useState(
     form?.description || "แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และสุขอนามัยประจำสาขา (Q.S.C. Standard)"
   );
-  const [passingScore, setPassingScore] = useState(form ? form.passingScore : 85);
+  const [passingScore, setPassingScore] = useState(() => {
+    if (form && form.passingScore !== undefined && form.passingScore !== null) {
+      return Number(form.passingScore);
+    }
+    return 85;
+  });
+
+  const [sections, setSections] = useState(() => {
+    if (form?.sections && form.sections.length > 0) {
+      return form.sections.map(s => ({
+        id: s.id,
+        title: s.title,
+        orderIndex: s.orderIndex,
+        weightPercent: s.weightPercent || 0,
+        items: (s.items || []).map(i => ({
+          id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
+          text: i.questionText || i.text || i.title || "",
+          type: ((i.questionType || i.type || "yesno").toLowerCase() === "scale") ? "scale" : "yesno",
+          fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
+          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical)
+        }))
+      }));
+    }
+    return [
+      {
+        title: "หัวข้อหลัก",
+        weightPercent: 0,
+        items: [
+          { id: "q1", text: "คำถามรายข้อ", type: "yesno", fullScore: 10, critical: false }
+        ]
+      }
+    ];
+  });
+
+  const [editingId, setEditingId] = useState(null);
+  const [editingSecIdx, setEditingSecIdx] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'section' | 'item', secIdx, itemId?, title?, text?, itemIdx? }
+  const [warningModal, setWarningModal] = useState({ isOpen: false, title: '', message: '' });
+  const toastTimerRef = useRef(null);
+
+  // Drag-to-reorder state and refs
+  const itemRefs = useRef({});
+  const sectionRefs = useRef({});
+  const dragRef = useRef(null);
+  const [dragUI, setDragUI] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -40,55 +85,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     return () => { isMounted = false; };
   }, [form]);
 
-  const [sections, setSections] = useState(() => {
-    if (form?.sections && form.sections.length > 0) {
-      return form.sections.map(s => ({
-        id: s.id,
-        title: s.title,
-        orderIndex: s.orderIndex,
-        weightPercent: s.weightPercent || 0,
-        items: (s.items || []).map(i => ({
-          id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
-          text: i.questionText || i.text || i.title || "",
-          type: (i.questionType || i.type || "yesno").toLowerCase(),
-          fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
-          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical)
-        }))
-      }));
-    }
-    return [
-      {
-        title: "1. ความสะอาดและสุขอนามัย (Cleanliness)",
-        weightPercent: 0,
-        items: [
-          { id: "q1", text: "พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน", type: "yesno", fullScore: 10, critical: false },
-          { id: "q2", text: "พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน", type: "yesno", fullScore: 10, critical: false },
-          { id: "q3", text: "ความสะอาดของห้องน้ำลูกค้าและอุปกรณ์ล้างมือ", type: "scale", fullScore: 10, critical: false }
-        ]
-      },
-      {
-        title: "2. มาตรฐานการบริการและความเร็ว (Service)",
-        weightPercent: 0,
-        items: [
-          { id: "q4", text: "พนักงานกล่าวทักทายและต้อนรับลูกค้าภายใน 5 วินาที", type: "yesno", fullScore: 10, critical: false },
-          { id: "q5", text: "ความรวดเร็วและถูกต้องในการส่งมอบออเดอร์", type: "scale", fullScore: 10, critical: false }
-        ]
-      }
-    ];
-  });
-
-  const [editingId, setEditingId] = useState(null);
-  const [editingSecIdx, setEditingSecIdx] = useState(null);
-  const [toastMessage, setToastMessage] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'section' | 'item', secIdx, itemId?, title?, text?, itemIdx? }
-  const toastTimerRef = useRef(null);
-
-  // Drag-to-reorder state and refs
-  const itemRefs = useRef({});
-  const sectionRefs = useRef({});
-  const dragRef = useRef(null);
-  const [dragUI, setDragUI] = useState(null);
-
   const showToast = (msg) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setToastMessage(msg);
@@ -100,7 +96,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     const newSecNumber = sections.length + 1;
     const newSecIdx = sections.length;
     const newSection = {
-      title: `${newSecNumber}. หมวดหมู่ใหม่ (New Section)`,
+      title: `หมวดหมู่ใหม่ (New Section)`,
       weightPercent: 0,
       items: [
         { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", fullScore: 10, critical: false }
@@ -121,7 +117,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   // Request remove section (Open popup confirm)
   const handleRequestRemoveSection = (secIdx) => {
     if (sections.length <= 1) {
-      alert("แบบฟอร์มต้องมีอย่างน้อย 1 หมวดหมู่");
+      setWarningModal({
+        isOpen: true,
+        title: "ไม่สามารถลบหมวดหมู่ได้",
+        message: "แบบฟอร์มต้องมีอย่างน้อย 1 หมวดหมู่ เพื่อใช้ในการตรวจประเมิน"
+      });
       return;
     }
     const sec = sections[secIdx];
@@ -158,7 +158,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   // Request remove question (Open popup confirm)
   const handleRequestRemoveItem = (secIdx, item, itemIdx) => {
     if (sections[secIdx].items.length <= 1) {
-      alert("หมวดหมู่นี้ต้องมีคำถามอย่างน้อย 1 ข้อ");
+      setWarningModal({
+        isOpen: true,
+        title: "ไม่สามารถลบข้อคำถามได้",
+        message: "หมวดหมู่นี้ต้องมีคำถามอย่างน้อย 1 ข้อ หากไม่ต้องการใช้หมวดหมู่นี้ สามารถเลือกลบทั้งหมวดหมู่แทนได้ครับ"
+      });
       return;
     }
     setDeleteTarget({
@@ -349,7 +353,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   const handleFormSave = async () => {
     if (!formName.trim()) {
-      alert("กรุณาระบุชื่อแบบฟอร์ม");
+      showToast("กรุณาระบุชื่อแบบฟอร์ม");
       return;
     }
 
@@ -388,7 +392,10 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       showToast("บันทึกแบบฟอร์มลงฐานข้อมูลเรียบร้อยแล้ว");
     } catch (err) {
       console.error("Could not save form directly to API:", err);
-      // Still proceed with saving to state if network error, but notify user
+      const errMsg = err.response?.data?.message || "ไม่สามารถบันทึกแบบฟอร์มลงฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง";
+      showToast(`⚠️ ${errMsg}`);
+      setIsSaving(false);
+      return;
     }
 
     const savedForm = {
@@ -482,22 +489,29 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           {/* 2. แถวเดียวกัน: เกณฑ์คะแนนผ่าน (ย่อสั้น) + ประเภทฟอร์ม */}
           <div className="flex gap-3 items-start">
             {/* เกณฑ์คะแนนผ่าน (%) */}
-            <div className="w-[115px] sm:w-[130px] shrink-0">
+            <div className="w-36 sm:w-40 shrink-0">
               <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
                 เกณฑ์ผ่าน (%) <span className="text-rose-500">*</span>
               </label>
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1">
-                <div className="flex items-center gap-1 min-w-0">
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1.5">
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
                   <input
                     type="number"
                     min="1"
                     max="100"
-                    value={passingScore}
-                    onChange={(e) => setPassingScore(Math.min(100, Math.max(1, Number(e.target.value) || 0)))}
-                    className="w-7 text-sm sm:text-base font-normal text-slate-600 focus:text-slate-800 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    value={passingScore ?? 85}
+                    onChange={(e) => {
+                      const val = e.target.value === '' ? '' : Math.min(100, Math.max(1, Number(e.target.value) || 0));
+                      setPassingScore(val);
+                    }}
+                    onBlur={() => {
+                      if (!passingScore || passingScore < 1) setPassingScore(85);
+                    }}
+                    className="w-10 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    placeholder="85"
                     required
                   />
-                  <span className="text-xs font-medium text-slate-400 select-none whitespace-nowrap">
+                  <span className="text-xs font-semibold text-slate-400 select-none whitespace-nowrap">
                     % ขึ้นไป
                   </span>
                 </div>
@@ -698,7 +712,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         {item.critical && (
                           <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 flex items-center gap-1">
                             <ShieldAlert size={12} />
-                            <span>จุดวิกฤต (ตกทันที)</span>
+                            <span>สำคัญ</span>
                           </span>
                         )}
                       </div>
@@ -789,8 +803,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           <button
                             type="button"
                             onClick={() => updateItemType(secIdx, item.id, "yesno")}
-                            className={`px-3 py-1 rounded-lg cursor-pointer transition-all ${
-                              item.type === "yesno" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                            className={`px-3.5 py-1.5 rounded-lg cursor-pointer transition-all ${
+                              item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             ผ่าน / ไม่ผ่าน
@@ -798,20 +812,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           <button
                             type="button"
                             onClick={() => updateItemType(secIdx, item.id, "scale")}
-                            className={`px-3 py-1 rounded-lg cursor-pointer transition-all ${
+                            className={`px-3.5 py-1.5 rounded-lg cursor-pointer transition-all ${
                               item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             คะแนน 1-5
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateItemType(secIdx, item.id, "text")}
-                            className={`px-3 py-1 rounded-lg cursor-pointer transition-all ${
-                              item.type === "text" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            ข้อความ/บันทึก
                           </button>
                         </div>
                       </div>
@@ -861,7 +866,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
         >
           <Check size={18} />
-          <span>บันทึกและเผยแพร่แบบฟอร์ม</span>
+          <span>บันทึกแบบฟอร์ม</span>
         </button>
       </div>
 
@@ -954,6 +959,34 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 <span>ยืนยันการลบ</span>
               </button>
             </div>
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* ⚠️ 6. POPUP WARNING / RESTRICTION MODAL */}
+      {warningModal.isOpen && (
+        <ModalWrapper onClose={() => setWarningModal({ isOpen: false, title: '', message: '' })} maxWidth="max-w-sm">
+          <div className="p-6 space-y-4 text-center">
+            <div className="w-13 h-13 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto shadow-xs">
+              <AlertTriangle size={26} strokeWidth={2.3} />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-base font-extrabold text-slate-800">
+                {warningModal.title}
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-xs mx-auto">
+                {warningModal.message}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setWarningModal({ isOpen: false, title: '', message: '' })}
+              className="w-full py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold bg-[#0F6659] hover:bg-[#0B4E44] text-white cursor-pointer transition-colors active:scale-95 shadow-sm"
+            >
+              เข้าใจแล้ว
+            </button>
           </div>
         </ModalWrapper>
       )}

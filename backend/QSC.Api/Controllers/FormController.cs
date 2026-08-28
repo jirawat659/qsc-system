@@ -22,6 +22,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetForms([FromQuery] bool onlyLatest = true)
         {
             var query = _context.SurveyForms
+                .AsNoTracking()
                 .Include(f => f.LocationType)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
@@ -33,14 +34,16 @@ namespace QSC.Api.Controllers
             }
 
             var forms = await query.OrderBy(f => f.Id).ToListAsync();
-            var formTargetLocations = await _context.SurveyFormTargetLocations.ToListAsync();
+            var formTargetLocations = await _context.SurveyFormTargetLocations.AsNoTracking().ToListAsync();
 
             var auditCounts = await _context.AuditRecords
+                .AsNoTracking()
                 .GroupBy(a => a.SurveyFormId)
                 .Select(g => new { FormId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.FormId, x => x.Count);
 
             var scheduleCounts = await _context.AuditSchedules
+                .AsNoTracking()
                 .Where(s => s.Status != "CANCELLED")
                 .GroupBy(s => s.SurveyFormId)
                 .Select(g => new { FormId = g.Key, Count = g.Count() })
@@ -88,6 +91,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetForm(int id)
         {
             var f = await _context.SurveyForms
+                .AsNoTracking()
                 .Include(f => f.LocationType)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
@@ -95,10 +99,11 @@ namespace QSC.Api.Controllers
 
             if (f == null) return NotFound();
 
-            var auditCount = await _context.AuditRecords.CountAsync(a => a.SurveyFormId == id);
-            var scheduleCount = await _context.AuditSchedules.CountAsync(s => s.SurveyFormId == id && s.Status != "CANCELLED");
+            var auditCount = await _context.AuditRecords.AsNoTracking().CountAsync(a => a.SurveyFormId == id);
+            var scheduleCount = await _context.AuditSchedules.AsNoTracking().CountAsync(s => s.SurveyFormId == id && s.Status != "CANCELLED");
 
             var targetLocationIds = await _context.SurveyFormTargetLocations
+                .AsNoTracking()
                 .Where(t => t.SurveyFormId == f.Id)
                 .Select(t => t.LocationId)
                 .ToListAsync();
@@ -174,111 +179,39 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateForm([FromBody] FormSaveDto dto)
         {
-            var form = new SurveyForm
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
             {
-                Title = dto.Title,
-                LocationTypeId = dto.LocationTypeId,
-                PassingScore = dto.PassingScore,
-                TargetingMode = dto.TargetingMode,
-                Version = dto.Version,
-                IsLatest = true,
-                IsActive = true,
-                CreatedBy = dto.CreatedBy,
-                CreatedAt = DateTime.UtcNow
-            };
-
-            _context.SurveyForms.Add(form);
-            await _context.SaveChangesAsync();
-
-            // Set FormGroupId to self if initial version
-            form.FormGroupId = form.Id;
-            await _context.SaveChangesAsync();
-
-            // Save Target Locations
-            if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())
-            {
-                foreach (var locId in dto.TargetLocationIds)
+                var form = new SurveyForm
                 {
-                    _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation { SurveyFormId = form.Id, LocationId = locId });
-                }
-            }
-
-            // Save Sections & Items
-            int secIdx = 1;
-            foreach (var sDto in dto.Sections)
-            {
-                var section = new SurveySection
-                {
-                    SurveyFormId = form.Id,
-                    Title = sDto.Title,
-                    OrderIndex = sDto.OrderIndex > 0 ? sDto.OrderIndex : secIdx++,
-                    WeightPercent = sDto.WeightPercent,
-                    IsActive = true
+                    Title = dto.Title,
+                    LocationTypeId = dto.LocationTypeId,
+                    PassingScore = dto.PassingScore,
+                    TargetingMode = dto.TargetingMode,
+                    Version = dto.Version,
+                    IsLatest = true,
+                    IsActive = true,
+                    CreatedBy = dto.CreatedBy,
+                    CreatedAt = DateTime.UtcNow
                 };
-                _context.SurveySections.Add(section);
+
+                _context.SurveyForms.Add(form);
                 await _context.SaveChangesAsync();
 
-                int itemIdx = 1;
-                foreach (var iDto in sDto.Items)
-                {
-                    var item = new SurveyItem
-                    {
-                        SurveySectionId = section.Id,
-                        QuestionText = iDto.QuestionText,
-                        QuestionType = iDto.QuestionType,
-                        FullScore = iDto.FullScore,
-                        IsCritical = iDto.IsCritical,
-                        OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
-                        IsActive = true
-                    };
-                    _context.SurveyItems.Add(item);
-                }
+                // Set FormGroupId to self if initial version
+                form.FormGroupId = form.Id;
                 await _context.SaveChangesAsync();
-            }
 
-            return CreatedAtAction(nameof(GetForm), new { id = form.Id }, form);
-        }
-
-        [Authorize(Roles = "ADMIN,STANDARD")]
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateForm(int id, [FromBody] FormSaveDto dto)
-        {
-            var form = await _context.SurveyForms
-                .Include(f => f.Sections)
-                    .ThenInclude(s => s.Items)
-                .FirstOrDefaultAsync(f => f.Id == id);
-
-            if (form == null) return NotFound();
-
-            // 🌟 SMART FORM VERSIONING LOGIC:
-            // Check if form has ever been used in audit records
-            bool hasBeenUsed = await _context.AuditRecords.AnyAsync(r => r.SurveyFormId == id);
-
-            if (!hasBeenUsed)
-            {
-                // Case A: Form has never been used -> In-place UPDATE
-                form.Title = dto.Title;
-                form.LocationTypeId = dto.LocationTypeId;
-                form.PassingScore = dto.PassingScore;
-                form.TargetingMode = dto.TargetingMode;
-                form.Version = dto.Version;
-
-                // Sync Target Locations
-                var existingTargets = await _context.SurveyFormTargetLocations.Where(t => t.SurveyFormId == id).ToListAsync();
-                _context.SurveyFormTargetLocations.RemoveRange(existingTargets);
-
+                // Save Target Locations
                 if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())
                 {
                     foreach (var locId in dto.TargetLocationIds)
                     {
-                        _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation { SurveyFormId = id, LocationId = locId });
+                        _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation { SurveyFormId = form.Id, LocationId = locId });
                     }
                 }
 
-                // Remove existing sections and items and recreate
-                _context.SurveySections.RemoveRange(form.Sections);
-                await _context.SaveChangesAsync();
-
+                // Save Sections & Items
                 int secIdx = 1;
                 foreach (var sDto in dto.Sections)
                 {
@@ -311,74 +244,167 @@ namespace QSC.Api.Controllers
                     await _context.SaveChangesAsync();
                 }
 
-                return Ok(new { message = "อัปเดตแบบฟอร์มสำเร็จ (In-place update)", formId = form.Id });
+                await transaction.CommitAsync();
+                return CreatedAtAction(nameof(GetForm), new { id = form.Id }, form);
             }
-            else
+            catch (Exception ex)
             {
-                // Case B: Form has been used in actual audits -> IMMUTABLE LINEAGE CLONE
-                form.IsLatest = false; // Retire old form version
-                await _context.SaveChangesAsync();
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการสร้างแบบฟอร์ม: " + ex.Message });
+            }
+        }
 
-                var newVersionForm = new SurveyForm
+        [Authorize(Roles = "ADMIN,STANDARD")]
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateForm(int id, [FromBody] FormSaveDto dto)
+        {
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var form = await _context.SurveyForms
+                    .Include(f => f.Sections)
+                        .ThenInclude(s => s.Items)
+                    .FirstOrDefaultAsync(f => f.Id == id);
+
+                if (form == null) return NotFound();
+
+                // 🌟 SMART FORM VERSIONING LOGIC:
+                // Check if form has ever been used in audit records
+                bool hasBeenUsed = await _context.AuditRecords.AnyAsync(r => r.SurveyFormId == id);
+
+                if (!hasBeenUsed)
                 {
-                    FormGroupId = form.FormGroupId ?? form.Id,
-                    Title = dto.Title,
-                    LocationTypeId = dto.LocationTypeId,
-                    PassingScore = dto.PassingScore,
-                    TargetingMode = dto.TargetingMode,
-                    Version = dto.Version,
-                    IsLatest = true,
-                    IsActive = true,
-                    CreatedBy = dto.CreatedBy ?? form.CreatedBy,
-                    CreatedAt = DateTime.UtcNow
-                };
+                    // Case A: Form has never been used -> In-place UPDATE
+                    form.Title = dto.Title;
+                    form.LocationTypeId = dto.LocationTypeId;
+                    form.PassingScore = dto.PassingScore;
+                    form.TargetingMode = dto.TargetingMode;
+                    form.Version = dto.Version;
 
-                _context.SurveyForms.Add(newVersionForm);
-                await _context.SaveChangesAsync();
+                    // Sync Target Locations
+                    var existingTargets = await _context.SurveyFormTargetLocations.Where(t => t.SurveyFormId == id).ToListAsync();
+                    _context.SurveyFormTargetLocations.RemoveRange(existingTargets);
 
-                // Clone target locations
-                if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())
-                {
-                    foreach (var locId in dto.TargetLocationIds)
+                    if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())
                     {
-                        _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation { SurveyFormId = newVersionForm.Id, LocationId = locId });
+                        foreach (var locId in dto.TargetLocationIds)
+                        {
+                            _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation { SurveyFormId = id, LocationId = locId });
+                        }
                     }
-                }
 
-                // Create new sections and items
-                int secIdx = 1;
-                foreach (var sDto in dto.Sections)
-                {
-                    var section = new SurveySection
-                    {
-                        SurveyFormId = newVersionForm.Id,
-                        Title = sDto.Title,
-                        OrderIndex = sDto.OrderIndex > 0 ? sDto.OrderIndex : secIdx++,
-                        WeightPercent = sDto.WeightPercent,
-                        IsActive = true
-                    };
-                    _context.SurveySections.Add(section);
+                    // Remove existing sections and items and recreate
+                    _context.SurveySections.RemoveRange(form.Sections);
                     await _context.SaveChangesAsync();
 
-                    int itemIdx = 1;
-                    foreach (var iDto in sDto.Items)
+                    int secIdx = 1;
+                    foreach (var sDto in dto.Sections)
                     {
-                        var item = new SurveyItem
+                        var section = new SurveySection
                         {
-                            SurveySectionId = section.Id,
-                            QuestionText = iDto.QuestionText,
-                            QuestionType = iDto.QuestionType,
-                            FullScore = iDto.FullScore,
-                            IsCritical = iDto.IsCritical,
-                            OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
+                            SurveyFormId = form.Id,
+                            Title = sDto.Title,
+                            OrderIndex = sDto.OrderIndex > 0 ? sDto.OrderIndex : secIdx++,
+                            WeightPercent = sDto.WeightPercent,
                             IsActive = true
                         };
-                        _context.SurveyItems.Add(item);
-                    }
-                    await _context.SaveChangesAsync();
-                }
+                        _context.SurveySections.Add(section);
+                        await _context.SaveChangesAsync();
 
-                return Ok(new { message = "สร้างเวอร์ชันใหม่สำเร็จเพื่อล็อกประวัติเดิม (Version Clone)", formId = newVersionForm.Id });
+                        int itemIdx = 1;
+                        foreach (var iDto in sDto.Items)
+                        {
+                            var item = new SurveyItem
+                            {
+                                SurveySectionId = section.Id,
+                                QuestionText = iDto.QuestionText,
+                                QuestionType = iDto.QuestionType,
+                                FullScore = iDto.FullScore,
+                                IsCritical = iDto.IsCritical,
+                                OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
+                                IsActive = true
+                            };
+                            _context.SurveyItems.Add(item);
+                        }
+                        await _context.SaveChangesAsync();
+                    }
+
+                    await transaction.CommitAsync();
+                    return Ok(new { message = "อัปเดตแบบฟอร์มสำเร็จ (In-place update)", formId = form.Id });
+                }
+                else
+                {
+                    // Case B: Form has been used in actual audits -> IMMUTABLE LINEAGE CLONE
+                    form.IsLatest = false; // Retire old form version
+                    await _context.SaveChangesAsync();
+
+                    var newVersionForm = new SurveyForm
+                    {
+                        FormGroupId = form.FormGroupId ?? form.Id,
+                        Title = dto.Title,
+                        LocationTypeId = dto.LocationTypeId,
+                        PassingScore = dto.PassingScore,
+                        TargetingMode = dto.TargetingMode,
+                        Version = dto.Version,
+                        IsLatest = true,
+                        IsActive = true,
+                        CreatedBy = dto.CreatedBy ?? form.CreatedBy,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    _context.SurveyForms.Add(newVersionForm);
+                    await _context.SaveChangesAsync();
+
+                    // Clone target locations
+                    if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())
+                    {
+                        foreach (var locId in dto.TargetLocationIds)
+                        {
+                            _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation { SurveyFormId = newVersionForm.Id, LocationId = locId });
+                        }
+                    }
+
+                    // Create new sections and items
+                    int secIdx = 1;
+                    foreach (var sDto in dto.Sections)
+                    {
+                        var section = new SurveySection
+                        {
+                            SurveyFormId = newVersionForm.Id,
+                            Title = sDto.Title,
+                            OrderIndex = sDto.OrderIndex > 0 ? sDto.OrderIndex : secIdx++,
+                            WeightPercent = sDto.WeightPercent,
+                            IsActive = true
+                        };
+                        _context.SurveySections.Add(section);
+                        await _context.SaveChangesAsync();
+
+                        int itemIdx = 1;
+                        foreach (var iDto in sDto.Items)
+                        {
+                            var item = new SurveyItem
+                            {
+                                SurveySectionId = section.Id,
+                                QuestionText = iDto.QuestionText,
+                                QuestionType = iDto.QuestionType,
+                                FullScore = iDto.FullScore,
+                                IsCritical = iDto.IsCritical,
+                                OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
+                                IsActive = true
+                            };
+                            _context.SurveyItems.Add(item);
+                        }
+                        await _context.SaveChangesAsync();
+                    }
+
+                    await transaction.CommitAsync();
+                    return Ok(new { message = "สร้างเวอร์ชันใหม่สำเร็จเพื่อล็อกประวัติเดิม (Version Clone)", formId = newVersionForm.Id });
+                }
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตแบบฟอร์ม: " + ex.Message });
             }
         }
 

@@ -9,9 +9,33 @@ import { c, sans, mono, cardStyle } from "../../config/theme";
 import { CAP_STATUS_MAP } from "../../config/constants";
 import Header from "../../shared/Header";
 import ModalWrapper from "../../shared/ModalWrapper";
-import api from "../../config/api";
+import api, { getFullImageUrl } from "../../config/api";
+import { compressImageFile } from "../../utils/imageCompressor";
 
-export default function CapDetailScreen({ item, onBack, role = "STANDARD", currentUser }) {
+// 🇹🇭 Helper to correctly parse UTC timestamps into Thailand Local Time (UTC+7)
+const formatThaiTime = (dateInput) => {
+  if (!dateInput) return "เมื่อสักครู่";
+  try {
+    let d;
+    if (dateInput instanceof Date) {
+      d = dateInput;
+    } else if (typeof dateInput === 'string') {
+      let s = dateInput.trim();
+      if (!s.endsWith('Z') && !s.includes('+') && !/[-+]\d{2}:\d{2}$/.test(s)) {
+        s = s.replace(' ', 'T') + 'Z';
+      }
+      d = new Date(s);
+    } else {
+      d = new Date(dateInput);
+    }
+    if (isNaN(d.getTime())) return "เมื่อสักครู่";
+    return d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + " น.";
+  } catch (e) {
+    return "เมื่อสักครู่";
+  }
+};
+
+export default function CapDetailScreen({ item, onBack, role = "STANDARD", currentUser, refreshData }) {
   const [reply, setReply] = useState("");
   const [hasPhoto, setHasPhoto] = useState(false);
   const [photoBase64, setPhotoBase64] = useState(null);
@@ -19,15 +43,24 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
   const [showInfoDrawer, setShowInfoDrawer] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [capDetail, setCapDetail] = useState(null);
+  const [localStatus, setLocalStatus] = useState(null);
+  const [isActionProcessing, setIsActionProcessing] = useState(false);
+  const [actionError, setActionError] = useState(null);
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: null, title: '', message: '' });
+  
+  const fileInputRef = useRef(null);
   const chatContainerRef = useRef(null);
 
   const loadCapDetail = async () => {
-    if (!item?.id) return;
     try {
-      const res = await api.get(`/cap/${item.id}`);
-      if (res.data) setCapDetail(res.data);
-    } catch (e) {
-      console.warn("Could not fetch CAP detail from API:", e);
+      const parsedId = typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id;
+      if (!parsedId) return;
+      const res = await api.get(`/cap/${parsedId}`);
+      if (res.data) {
+        setCapDetail(res.data);
+      }
+    } catch (err) {
+      console.warn("Could not load cap detail:", err);
     }
   };
 
@@ -35,65 +68,226 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     loadCapDetail();
   }, [item?.id]);
 
+  // Initial timeline from item
   const [timeline, setTimeline] = useState(() => {
-    if (item.timeline && item.timeline.length > 0) {
-      return item.timeline.map((t, idx) => ({
-        ...t,
-        isMe: idx % 2 !== 0 || t.who?.includes("สาขา") || t.who?.includes("คุณ"),
-        photo: idx === 0 ? "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60" : null
-      }));
+    const saved = localStorage.getItem(`qsc_cap_chat_${item.id}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
     }
     return [
       {
-        who: "สมชาย ใจดี (ผู้ตรวจ)",
-        text: item.desc || "ตรวจพบคราบไขมันสะสมหลังเตาปรุงอาหาร ไม่ผ่านเกณฑ์มาตรฐาน SOP ข้อ 1 กรุณาขัดล้างทำความสะอาดและส่งหลักฐาน",
-        time: "18 ส.ค. 09:30 น.",
+        who: `${item.unit || "ผู้ตรวจ"} (ผู้ตรวจ)`,
+        text: item.issueItem || item.title || item.desc || "ตรวจพบข้อบกพร่องตามมาตรฐาน Q.S.C. กรุณาดำเนินการแก้ไขและส่งหลักฐาน",
+        time: item.createdAt || "วันนี้",
         isMe: false,
-        photo: "https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60"
+        photo: null
       }
     ];
   });
 
-  const st = CAP_STATUS_MAP[item.status] || CAP_STATUS_MAP.pending;
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageFile(file);
+      setPhotoBase64(compressed);
+      setHasPhoto(true);
+    } catch (err) {
+      console.warn("Compression failed:", err);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPhotoBase64(ev.target.result);
+        setHasPhoto(true);
+      };
+      reader.readAsDataURL(file);
+    }
+    e.target.value = "";
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirmModal.type) return;
+    setIsActionProcessing(true);
+    setActionError(null);
+    try {
+      const parsedId = typeof item?.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item?.id;
+      if (parsedId) {
+        if (confirmModal.type === 'approve') {
+          await api.post(`/cap/${parsedId}/close`, {
+            note: "อนุมัติและปิดงานแก้ไขสมบูรณ์"
+          });
+          setLocalStatus("CLOSED");
+          if (refreshData) refreshData();
+          await loadCapDetail();
+        }
+      }
+      setConfirmModal({ isOpen: false, type: null, title: '', message: '' });
+    } catch (e) {
+      console.warn(e);
+      setActionError(e.response?.data?.message || e.message || "เกิดข้อผิดพลาดในการดำเนินการ");
+    } finally {
+      setIsActionProcessing(false);
+    }
+  };
+
+  // Sync API comments and photos into timeline when capDetail arrives
+  useEffect(() => {
+    if (capDetail) {
+      const apiTimeline = [];
+
+      const initialTime = new Date(capDetail.createdAt).getTime() || 0;
+      // Initial task issue item as first message (Pure defect notice, NO evidence photo)
+      apiTimeline.push({
+        who: `${capDetail.verifierName || capDetail.assigneeName || "ผู้ตรวจ/ระบบ"} (ผู้ตรวจ)`,
+        text: capDetail.issueItem || capDetail.description || item.desc || "ตรวจพบข้อบกพร่องตามมาตรฐาน Q.S.C. กรุณาดำเนินการแก้ไขและส่งหลักฐาน",
+        time: formatThaiTime(capDetail.createdAt),
+        isMe: false,
+        photo: null,
+        timestamp: initialTime
+      });
+
+      const afterImgs = Array.isArray(capDetail.afterImages) ? [...capDetail.afterImages] : [];
+      const usedImgUrls = new Set();
+
+      // Comments from API
+      if (capDetail.comments && Array.isArray(capDetail.comments)) {
+        capDetail.comments.forEach((c) => {
+          const isSenderMe = c.senderId === currentUser?.id || 
+            (c.senderName && (c.senderName === currentUser?.fullName || c.senderName === currentUser?.name));
+
+          const cTime = new Date(c.createdAt).getTime() || Date.now();
+
+          // Look for an attached photo uploaded by this sender within a 20-second window
+          let attachedPhoto = null;
+          const matchingImg = afterImgs.find(img => {
+            if (usedImgUrls.has(img.imageUrl)) return false;
+            const imgTime = new Date(img.uploadedAt).getTime() || 0;
+            const isUploader = (img.uploadedBy === c.senderId) || isSenderMe;
+            return isUploader && Math.abs(imgTime - cTime) < 20000;
+          });
+
+          if (matchingImg) {
+            attachedPhoto = getFullImageUrl(matchingImg.imageUrl);
+            usedImgUrls.add(matchingImg.imageUrl);
+          }
+
+          const senderLabel = isSenderMe
+            ? `${currentUser?.fullName || currentUser?.name || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
+            : `${c.senderName || "ผู้ใช้งาน"} (${c.senderRole === 'AUDITEE' ? 'สาขา' : 'ผู้ตรวจ/QA'})`;
+
+          apiTimeline.push({
+            id: c.id,
+            who: senderLabel,
+            text: c.message,
+            time: formatThaiTime(c.createdAt),
+            isMe: isSenderMe,
+            photo: attachedPhoto,
+            timestamp: cTime
+          });
+        });
+      }
+
+      // Remaining after images from API (if not already merged with a comment)
+      afterImgs.forEach((img) => {
+        if (!usedImgUrls.has(img.imageUrl)) {
+          const isUploaderMe = img.uploadedBy === currentUser?.id || 
+            (img.uploaderName && (img.uploaderName === currentUser?.fullName || img.uploaderName === currentUser?.name)) ||
+            (img.uploaderName && img.uploaderName.includes("กานดา") && (currentUser?.username === "kanda" || currentUser?.name?.includes("กานดา")));
+
+          const uploaderLabel = isUploaderMe
+            ? `${currentUser?.fullName || currentUser?.name || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
+            : `${img.uploaderName || "ผู้ใช้งาน"} (${img.uploaderRole === 'AUDITEE' ? 'สาขา' : 'ผู้ตรวจ/QA'})`;
+
+          const imgTime = new Date(img.uploadedAt).getTime() || Date.now();
+
+          apiTimeline.push({
+            who: uploaderLabel,
+            text: "",
+            time: formatThaiTime(img.uploadedAt),
+            isMe: isUploaderMe,
+            photo: getFullImageUrl(img.imageUrl),
+            timestamp: imgTime
+          });
+          usedImgUrls.add(img.imageUrl);
+        }
+      });
+
+      // Sort timeline chronologically by timestamp
+      apiTimeline.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+      if (apiTimeline.length > 1 || (apiTimeline.length === 1 && timeline.length <= 1)) {
+        setTimeline(apiTimeline);
+        try {
+          localStorage.setItem(`qsc_cap_chat_${item.id}`, JSON.stringify(apiTimeline));
+        } catch (e) {}
+      }
+    }
+  }, [capDetail]);
+
+  const currentStatus = (capDetail?.status || localStatus || item.statusRaw || item.status || "OPEN").toLowerCase();
+  const isClosed = currentStatus === "closed" || currentStatus === "approved" || currentStatus === "done";
+  const st = CAP_STATUS_MAP[currentStatus] || (isClosed ? CAP_STATUS_MAP.done : CAP_STATUS_MAP.pending);
 
   const send = async () => {
     if (!reply.trim() && !hasPhoto) return;
     setIsSending(true);
 
+    const senderName = currentUser?.fullName || currentUser?.name || (role === "AUDITEE" ? "ผู้จัดการสาขา" : "ผู้ตรวจ/QA");
+    const sentReply = reply.trim();
+    const sentPhoto = hasPhoto ? photoBase64 : null;
+
     const newMsg = {
-      who: role === "AUDITEE" ? "คุณ (ผู้จัดการสาขา)" : (currentUser?.name || "คุณ (ผู้ตรวจ)"),
-      text: reply.trim() || "ส่งรูปภาพหลักฐานการดำเนินการแก้ไขเรียบร้อยแล้วครับ",
-      time: "เมื่อสักครู่",
+      id: "msg_" + Date.now(),
+      who: `${senderName} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`,
+      text: sentReply,
+      time: formatThaiTime(new Date()),
       isMe: true,
-      photo: hasPhoto ? (photoBase64 || "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=500&auto=format&fit=crop&q=60") : null
+      photo: sentPhoto
     };
 
+    // 1. Instantly record in state & localStorage (Immediate save)
+    setTimeline(prev => {
+      const updated = [...prev, newMsg];
+      try {
+        localStorage.setItem(`qsc_cap_chat_${item.id}`, JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    setReply("");
+    setHasPhoto(false);
+    setPhotoBase64(null);
+
+    // 2. Persist to API immediately
     try {
-      if (item?.id && typeof item.id === 'number') {
-        if (hasPhoto && photoBase64) {
-          await api.post(`/cap/${item.id}/submit`, {
+      const parsedId = typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id;
+      if (parsedId) {
+        if (sentPhoto) {
+          await api.post(`/cap/${parsedId}/submit`, {
             userId: currentUser?.id || 1,
-            message: reply.trim() || "ส่งรูปภาพหลักฐานการดำเนินการแก้ไขเรียบร้อยแล้วครับ",
-            imageUrls: [photoBase64]
+            message: sentReply,
+            imageUrls: [sentPhoto]
           });
-        } else if (reply.trim()) {
-          await api.post(`/cap/${item.id}/comments`, {
+        } else if (sentReply) {
+          await api.post(`/cap/${parsedId}/comments`, {
             senderId: currentUser?.id || 1,
             senderRole: role,
-            message: reply.trim()
+            message: sentReply
           });
         }
         await loadCapDetail();
       }
     } catch (err) {
       console.warn("Could not post comment/evidence to API:", err);
+    } finally {
+      setIsSending(false);
+      setTimeout(() => {
+        if (chatContainerRef.current) {
+          chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+        }
+      }, 50);
     }
-
-    setTimeline(prev => [...prev, newMsg]);
-    setReply("");
-    setHasPhoto(false);
-    setPhotoBase64(null);
-    setIsSending(false);
   };
 
   // Ensure page stays at top on load, and scroll ONLY inside the chat container
@@ -141,7 +335,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             {item.issueItem || item.title}
           </h4>
           <p className="text-xs text-slate-600 font-medium leading-relaxed">
-            {item.desc || "พบคราบไขมันสะสมบริเวณพื้นหลังเตาปรุงอาหาร ไม่ผ่านเกณฑ์มาตรฐานความสะอาด ต้องทำความสะอาดและแนบรูปภาพหลังแก้ไข"}
+            {item.desc || item.notes || item.actionPlan || "-"}
           </p>
         </div>
       </div>
@@ -150,42 +344,53 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       <div className="grid grid-cols-2 gap-2.5">
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">สาขาที่ตรวจ</div>
-          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">{item.unit}</div>
+          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">{item.unit || "-"}</div>
         </div>
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">กำหนดส่งงาน</div>
-          <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5 truncate">{item.deadline || "ภายใน 24 ส.ค."}</div>
+          <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5 truncate">{item.deadline || (item.dueDate ? new Date(item.dueDate).toLocaleDateString('th-TH') : "-")}</div>
         </div>
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">ผู้ตรวจประเมิน</div>
-          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">{item.auditor || "สมชาย ใจดี"}</div>
+          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">{item.auditor || item.auditorName || item.createdBy || "-"}</div>
         </div>
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">คะแนนรอบตรวจ</div>
-          <div className="text-xs sm:text-sm font-extrabold text-amber-800 mt-0.5">{item.auditScore || 76}% (ตกเกณฑ์)</div>
+          <div className="text-xs sm:text-sm font-extrabold text-amber-800 mt-0.5">{item.auditScore !== undefined ? `${item.auditScore}%` : "-"}</div>
         </div>
       </div>
 
       {/* Defect Photo Found during Audit */}
-      <div className="space-y-1.5 pt-1">
-        <div className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
-          <Camera size={14} className="text-slate-400" />
-          <span>รูปถ่ายตอนตรวจพบปัญหา (Audit Finding)</span>
-        </div>
-        <div 
-          onClick={() => setViewingPhoto("https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60")}
-          className="rounded-2xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100"
-        >
-          <img 
-            src="https://images.unsplash.com/photo-1556910103-1c02745aae4d?w=500&auto=format&fit=crop&q=60" 
-            alt="ภาพตอนตรวจพบปัญหา" 
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
-          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
-            <Camera size={15} /> แตะเพื่อดูรูปขยาย
+      {(() => {
+        const findingPhoto = capDetail?.beforeImages?.[0]?.imageUrl || item.beforeImageUrl || item.imageUrl || null;
+        return (
+          <div className="space-y-1.5 pt-1">
+            <div className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
+              <Camera size={14} className="text-slate-400" />
+              <span>รูปถ่ายตอนตรวจพบปัญหา (Audit Finding)</span>
+            </div>
+            {findingPhoto ? (
+              <div 
+                onClick={() => setViewingPhoto(findingPhoto)}
+                className="rounded-2xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100"
+              >
+                <img 
+                  src={getFullImageUrl(findingPhoto)} 
+                  alt="ภาพตอนตรวจพบปัญหา" 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
+                  <Camera size={15} /> แตะเพื่อดูรูปขยาย
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400 font-medium">
+                ไม่มีรูปถ่ายตอนตรวจพบปัญหา
+              </div>
+            )}
           </div>
-        </div>
-      </div>
+        );
+      })()}
 
 
     </div>
@@ -205,7 +410,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
         <div className="flex items-center gap-3 min-w-0">
           <button
             type="button"
-            onClick={handleApproveAndClose}
+            onClick={onBack}
             className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 cursor-pointer transition-colors active:scale-90"
             title="ย้อนกลับ"
           >
@@ -298,7 +503,9 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                         : 'bg-white text-slate-800 border border-slate-200/90 rounded-tl-xs'
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{tl.text}</p>
+                    {tl.text ? (
+                      <p className="whitespace-pre-wrap">{tl.text}</p>
+                    ) : null}
 
                     {/* Attached Photo inside Bubble */}
                     {tl.photo && (
@@ -309,7 +516,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                         }`}
                       >
                         <img 
-                          src={tl.photo} 
+                          src={getFullImageUrl(tl.photo)} 
                           alt="หลักฐานประกอบ" 
                           className="w-full h-40 sm:h-48 object-cover group-hover:scale-102 transition-transform duration-200" 
                         />
@@ -328,17 +535,34 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             })}
           </div>
 
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+          />
+
           {/* Photo Attachment Preview Banner */}
-          {hasPhoto && (
-            <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-xs font-extrabold text-emerald-950 animate-in fade-in shadow-2xs">
-              <div className="flex items-center gap-2">
-                <Camera size={16} className="text-[#0F6659]" />
-                <span>แนบรูปถ่ายหลักฐานพร้อมส่ง (1 รูป)</span>
+          {hasPhoto && photoBase64 && (
+            <div className="flex items-center justify-between p-2.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-xs font-extrabold text-emerald-950 animate-in fade-in shadow-2xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <img
+                  src={photoBase64}
+                  alt="Evidence Preview"
+                  className="w-11 h-11 rounded-xl object-cover border border-emerald-400 shrink-0 shadow-2xs cursor-pointer"
+                  onClick={() => setViewingPhoto(photoBase64)}
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-emerald-900 truncate">แนบรูปถ่ายหลักฐานแล้ว</div>
+                  <div className="text-[11px] text-emerald-700 font-medium truncate">แตะรูปเพื่อขยาย / พร้อมส่ง</div>
+                </div>
               </div>
               <button 
                 type="button" 
-                onClick={() => setHasPhoto(false)}
-                className="text-xs text-red-600 font-bold hover:underline cursor-pointer"
+                onClick={() => { setHasPhoto(false); setPhotoBase64(null); }}
+                className="px-2.5 py-1 text-xs text-red-600 font-bold hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
               >
                 ยกเลิก
               </button>
@@ -349,13 +573,13 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
-              onClick={() => setHasPhoto(!hasPhoto)}
+              onClick={() => fileInputRef.current?.click()}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 cursor-pointer transition-all border shadow-2xs active:scale-95 ${
                 hasPhoto 
                   ? 'bg-emerald-100 text-[#0F6659] border-emerald-400 shadow-xs' 
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-800'
               }`}
-              title="แนบรูปถ่ายหลักฐาน"
+              title="ถ่ายรูปหรือเลือกรูปจากเครื่อง"
             >
               <Camera size={20} />
             </button>
@@ -378,50 +602,32 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             </button>
           </div>
 
-          {/* 🌟 APPROVE & CLOSE CAP BUTTON UNDER CHAT (Visible only for QA / Admin) */}
-          {role !== "AUDITEE" && item.status !== "approved" && item.status !== "CLOSED" && (
-            <div className="pt-2 border-t border-slate-100 flex gap-2">
+          {/* 🌟 ONLY 1 BUTTON: APPROVE & CLOSE CAP (Visible only for QA / Admin / Standard when NOT closed) */}
+          {role !== "AUDITEE" && !isClosed && (
+            <div className="pt-2 border-t border-slate-100">
               <button 
                 type="button"
-                onClick={async () => {
-                  if (window.confirm("คุณต้องการตีกลับเพื่อให้สาขาแก้ไขเพิ่มเติมใช่หรือไม่?")) {
-                    try {
-                      if (item?.id && typeof item.id === 'number') {
-                        await api.post(`/cap/${item.id}/reject`, {
-                          verifierUserId: currentUser?.id || 1,
-                          reason: "หลักฐานยังไม่ครบถ้วนตามเกณฑ์มาตรฐาน กรุณาแก้ไขเพิ่มเติม"
-                        });
-                      }
-                    } catch (e) { console.warn(e); }
-                    onBack();
-                  }
-                }}
-                className="flex-1 py-3 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 active:scale-95 transition-all"
+                onClick={() => setConfirmModal({
+                  isOpen: true,
+                  type: 'approve',
+                  title: 'ยืนยันการอนุมัติและปิดงาน (Approve & Close)',
+                  message: 'คุณต้องการอนุมัติและปิดงานแก้ไข (CAP) นี้ให้สมบูรณ์ใช่หรือไม่? เมื่ออนุมัติแล้ว งานนี้จะเปลี่ยนสถานะเป็นเสร็จสมบูรณ์ทันที'
+                })}
+                className="w-full py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer text-white active:scale-98 bg-[#0F6659] hover:bg-[#0B4E44] transition-all shadow-md"
               >
-                <X size={15} />
-                <span>สั่งแก้ไขซ้ำ (Reject)</span>
+                <CheckCircle2 size={18} />
+                <span>อนุมัติและปิดงาน (Approve & Close)</span>
               </button>
+            </div>
+          )}
 
-              <button 
-                type="button"
-                onClick={async () => {
-                  if (window.confirm("คุณต้องการอนุมัติและปิดงานแก้ไข (CAP) นี้ใช่หรือไม่?")) {
-                    try {
-                      if (item?.id && typeof item.id === 'number') {
-                        await api.post(`/cap/${item.id}/close`, {
-                          verifierUserId: currentUser?.id || 1,
-                          note: "อนุมัติและปิดงานแก้ไขสมบูรณ์"
-                        });
-                      }
-                    } catch (e) { console.warn(e); }
-                    onBack();
-                  }
-                }}
-                className="flex-2 py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 cursor-pointer text-white active:scale-95 bg-[#0F6659] hover:bg-emerald-800 transition-all shadow-xs"
-              >
-                <Check size={16} />
-                <span>อนุมัติและปิดงาน (Approve)</span>
-              </button>
+          {/* 🌟 SUCCESS BANNER: WHEN CAP IS CLOSED */}
+          {isClosed && (
+            <div className="pt-2 border-t border-slate-100">
+              <div className="w-full py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
+                <CheckCircle2 size={18} className="text-emerald-600" />
+                <span>ตั๋วงานนี้ได้รับการอนุมัติและปิดงานเรียบร้อยแล้ว</span>
+              </div>
             </div>
           )}
         </div>
@@ -481,7 +687,67 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                 <X size={16} />
               </button>
             </div>
-            <img src={viewingPhoto} alt="ขยายรูปภาพ" className="w-full h-80 sm:h-96 object-cover rounded-2xl border" />
+            <img src={getFullImageUrl(viewingPhoto)} alt="ขยายรูปภาพ" className="w-full h-80 sm:h-96 object-cover rounded-2xl border" />
+          </div>
+        </ModalWrapper>
+      )}
+
+      {/* ⚠️ CUSTOM ACTION CONFIRMATION MODAL */}
+      {confirmModal.isOpen && (
+        <ModalWrapper onClose={() => !isActionProcessing && setConfirmModal({ isOpen: false, type: null, title: '', message: '' })} maxWidth="max-w-md">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 ${
+                confirmModal.type === 'reject' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'
+              }`}>
+                {confirmModal.type === 'reject' ? <AlertTriangle size={22} /> : <CheckCircle2 size={22} />}
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">{confirmModal.title}</h3>
+                <p className="text-xs text-slate-500 font-medium">กรุณาตรวจสอบก่อนยืนยันรายการ</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+              {confirmModal.message}
+            </p>
+
+            {actionError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+                <span>{actionError}</span>
+              </div>
+            )}
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={isActionProcessing}
+                onClick={() => setConfirmModal({ isOpen: false, type: null, title: '', message: '' })}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer transition-all"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={isActionProcessing}
+                onClick={handleConfirmAction}
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm transition-all flex items-center justify-center gap-1.5 ${
+                  confirmModal.type === 'reject'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-[#0F6659] hover:bg-emerald-800'
+                }`}
+              >
+                {isActionProcessing ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>กำลังบันทึก...</span>
+                  </>
+                ) : (
+                  <span>ยืนยันดำเนินการ</span>
+                )}
+              </button>
+            </div>
           </div>
         </ModalWrapper>
       )}

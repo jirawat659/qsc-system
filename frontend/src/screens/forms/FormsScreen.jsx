@@ -19,19 +19,10 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../../config/roles";
+import { ROLES, NAV_BY_ROLE } from "../../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../../mocks/locations";
-import { INITIAL_SCHEDULE } from "../../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../../mocks/trends";
-import { AI_INSIGHTS } from "../../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../../mocks/admin";
 import { exportToExcel } from "../../utils/exportToExcel";
 import api from "../../config/api";
 
@@ -52,23 +43,25 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   const [locationTypes, setLocationTypes] = useState([]);
   const [deleteModalForm, setDeleteModalForm] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const canManageForms = role === "STANDARD" || role === "ADMIN";
 
   const handleDeleteForm = async () => {
     if (!deleteModalForm) return;
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       if (deleteModalForm.id && typeof deleteModalForm.id === 'number') {
         await api.delete(`/form/${deleteModalForm.id}`);
       }
       if (refreshData) refreshData();
+      setDeleteModalForm(null);
     } catch (err) {
       console.error("Error deleting form:", err);
-      alert("ไม่สามารถลบแบบฟอร์มได้ กรุณาลองใหม่อีกครั้ง");
+      setDeleteError(err.response?.data?.message || err.message || "ไม่สามารถลบแบบฟอร์มได้ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsDeleting(false);
-      setDeleteModalForm(null);
     }
   };
 
@@ -94,20 +87,21 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         name: f.title,
         title: f.title,
         version: f.version || "v1.0",
-        date: f.createdAt ? new Date(f.createdAt).toLocaleDateString('th-TH') : "15 ส.ค. 2569",
-        author: f.createdBy?.fullName || "ทีมมาตรฐาน QA",
-        type: f.locationTypeName || f.locationType?.name || f.locationType?.code || "หน้าร้าน",
+        date: f.createdAt ? new Date(f.createdAt).toLocaleDateString('th-TH') : "-",
+        author: f.createdBy?.fullName || "-",
+        type: f.locationTypeName || f.locationType?.name || f.locationType?.code || "-",
         locationTypeId: f.locationTypeId,
         status: f.isActive ? "active" : "draft",
         usedCount: f.usedCount !== undefined ? f.usedCount : (f.auditRecords?.length || 0),
         scheduledCount: f.scheduledCount || 0,
         isInUse: f.isInUse || (f.usedCount > 0) || (f.scheduledCount > 0),
-        itemCount: f.sections ? f.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0) : 11,
-        totalScore: f.sections ? f.sections.reduce((acc, s) => acc + (s.items ? s.items.reduce((iAcc, i) => iAcc + (Number(i.fullScore) || 10), 0) : 0), 0) : 100,
+        itemCount: f.sections ? f.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0) : 0,
+        totalScore: f.sections ? f.sections.reduce((acc, s) => acc + (s.items ? s.items.reduce((iAcc, i) => iAcc + (Number(i.fullScore) || 10), 0) : 0), 0) : 0,
+        passingScore: f.passingScore !== undefined ? f.passingScore : 85,
         sections: f.sections || []
       }));
     }
-    return INITIAL_FORMS_LIST;
+    return [];
   }, [forms]);
 
   // Dynamically create category tabs from database location types
@@ -264,7 +258,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                     เกณฑ์ ≥ {f.passingScore || 85}%
                   </span>
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-amber-50 text-amber-900 border border-amber-200/80">
-                    {f.itemCount} {f.totalScore || 100} คะแนน
+                    {f.totalScore || 100} คะแนน
                   </span>
                 </div>
               </div>
@@ -335,6 +329,13 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                 ต้องการลบแบบฟอร์ม <strong className="text-slate-800">"{deleteModalForm.name || deleteModalForm.title}"</strong> ออกจากระบบใช่หรือไม่?
               </p>
             </div>
+
+            {deleteError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+                <span>{deleteError}</span>
+              </div>
+            )}
 
             {/* In-Use Alert Box */}
             {(deleteModalForm.isInUse || deleteModalForm.usedCount > 0 || deleteModalForm.scheduledCount > 0) ? (

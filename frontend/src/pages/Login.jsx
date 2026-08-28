@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import api from '../config/api';
-import { LogIn, Lock, User, AlertCircle, Loader2 } from 'lucide-react';
+import authStorage from '../config/storage';
+import { LogIn, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
 
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,11 +27,13 @@ function Login({ onLoginSuccess }) {
       });
 
       const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
-        localStorage.setItem('role', user.role);
-        localStorage.setItem('username', user.username);
+      authStorage.saveSession({
+        token,
+        role: user?.role,
+        username: user?.username,
+        user
+      });
+      if (user?.fullName) {
         localStorage.setItem('fullName', user.fullName);
       }
       
@@ -93,14 +97,22 @@ function Login({ onLoginSuccess }) {
                 <Lock size={16} />
               </div>
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
+                className="w-full pl-10 pr-10 py-3 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
                 placeholder="กรอกรหัสผ่าน..."
                 autoComplete="current-password"
                 required
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(prev => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+              >
+                {showPassword ? <Eye size={16} /> : <EyeOff size={16} />}
+              </button>
             </div>
           </div>
 

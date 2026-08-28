@@ -10,19 +10,38 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
+    ?? new[] { "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000" };
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReact", policy => 
-        policy.SetIsOriginAllowed(origin => true)
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials());
+        policy.SetIsOriginAllowed(origin =>
+        {
+            if (string.IsNullOrWhiteSpace(origin)) return false;
+            try
+            {
+                var uri = new Uri(origin);
+                return uri.Host == "localhost" 
+                    || uri.Host == "127.0.0.1" 
+                    || uri.Host.StartsWith("192.168.") 
+                    || uri.Host.StartsWith("10.")
+                    || allowedOrigins.Contains(origin);
+            }
+            catch
+            {
+                return false;
+            }
+        })
+        .AllowAnyMethod()
+        .AllowAnyHeader()
+        .AllowCredentials());
 });
 
 // ตั้งค่า JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "QSC_Secret_Key_Super_Secure_2026_Enterprise_Auth_JWT_Token_Key!";
-var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "QSC.Api";
-var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "QSC.App";
+var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!");
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "QscApi";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "QscFrontend";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -38,6 +57,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
     });
+
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<QSC.Api.Services.AiService>();
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

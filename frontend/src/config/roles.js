@@ -39,11 +39,3 @@ export const NAV_BY_ROLE = {
     { key: "audit", label: "ฟอร์ม", icon: ClipboardList },
   ],
 };
-
-export const ROLE_USER_MAP = {
-  STANDARD: { name: "กานดา มาตรฐาน", title: "Lead Standards & QA Director", avatar: "กาน" },
-  AUDITOR: { name: "สมชาย ใจดี", title: "QA Field Auditor", avatar: "สม" },
-  AUDITEE: { name: "สมศักดิ์ ผู้จัดการสาขา", title: "Store Manager (สาขาสยาม)", avatar: "ศักดิ์" },
-  EXEC: { name: "David Chen", title: "Chief Operations Officer (COO)", avatar: "DC" },
-  ADMIN: { name: "Alex Rivera", title: "System Administrator & IT Head", avatar: "AR" },
-};

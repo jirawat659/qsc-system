@@ -11,25 +11,43 @@ import {
 
 import { c, sans, mono } from "../../config/theme";
 import { DataContext } from "../../context/DataContext";
-import { INITIAL_UNITS } from "../../mocks/locations";
-import { TRENDS_DATA } from "../../mocks/trends";
 import ScoreRing from "../../shared/ScoreRing";
 import Header from "../../shared/Header";
 import ExcelExportModal from "../../modals/ExcelExportModal";
 import AuditHistoryDetail from "../audit/AuditHistoryDetail";
+import BranchProfile from "./BranchProfile";
+import api from "../../config/api";
+import { parseAuditTimestamp } from "../../utils/formatters";
 
 export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ" }) {
   const { locations, auditRecords, capTasks } = React.useContext(DataContext);
-  const activeLocations = (locations && locations.length > 0) ? locations : INITIAL_UNITS;
+  const activeLocations = locations || [];
+  const [trendsData, setTrendsData] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/dashboard/trends')
+      .then(res => {
+        if (isMounted && res.data?.monthlyTrends) {
+          setTrendsData(res.data.monthlyTrends.map(t => ({
+            label: t.month,
+            score: t.score
+          })));
+        }
+      })
+      .catch(err => console.warn("Could not load trends in AllAuditHistoryScreen:", err));
+    return () => { isMounted = false; };
+  }, []);
   
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
-  const [sortBy, setSortBy] = useState("date-desc"); // 'date-desc' | 'score-desc' | 'score-asc' | 'branch'
+  const [sortBy, setSortBy] = useState("date-desc"); // 'date-desc' | 'date-asc' | 'branch-asc' | 'branch-desc' | 'score-desc' | 'score-asc'
   const [viewType, setViewType] = useState("history"); // 'history' (รายครั้ง) | 'table' (สาขา) | 'chart' (กราฟ)
-  const [rankMode, setRankMode] = useState("top5");
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedAuditLog, setSelectedAuditLog] = useState(null);
+  const [selectedBranch, setSelectedBranch] = useState(null);
   const pageSize = 10;
 
   // Reset page to 1 when filters change
@@ -37,36 +55,45 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     setCurrentPage(1);
   }, [searchTerm, filterCategory, sortBy, viewType]);
 
+  // Sync input text with currentPage when navigating via buttons
+  useEffect(() => {
+    setPageInput(String(currentPage));
+  }, [currentPage]);
+
   // 🌟 Dynamic Real-time Calculations from Database
-  const totalBranches = activeLocations.length || 5;
-  const auditedCount = (auditRecords && auditRecords.length > 0) ? auditRecords.length : 1;
-  const passedBranches = activeLocations.filter(u => u.lastScore >= 85);
+  const totalBranches = activeLocations.length;
+  const auditedCount = (auditRecords && auditRecords.length > 0) ? auditRecords.length : 0;
+  const passedBranches = activeLocations.filter(u => (u.lastScore || 0) >= 85);
   const passedCount = passedBranches.length;
-  const avgScore = totalBranches > 0 ? Math.round(activeLocations.reduce((acc, l) => acc + (l.lastScore || 0), 0) / totalBranches) : 90;
+  const avgScore = totalBranches > 0 ? Math.round(activeLocations.reduce((acc, l) => acc + (l.lastScore || 0), 0) / totalBranches) : 0;
   const pendingCapCount = (capTasks && capTasks.length > 0) 
     ? capTasks.filter(c => c.status !== 'approved' && c.status !== 'CLOSED').length 
-    : 1;
+    : 0;
 
   // 🌟 Map logs from Live Database if available, otherwise from mocks
   const allLogs = useMemo(() => {
     if (auditRecords && auditRecords.length > 0) {
       return auditRecords.map((r) => {
         const score = Math.round(r.percentageScore || 0);
-        const branchName = r.locationName || r.location?.name || "สาขามาตรฐาน";
-        const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "สาขามาตรฐาน";
-        const dateFormatted = r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "15 ส.ค. 2569";
-        const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "นายสมชาย ใจดี";
-        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core)";
+        const branchName = r.locationName || r.location?.name || "-";
+        const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "-";
+        const rawDate = r.auditDate || r.createdAt;
+        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        const timestamp = parseAuditTimestamp(rawDate, r.id);
+        const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
+        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "-";
         return {
           id: r.id,
           unitName: branchName,
           unitFullName: branchFullName,
-          region: r.locationRegion || r.location?.region || "กรุงเทพฯ และปริมณฑล",
+          region: r.locationRegion || r.location?.region || "-",
           date: dateFormatted,
+          rawDate: rawDate,
+          timestamp: timestamp,
           score: score,
           auditor: auditorVal,
           formName: formVal,
-          auditType: r.auditType === 'followup' ? "ตรวจติดตามผล (Follow-up)" : "ตรวจมาตรฐานรอบปกติ (Announced)",
+          auditType: (r.auditType === 'unannounced' || r.auditType === 'spot') ? "นอกกำหนดการ" : (r.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
           status: r.isPassed ? "pass" : "fail",
           record: {
             ...r,
@@ -91,17 +118,20 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
     const logs = [];
     activeLocations.forEach(u => {
-      (u.history || []).forEach(h => {
+      (u.history || []).forEach((h, hIdx) => {
+        const timestamp = parseAuditTimestamp(h.date, h.id || hIdx);
         logs.push({
-          id: h.id || Math.random(),
+          id: h.id || `hist-${u.id || u.name}-${hIdx}`,
           unitName: u.name,
           unitFullName: u.fullName || u.name,
-          region: u.region || "กรุงเทพฯ",
+          region: u.region || "-",
           date: h.date,
+          rawDate: h.date,
+          timestamp: timestamp,
           score: h.score,
-          auditor: h.auditor || "สมชาย ใจดี",
-          formName: h.form || "ตรวจร้านอาหารและเครื่องดื่ม v3",
-          auditType: h.auditType || (h.score < 70 ? "ตรวจติดตามผล (Follow-up)" : "ตรวจมาตรฐานรอบปกติ (Announced)"),
+          auditor: h.auditor || "-",
+          formName: h.form || "-",
+          auditType: (h.auditType === 'unannounced' || h.auditType === 'spot') ? "นอกกำหนดการ" : (h.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
           status: h.status,
           record: h
         });
@@ -132,9 +162,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     if (filterCategory === "passed") {
       list = list.filter(l => l.score >= 85);
     } else if (filterCategory === "improve") {
-      list = list.filter(l => l.score >= 70 && l.score < 85);
-    } else if (filterCategory === "critical") {
-      list = list.filter(l => l.score < 70);
+      list = list.filter(l => l.score < 85);
     } else if (filterCategory === "bkk") {
       list = list.filter(l => (l.region || '').includes("กรุงเทพ"));
     } else if (filterCategory === "north") {
@@ -147,30 +175,171 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       list = list.filter(l => (l.region || '').includes("ใต้"));
     }
 
-    if (sortBy === "score-desc") {
-      list.sort((a, b) => b.score - a.score);
+    // 🌟 Sorting Logic:
+    if (sortBy === "date-desc") {
+      list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.id || 0) - (a.id || 0));
+    } else if (sortBy === "date-asc") {
+      list.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0) || (a.id || 0) - (b.id || 0));
+    } else if (sortBy === "branch-asc" || sortBy === "branch") {
+      list.sort((a, b) => (a.unitName || "").localeCompare(b.unitName || "", "th"));
+    } else if (sortBy === "branch-desc") {
+      list.sort((a, b) => (b.unitName || "").localeCompare(a.unitName || "", "th"));
+    } else if (sortBy === "score-desc") {
+      list.sort((a, b) => (b.score || 0) - (a.score || 0));
     } else if (sortBy === "score-asc") {
-      list.sort((a, b) => a.score - b.score);
-    } else if (sortBy === "branch") {
-      list.sort((a, b) => a.unitName.localeCompare(b.unitName, "th"));
+      list.sort((a, b) => (a.score || 0) - (b.score || 0));
+    } else {
+      list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.id || 0) - (a.id || 0));
     }
 
     return list;
   }, [baseLogs, searchTerm, filterCategory, sortBy]);
 
+  // 🌟 Map branches list with real last score, date, and complete history across all rounds
+  const allBranches = useMemo(() => {
+    return activeLocations.map(u => {
+      // Filter ALL audit records for this branch from live database
+      const branchAudits = (auditRecords || []).filter(r => 
+        (r.locationId && r.locationId === u.id) || 
+        (r.locationName && (r.locationName === u.name || r.locationName === u.fullName)) ||
+        (r.location?.name && (r.location.name === u.name || r.location.name === u.fullName))
+      );
+
+      const mappedHistory = branchAudits.map(r => {
+        const score = Math.round(r.percentageScore || 0);
+        const rawDate = r.auditDate || r.createdAt;
+        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
+        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "-";
+        return {
+          id: r.id,
+          date: dateFormatted,
+          auditDate: rawDate,
+          score: score,
+          percentageScore: score,
+          auditor: auditorVal,
+          auditorName: auditorVal,
+          form: formVal,
+          formName: formVal,
+          auditType: r.auditType === 'followup' ? "ตรวจติดตามผล (Follow-up)" : "ตรวจมาตรฐานรอบปกติ (Announced)",
+          status: r.isPassed ? "pass" : "fail",
+          isPassed: r.isPassed,
+          hasCriticalDefect: r.hasCriticalDefect,
+          ...r
+        };
+      });
+
+      const finalHistory = mappedHistory.length > 0 ? mappedHistory : (u.history || []);
+      const lastAudit = mappedHistory[0] || (u.history && u.history[0]) || null;
+      const rawDate = lastAudit?.auditDate || lastAudit?.date || u.lastAuditDate || null;
+      const timestamp = parseAuditTimestamp(rawDate, u.id);
+      const lastScore = lastAudit ? lastAudit.score : (u.lastScore !== undefined ? u.lastScore : 0);
+      const dateFormatted = rawDate ? (lastAudit?.date || new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })) : "-";
+      const locTypeName = u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "-";
+
+      return {
+        ...u,
+        id: u.id,
+        name: u.name,
+        fullName: u.fullName || u.name,
+        code: u.code,
+        region: u.region || "-",
+        address: u.address || "-",
+        phone: u.phone || "-",
+        locationType: locTypeName,
+        lastScore: lastScore,
+        score: lastScore,
+        lastAuditDate: rawDate,
+        dateFormatted: dateFormatted,
+        timestamp: timestamp,
+        history: finalHistory,
+        latestRecord: lastAudit,
+        rawLocation: u
+      };
+    });
+  }, [activeLocations, auditRecords]);
+
+  const filteredAndSortedBranches = useMemo(() => {
+    let list = [...allBranches];
+
+    if (searchTerm.trim()) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter(l =>
+        (l.name && l.name.toLowerCase().includes(q)) ||
+        (l.fullName && l.fullName.toLowerCase().includes(q)) ||
+        (l.code && l.code.toLowerCase().includes(q)) ||
+        (l.region && l.region.toLowerCase().includes(q)) ||
+        (l.locationType && l.locationType.toLowerCase().includes(q)) ||
+        (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q))
+      );
+    }
+
+    if (filterCategory === "passed") {
+      list = list.filter(l => l.lastScore >= 85);
+    } else if (filterCategory === "improve") {
+      list = list.filter(l => l.lastScore < 85);
+    } else if (filterCategory === "bkk") {
+      list = list.filter(l => (l.region || '').includes("กรุงเทพ"));
+    } else if (filterCategory === "north") {
+      list = list.filter(l => (l.region || '').includes("เหนือ"));
+    } else if (filterCategory === "east") {
+      list = list.filter(l => (l.region || '').includes("ตะวันออก") && !(l.region || '').includes("เฉียงเหนือ"));
+    } else if (filterCategory === "northeast") {
+      list = list.filter(l => (l.region || '').includes("ตะวันออกเฉียงเหนือ") || (l.region || '').includes("อีสาน"));
+    } else if (filterCategory === "south") {
+      list = list.filter(l => (l.region || '').includes("ใต้"));
+    }
+
+    // 🌟 Sorting for branches:
+    if (sortBy === "date-desc") {
+      list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.id || 0) - (a.id || 0));
+    } else if (sortBy === "date-asc") {
+      list.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0) || (a.id || 0) - (b.id || 0));
+    } else if (sortBy === "branch-asc" || sortBy === "branch") {
+      list.sort((a, b) => (a.name || "").localeCompare(b.name || "", "th"));
+    } else if (sortBy === "branch-desc") {
+      list.sort((a, b) => (b.name || "").localeCompare(a.name || "", "th"));
+    } else if (sortBy === "score-desc") {
+      list.sort((a, b) => (b.lastScore || 0) - (a.lastScore || 0));
+    } else if (sortBy === "score-asc") {
+      list.sort((a, b) => (a.lastScore || 0) - (b.lastScore || 0));
+    } else {
+      list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0) || (b.id || 0) - (a.id || 0));
+    }
+
+    return list;
+  }, [allBranches, searchTerm, filterCategory, sortBy]);
+
   // Pagination calculation
-  const totalCount = filteredAndSortedLogs.length;
+  const activeList = viewType === "table" ? filteredAndSortedBranches : filteredAndSortedLogs;
+  const totalCount = activeList.length;
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedLogs = filteredAndSortedLogs.slice(startIndex, startIndex + pageSize);
+  const paginatedBranches = filteredAndSortedBranches.slice(startIndex, startIndex + pageSize);
   const startItem = totalCount === 0 ? 0 : startIndex + 1;
   const endItem = Math.min(startIndex + pageSize, totalCount);
 
-  const rankedBranches = useMemo(() => {
-    return [...activeLocations]
-      .sort((a, b) => (rankMode === "top5" ? b.lastScore - a.lastScore : a.lastScore - b.lastScore))
-      .slice(0, 5);
-  }, [rankMode, activeLocations]);
+  // Submit typed page number only on Enter or Blur
+  const handlePageSubmit = () => {
+    const val = parseInt(pageInput, 10);
+    if (!isNaN(val)) {
+      const targetPage = Math.max(1, Math.min(totalPages, val));
+      setCurrentPage(targetPage);
+      setPageInput(String(targetPage));
+    } else {
+      setPageInput(String(currentPage));
+    }
+  };
+
+  if (selectedBranch) {
+    return (
+      <BranchProfile
+        unit={selectedBranch}
+        onBack={() => setSelectedBranch(null)}
+      />
+    );
+  }
 
   if (selectedAuditLog) {
     return (
@@ -204,7 +373,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           </div>
           <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs text-[11px] font-bold text-slate-700">
             <CalendarDays size={12} className="text-[#0F6659]" />
-            <span>ส.ค. 2569</span>
+            <span>{new Date().toLocaleDateString('th-TH', { month: 'short', year: 'numeric' })}</span>
           </div>
         </div>
       )}
@@ -299,10 +468,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                   onChange={(e) => setFilterCategory(e.target.value)}
                   className="bg-transparent text-xs font-bold outline-none cursor-pointer text-slate-700 flex-1 w-full"
                 >
-                  <option value="all">ทุกสาขา (ทั้งหมด)</option>
+                  <option value="all">ทุกสาขา</option>
                   <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
-                  <option value="improve">ต้องปรับปรุง (70-84%)</option>
-                  <option value="critical">วิกฤต (&lt;70%)</option>
+                  <option value="improve">ต้องปรับปรุง (&lt;85%)</option>
                   <option value="bkk">เขตกรุงเทพฯ</option>
                   <option value="north">เขตภาคเหนือ</option>
                   <option value="east">เขตภาคตะวันออก</option>
@@ -328,47 +496,70 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           </div>
         )}
 
-        {/* ── Tab Content: ตารางผลตรวจรายครั้งตามภาพตัวอย่าง ── */}
+        {/* ── Tab Content: ตารางผลตรวจรายครั้ง ── */}
         {viewType === "history" ? (
           <div className="space-y-2">
             <div className="overflow-x-auto custom-tab-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[780px]">
+              <table className="w-full text-left border-collapse min-w-[1100px] table-fixed">
                 {/* Table Header */}
                 <thead>
                   <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
-                    <th className="py-3 px-4 w-[28%]">
+                    <th className="py-3 px-4 w-[50%]">
                       <button 
                         type="button" 
-                        onClick={() => setSortBy(prev => prev === 'branch' ? 'date-desc' : 'branch')}
-                        className="flex items-center gap-1.5 hover:text-[#0F6659] transition-colors cursor-pointer"
+                        onClick={() => setSortBy(prev => prev === 'branch-asc' ? 'branch-desc' : 'branch-asc')}
+                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          sortBy.startsWith('branch') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
+                        }`}
+                        title="เรียงตามชื่อสาขา (ก-ฮ / ฮ-ก)"
                       >
-                        <span>รอบตรวจ & สาขา</span>
-                        <ArrowUpDown size={13} className="text-slate-400" />
+                        <span className="truncate">รอบตรวจ & สาขา</span>
+                        {sortBy === 'branch-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲ ก-ฮ</span>}
+                        {sortBy === 'branch-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼ ฮ-ก</span>}
+                        {!sortBy.startsWith('branch') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
                       </button>
                     </th>
-                    <th className="py-3 px-4 w-[12%] text-center">
+                    <th className="py-3 px-4 w-[15%] text-center">
                       <button
                         type="button"
                         onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
-                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-2xs hover:border-[#0F6659] text-xs font-bold text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer"
+                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border shadow-2xs text-xs font-bold transition-all cursor-pointer ${
+                          sortBy.startsWith('score')
+                            ? 'bg-emerald-50 border-emerald-400 text-[#0F6659] font-black ring-2 ring-emerald-500/20'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-[#0F6659] hover:text-[#0F6659]'
+                        }`}
+                        title="เรียงตามคะแนน (มากไปน้อย / น้อยไปมาก)"
                       >
                         <span>คะแนน</span>
-                        <span className="text-[10px] text-slate-400">▽</span>
+                        {sortBy === 'score-desc' && <span className="text-[10px] text-[#0F6659] font-black">▼</span>}
+                        {sortBy === 'score-asc' && <span className="text-[10px] text-[#0F6659] font-black">▲</span>}
+                        {!sortBy.startsWith('score') && <ArrowUpDown size={11} className="text-slate-400" />}
                       </button>
                     </th>
-                    <th className="py-3 px-4 w-[26%]">แบบฟอร์มการตรวจ</th>
-                    <th className="py-3 px-4 w-[14%]">
+                    <th className="py-3 px-4 w-[30%]">
+                      <span className="truncate">แบบฟอร์มการตรวจ</span>
+                    </th>
+                    <th className="py-3 px-4 w-[15%]">
                       <button 
                         type="button" 
                         onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
-                        className="flex items-center gap-1 hover:text-[#0F6659] transition-colors cursor-pointer"
+                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          sortBy.startsWith('date') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
+                        }`}
+                        title="เรียงตามวันที่ตรวจ (ล่าสุด / เก่าสุด)"
                       >
-                        <span>วันที่ตรวจ</span>
-                        <ArrowUpDown size={13} className="text-[#0F6659]" />
+                        <span className="truncate">วันที่ตรวจ</span>
+                        {sortBy === 'date-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼</span>}
+                        {sortBy === 'date-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲</span>}
+                        {!sortBy.startsWith('date') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
                       </button>
                     </th>
-                    <th className="py-3 px-4 w-[12%]">ผู้ตรวจประเมิน</th>
-                    <th className="py-3 px-4 w-[12%] text-center pr-6">สถานะ</th>
+                    <th className="py-3 px-4 w-[23%]">
+                      <span className="truncate">ผู้ตรวจประเมิน</span>
+                    </th>
+                    <th className="py-3 px-4 w-[12%] text-center">
+                      <span className="truncate">สถานะ</span>
+                    </th>
                   </tr>
                 </thead>
 
@@ -415,19 +606,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                       >
                         {/* 1. รอบตรวจ & สาขา */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-3">
+                        <td className="py-3.5 px-4 overflow-hidden">
+                          <div className="flex items-center gap-3 min-w-0">
                             <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
                               {rowNumber}
                             </span>
                             <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
                               {log.score}
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
                                 {log.unitName}
                               </div>
-                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.region}>
                                 {log.region}
                               </div>
                             </div>
@@ -435,38 +626,42 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         </td>
 
                         {/* 2. คะแนน */}
-                        <td className="py-3.5 px-4 text-center">
+                        <td className="py-3.5 px-4 text-center overflow-hidden">
                           <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
                             {log.score}%
                           </span>
                         </td>
 
                         {/* 3. แบบฟอร์มการตรวจ */}
-                        <td className="py-3.5 px-4">
-                          <div className="min-w-0 max-w-[240px]">
-                            <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                        <td className="py-3.5 px-4 overflow-hidden">
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate" title={log.formName}>
                               {log.formName}
                             </div>
-                            <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                            <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.auditType}>
                               {log.auditType}
                             </div>
                           </div>
                         </td>
 
                         {/* 4. วันที่ตรวจ */}
-                        <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
-                          {log.date}
+                        <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
+                          <div className="truncate" title={log.date}>
+                            {log.date}
+                          </div>
                         </td>
 
                         {/* 5. ผู้ตรวจประเมิน */}
-                        <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
-                          {log.auditor}
+                        <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
+                          <div className="truncate" title={log.auditor}>
+                            {log.auditor}
+                          </div>
                         </td>
 
                         {/* 6. สถานะ & Arrow */}
-                        <td className="py-3.5 px-4 whitespace-nowrap text-center pr-5">
-                          <div className="flex items-center justify-end gap-3">
-                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${statusBadge}`}>
+                        <td className="py-3.5 px-4 text-center overflow-hidden">
+                          <div className="flex items-center justify-center gap-2">
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
                               {statusText}
                             </span>
                             <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
@@ -498,11 +693,29 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                   >
                     ก่อนหน้า
                   </button>
+                  
+                  {/* ช่องเล็กสำหรับพิมพ์เลขหน้า (กด Enter หรือคลิกออกนอกช่องเพื่อเปลี่ยนหน้า) */}
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalPages}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onBlur={handlePageSubmit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handlePageSubmit();
+                        e.target.blur();
+                      }
+                    }}
+                    className="w-10 h-7 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+
                   <button
                     type="button"
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
                   >
                     ถัดไป
                   </button>
@@ -511,48 +724,70 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             )}
           </div>
         ) : viewType === "table" ? (
-          /* ── Tab: สาขา (Branch Ranking) ── */
-          <div className="p-3.5 sm:p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex rounded-xl overflow-hidden border p-0.5 bg-slate-100 w-full sm:w-auto" style={{ borderColor: c.border }}>
-                <button
-                  type="button"
-                  onClick={() => setRankMode("top5")}
-                  className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
-                    rankMode === "top5"
-                      ? 'bg-emerald-700 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>Top 5 สูงสุด</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRankMode("bottom5")}
-                  className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 ${
-                    rankMode === "bottom5"
-                      ? 'bg-rose-700 text-white shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <span>5 อันดับต่ำสุด</span>
-                </button>
-              </div>
-            </div>
-
+          /* ── Tab: สาขา (Branch Tab with Sorting & Pagination) ── */
+          <div className="space-y-2">
             <div className="overflow-x-auto custom-tab-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[760px]">
+              <table className="w-full text-left border-collapse min-w-[1000px] table-fixed">
                 <thead>
                   <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
-                    <th className="py-3 px-4 w-[30%]">อันดับ & ชื่อสาขา</th>
-                    <th className="py-3 px-4 w-[14%] text-center">คะแนน</th>
-                    <th className="py-3 px-4 w-[24%]">ภูมิภาค / ประเภท</th>
-                    <th className="py-3 px-4 w-[16%]">ตรวจล่าสุด</th>
-                    <th className="py-3 px-4 w-[16%] text-center pr-6">สถานะ</th>
+                    <th className="py-3 px-4 w-[50%]">
+                      <button 
+                        type="button" 
+                        onClick={() => setSortBy(prev => prev === 'branch-asc' ? 'branch-desc' : 'branch-asc')}
+                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          sortBy.startsWith('branch') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
+                        }`}
+                        title="เรียงตามชื่อสาขา (ก-ฮ / ฮ-ก)"
+                      >
+                        <span className="truncate">อันดับ & ชื่อสาขา</span>
+                        {sortBy === 'branch-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲ ก-ฮ</span>}
+                        {sortBy === 'branch-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼ ฮ-ก</span>}
+                        {!sortBy.startsWith('branch') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 w-[13%] text-center">
+                      <button
+                        type="button"
+                        onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
+                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border shadow-2xs text-xs font-bold transition-all cursor-pointer ${
+                          sortBy.startsWith('score')
+                            ? 'bg-emerald-50 border-emerald-400 text-[#0F6659] font-black ring-2 ring-emerald-500/20'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-[#0F6659] hover:text-[#0F6659]'
+                        }`}
+                        title="เรียงตามคะแนน (มากไปน้อย / น้อยไปมาก)"
+                      >
+                        <span>คะแนน</span>
+                        {sortBy === 'score-desc' && <span className="text-[10px] text-[#0F6659] font-black">▼</span>}
+                        {sortBy === 'score-asc' && <span className="text-[10px] text-[#0F6659] font-black">▲</span>}
+                        {!sortBy.startsWith('score') && <ArrowUpDown size={11} className="text-slate-400" />}
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 w-[20%]">
+                      <span className="truncate">ภูมิภาค / ประเภท</span>
+                    </th>
+                    <th className="py-3 px-4 w-[13%]">
+                      <button 
+                        type="button" 
+                        onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
+                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                          sortBy.startsWith('date') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
+                        }`}
+                        title="เรียงตามเวลาตรวจล่าสุด (ล่าสุด / เก่าสุด)"
+                      >
+                        <span className="truncate">ตรวจล่าสุด</span>
+                        {sortBy === 'date-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼</span>}
+                        {sortBy === 'date-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲</span>}
+                        {!sortBy.startsWith('date') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
+                      </button>
+                    </th>
+                    <th className="py-3 px-4 w-[15%] text-center">
+                      <span className="truncate">สถานะ</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {rankedBranches.map((u, idx) => {
+                  {paginatedBranches.map((u, idx) => {
+                    const rowNumber = (currentPage - 1) * pageSize + idx + 1;
                     const isPassed = u.lastScore >= 85;
                     const isCritical = u.lastScore < 70;
 
@@ -578,28 +813,26 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
                     return (
                       <tr
-                        key={u.name || idx}
+                        key={u.id || u.name || idx}
                         onClick={() => {
-                          if (onSelectLog) {
-                            onSelectLog({ unitName: u.fullName || u.name, record: u.history?.[0] });
-                          }
+                          setSelectedBranch(u);
                         }}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                       >
                         {/* 1. อันดับ & สาขา */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-3">
+                        <td className="py-3.5 px-4 overflow-hidden">
+                          <div className="flex items-center gap-3 min-w-0">
                             <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
-                              #{idx + 1}
+                              {rowNumber}
                             </span>
                             <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
                               {u.lastScore}
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={u.name}>
                                 {u.name}
                               </div>
-                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={u.fullName || u.region}>
                                 {u.fullName || u.region}
                               </div>
                             </div>
@@ -607,31 +840,35 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         </td>
 
                         {/* 2. คะแนน */}
-                        <td className="py-3.5 px-4 text-center">
+                        <td className="py-3.5 px-4 text-center overflow-hidden">
                           <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
                             {u.lastScore}%
                           </span>
                         </td>
 
                         {/* 3. ภูมิภาค */}
-                        <td className="py-3.5 px-4">
-                          <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
-                            {u.region}
-                          </div>
-                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
-                            {u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "สาขามาตรฐาน"}
+                        <td className="py-3.5 px-4 overflow-hidden">
+                          <div className="min-w-0">
+                            <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate" title={u.region}>
+                              {u.region}
+                            </div>
+                            <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={u.locationType}>
+                              {u.locationType}
+                            </div>
                           </div>
                         </td>
 
                         {/* 4. ตรวจล่าสุด */}
-                        <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
-                          {u.history && u.history[0]?.date ? u.history[0].date : "-"}
+                        <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
+                          <div className="truncate" title={u.dateFormatted}>
+                            {u.dateFormatted}
+                          </div>
                         </td>
 
                         {/* 5. สถานะ & Arrow */}
-                        <td className="py-3.5 px-4 whitespace-nowrap text-center pr-5">
-                          <div className="flex items-center justify-end gap-3">
-                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${statusBadge}`}>
+                        <td className="py-3.5 px-4 text-center overflow-hidden">
+                          <div className="flex items-center justify-center gap-2">
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
                               {statusText}
                             </span>
                             <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
@@ -642,7 +879,55 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                   })}
                 </tbody>
               </table>
+
+              {filteredAndSortedBranches.length === 0 && (
+                <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white">
+                  ไม่พบข้อมูลสาขาที่ตรงกับคำค้นหา
+                </div>
+              )}
             </div>
+
+            {/* Pagination Controls for Branch Tab */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs font-medium text-slate-500 bg-white">
+                <span>หน้า {currentPage} จาก {totalPages} ({totalCount} สาขา)</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+                  >
+                    ก่อนหน้า
+                  </button>
+                  
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalPages}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    onBlur={handlePageSubmit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handlePageSubmit();
+                        e.target.blur();
+                      }
+                    }}
+                    className="w-10 h-7 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+                  >
+                    ถัดไป
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
         ) : (
@@ -651,7 +936,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             <div className="text-xs font-bold text-slate-700">แนวโน้มคะแนนเฉลี่ยย้อนหลัง 6 เดือน</div>
             <div className="h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={TRENDS_DATA["6M"]} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <AreaChart data={trendsData} margin={{ top: 10, right: 15, left: -20, bottom: 0 }}>
                   <defs>
                     <linearGradient id="scoreGradReport" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#0F6659" stopOpacity={0.4}/>
@@ -659,10 +944,23 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#64748B' }} />
-                  <YAxis domain={[60, 100]} tick={{ fontSize: 11, fill: '#64748B' }} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #E2E8F0', fontSize: 12 }} />
-                  <Area type="monotone" dataKey="avg" stroke="#0F6659" strokeWidth={2.5} fillOpacity={1} fill="url(#scoreGradReport)" name="คะแนนเฉลี่ย" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748B' }} />
+                  <YAxis domain={['dataMin - 4', 100]} tick={{ fontSize: 11, fill: '#64748B' }} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: 12, border: '1px solid #E2E8F0', fontSize: 12 }} 
+                    formatter={(val) => [`${val}%`, 'คะแนนเฉลี่ย']}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="score" 
+                    stroke="#0F6659" 
+                    strokeWidth={3} 
+                    dot={{ r: 4, fill: '#0F6659' }}
+                    activeDot={{ r: 6 }}
+                    fillOpacity={1} 
+                    fill="url(#scoreGradReport)" 
+                    name="คะแนนเฉลี่ย" 
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>

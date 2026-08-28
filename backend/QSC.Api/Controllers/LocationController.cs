@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
 using QSC.Api.Models;
 
+using QSC.Api.Helpers;
+
 namespace QSC.Api.Controllers
 {
     [Authorize]
@@ -19,9 +21,12 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetLocations([FromQuery] int? userId, [FromQuery] bool? activeOnly)
+        public async Task<IActionResult> GetLocations([FromQuery] bool? activeOnly)
         {
+            var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var query = _context.Locations
+                .AsNoTracking()
                 .Include(l => l.LocationType)
                 .Include(l => l.ManagerUser)
                 .AsQueryable();
@@ -31,18 +36,9 @@ namespace QSC.Api.Controllers
                 query = query.Where(l => l.IsActive);
             }
 
-            if (userId.HasValue)
+            if (allowedLocationIds != null)
             {
-                var user = await _context.Users.FindAsync(userId.Value);
-                if (user != null && user.BranchScope == "SPECIFIC")
-                {
-                    var allowedIds = await _context.UserLocations
-                        .Where(ul => ul.UserId == user.Id)
-                        .Select(ul => ul.LocationId)
-                        .ToListAsync();
-
-                    query = query.Where(l => allowedIds.Contains(l.Id));
-                }
+                query = query.Where(l => allowedLocationIds.Contains(l.Id));
             }
 
             var locations = await query.OrderByDescending(l => l.IsActive).ThenBy(l => l.Code).ToListAsync();
@@ -52,7 +48,14 @@ namespace QSC.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetLocation(int id)
         {
+            var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(id))
+            {
+                return Forbid();
+            }
+
             var location = await _context.Locations
+                .AsNoTracking()
                 .Include(l => l.LocationType)
                 .Include(l => l.ManagerUser)
                 .FirstOrDefaultAsync(l => l.Id == id);
@@ -61,7 +64,7 @@ namespace QSC.Api.Controllers
             return Ok(location);
         }
 
-        [Authorize(Roles = "ADMIN,STANDARD")]
+        [Authorize(Roles = "ADMIN")]
         [HttpPost]
         public async Task<IActionResult> CreateLocation([FromBody] Location location)
         {
@@ -71,7 +74,7 @@ namespace QSC.Api.Controllers
             return CreatedAtAction(nameof(GetLocation), new { id = location.Id }, location);
         }
 
-        [Authorize(Roles = "ADMIN,STANDARD")]
+        [Authorize(Roles = "ADMIN")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateLocation(int id, [FromBody] Location location)
         {
@@ -96,7 +99,7 @@ namespace QSC.Api.Controllers
             return Ok(existing);
         }
 
-        [Authorize(Roles = "ADMIN,STANDARD")]
+        [Authorize(Roles = "ADMIN")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteLocation(int id)
         {
@@ -125,13 +128,14 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetLocationTypes()
         {
             var types = await _context.LocationTypes
+                .AsNoTracking()
                 .Where(t => t.IsActive)
                 .OrderBy(t => t.Name)
                 .ToListAsync();
             return Ok(types);
         }
 
-        [Authorize(Roles = "ADMIN,STANDARD")]
+        [Authorize(Roles = "ADMIN")]
         [HttpPost]
         public async Task<IActionResult> CreateLocationType([FromBody] LocationType type)
         {
@@ -140,7 +144,7 @@ namespace QSC.Api.Controllers
             return Ok(type);
         }
 
-        [Authorize(Roles = "ADMIN,STANDARD")]
+        [Authorize(Roles = "ADMIN")]
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateLocationType(int id, [FromBody] LocationType type)
         {

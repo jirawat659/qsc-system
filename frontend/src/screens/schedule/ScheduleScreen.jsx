@@ -6,8 +6,6 @@ import {
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TODAY } from "../../config/constants";
-import { INITIAL_SCHEDULE } from "../../mocks/schedule";
-import { AUDITORS_LIST } from "../../mocks/auditors";
 import { DataContext } from "../../context/DataContext";
 
 import Header from "../../shared/Header";
@@ -17,57 +15,185 @@ import ScheduleItemDetail from "./ScheduleItemDetail";
 import AuditeeAuditHistoryView from "./AuditeeAuditHistoryView";
 
 export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAuditDirect, currentAuditorName, onBack }) {
-  if (role === "AUDITEE") {
-    return <AuditeeAuditHistoryView />;
-  }
-
   const canCreateSchedule = role === "STANDARD" || role === "ADMIN";
   const [view, setView] = useState("calendar"); // 'calendar' | 'list'
   const isAggregate = role !== "AUDITOR" && role !== "AUDITEE";
   const [auditorFilter, setAuditorFilter] = useState(() => (role === "AUDITOR" && currentAuditorName) ? currentAuditorName : "ทั้งหมด");
-  const [selectedDay, setSelectedDay] = useState(18);
+  const [viewDate, setViewDate] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [detail, setDetail] = useState(null);
   const [showAuditorModal, setShowAuditorModal] = useState(false);
   const { schedules, locations, forms, refreshData } = React.useContext(DataContext);
   const [showNewScheduleModal, setShowNewScheduleModal] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState(null);
 
   const scheduleList = useMemo(() => {
     if (schedules && schedules.length > 0) {
       return schedules.map(s => {
         const dateObj = new Date(s.scheduledDate);
-        const day = !isNaN(dateObj.getDate()) ? dateObj.getDate() : 18;
-        const timeStr = !isNaN(dateObj.getHours()) 
-          ? `${String(dateObj.getHours()).padStart(2, '0')}:00 - ${String(dateObj.getHours() + 2).padStart(2, '0')}:00 น.` 
-          : "10:00 - 12:00 น.";
+        const day = !isNaN(dateObj.getDate()) ? dateObj.getDate() : 1;
+        const h = !isNaN(dateObj.getHours()) ? dateObj.getHours() : 0;
+        const m = !isNaN(dateObj.getMinutes()) ? dateObj.getMinutes() : 0;
+        const timeStr = s.time 
+          ? s.time 
+          : (h === 0 && m === 0)
+          ? "-"
+          : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} - ${String(Math.min(23, h + 2)).padStart(2, '0')}:${String(m).padStart(2, '0')} น.`;
         
+        const auditorNames = [
+          s.auditorName,
+          s.auditor,
+          ...(s.auditors || []).map(a => a.fullName)
+        ].filter(Boolean);
+
         return {
           id: s.id,
           locationId: s.locationId,
+          surveyFormId: s.surveyFormId,
+          scheduledDate: s.scheduledDate,
+          dateFormatted: !isNaN(dateObj.getTime()) ? dateObj.toISOString().slice(0, 10) : undefined,
           unit: s.locationName,
           unitFullName: s.locationFullName || s.locationName,
-          region: s.region || "กรุงเทพฯ",
+          locationName: s.locationName,
+          region: s.region || "-",
           day,
-          date: `${day} ส.ค. 2569`,
+          date: s.scheduledDate ? new Date(s.scheduledDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-",
           time: timeStr,
-          auditor: s.auditorName || "สมชาย ใจดี",
-          form: s.surveyFormTitle || "แบบฟอร์มมาตรฐาน 5 ดาว",
+          auditor: s.auditorName || s.auditor || (s.auditors?.[0]?.fullName) || "-",
+          auditorName: s.auditorName || s.auditor || (s.auditors?.[0]?.fullName) || "-",
+          auditorNames: auditorNames,
+          auditors: s.auditors || [],
+          form: s.surveyFormTitle || "-",
+          surveyFormTitle: s.surveyFormTitle,
           status: s.status === "completed" ? "done" : s.status === "in_progress" ? "today" : "upcoming",
           auditType: s.auditType || "announced",
           notes: s.notes
         };
       });
     }
-    return INITIAL_SCHEDULE;
+    return [];
   }, [schedules]);
 
-  const MONTH_LABELS = ["กรกฎาคม 2569", "สิงหาคม 2569", "กันยายน 2569"];
-  const [monthOffset, setMonthOffset] = useState(1); // 1 = สิงหาคม 2569
+  const prevMonth = () => {
+    setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const nextMonth = () => {
+    setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const jumpToToday = () => {
+    const now = new Date();
+    setViewDate(now);
+    setSelectedDate(now);
+  };
+
+  const currentMonthLabel = viewDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+  const selectedDateLabel = selectedDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  const isSameDay = (d1, d2) => {
+    if (!d1 || !d2) return false;
+    const a = new Date(d1);
+    const b = new Date(d2);
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  };
+
+  // 🌟 Real Dynamic Calendar Grid (Monday-first)
+  const calendarGrid = useMemo(() => {
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
+
+    // Total days in this month
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // First day of month (0 = Sun, 1 = Mon, ..., 6 = Sat)
+    const firstDayRaw = new Date(year, month, 1).getDay();
+    const startWeekday = (firstDayRaw + 6) % 7; // Mon = 0, Sun = 6
+
+    const daysInPrevMonth = new Date(year, month, 0).getDate();
+    const cells = [];
+
+    // 1. Previous month leading days
+    for (let i = startWeekday - 1; i >= 0; i--) {
+      const dayNum = daysInPrevMonth - i;
+      cells.push({
+        day: dayNum,
+        date: new Date(year, month - 1, dayNum),
+        isCurrentMonth: false,
+        isPrevMonth: true
+      });
+    }
+
+    // 2. Current month days
+    for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+      cells.push({
+        day: dayNum,
+        date: new Date(year, month, dayNum),
+        isCurrentMonth: true
+      });
+    }
+
+    // 3. Next month trailing days to complete grid
+    const remaining = (7 - (cells.length % 7)) % 7;
+    for (let dayNum = 1; dayNum <= remaining; dayNum++) {
+      cells.push({
+        day: dayNum,
+        date: new Date(year, month + 1, dayNum),
+        isCurrentMonth: false,
+        isNextMonth: true
+      });
+    }
+
+    return cells;
+  }, [viewDate]);
+
+  // Filtered schedules by auditor (Instant in-memory filtering with smart name match)
+  const filteredSchedules = useMemo(() => {
+    return scheduleList
+      .filter((s) => {
+        if (!auditorFilter || auditorFilter === "ทั้งหมด") return true;
+        const target = auditorFilter.toLowerCase().trim();
+        const a1 = (s.auditor || "").toLowerCase().trim();
+        const a2 = (s.auditorName || "").toLowerCase().trim();
+        if (a1 === target || a2 === target) return true;
+        if (s.auditorNames && s.auditorNames.some(n => {
+          const clean = (n || "").toLowerCase().trim();
+          return clean === target || clean.includes(target) || target.includes(clean);
+        })) return true;
+        if (a1.includes(target) || target.includes(a1)) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime() || (a.time || "").localeCompare(b.time || ""));
+  }, [scheduleList, auditorFilter]);
+
+  // Schedules in viewing month
+  const monthScheduleCount = useMemo(() => {
+    return filteredSchedules.filter(s => {
+      const d = new Date(s.scheduledDate);
+      return d.getFullYear() === viewDate.getFullYear() && d.getMonth() === viewDate.getMonth();
+    }).length;
+  }, [filteredSchedules, viewDate]);
+
+  // Schedules on selected date
+  const dayItems = useMemo(() => {
+    return filteredSchedules.filter(s => isSameDay(s.scheduledDate, selectedDate));
+  }, [filteredSchedules, selectedDate]);
 
   useEffect(() => {
     if (role === "AUDITOR" && currentAuditorName) {
       setAuditorFilter(currentAuditorName);
     }
   }, [role, currentAuditorName]);
+
+  const statusStyle = {
+    today: { label: "วันนี้", fg: "#0F6659", bg: "#E3F0ED" },
+    upcoming: { label: "นัดหมาย", fg: "#3B82F6", bg: "#EFF6FF" },
+    done: { label: "เสร็จแล้ว", fg: "#6B7280", bg: "#F3F4F6" },
+  };
+
+  if (role === "AUDITEE") {
+    return <AuditeeAuditHistoryView />;
+  }
 
   if (detail) {
     return (
@@ -76,23 +202,14 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
         onBack={() => setDetail(null)}
         onStartAudit={onStartAuditDirect}
         role={role}
+        onEdit={(itemToEdit) => {
+          setDetail(null);
+          setEditingSchedule(itemToEdit);
+          setShowNewScheduleModal(true);
+        }}
       />
     );
   }
-
-  const statusStyle = {
-    today: { label: "วันนี้", fg: "#0F6659", bg: "#E3F0ED" },
-    upcoming: { label: "นัดหมาย", fg: "#3B82F6", bg: "#EFF6FF" },
-    done: { label: "เสร็จแล้ว", fg: "#6B7280", bg: "#F3F4F6" },
-  };
-
-  const filtered = scheduleList
-    .filter((s) => auditorFilter === "ทั้งหมด" || s.auditor === auditorFilter)
-    .sort((a, b) => a.day - b.day || (a.time || "").localeCompare(b.time || ""));
-
-  const dayItems = monthOffset === 1
-    ? scheduleList.filter((s) => s.day === selectedDay && (auditorFilter === "ทั้งหมด" || s.auditor === auditorFilter))
-    : [];
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-24">
@@ -186,7 +303,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
             <div className="flex items-center gap-2 text-slate-400 shrink-0">
               <span className="text-xs font-bold text-[#0F6659] bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200/60">
-                เลือก / ค้นหา
+                ค้นหา
               </span>
               <ChevronDown size={15} />
             </div>
@@ -214,37 +331,38 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
             <div className="flex items-center justify-between px-1">
               <button
                 type="button"
-                onClick={() => setMonthOffset((m) => Math.max(0, m - 1))}
-                disabled={monthOffset === 0}
-                className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-500 hover:text-slate-900"
+                onClick={prevMonth}
+                className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors text-slate-500 hover:text-slate-900"
+                title="เดือนก่อนหน้า"
               >
                 <ChevronLeft size={18} />
               </button>
 
-              <div className="text-center">
-                <span className="text-base sm:text-lg font-bold text-slate-800 tracking-tight">
-                  {MONTH_LABELS[monthOffset]}
-                </span>
+              <div className="text-center flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={jumpToToday}
+                  className="group px-3 py-1 -my-1 rounded-2xl hover:bg-emerald-50/70 border border-transparent hover:border-emerald-200 transition-all cursor-pointer flex items-center justify-center active:scale-95"
+                  title="คลิกเพื่อกลับไปยังเดือนและวันปัจจุบัน"
+                >
+                  <span className="text-base sm:text-lg font-bold text-slate-800 group-hover:text-[#0F6659] tracking-tight transition-colors">
+                    {currentMonthLabel}
+                  </span>
+                </button>
                 <span className="text-xs text-slate-400 font-normal block mt-0.5">
-                  {filtered.length} รายการตรวจในระบบ
+                  {monthScheduleCount} รายการตรวจในเดือนนี้
                 </span>
               </div>
 
               <button
                 type="button"
-                onClick={() => setMonthOffset((m) => Math.min(MONTH_LABELS.length - 1, m + 1))}
-                disabled={monthOffset === MONTH_LABELS.length - 1}
-                className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-slate-500 hover:text-slate-900"
+                onClick={nextMonth}
+                className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors text-slate-500 hover:text-slate-900"
+                title="เดือนถัดไป"
               >
                 <ChevronRight size={18} />
               </button>
             </div>
-
-            {monthOffset !== 1 && (
-              <div className="text-center text-xs py-2 rounded-xl text-slate-500 bg-slate-50 border border-slate-200">
-                ยังไม่มีนัดหมายในเดือนนี้ (ข้อมูลตัวอย่างมีในเดือนสิงหาคม 2569)
-              </div>
-            )}
 
             {/* Weekday Names Header */}
             <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-slate-400">
@@ -255,36 +373,54 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
             {/* Calendar Days 7-column Grid */}
             <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-              {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => {
-                const hasEvent =
-                  monthOffset === 1 &&
-                  scheduleList.some(
-                    (s) => s.day === day && (auditorFilter === "ทั้งหมด" || s.auditor === auditorFilter)
-                  );
-                const isSelected = day === selectedDay;
-                const isToday = day === TODAY;
-                const isPast = day < TODAY;
+              {calendarGrid.map((cell, idx) => {
+                const cellDate = cell.date;
+                const cellSchedules = filteredSchedules.filter(s => isSameDay(s.scheduledDate, cellDate));
+                const hasEvents = cellSchedules.length > 0;
+                const isSelected = isSameDay(cellDate, selectedDate);
+                const today = new Date();
+                const isToday = isSameDay(cellDate, today);
+                const isPast = cellDate < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+                const hasCompleted = cellSchedules.some(s => s.status === "done" || s.status === "completed");
+                const hasPending = cellSchedules.some(s => s.status !== "done" && s.status !== "completed");
 
                 return (
                   <button
-                    key={day}
+                    key={idx}
                     type="button"
-                    onClick={() => setSelectedDay(day)}
-                    className="aspect-square rounded-2xl flex flex-col items-center justify-center text-xs sm:text-sm cursor-pointer transition-all relative group"
+                    onClick={() => {
+                      setSelectedDate(cellDate);
+                      if (!cell.isCurrentMonth) {
+                        setViewDate(new Date(cellDate.getFullYear(), cellDate.getMonth(), 1));
+                      }
+                    }}
+                    className={`aspect-square rounded-2xl flex flex-col items-center justify-center text-xs sm:text-sm cursor-pointer transition-all relative group ${
+                      !cell.isCurrentMonth ? "opacity-30 hover:opacity-70" : ""
+                    }`}
                     style={{
                       background: isSelected ? "#0F6659" : isToday ? "#E3F0ED" : "transparent",
-                      color: isSelected ? "#fff" : isPast ? "#9CA3AF" : "#1C2129",
-                      fontWeight: isSelected || isToday ? 600 : 400,
+                      color: isSelected ? "#fff" : isPast && !isToday ? "#9CA3AF" : "#1C2129",
+                      fontWeight: isSelected || isToday ? 700 : 500,
                       border: isToday && !isSelected ? "1.5px solid #0F6659" : "1px solid transparent",
-                      opacity: isPast && !isSelected ? 0.6 : 1,
                     }}
                   >
-                    <span className="leading-none">{day}</span>
-                    {hasEvent && (
-                      <span
-                        className="w-1.5 h-1.5 rounded-full mt-1"
-                        style={{ background: isSelected ? "#fff" : isPast ? "#9CA3AF" : "#0F6659" }}
-                      />
+                    <span className="leading-none">{cell.day}</span>
+                    {hasEvents && (
+                      <div className="flex items-center gap-0.5 mt-1">
+                        {hasCompleted && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ background: isSelected ? "#fff" : "#10B981" }}
+                          />
+                        )}
+                        {hasPending && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ background: isSelected ? "#fff" : "#0F6659" }}
+                          />
+                        )}
+                      </div>
                     )}
                   </button>
                 );
@@ -299,7 +435,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
               <div className="flex items-center gap-2 min-w-0">
                 <div className="w-2.5 h-2.5 rounded-full bg-[#0F6659] shrink-0" />
                 <h3 className="text-sm sm:text-base font-bold text-slate-800 truncate">
-                  วันที่ {selectedDay} {MONTH_LABELS[monthOffset]}
+                  วันที่ {selectedDateLabel}
                 </h3>
               </div>
               <span className="text-xs font-semibold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200 shrink-0">
@@ -313,7 +449,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                 const st = statusStyle[s.status] || { label: "นัดหมาย", fg: "#0F6659", bg: "#E3F0ED" };
                 return (
                   <button
-                    key={i}
+                    key={s.id || i}
                     type="button"
                     onClick={() => setDetail(s)}
                     className="w-full rounded-2xl p-3.5 sm:p-4 flex items-center gap-3 text-left bg-slate-50/70 hover:bg-emerald-50/40 border border-slate-200/80 hover:border-emerald-300 transition-all cursor-pointer group active:scale-[0.99]"
@@ -351,16 +487,21 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                     <CalendarDays size={22} />
                   </div>
                   <div className="text-xs sm:text-sm font-bold text-slate-500">
-                    ไม่มีกำหนดการตรวจในวันที่ {selectedDay} สิงหาคม
+                    ไม่มีกำหนดการตรวจในวันที่ {selectedDateLabel}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewScheduleModal(true)}
-                    className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-extrabold cursor-pointer border border-emerald-200/80 transition-all inline-flex items-center gap-1"
-                  >
-                    <Plus size={14} />
-                    <span>เพิ่มนัดตรวจในวันนี้</span>
-                  </button>
+                  {canCreateSchedule && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingSchedule(null);
+                        setShowNewScheduleModal(true);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-extrabold cursor-pointer border border-emerald-200/80 transition-all inline-flex items-center gap-1"
+                    >
+                      <Plus size={14} />
+                      <span>เพิ่มนัดตรวจในวันนี้</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -369,27 +510,31 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
       ) : (
         /* 📋 LIST VIEW (CHRONOLOGICAL TIMELINE) */
         <div className="flex flex-col gap-3">
-          {filtered.length === 0 && (
+          {filteredSchedules.length === 0 && (
             <div className="text-center py-12 rounded-3xl font-bold text-sm text-slate-400 border border-dashed border-slate-200 bg-white">
               ไม่พบรายการตรวจที่ตรงกับตัวกรอง
             </div>
           )}
-          {filtered.map((s, i) => {
+          {filteredSchedules.map((s, i) => {
             const st = statusStyle[s.status] || { label: "นัดหมาย", fg: "#0F6659", bg: "#E3F0ED" };
-            const isPast = s.day < TODAY;
+            const schedDate = new Date(s.scheduledDate);
+            const today = new Date();
+            const isPast = schedDate < new Date(today.getFullYear(), today.getMonth(), today.getDate());
             return (
               <button
-                key={i}
+                key={s.id || i}
                 type="button"
                 onClick={() => setDetail(s)}
                 className="w-full rounded-3xl p-4 sm:p-5 flex items-center gap-4 text-left shadow-2xs hover:bg-slate-50 border border-slate-200 bg-white transition-colors cursor-pointer"
-                style={{ opacity: isPast ? 0.65 : 1 }}
+                style={{ opacity: isPast ? 0.7 : 1 }}
               >
                 <div className="w-12 text-center shrink-0">
                   <div className="text-xl font-bold font-mono" style={{ color: isPast ? "#9CA3AF" : "#1C2129" }}>
-                    {s.day}
+                    {!isNaN(schedDate.getDate()) ? schedDate.getDate() : s.day}
                   </div>
-                  <div className="text-xs font-medium text-slate-400">ส.ค.</div>
+                  <div className="text-xs font-medium text-slate-400">
+                    {!isNaN(schedDate.getTime()) ? schedDate.toLocaleDateString('th-TH', { month: 'short' }) : "ส.ค."}
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-extrabold text-slate-800 truncate">{s.unitFullName || s.unit}</div>
@@ -421,14 +566,19 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
       {showNewScheduleModal && (
         <NewScheduleModal
-          defaultDay={selectedDay}
+          defaultDay={selectedDate.getDate()}
           currentUser={currentUser}
           locations={locations}
           forms={forms}
-          onClose={() => setShowNewScheduleModal(false)}
-          onSave={(newSchedule) => {
-            if (refreshData) refreshData();
-            if (newSchedule?.day) setSelectedDay(newSchedule.day);
+          scheduleToEdit={editingSchedule}
+          onClose={() => {
+            setShowNewScheduleModal(false);
+            setEditingSchedule(null);
+          }}
+          onSave={async () => {
+            setShowNewScheduleModal(false);
+            setEditingSchedule(null);
+            if (refreshData) await refreshData();
           }}
         />
       )}

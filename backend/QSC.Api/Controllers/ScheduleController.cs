@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
 using QSC.Api.Models;
 
+using QSC.Api.Helpers;
+
 namespace QSC.Api.Controllers
 {
     [Authorize]
@@ -23,6 +25,7 @@ namespace QSC.Api.Controllers
             public int LocationId { get; set; }
             public int SurveyFormId { get; set; }
             public DateTime ScheduledDate { get; set; }
+            public string? Time { get; set; }
             public string AuditType { get; set; } = "announced";
             public string Status { get; set; } = "pending";
             public string? Notes { get; set; }
@@ -33,20 +36,57 @@ namespace QSC.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetSchedules([FromQuery] int? auditorId, [FromQuery] int? locationId)
         {
+            var (userId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var query = _context.AuditSchedules
+                .AsNoTracking()
                 .Include(s => s.Location)
                 .Include(s => s.SurveyForm)
                 .Include(s => s.Auditors)
                     .ThenInclude(a => a.Auditor)
                 .AsQueryable();
 
-            if (auditorId.HasValue)
+            if (role == "AUDITEE")
             {
-                query = query.Where(s => s.Auditors.Any(a => a.AuditorId == auditorId.Value));
+                if (allowedLocationIds != null)
+                {
+                    query = query.Where(s => allowedLocationIds.Contains(s.LocationId));
+                }
+                else
+                {
+                    return Ok(new List<object>());
+                }
+            }
+            else if (role == "AUDITOR")
+            {
+                if (auditorId.HasValue)
+                {
+                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == auditorId.Value));
+                }
+                else if (allowedLocationIds != null)
+                {
+                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == userId) || allowedLocationIds.Contains(s.LocationId));
+                }
+            }
+            else
+            {
+                if (auditorId.HasValue)
+                {
+                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == auditorId.Value));
+                }
+
+                if (allowedLocationIds != null)
+                {
+                    query = query.Where(s => allowedLocationIds.Contains(s.LocationId));
+                }
             }
 
             if (locationId.HasValue)
             {
+                if (allowedLocationIds != null && !allowedLocationIds.Contains(locationId.Value))
+                {
+                    return Ok(new List<object>());
+                }
                 query = query.Where(s => s.LocationId == locationId.Value);
             }
 
@@ -58,14 +98,18 @@ namespace QSC.Api.Controllers
                 locationId = s.LocationId,
                 locationCode = s.Location?.Code,
                 locationName = s.Location?.Name,
+                locationFullName = s.Location?.Name,
+                region = s.Location?.Region,
                 surveyFormId = s.SurveyFormId,
                 surveyFormTitle = s.SurveyForm?.Title,
                 scheduledDate = s.ScheduledDate,
+                time = s.Time,
                 auditType = s.AuditType,
                 status = s.Status,
                 notes = s.Notes,
                 createdBy = s.CreatedBy,
                 createdAt = s.CreatedAt,
+                auditorName = s.Auditors.FirstOrDefault(a => a.IsLead)?.Auditor?.FullName ?? s.Auditors.FirstOrDefault()?.Auditor?.FullName ?? "",
                 auditors = s.Auditors.Select(a => new
                 {
                     id = a.AuditorId,
@@ -86,6 +130,7 @@ namespace QSC.Api.Controllers
                 LocationId = dto.LocationId,
                 SurveyFormId = dto.SurveyFormId,
                 ScheduledDate = dto.ScheduledDate,
+                Time = dto.Time,
                 AuditType = dto.AuditType,
                 Status = "pending",
                 Notes = dto.Notes,
@@ -133,6 +178,7 @@ namespace QSC.Api.Controllers
             schedule.LocationId = dto.LocationId;
             schedule.SurveyFormId = dto.SurveyFormId;
             schedule.ScheduledDate = dto.ScheduledDate;
+            schedule.Time = dto.Time;
             schedule.AuditType = dto.AuditType;
             schedule.Notes = dto.Notes;
             if (!string.IsNullOrEmpty(dto.Status)) schedule.Status = dto.Status;

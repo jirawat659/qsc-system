@@ -57,3 +57,10 @@ qsc-clean-source/
 Thumbs.db
 desktop.ini
 
+# ==========================================
+# 🛑 Local Secrets & Config Overrides
+# ==========================================
+**/appsettings.Development.json
+*.secret.json
+
+

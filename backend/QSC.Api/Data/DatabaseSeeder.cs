@@ -21,6 +21,33 @@ namespace QSC.Api.Data
 
             context.Database.EnsureCreated();
 
+            // Ensure schema updates exist for SQLite
+            try
+            {
+                var conn = context.Database.GetDbConnection();
+                if (conn.State != System.Data.ConnectionState.Open) conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "PRAGMA table_info(AuditSchedules);";
+                using var reader = cmd.ExecuteReader();
+                bool hasTime = false;
+                while (reader.Read())
+                {
+                    if (string.Equals(reader["name"]?.ToString(), "Time", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasTime = true;
+                        break;
+                    }
+                }
+                reader.Close();
+                if (!hasTime)
+                {
+                    using var alterCmd = conn.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE AuditSchedules ADD COLUMN Time TEXT;";
+                    alterCmd.ExecuteNonQuery();
+                }
+            }
+            catch { }
+
             // Check if already seeded with rich dataset (>= 15 locations and >= 5 audit records)
             if (!forceRecreate && context.Locations.Count() >= 15 && context.AuditRecords.Count() >= 5)
             {

@@ -20,19 +20,10 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../../config/roles";
+import { ROLES, NAV_BY_ROLE } from "../../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../../mocks/locations";
-import { INITIAL_SCHEDULE } from "../../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../../mocks/trends";
-import { AI_INSIGHTS } from "../../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../../mocks/admin";
 import { exportToExcel } from "../../utils/exportToExcel";
 
 import ModalWrapper from "../../shared/ModalWrapper";
@@ -46,11 +37,48 @@ import ViewCapEvidenceModal from "../../modals/ViewCapEvidenceModal";
 
 
 export default function AuditeeAuditHistoryView() {
-  const { locations } = React.useContext(DataContext);
+  const { locations, auditRecords } = React.useContext(DataContext);
   const [selectedAuditLog, setSelectedAuditLog] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
-  const myUnit = locations[0]; // สาขาสยาม
+  const myUnit = locations[0] || {}; // สาขาของ Auditee
+
+  const branchHistory = useMemo(() => {
+    if (!myUnit || !myUnit.id) return [];
+    const fromDb = (auditRecords || []).filter(r => 
+      (r.locationId && r.locationId === myUnit.id) || 
+      (r.locationName && (r.locationName === myUnit.name || r.locationName === myUnit.fullName)) ||
+      (r.location?.name && (r.location.name === myUnit.name || r.location.name === myUnit.fullName))
+    );
+
+    if (fromDb.length > 0) {
+      return fromDb.map(r => {
+        const score = Math.round(r.percentageScore || 0);
+        const rawDate = r.auditDate || r.createdAt;
+        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "15 ส.ค. 2569";
+        const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "นายสมชาย ใจดี";
+        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core)";
+        return {
+          id: r.id,
+          date: dateFormatted,
+          auditDate: rawDate,
+          score: score,
+          percentageScore: score,
+          auditor: auditorVal,
+          auditorName: auditorVal,
+          form: formVal,
+          formName: formVal,
+          auditType: (r.auditType === 'unannounced' || r.auditType === 'spot') ? "นอกกำหนดการ" : (r.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+          status: r.isPassed ? "pass" : "fail",
+          isPassed: r.isPassed,
+          hasCriticalDefect: r.hasCriticalDefect,
+          ...r
+        };
+      });
+    }
+
+    return myUnit.history || [];
+  }, [auditRecords, myUnit]);
 
   if (selectedAuditLog) {
     return (
@@ -62,13 +90,13 @@ export default function AuditeeAuditHistoryView() {
     );
   }
 
-  const filteredHistory = (myUnit.history || []).filter(h => {
+  const filteredHistory = (branchHistory || []).filter(h => {
     const matchStatus = filterStatus === "all" || 
       (filterStatus === "passed" && h.score >= 85) || 
       (filterStatus === "cap" && h.score < 85);
     const q = searchTerm.toLowerCase();
     const matchSearch = !searchTerm.trim() || 
-      h.date.toLowerCase().includes(q) || 
+      (h.date && h.date.toLowerCase().includes(q)) || 
       (h.auditor && h.auditor.toLowerCase().includes(q)) || 
       (h.status && h.status.toLowerCase().includes(q));
     return matchStatus && matchSearch;

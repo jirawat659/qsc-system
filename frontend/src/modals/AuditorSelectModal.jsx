@@ -19,20 +19,6 @@ import {
 } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../config/roles";
-import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../config/constants";
-import { TopBarContext } from "../context/TopBarContext";
-import { DataContext } from "../context/DataContext";
-import { INITIAL_UNITS, LOCATIONS } from "../mocks/locations";
-import { INITIAL_SCHEDULE } from "../mocks/schedule";
-import { INITIAL_FORM_SECTIONS, INITIAL_FORMS_LIST } from "../mocks/forms";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../mocks/auditors";
-import { INITIAL_NOTIFICATIONS } from "../mocks/notifications";
-import { INITIAL_CAP_LIST } from "../mocks/cap";
-import { TRENDS_DATA, TRENDS_BY_REGION, TRENDS_BY_BRAND } from "../mocks/trends";
-import { AI_INSIGHTS } from "../mocks/aiInsights";
-import { MOCK_USERS, ORG_TREE, ROLE_PERMISSIONS_LIST, API_INTEGRATIONS } from "../mocks/admin";
-import { exportToExcel } from "../utils/exportToExcel";
 import ModalWrapper from "../shared/ModalWrapper";
 import Header from "../shared/Header";
 import Section from "../shared/Section";
@@ -42,17 +28,29 @@ import ErrorBoundary from "../shared/ErrorBoundary";
 import api from "../config/api";
 
 
+import { DataContext } from "../context/DataContext";
+
+let cachedAuditorsData = null;
+
 export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }) {
+  const { schedules } = React.useContext(DataContext);
   const [search, setSearch] = useState("");
   const [teamTab, setTeamTab] = useState("all");
-  const [dbUsers, setDbUsers] = useState([]);
+  const [dbUsers, setDbUsers] = useState(() => cachedAuditorsData || []);
 
   useEffect(() => {
     let isMounted = true;
     api.get('/user')
       .then(res => {
         if (isMounted && res.data && Array.isArray(res.data)) {
-          setDbUsers(res.data);
+          // แสดงเฉพาะผู้ที่มีสิทธิ์ตรวจ (Role AUDITOR เท่านั้น)
+          const auditorsOnly = res.data.filter(u => 
+            u.roleCode === 'AUDITOR' || 
+            u.role === 'AUDITOR' || 
+            (u.roleName && (u.roleName.includes('ผู้ตรวจ') || u.roleName.includes('Auditor')))
+          );
+          cachedAuditorsData = auditorsOnly;
+          setDbUsers(auditorsOnly);
         }
       })
       .catch(err => console.warn("Could not load users for AuditorSelectModal:", err));
@@ -61,27 +59,35 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
 
   const auditorsList = useMemo(() => {
     if (dbUsers.length > 0) {
-      return dbUsers.map(u => ({
-        id: u.id,
-        name: u.fullName || u.username,
-        role: u.roleName || u.roleCode || u.role || "ผู้ตรวจประเมิน",
-        team: u.roleCode === 'AUDITOR' ? 'qa' : u.roleCode === 'STANDARD' ? 'qc' : 'ops',
-        teamLabel: u.roleName || u.roleCode || 'ทีมตรวจมาตรฐาน',
-        phone: u.phoneNumber || "02-123-4567",
-        avatar: (u.fullName || u.username || "AU").substring(0, 2),
-        rating: 4.9,
-        auditsCount: 12,
-        activeSchedules: 2
-      }));
+      return dbUsers.map(u => {
+        const uName = u.fullName || u.username;
+        // Compute real active audit tasks for this auditor from live schedules
+        const activeCount = (schedules || []).filter(s => {
+          const matchAuditor = (s.auditorName && s.auditorName.includes(uName)) ||
+            (s.auditor && s.auditor.includes(uName)) ||
+            (s.auditors && s.auditors.some(a => a.fullName && a.fullName.includes(uName)));
+          return matchAuditor && s.status !== "completed";
+        }).length;
+
+        return {
+          id: u.id,
+          name: uName,
+          role: u.roleName || "ผู้ตรวจประเมิน (QA Auditor)",
+          team: u.roleCode === 'AUDITOR' ? 'qa' : 'ops',
+          teamLabel: u.roleName || 'ทีมผู้ตรวจประเมิน (QA)',
+          phone: u.phoneNumber || u.phone || "-",
+          avatar: (u.fullName || u.username || "AU").substring(0, 2),
+          rating: null,
+          auditsCount: activeCount,
+          activeCount: activeCount
+        };
+      });
     }
-    return AUDITORS_DATA;
-  }, [dbUsers]);
+    return [];
+  }, [dbUsers, schedules]);
 
   const filteredAuditors = useMemo(() => {
     let list = [...auditorsList];
-    if (teamTab !== "all") {
-      list = list.filter(a => a.team === teamTab);
-    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(a => 
@@ -91,7 +97,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
       );
     }
     return list;
-  }, [auditorsList, teamTab, search]);
+  }, [auditorsList, search]);
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-md">
@@ -125,7 +131,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
             />
           </div>
 
-          <div className="flex gap-1 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+          {/*<div className="flex gap-1 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
             {[
               { key: "all", label: "ทั้งหมด" },
               { key: "กทม. และปริมณฑล", label: "กทม./ปริมณฑล" },
@@ -143,13 +149,13 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
                 {tab.label}
               </button>
             ))}
-          </div>
+          </div>*/}
         </div>
 
         {/* List of Auditors - Clean, spacious cards without divide-y clashing */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2" style={{ background: "#FAF9F5" }}>
+        <div className="flex-1 overflow-y-auto min-h-0 custom-tab-scrollbar p-3 pb-6 space-y-2" style={{ background: "#FAF9F5" }}>
           {/* Quick Option: All Auditors Card */}
-          <button
+          {/*<button
             type="button"
             onClick={() => { onSelect("ทั้งหมด"); onClose(); }}
             className={`w-full flex items-center justify-between p-3 rounded-2xl text-left cursor-pointer transition-all ${
@@ -174,7 +180,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
                 <Check size={13} strokeWidth={3} />
               </div>
             )}
-          </button>
+          </button>*/}
           {/* Individual Auditor Cards */}
           {filteredAuditors.map((auditor) => {
             const isSelected = currentAuditor === auditor.name;

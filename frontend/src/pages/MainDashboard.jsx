@@ -12,15 +12,15 @@ import {
   Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
   Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
   BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, LogOut, History, Shield, Info, HelpCircle
+  Wrench, Square, Minus, Building2, ArrowUpDown, LogOut, History, Shield, Info, HelpCircle, AlertCircle
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../config/theme";
-import { ROLES, NAV_BY_ROLE, ROLE_USER_MAP } from "../config/roles";
+import { ROLES, NAV_BY_ROLE } from "../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP } from "../config/constants";
 import { TopBarContext } from "../context/TopBarContext";
 import { DataContext } from "../context/DataContext";
-import { AUDITORS_DATA, AUDITORS_LIST } from "../mocks/auditors";
+import authStorage from "../config/storage";
 import api from "../config/api";
 
 import ErrorBoundary from "../shared/ErrorBoundary";
@@ -41,32 +41,48 @@ export default function MainDashboard({ onLogout }) {
   const [schedules, setSchedules] = useState([]);
   const [forms, setForms] = useState([]);
   const [activeDraft, setActiveDraft] = useState(null);
+  const [activeDrafts, setActiveDrafts] = useState([]);
   const [capTasks, setCapTasks] = useState([]);
   const [auditRecords, setAuditRecords] = useState([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [dataFetchError, setDataFetchError] = useState(null);
 
   const refreshData = async () => {
+    setIsLoadingData(true);
+    setDataFetchError(null);
     try {
-      const [locRes, schedRes, formRes, draftRes, capRes, auditRes] = await Promise.allSettled([
+      const [locRes, schedRes, formRes, draftsRes, capRes, auditRes] = await Promise.allSettled([
         api.get('/location'),
         api.get('/schedule'),
         api.get('/form'),
-        api.get('/audit/draft'),
+        api.get('/audit/drafts'),
         api.get('/cap'),
-        api.get('/audit')
+        api.get('/audit/records')
       ]);
+
+      const rejectedCount = [locRes, schedRes, formRes, capRes, auditRes].filter(r => r.status === 'rejected').length;
+      if (rejectedCount > 0) {
+        setDataFetchError(`ไม่สามารถเชื่อมต่อดึงข้อมูลบางส่วนได้ (${rejectedCount} รายการ)`);
+      }
 
       if (locRes.status === 'fulfilled' && locRes.value.data) setLocations(locRes.value.data);
       if (schedRes.status === 'fulfilled' && schedRes.value.data) setSchedules(schedRes.value.data);
       if (formRes.status === 'fulfilled' && formRes.value.data) setForms(formRes.value.data);
-      if (draftRes.status === 'fulfilled' && draftRes.value.data) {
-        setActiveDraft(draftRes.value.data);
+      if (draftsRes.status === 'fulfilled' && Array.isArray(draftsRes.value.data)) {
+        const drafts = draftsRes.value.data;
+        setActiveDrafts(drafts);
+        setActiveDraft(drafts.length > 0 ? drafts[0] : null);
       } else {
+        setActiveDrafts([]);
         setActiveDraft(null);
       }
       if (capRes.status === 'fulfilled' && capRes.value.data) setCapTasks(capRes.value.data);
       if (auditRes.status === 'fulfilled' && auditRes.value.data) setAuditRecords(auditRes.value.data);
     } catch (err) {
       console.warn("Error refreshing backend data:", err);
+      setDataFetchError("เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+    } finally {
+      setIsLoadingData(false);
     }
   };
 
@@ -75,34 +91,26 @@ export default function MainDashboard({ onLogout }) {
   }, []);
 
   const handleLogout = () => {
-    if (window.confirm("คุณต้องการออกจากระบบหรือไม่?")) {
-      if (onLogout) {
-        onLogout();
-      } else {
-        localStorage.removeItem('token');
-        localStorage.removeItem('role');
-        localStorage.removeItem('username');
-        window.location.reload();
-      }
+    if (onLogout) {
+      onLogout();
+    } else {
+      authStorage.clearSession();
+      window.location.reload();
     }
   };
 
   const storedUser = useMemo(() => {
-    try {
-      const u = localStorage.getItem('user');
-      return u ? JSON.parse(u) : null;
-    } catch {
-      return null;
-    }
+    return authStorage.getUser();
   }, []);
 
-  const [role, setRole] = useState(() => storedUser?.role || localStorage.getItem('role') || "AUDITOR");
+  const [role, setRole] = useState(() => storedUser?.role || authStorage.getRole() || "AUDITOR");
   const [toastText, setToastText] = useState(null);
   const [subHeader, setSubHeader] = useState(null);
   
   const nav = NAV_BY_ROLE[role] || NAV_BY_ROLE.AUDITOR;
   const [screen, setScreen] = useState(nav[0]?.key || "dashboard");
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
   const [preselectedPlan, setPreselectedPlan] = useState(null);
   const [isLiveAuditActive, setIsLiveAuditActive] = useState(false);
   const [activeAuditDraft, setActiveAuditDraft] = useState(null);
@@ -134,10 +142,9 @@ export default function MainDashboard({ onLogout }) {
 
   const handleRoleChange = (r) => {
     setRole(r);
-    localStorage.setItem('role', r);
+    authStorage.setRole(r);
     const newNav = NAV_BY_ROLE[r] || NAV_BY_ROLE.AUDITOR;
     setScreen(newNav[0]?.key || "dashboard");
-    setRoleMenuOpen(false);
   };
 
   const [navResetKey, setNavResetKey] = useState(0);
@@ -150,9 +157,14 @@ export default function MainDashboard({ onLogout }) {
     setScreen(key);
   };
 
+  const showToast = (msg) => {
+    setToastText(msg);
+    setTimeout(() => setToastText(null), 3500);
+  };
+
   const handleStartAuditDirect = (scheduleItem) => {
     if (role !== "AUDITOR" && role !== "ADMIN" && role !== "STANDARD") {
-      alert("บทบาทผู้รับการตรวจไม่สามารถบันทึกผลการตรวจประเมินได้");
+      showToast("บทบาทผู้รับการตรวจไม่สามารถบันทึกผลการตรวจประเมินได้");
       return;
     }
     setPreselectedPlan(scheduleItem);
@@ -169,15 +181,15 @@ export default function MainDashboard({ onLogout }) {
             title="ประวัติการตรวจของฉัน"
           />
         )}
-        {screen === "audit" && role === "AUDITOR" && !preselectedPlan && !activeAuditDraft && (
+        {screen === "audit" && role === "AUDITOR" && !preselectedPlan && (
           <AssignedAuditPlanScreen
             auditorName={currentUser.name}
             onStart={(plan) => setPreselectedPlan(plan)}
-            activeDraft={activeAuditDraft}
-            onResumeDraft={() => setPreselectedPlan(activeAuditDraft.unit ? { unit: activeAuditDraft.unit.name, ...activeAuditDraft } : { unit: "สาขาสยาม" })}
+            activeDraft={activeAuditDraft || activeDraft}
+            onResumeDraft={(plan) => setPreselectedPlan(plan ? { ...plan, isResume: true } : { ...(activeAuditDraft || activeDraft || {}), isResume: true })}
           />
         )}
-        {screen === "audit" && (role !== "AUDITOR" || preselectedPlan || activeAuditDraft) && (
+        {screen === "audit" && (role !== "AUDITOR" || preselectedPlan) && (
           <LiveAuditScreen
             preselectedPlan={preselectedPlan}
             initialDraft={activeAuditDraft}
@@ -187,19 +199,20 @@ export default function MainDashboard({ onLogout }) {
             onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
             onSaveDraft={(draft) => {
               setActiveAuditDraft(draft);
-              setToastText("✓ บันทึกฉบับร่างเรียบร้อยแล้ว สถานะเปลี่ยนเป็น 'กำลังดำเนินการตรวจ'");
-              setTimeout(() => setToastText(null), 3000);
+              //setToastText("✓ บันทึกฉบับร่างเรียบร้อยแล้ว สถานะเปลี่ยนเป็น 'กำลังดำเนินการตรวจ'");
+              //setTimeout(() => setToastText(null), 3000);
             }}
             onCompleteAudit={() => {
               setActiveAuditDraft(null);
-              setToastText("✓ บันทึกผลการตรวจสาขาสำเร็จ และออกใบรายงานผลอัตโนมัติเรียบร้อย");
-              setTimeout(() => setToastText(null), 3000);
+              setPreselectedPlan(null);
+              //setToastText("✓ บันทึกผลการตรวจสาขาสำเร็จ และออกใบรายงานผลอัตโนมัติเรียบร้อย");
+              //setTimeout(() => setToastText(null), 3000);
             }}
           />
         )}
         {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
         {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
-        {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} onNavigate={handleNavClick} />}
+        {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} currentUser={currentUser} onNavigate={handleNavClick} />}
         {screen === "schedule" && (
           <ScheduleScreen
             role={role}
@@ -217,11 +230,44 @@ export default function MainDashboard({ onLogout }) {
 
   const topBarContextValue = React.useMemo(() => ({ subHeader, setSubHeader }), [subHeader]);
 
+  const dataContextValue = React.useMemo(() => ({
+    currentUser,
+    locations, setLocations,
+    schedules, setSchedules,
+    forms, setForms,
+    activeDraft, setActiveDraft,
+    activeDrafts, setActiveDrafts,
+    capTasks, setCapTasks,
+    auditRecords, setAuditRecords,
+    refreshData,
+    isLoadingData,
+    dataFetchError
+  }), [
+    currentUser, locations, schedules, forms,
+    activeDraft, activeDrafts, capTasks, auditRecords,
+    refreshData, isLoadingData, dataFetchError
+  ]);
+
   return (
-    <DataContext.Provider value={{ currentUser, locations, setLocations, schedules, setSchedules, forms, setForms, activeDraft, setActiveDraft, capTasks, setCapTasks, auditRecords, setAuditRecords, refreshData }}>
+    <DataContext.Provider value={dataContextValue}>
     <TopBarContext.Provider value={topBarContextValue}>
     <div className="w-full min-h-screen" style={{ background: "#EBEAE5", fontFamily: sans }}>
       
+      {/* ⚠️ API Fetch Warning Banner */}
+      {dataFetchError && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-rose-900/90 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-2 border border-rose-500/50 backdrop-blur-xs">
+          <AlertCircle size={15} className="text-rose-300 shrink-0" />
+          <span>{dataFetchError}</span>
+          <button
+            type="button"
+            onClick={() => setDataFetchError(null)}
+            className="ml-2 text-rose-200 hover:text-white p-0.5"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Toast Notification Banner */}
       {toastText && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1C2129] text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold animate-in fade-in slide-in-from-top-2 border border-emerald-500">
@@ -277,12 +323,16 @@ export default function MainDashboard({ onLogout }) {
           {/* User footer profile */}
           <div className="p-4 border-t bg-slate-50/50" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between gap-2.5">
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shadow-2xs shrink-0 text-white bg-[#0F6659]">
+              <div 
+                onClick={() => setShowProfileModal(true)} 
+                className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group/user"
+                title="คลิกเพื่อดูโปรไฟล์ผู้ใช้งาน"
+              >
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shadow-2xs shrink-0 text-white bg-[#0F6659] group-hover/user:scale-105 transition-transform">
                   {currentUser.avatar}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate text-slate-800">{currentUser.name}</div>
+                  <div className="text-sm font-semibold truncate text-slate-800 group-hover/user:text-[#0F6659] transition-colors">{currentUser.name}</div>
                   <div className="text-xs font-normal truncate text-slate-500 mt-0.5">{currentUser.title}</div>
                 </div>
               </div>
@@ -290,8 +340,8 @@ export default function MainDashboard({ onLogout }) {
               {/* 🚪 Logout Button */}
               <button
                 type="button"
-                onClick={handleLogout}
-                className="w-9 h-9 rounded-xl bg-white hover:bg-red-50 hover:text-red-600 text-slate-400 border border-slate-200 hover:border-red-200 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0 shadow-2xs group"
+                onClick={() => setShowLogoutConfirmModal(true)}
+                className="w-9 h-9 rounded-xl bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-400 border border-slate-200 hover:border-rose-200 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0 shadow-2xs group"
                 title="ออกจากระบบ (Log Out)"
               >
                 <LogOut size={16} className="group-hover:translate-x-0.5 transition-transform" />
@@ -303,28 +353,37 @@ export default function MainDashboard({ onLogout }) {
         {/* 🌟 MOBILE & DESKTOP INTEGRATED TOP HEADER WITH DYNAMIC SUB-HEADER */}
         <header className="flex lg:hidden shrink-0 px-3.5 pt-3.5 pb-3 items-center justify-between shadow-xs sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b gap-2.5" style={{ borderColor: c.border }}>
           {subHeader ? (
-            /* 🌟 SUB-SCREEN TOP BAR: Elevated Back Button + Title + Subtitle at the Very Top! */
-            <div className="flex items-center gap-3 min-w-0 flex-1 animate-in fade-in slide-in-from-left-2 duration-150">
-              {subHeader.onBack && (
-                <button
-                  type="button"
-                  onClick={subHeader.onBack}
-                  className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200/90 shrink-0"
-                  title="ย้อนกลับ"
-                >
-                  <ChevronLeft size={22} className="text-[#0F6659]" />
-                </button>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="text-sm sm:text-base font-bold text-slate-900 leading-tight truncate">
-                  {subHeader.title}
-                </div>
-                {subHeader.subtitle && (
-                  <div className="text-xs font-normal text-slate-500 truncate mt-0.5">
-                    {subHeader.subtitle}
-                  </div>
+            /* 🌟 DRILL-DOWN / LIVE AUDIT SUB-HEADER: Back Button + Title + Subtitle */
+            <div className="flex items-center justify-between gap-2 min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {subHeader.onBack && (
+                  <button
+                    type="button"
+                    onClick={subHeader.onBack}
+                    className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-900 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200/90 shrink-0"
+                    title="ย้อนกลับ"
+                  >
+                    <ChevronLeft size={20} className="text-[#0F6659]" />
+                  </button>
                 )}
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold text-slate-900 leading-tight truncate">
+                    {subHeader.title}
+                  </div>
+                  {subHeader.subtitle && (
+                    <div className="text-[11px] font-normal text-slate-500 leading-tight truncate mt-0.5 whitespace-pre-line">
+                      {subHeader.subtitle}
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* 🌟 Top-Right Action (Auto-Sync Badge) */}
+              {subHeader.action && (
+                <div className="shrink-0 flex items-center">
+                  {subHeader.action}
+                </div>
+              )}
             </div>
           ) : (
             /* 🌟 ROOT TAB TOP BAR: Brand Logo + Screen Pill */
@@ -449,6 +508,45 @@ export default function MainDashboard({ onLogout }) {
           onClose={() => setShowProfileModal(false)}
           onLogout={handleLogout}
         />
+      )}
+
+      {/* 🚪 Custom In-App Logout Confirmation Modal (Desktop & Quick Trigger) */}
+      {showLogoutConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200/80 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
+              <LogOut size={30} strokeWidth={2.2} />
+            </div>
+
+            <div className="space-y-1">
+              <h4 className="text-lg font-black text-slate-900">ยืนยันการออกจากระบบ?</h4>
+              <p className="text-xs text-slate-500 font-medium px-2">
+                คุณต้องการออกจากระบบ QSC บัญชี <br/>
+                <span className="font-bold text-slate-800">{currentUser.name || currentUser.username}</span> ใช่หรือไม่?
+              </p>
+            </div>
+
+            <div className="pt-3 grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowLogoutConfirmModal(false)}
+                className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs cursor-pointer transition-all active:scale-95 border border-slate-200"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutConfirmModal(false);
+                  handleLogout();
+                }}
+                className="py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs cursor-pointer transition-all active:scale-95 shadow-md shadow-rose-600/20"
+              >
+                ยืนยันออกจากระบบ
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
     </TopBarContext.Provider>

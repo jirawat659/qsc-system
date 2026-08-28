@@ -10,6 +10,8 @@ export const DataContext = React.createContext({
   setForms: () => {},
   activeDraft: null,
   setActiveDraft: () => {},
+  activeDrafts: [],
+  setActiveDrafts: () => {},
   capTasks: [],
   setCapTasks: () => {},
   auditRecords: [],
