@@ -11,12 +11,16 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+.eslintcache
+.stylelintcache
 
 # ==========================================
 # 🛑 .NET / C# / Backend Ignore Rules
 # ==========================================
 **/bin/
 **/obj/
+**/TestResults/
 **/.vs/
 **/.vscode/
 **/.idea/
@@ -25,6 +29,9 @@ pnpm-debug.log*
 *.userosscache
 *.sln.docstates
 *.DotSettings.user
+*.trx
+*.coverage
+*.coveragexml
 
 # ==========================================
 # 🛑 SQLite & Database Files
@@ -36,6 +43,23 @@ pnpm-debug.log*
 *.sqlite3
 *.sqlite-shm
 *.sqlite-wal
+*.db-journal
+
+# ==========================================
+# 🛑 Environment & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+*.secret.json
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.*.local.json
+secrets.json
+*.key
+*.pem
+*.cert
+*.pfx
 
 # ==========================================
 # 🛑 Uploaded Media & Temporary Logs
@@ -46,21 +70,33 @@ pnpm-debug.log*
 !**/wwwroot/uploads/audit_images/.gitkeep
 **/wwwroot/uploads/cap_images/*
 !**/wwwroot/uploads/cap_images/.gitkeep
+**/wwwroot/uploads/temp/*
+!**/wwwroot/uploads/temp/.gitkeep
 *.log
+logs/
 
 # ==========================================
-# 🛑 Exports & Clean Archives
+# 🛑 OS / System / IDE Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.swp
+*.swo
+*~
+*.bak
+
+# ==========================================
+# 🛑 Exports & Archives
 # ==========================================
 qsc-clean-source/
 *.zip
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ==========================================
-# 🛑 Local Secrets & Config Overrides
-# ==========================================
-**/appsettings.Development.json
-*.secret.json
-
-
+*.tar.gz
+*.rar
+*.7z
