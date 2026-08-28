@@ -1,7 +1,7 @@
 # 📊 Q.S.C. System — ผังกระบวนการทำงานแยกตามเคส (System Flowcharts by Use Case)
 
-> **เวอร์ชัน:** 2.8 (รองรับ Master Data Management 4 หมวด, สวิตช์เลื่อนเปิด/ระงับ, จัดเรียง Active-First, ตัวกรองบทบาท, N/A, ลายเซ็นดิจิทัล, แชท CAP และ กฎข้อวิกฤต)  
-> **อัปเดตล่าสุด:** 26 สิงหาคม 2569
+> **เวอร์ชัน:** 3.0 (รองรับ AI Advisor, Dynamic Role Navigation, Real-Time CAP Chat, Master Data CRUD, Dynamic RBAC, N/A Scoring & ลายเซ็นดิจิทัล)  
+> **อัปเดตล่าสุด:** 28 สิงหาคม 2569
 
 ---
 
@@ -12,6 +12,8 @@
 3. [Case 3: การประเมินคะแนนแบบ Dynamic หัก N/A กฎข้อวิกฤต และเปิดตั๋ว CAP (Fair Scoring & CAP Workflow)](#case-3-การประเมินคะแนนแบบ-dynamic-หัก-na-กฎข้อวิกฤต-และเปิดตั๋ว-cap-fair-scoring--cap-workflow)
 4. [Case 4: ลูปการแก้ไขข้อบกพร่องและห้องแชทอนุมัติ CAP (CAP Chat Remediation Workflow)](#case-4-ลูปการแก้ไขข้อบกพร่องและห้องแชทอนุมัติ-cap-cap-chat-remediation-workflow)
 5. [Case 5: ศูนย์การจัดการข้อมูลหลักระบบ (Master Data Management & RBAC Workflow)](#case-5-ศูนย์การจัดการข้อมูลหลักระบบ-master-data-management--rbac-workflow)
+6. [Case 6: ระบบ AI ผู้ช่วยอัจฉริยะและการวิเคราะห์สถิติ (AI Advisor & Smart Analytics Workflow)](#case-6-ระบบ-ai-ผู้ช่วยอัจฉริยะและการวิเคราะห์สถิติ-ai-advisor--smart-analytics-workflow)
+7. [Case 7: ระบบกำหนดแถบเมนู Dynamic และแชท Real-Time (Dynamic Navigation & SignalR Chat Workflow)](#case-7-ระบบกำหนดแถบเมนู-dynamic-และแชท-real-time-dynamic-navigation--signalr-chat-workflow)
 
 ---
 
@@ -230,6 +232,89 @@ flowchart TD
     style OpenEditUserModal fill:#fef3c7,stroke:#d97706,stroke-width:2px
     style SortUsers fill:#dcfce7,stroke:#16a34a,stroke-width:2px
     style EndMaster fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+```
+
+---
+
+## Case 6: ระบบ AI ผู้ช่วยอัจฉริยะและการวิเคราะห์สถิติ (AI Advisor & Smart Analytics Workflow)
+> **ผู้ใช้งาน:** ผู้ตรวจประเมิน (Auditor) / ผู้ดูแลมาตรฐาน (QA Lead) / ผู้บริหาร (Executive)  
+> **บริการที่เกี่ยวข้อง:** `AiService.cs`, `AiController.cs`, `Google Gemini REST API`, `AppDbContext`
+
+```mermaid
+flowchart TD
+    UserTrigger(["ผู้ใช้เปิดหน้าจอ: ตารางเวลา / แชท CAP / ภาพรวม"]) --> CheckScreen{"หน้าจอที่กำลังใช้งาน"}
+    
+    %% 📅 1. หน้าตารางเวลา (Schedule AI)
+    CheckScreen -->|"ตารางเวลา (Schedule)"| TriggerScheduleAI["AI วิเคราะห์ประวัติการตรวจในรอบเดือน"]
+    TriggerScheduleAI --> QueryAudited["ดึงข้อมูล AuditRecords: ตรวจสอบสาขาที่ตรวจแล้ว vs ยังไม่ตรวจ"]
+    QueryAudited --> FilterToday["กรองเฉพาะสาขาที่ยังรอการตรวจในวันนี้ (Pending Branches)"]
+    FilterToday --> SuggestBranch["แนะนำสาขาถัดไป + ผู้ตรวจที่เหมาะสม + โซนรับผิดชอบ"]
+    SuggestBranch --> RenderSchedulePopover["แสดง Popover คำแนะนำ AI และ Badge ตรวจแล้ว/ยังไม่ตรวจ"]
+
+    %% 💬 2. หน้าแก้ไขงานและห้องแชท (CAP AI)
+    CheckScreen -->|"แชทแก้งาน (CAP Chat)"| TriggerCapAI["กดเปิด AI Advisor ในห้องแชท"]
+    TriggerCapAI --> ReadCapContext["อ่านบริบท: ข้อบกพร่อง + ข้อความแชท + รูปถ่ายหลักฐาน"]
+    ReadCapContext --> CallAiService["ส่งข้อมูลเข้า AiService.cs"]
+    
+    %% 📊 3. หน้าภาพรวม (Dashboard AI)
+    CheckScreen -->|"ภาพรวม (Dashboard)"| TriggerDashAI["กดปุ่ม '🔄 วิเคราะห์ใหม่' บนแดชบอร์ด"]
+    TriggerDashAI --> AggregateStats["รวบรวมสถิติเดือน: คะแนนเฉลี่ย, Pass Rate, ข้อที่ตกซ้ำ, CAP คงค้าง"]
+    AggregateStats --> CallAiService
+
+    %% AI Hybrid Engine Processing
+    CallAiService --> CheckApiKey{"มี Gemini API Key หรือไม่?"}
+    CheckApiKey -->|"มี Key"| CallGemini["⚡ เรียก Google Gemini API (gemini-1.5-flash / Generative AI)"]
+    CheckApiKey -->|"ไม่มี Key / Offline"| SmartFallback["🛡️ Smart Analytics Engine (คำนวณจากสถิติใน SQLite)"]
+    
+    CallGemini --> ParseAiResult["แปลง JSON คำแนะนำ: จุดเด่น, จุดควรระวัง, ข้อเสนอแนะ"]
+    SmartFallback --> ParseAiResult
+    
+    ParseAiResult --> RenderAdvisorModal["แสดงผลใน Modal / Dashboard Card ให้ผู้ใช้พิจารณาประกอบการตัดสินใจ"]
+    RenderAdvisorModal --> EndAI(["สิ้นสุดกระบวนการให้คำแนะนำ"])
+
+    style UserTrigger fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
+    style CallGemini fill:#f3e8ff,stroke:#9333ea,stroke-width:2px
+    style SmartFallback fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style RenderAdvisorModal fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style EndAI fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+```
+
+---
+
+## Case 7: ระบบกำหนดแถบเมนู Dynamic และแชท Real-Time (Dynamic Navigation & SignalR Chat Workflow)
+> **ผู้ใช้งาน:** ผู้ดูแลระบบ (Admin) / ผู้จัดการสาขา (Auditee) / ผู้ตรวจ (Auditor)  
+> **บริการที่เกี่ยวข้อง:** `CapChatHub.cs`, `RoleController.cs`, `@microsoft/signalr`
+
+```mermaid
+flowchart TD
+    subgraph "🎨 Part A: Dynamic Navigation Customizer"
+        AdminNavStart(["Admin เข้าหน้าจัดการบทบาท (Roles)"]) --> OpenNavConfig["เปิดส่วน 'กำหนดแถบเมนูด้านล่าง (Navigation Bar)'"]
+        OpenNavConfig --> SelectSlots["เลือกเมนู 3 ตำแหน่ง: ปุ่มซ้าย / ปุ่มเด่นตรงกลาง / ปุ่มขวา"]
+        SelectSlots --> LivePreview["⚡ ดูตัวอย่างสด (Live Mini-Preview) ทันที"]
+        LivePreview --> SaveNavAPI[("PUT /api/role/{id} ➔ บันทึก NavConfigJson")]
+        SaveNavAPI --> SyncClientNav["Client โหลด NavConfigJson ➔ ปรับเปลี่ยนแถบเมนูตามบทบาททันที"]
+    end
+
+    subgraph "⚡ Part B: Real-Time CAP Chat (SignalR)"
+        OpenCapRoom(["ผู้ใช้เปิดดูตั๋วงาน CAP (CapDetailScreen)"]) --> ConnectSignalR["เชื่อมต่อ WebSocket ➔ /hubs/cap-chat"]
+        ConnectSignalR --> JoinRoom["เรียก JoinCapRoom(capTaskId)"]
+        
+        JoinRoom --> UserChatAction{"การกระทำในห้องแชท"}
+        UserChatAction -->|"ส่งข้อความ/รูปภาพ"| PostMsg["POST /api/cap/{id}/messages"]
+        UserChatAction -->|"อนุมัติปิดงาน (QA)"| PutStatus["PUT /api/cap/{id}/status"]
+        
+        PostMsg --> BroadcastMsg[("SignalR Hub: Broadcast 'ReceiveMessage'")]
+        PutStatus --> BroadcastStatus[("SignalR Hub: Broadcast 'CapStatusChanged'")]
+        
+        BroadcastMsg --> UpdateTimeline["📱 ทุกคนที่อยู่ในห้องได้รับข้อความและรูปภาพทันที (No Refresh)"]
+        BroadcastStatus --> UpdateBadge["✅ ปรับสถานะงานเป็น CLOSED ทันทีแบบ Real-Time"]
+    end
+
+    style AdminNavStart fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
+    style SyncClientNav fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style OpenCapRoom fill:#fef3c7,stroke:#d97706,stroke-width:2px
+    style UpdateTimeline fill:#dcfce7,stroke:#16a34a,stroke-width:2px
+    style UpdateBadge fill:#dcfce7,stroke:#16a34a,stroke-width:2px
 ```
 
 ---

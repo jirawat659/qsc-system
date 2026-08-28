@@ -1,6 +1,6 @@
 # 📖 Q.S.C. System — พจนานุกรมข้อมูล (Data Dictionary)
-> **เวอร์ชัน:** 2.8 (Enterprise Production Schema — 20 ตารางสมบูรณ์แบบ รองรับ Master Management CRUD & Dynamic RBAC)  
-> **อัปเดตล่าสุด:** 26 สิงหาคม 2569  
+> **เวอร์ชัน:** 3.0 (Enterprise Production Schema — 20 ตารางสมบูรณ์แบบ รองรับ Dynamic Navigation JSON & RBAC Matrix)  
+> **อัปเดตล่าสุด:** 28 สิงหาคม 2569  
 > **ฐานข้อมูลเป้าหมาย:** SQLite / PostgreSQL / SQL Server
 
 ---
@@ -68,7 +68,7 @@
 ---
 
 ### 1.3 ตาราง `ROLES` (บทบาทการทำงาน)
-* **หน้าที่:** เก็บบทบาทหลักทั้ง 5 และบทบาทใหม่ที่ Admin สร้างขึ้น
+* **หน้าที่:** เก็บบทบาทหลักทั้ง 5 และบทบาทใหม่ที่ Admin สร้างขึ้น พร้อมการตั้งค่าแถบเมนู (Bottom Nav)
 
 | ชื่อฟิลด์ (Field) | ชนิดข้อมูล (Data Type) | Key / Constraints | ค่าว่าง (Null) | คำอธิบายและตัวอย่างข้อมูล |
 | :--- | :--- | :--- | :---: | :--- |
@@ -76,6 +76,7 @@
 | `code` | `VARCHAR(50)` | `UNIQUE` | ❌ No | รหัสอ้างอิง: `ADMIN`, `AUDITOR`, `AUDITEE`, `STANDARD`, `EXEC` |
 | `name` | `VARCHAR(100)` | - | ❌ No | ชื่อบทบาทภาษาไทย เช่น `ผู้ตรวจประเมินหน้างาน`, `ผู้ดูแลมาตรฐาน (QA)` |
 | `description` | `TEXT` | - | ✅ Yes | คำอธิบายหน้าที่และความรับผิดชอบของบทบาท |
+| `nav_config_json` | `TEXT` | - | ✅ Yes | โครงสร้าง JSON ของแถบเมนูด้านล่าง 3 ตำแหน่ง เช่น `{"left":"dashboard","center":"audit","right":"more"}` |
 | `created_at` | `DATETIME` | Default `CURRENT_TIMESTAMP` | ❌ No | วันเวลาที่สร้างบทบาท |
 
 ---
