@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarDays, List, Plus, Users, ChevronLeft, ChevronRight,
   Clock, ChevronDown, X, MapPin, Check, AlertCircle, Sparkles
@@ -11,21 +12,29 @@ import { DataContext } from "../../context/DataContext";
 import Header from "../../shared/Header";
 import AuditorSelectModal from "../../modals/AuditorSelectModal";
 import NewScheduleModal from "../../modals/NewScheduleModal";
+import AiScheduleAdvisorModal from "../../modals/AiScheduleAdvisorModal";
 import ScheduleItemDetail from "./ScheduleItemDetail";
 import AuditeeAuditHistoryView from "./AuditeeAuditHistoryView";
 
 export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAuditDirect, currentAuditorName, onBack }) {
-  const canCreateSchedule = role === "STANDARD" || role === "ADMIN";
+  const userRole = (role || currentUser?.role || "").toUpperCase();
+  const isAuditor = userRole === "AUDITOR";
+  const isAuditee = userRole === "AUDITEE";
+  const isAggregate = !isAuditor && !isAuditee; // Only ADMIN, STANDARD, EXEC can see all auditors & choose auditor filter
+  const myAuditorName = currentAuditorName || currentUser?.name || currentUser?.username || "";
+
+  const canCreateSchedule = userRole === "STANDARD" || userRole === "ADMIN" || (currentUser?.permissions || []).includes("schedules.manage");
   const [view, setView] = useState("calendar"); // 'calendar' | 'list'
-  const isAggregate = role !== "AUDITOR" && role !== "AUDITEE";
-  const [auditorFilter, setAuditorFilter] = useState(() => (role === "AUDITOR" && currentAuditorName) ? currentAuditorName : "ทั้งหมด");
+  const [auditorFilter, setAuditorFilter] = useState(() => isAuditor ? myAuditorName : "ทั้งหมด");
   const [viewDate, setViewDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [detail, setDetail] = useState(null);
   const [showAuditorModal, setShowAuditorModal] = useState(false);
-  const { schedules, locations, forms, refreshData } = React.useContext(DataContext);
+  const { schedules, locations, forms, auditRecords, refreshData } = React.useContext(DataContext);
   const [showNewScheduleModal, setShowNewScheduleModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
+  const [showAiQuickPopover, setShowAiQuickPopover] = useState(false);
+  const [showAiDetailModal, setShowAiDetailModal] = useState(false);
 
   const scheduleList = useMemo(() => {
     if (schedules && schedules.length > 0) {
@@ -46,6 +55,16 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           ...(s.auditors || []).map(a => a.fullName)
         ].filter(Boolean);
 
+        // ตรวจสอบว่าสาขานี้ตรวจเสร็จแล้วหรือยัง
+        const isCompleted = s.status === "completed" || s.status === "done" || s.isCompleted || (auditRecords || []).some(ar => {
+          if (ar.auditScheduleId && ar.auditScheduleId === s.id) return true;
+          const ad = new Date(ar.auditDate || ar.submittedAt || ar.createdAt);
+          return ar.locationId === s.locationId && 
+                 ad.getFullYear() === dateObj.getFullYear() && 
+                 ad.getMonth() === dateObj.getMonth() && 
+                 ad.getDate() === dateObj.getDate();
+        });
+
         return {
           id: s.id,
           locationId: s.locationId,
@@ -65,14 +84,41 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           auditors: s.auditors || [],
           form: s.surveyFormTitle || "-",
           surveyFormTitle: s.surveyFormTitle,
-          status: s.status === "completed" ? "done" : s.status === "in_progress" ? "today" : "upcoming",
+          status: isCompleted ? "done" : s.status === "in_progress" ? "today" : "upcoming",
+          isCompleted,
           auditType: s.auditType || "announced",
           notes: s.notes
         };
       });
     }
     return [];
-  }, [schedules]);
+  }, [schedules, auditRecords]);
+
+  const todaySchedules = useMemo(() => {
+    const now = new Date();
+    const todayY = now.getFullYear();
+    const todayM = now.getMonth();
+    const todayD = now.getDate();
+    return scheduleList.filter(s => {
+      const d = new Date(s.scheduledDate);
+      return d.getFullYear() === todayY && d.getMonth() === todayM && d.getDate() === todayD;
+    });
+  }, [scheduleList]);
+
+  // รายการที่ยังไม่ได้ตรวจในวันนี้ (Pending Only)
+  const pendingTodaySchedules = useMemo(() => {
+    return todaySchedules.filter(s => s.status !== "done" && !s.isCompleted);
+  }, [todaySchedules]);
+
+  // จำนวนสาขาที่ตรวจเสร็จแล้วในวันนี้
+  const completedTodayCount = useMemo(() => {
+    return todaySchedules.filter(s => s.status === "done" || s.isCompleted).length;
+  }, [todaySchedules]);
+
+  // สาขาถัดไปที่ต้องเข้าตรวจ (ยังไม่ตรวจ)
+  const nextScheduleToAudit = useMemo(() => {
+    return pendingTodaySchedules.length > 0 ? pendingTodaySchedules[0] : null;
+  }, [pendingTodaySchedules]);
 
   const prevMonth = () => {
     setViewDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -151,6 +197,22 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
   const filteredSchedules = useMemo(() => {
     return scheduleList
       .filter((s) => {
+        // If AUDITOR -> strictly restrict to their own assigned schedules only
+        if (isAuditor) {
+          const myTarget = myAuditorName.toLowerCase().trim();
+          if (!myTarget) return true;
+          if (s.auditorId && currentUser?.id && s.auditorId === currentUser.id) return true;
+          const a1 = (s.auditor || "").toLowerCase().trim();
+          const a2 = (s.auditorName || "").toLowerCase().trim();
+          if (a1 === myTarget || a2 === myTarget || a1.includes(myTarget) || myTarget.includes(a1)) return true;
+          if (s.auditorNames && s.auditorNames.some(n => {
+            const clean = (n || "").toLowerCase().trim();
+            return clean === myTarget || clean.includes(myTarget) || myTarget.includes(clean);
+          })) return true;
+          return false;
+        }
+
+        // For ADMIN, STANDARD, EXEC
         if (!auditorFilter || auditorFilter === "ทั้งหมด") return true;
         const target = auditorFilter.toLowerCase().trim();
         const a1 = (s.auditor || "").toLowerCase().trim();
@@ -164,7 +226,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
         return false;
       })
       .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime() || (a.time || "").localeCompare(b.time || ""));
-  }, [scheduleList, auditorFilter]);
+  }, [scheduleList, isAuditor, myAuditorName, currentUser?.id, auditorFilter]);
 
   // Schedules in viewing month
   const monthScheduleCount = useMemo(() => {
@@ -178,12 +240,6 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
   const dayItems = useMemo(() => {
     return filteredSchedules.filter(s => isSameDay(s.scheduledDate, selectedDate));
   }, [filteredSchedules, selectedDate]);
-
-  useEffect(() => {
-    if (role === "AUDITOR" && currentAuditorName) {
-      setAuditorFilter(currentAuditorName);
-    }
-  }, [role, currentAuditorName]);
 
   const statusStyle = {
     today: { label: "วันนี้", fg: "#0F6659", bg: "#E3F0ED" },
@@ -580,6 +636,95 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
             setEditingSchedule(null);
             if (refreshData) await refreshData();
           }}
+        />
+      )}
+
+      {/* 🌟 FIXED FLOATING AI ACTION BUTTON & QUICK POPOVER (PORTAL TO BODY) */}
+      {typeof document !== "undefined" && createPortal(
+        <div className="fixed right-4 bottom-20 z-40 flex flex-col items-end pointer-events-auto">
+          {/* Quick Advice Popover */}
+          {showAiQuickPopover && (
+            <div className="mb-2 w-72 sm:w-80 p-4 rounded-3xl bg-white border border-emerald-300 shadow-2xl shadow-emerald-950/20 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-900">
+                  <Sparkles size={15} className="text-emerald-600 animate-pulse" />
+                  <span>คำแนะนำจาก AI</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAiQuickPopover(false)}
+                  className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <div className="flex items-start gap-2 text-slate-700 font-medium">
+                  <CalendarDays size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <span>
+                    มีนัดหมาย <b>{todaySchedules.length}</b> รายการในวันนี้
+                    {todaySchedules.length > 0 && (
+                      <span className="text-slate-500 font-normal"> (ตรวจเสร็จ {completedTodayCount}/{todaySchedules.length})</span>
+                    )}
+                  </span>
+                </div>
+
+                {nextScheduleToAudit ? (
+                  <div className="flex items-start gap-2 text-slate-700 text-[11px] leading-relaxed p-2 rounded-xl bg-amber-50/90 border border-amber-200/80">
+                    <Clock size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      ควรเตรียมตรวจสาขา <b className="text-amber-900 font-bold">{nextScheduleToAudit.unitFullName || nextScheduleToAudit.locationName}</b> ({nextScheduleToAudit.time || "ตามเวลา"})
+                    </span>
+                  </div>
+                ) : todaySchedules.length > 0 ? (
+                  <div className="flex items-start gap-2 text-emerald-800 text-[11px] leading-relaxed p-2 rounded-xl bg-emerald-50/90 border border-emerald-200/80">
+                    <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                    <span>
+                      ตรวจเสร็จสิ้นครบทุกสาขาของวันนี้แล้ว ({completedTodayCount} รายการ)
+                    </span>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 text-slate-600 text-[11px] leading-relaxed p-2 rounded-xl bg-slate-50 border border-slate-100">
+                    <Clock size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                    <span>
+                      แนะนำจัดตารางตรวจสาขาที่ยังไม่ได้ตรวจในรอบเดือนนี้
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAiQuickPopover(false);
+                  setShowAiDetailModal(true);
+                }}
+                className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
+              >
+                <span>ดูรายละเอียด</span>
+              </button>
+            </div>
+          )}
+
+          {/* Floating Trigger Button */}
+          <button
+            type="button"
+            onClick={() => setShowAiQuickPopover(prev => !prev)}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xl shadow-emerald-950/25 active:scale-95 transition-all cursor-pointer border border-emerald-500/30"
+            title="คำแนะนำจาก AI"
+          >
+            <Sparkles size={15} className="animate-pulse" />
+            <span>AI</span>
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* Full AI Schedule Advisor Modal */}
+      {showAiDetailModal && (
+        <AiScheduleAdvisorModal
+          onClose={() => setShowAiDetailModal(false)}
         />
       )}
     </div>

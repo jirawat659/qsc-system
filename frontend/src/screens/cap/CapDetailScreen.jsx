@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   MessageSquare, Camera, Send, Check, X, AlertTriangle, Clock,
   ChevronLeft, ChevronRight, Info, ShieldAlert, Store, Calendar,
@@ -11,6 +12,7 @@ import Header from "../../shared/Header";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api, { getFullImageUrl } from "../../config/api";
 import { compressImageFile } from "../../utils/imageCompressor";
+import AiCapAdvisorModal from "../../modals/AiCapAdvisorModal";
 
 // 🇹🇭 Helper to correctly parse UTC timestamps into Thailand Local Time (UTC+7)
 const formatThaiTime = (dateInput) => {
@@ -47,6 +49,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
   const [isActionProcessing, setIsActionProcessing] = useState(false);
   const [actionError, setActionError] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: null, title: '', message: '' });
+  const [showAiCapModal, setShowAiCapModal] = useState(false);
   
   const fileInputRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -750,6 +753,30 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             </div>
           </div>
         </ModalWrapper>
+      )}
+
+      {/* 🌟 FIXED FLOATING AI ACTION BUTTON (PORTAL TO BODY) */}
+      {typeof document !== "undefined" && createPortal(
+        <div className="fixed right-4 bottom-20 z-40 pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setShowAiCapModal(true)}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[#0F6659] hover:bg-emerald-800 text-white font-bold text-xs shadow-xl shadow-emerald-950/25 active:scale-95 transition-all cursor-pointer border border-emerald-500/30"
+            title="AI ผู้ช่วยวิเคราะห์งานแก้ไข"
+          >
+            <Sparkles size={15} className="animate-pulse text-emerald-200" />
+            <span>AI</span>
+          </button>
+        </div>,
+        document.body
+      )}
+
+      {/* AI CAP Analysis Modal */}
+      {showAiCapModal && (
+        <AiCapAdvisorModal
+          taskId={typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id}
+          onClose={() => setShowAiCapModal(false)}
+        />
       )}
     </div>
   );

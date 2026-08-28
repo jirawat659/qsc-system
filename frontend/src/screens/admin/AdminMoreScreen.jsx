@@ -44,12 +44,26 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
   const [open, setOpen] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
 
+  const userPerms = useMemo(() => {
+    return currentUser?.permissions || [];
+  }, [currentUser]);
+
+  const isAdmin = role === "ADMIN" || currentUser?.role === "ADMIN";
+
+  const hasPerm = (permCode, fallbackRoles = []) => {
+    if (isAdmin) return true;
+    if (permCode && userPerms.includes(permCode)) return true;
+    if (fallbackRoles && fallbackRoles.includes(role)) return true;
+    return false;
+  };
+
   const tools = [
     {
       key: "master_management",
       icon: Layers,
       label: "การจัดการระบบและข้อมูลหลัก",
       desc: "จัดการข้อมูลผู้ใช้งาน, เพิ่มสถานที่/สาขา และประเภทสถานที่",
+      perm: "menu.admin",
       roles: ["ADMIN"]
     },
     {
@@ -57,6 +71,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
       icon: FileSpreadsheet,
       label: "รายงานผลการตรวจ",
       desc: "ดูผลตรวจรายครั้งในตาราง กรองข้อมูล และส่งออก Excel",
+      perm: "menu.analytics",
       roles: ["STANDARD", "EXEC", "ADMIN"]
     },
     {
@@ -65,14 +80,16 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
       label: "แผนการตรวจ",
       desc: "ดูแผนตรวจและสาขาที่ถูกมอบหมายให้ผู้ตรวจ",
       route: "schedule",
-      roles: ["STANDARD", "ADMIN"]
+      perm: "menu.schedules",
+      roles: ["STANDARD", "ADMIN", "AUDITOR", "EXEC"]
     },
     {
       key: "forms",
       icon: ClipboardList,
       label: "จัดการแบบฟอร์มการตรวจ",
       desc: "สร้าง แก้ไข และกำหนดเกณฑ์สำหรับแบบฟอร์มตรวจประเมิน",
-      roles: ["STANDARD", "ADMIN"]
+      perm: "menu.forms",
+      roles: ["STANDARD", "ADMIN", "EXEC"]
     },
     { 
       key: "cap",
@@ -80,34 +97,15 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
       label: "ติดตามและพิจารณางานแก้ไข (CAP)",
       desc: "ตรวจสอบหลักฐานการแก้ไขข้อบกพร่องและอนุมัติปิดงาน",
       route: "cap",
-      roles: ["STANDARD", "ADMIN"]
-    },
-    { 
-      key: "users", 
-      icon: Users, 
-      label: "จัดการผู้ใช้งานและบทบาท", 
-      desc: "กำหนดสิทธิ์ผู้ตรวจ ผู้จัดการสาขา และผู้บริหาร",
-      roles: ["ADMIN"]
-    },
-    { 
-      key: "org", 
-      icon: Store, 
-      label: "ผังโครงสร้างองค์กรและสาขา", 
-      desc: "ผังแบรนด์ พื้นที่ และสาขาทั้งหมด",
-      roles: ["ADMIN"]
-    },
-    { 
-      key: "permissions", 
-      icon: ShieldCheck, 
-      label: "กำหนดสิทธิ์การเข้าถึงระบบ", 
-      desc: "ตั้งค่าสิทธิ์ตามขอบเขตงานและพื้นที่รับผิดชอบ",
-      roles: ["ADMIN"]
+      perm: "menu.cap",
+      roles: ["STANDARD", "ADMIN", "AUDITOR"]
     },
     { 
       key: "integrations", 
       icon: Key, 
       label: "การเชื่อมต่อ API & Webhook", 
       desc: "ระบบเชื่อมต่อ ERP, POS และ LINE Notify",
+      perm: "menu.admin",
       roles: ["ADMIN"]
     },
     { 
@@ -115,6 +113,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
       icon: Settings, 
       label: "ตั้งค่านโยบายและเกณฑ์มาตรฐาน", 
       desc: "เกณฑ์คะแนนผ่าน ≥85% และกำหนดเวลาส่งงาน SLA",
+      perm: "menu.admin",
       roles: ["STANDARD", "ADMIN"]
     },
 
@@ -139,7 +138,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
       desc: "สอบถามข้อสงสัยเกี่ยวกับเกณฑ์การตรวจประเมิน",
       roles: ["AUDITEE"]
     }
-  ].filter((tool) => !tool.roles || tool.roles.includes(role));
+  ].filter((tool) => hasPerm(tool.perm, tool.roles));
 
   if (open === "master_management") {
     return <MasterManagementScreen onBack={() => setOpen(null)} />;

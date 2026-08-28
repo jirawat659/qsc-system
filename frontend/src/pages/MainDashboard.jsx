@@ -125,7 +125,8 @@ export default function MainDashboard({ onLogout }) {
         role: storedUser.role,
         branchScope: storedUser.branchScope,
         allowedLocationIds: storedUser.allowedLocationIds || [],
-        avatar: (storedUser.fullName || storedUser.username || "US").substring(0, 2)
+        avatar: (storedUser.fullName || storedUser.username || "US").substring(0, 2),
+        permissions: storedUser.permissions || []
       };
     }
     return {
@@ -136,7 +137,8 @@ export default function MainDashboard({ onLogout }) {
       role: role,
       branchScope: "ALL",
       allowedLocationIds: [],
-      avatar: "US"
+      avatar: "US",
+      permissions: []
     };
   }, [storedUser, role]);
 

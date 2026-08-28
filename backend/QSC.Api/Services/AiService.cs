@@ -62,6 +62,12 @@ namespace QSC.Api.Services
 
         [JsonPropertyName("suggestedFocus")]
         public string SuggestedFocus { get; set; } = string.Empty;
+
+        [JsonPropertyName("suggestedAuditorName")]
+        public string SuggestedAuditorName { get; set; } = string.Empty;
+
+        [JsonPropertyName("auditorReason")]
+        public string AuditorReason { get; set; } = string.Empty;
     }
 
     public class ScheduleAiRecommendationsDto
@@ -251,12 +257,19 @@ namespace QSC.Api.Services
 
             var audits = await _context.AuditRecords
                 .AsNoTracking()
+                .Include(r => r.PrimaryAuditor)
                 .OrderByDescending(r => r.AuditDate)
                 .ToListAsync();
 
             var capTasks = await _context.CapTasks
                 .AsNoTracking()
                 .Where(c => c.Status != "CLOSED" && c.Status != "closed")
+                .ToListAsync();
+
+            var auditors = await _context.Users
+                .AsNoTracking()
+                .Include(u => u.Role)
+                .Where(u => u.IsActive && (u.Role!.Code == "AUDITOR" || u.Role!.Code == "STANDARD" || u.Role!.Code == "ADMIN"))
                 .ToListAsync();
 
             var branchStats = new List<ScheduleRecommendationItemDto>();
@@ -307,6 +320,22 @@ namespace QSC.Api.Services
                     reasons.Add("ยังไม่เคยมีประวัติการเข้าตรวจประเมิน");
                 }
 
+                // แนะนำผู้ตรวจตามประวัติเก่า หรือโซนพื้นที่
+                string suggestedAuditor = "";
+                string auditorReason = "";
+                
+                if (lastAudit?.PrimaryAuditor != null && !string.IsNullOrWhiteSpace(lastAudit.PrimaryAuditor.FullName))
+                {
+                    suggestedAuditor = lastAudit.PrimaryAuditor.FullName;
+                    auditorReason = "เคยเข้าตรวจสาขานี้ในรอบก่อนหน้า มีความคุ้นเคยกับประวัติและปัญหาเดิมของสาขา";
+                }
+                else if (auditors.Any())
+                {
+                    var assignedAuditor = auditors[loc.Id % auditors.Count];
+                    suggestedAuditor = assignedAuditor.FullName;
+                    auditorReason = "แนะนำตามการกระจายภาระงานและเขตพื้นที่รับผิดชอบ";
+                }
+
                 branchStats.Add(new ScheduleRecommendationItemDto
                 {
                     LocationId = loc.Id,
@@ -319,8 +348,10 @@ namespace QSC.Api.Services
                     DaysSinceLastAudit = daysSince,
                     HasAuditedThisMonth = auditedThisMonth,
                     PendingCapCount = pendingCaps,
-                    Reason = reasons.Any() ? string.Join(" • ", reasons) : "ครบกำหนดรอบตรวจตามรอบมาตรฐาน",
-                    SuggestedFocus = lastScore < 85 ? "เน้นสุ่มตรวจจุดที่เคยตกเกณฑ์และติดตามผล CAP" : "ตรวจประเมินมาตรฐานประจำเดือนตามปกติ"
+                    Reason = reasons.Any() ? string.Join(" • ", reasons) : "ครบกำหนดรอบตรวจตามรอบมาตรฐานประจำเดือน",
+                    SuggestedFocus = lastScore < 85 ? "เน้นสุ่มตรวจจุดที่เคยตกเกณฑ์และติดตามผล CAP" : "ตรวจประเมินมาตรฐานประจำเดือนตามปกติ",
+                    SuggestedAuditorName = suggestedAuditor,
+                    AuditorReason = auditorReason
                 });
             }
 

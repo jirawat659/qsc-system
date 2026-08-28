@@ -498,35 +498,62 @@ export default function DashboardScreen({ role, isDesktop }) {
     return [dynamicMin, Math.max(dynamicMax, dynamicMin + 10)];
   }, [comparisonData, comparisonLines]);
 
-  const aiInsightsList = useMemo(() => [
-    {
-      type: "highlight",
-      icon: "✨",
-      title: "จุดเด่นที่น่าชื่นชม",
-      icon_color: "#0F6659",
-      bg: "#EFF8F6",
-      border: "#A7D7CE",
-      text: `สาขาส่วนใหญ่ทำคะแนนด้านสุขอนามัยได้ดีเยี่ยม คะแนนเฉลี่ยภาพรวมอยู่ที่ ${avgScore}% และผ่านเกณฑ์ถึง ${passRate}%`
-    },
-    {
-      type: "attention",
-      icon: "⚠️",
-      title: "จุดที่ต้องเฝ้าระวัง",
-      icon_color: "#D97706",
-      bg: "#FFFBEB",
-      border: "#FDE68A",
-      text: `มีงานแก้ไขคงค้าง (CAP) ที่ต้องเร่งติดตาม ${pendingCapCount} รายการ เพื่อให้การแก้ไขเสร็จสิ้นตามกรอบ SLA`
-    },
-    {
-      type: "action",
-      icon: "🎯",
-      title: "ข้อเสนอแนะเชิงปฏิบัติการ",
-      icon_color: "#2563EB",
-      bg: "#EFF6FF",
-      border: "#BFDBFE",
-      text: "ควรเน้นการตรวจสอบอุณหภูมิตู้แช่วัตถุดิบและเอกสารบันทึกประจำวันของสาขาเป็นพิเศษ"
+  const [aiInsightData, setAiInsightData] = useState(null);
+  const [isAiLoading, setIsAiLoading] = useState(true);
+  const [aiError, setAiError] = useState(null);
+
+  const fetchAiInsights = async () => {
+    setIsAiLoading(true);
+    setAiError(null);
+    try {
+      const res = await api.get("/ai/dashboard-insights");
+      if (res.data) {
+        setAiInsightData(res.data);
+      }
+    } catch (e) {
+      console.warn("Could not fetch AI insights:", e);
+      setAiError("ไม่สามารถประมวลผลบทวิเคราะห์ได้ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsAiLoading(false);
     }
-  ], [avgScore, passRate, pendingCapCount]);
+  };
+
+  useEffect(() => {
+    fetchAiInsights();
+  }, []);
+
+  const aiInsightsList = useMemo(() => {
+    if (!aiInsightData) return [];
+    return [
+      {
+        type: "highlight",
+        icon: "✨",
+        title: "จุดเด่น",
+        icon_color: "#0F6659",
+        bg: "#EFF8F6",
+        border: "#A7D7CE",
+        text: aiInsightData.highlight || "ยังไม่มีข้อมูลบทวิเคราะห์ในส่วนนี้"
+      },
+      {
+        type: "attention",
+        icon: "⚠️",
+        title: "จุดควรระวัง",
+        icon_color: "#D97706",
+        bg: "#FFFBEB",
+        border: "#FDE68A",
+        text: aiInsightData.attention || "ยังไม่มีข้อมูลบทวิเคราะห์ในส่วนนี้"
+      },
+      {
+        type: "action",
+        icon: "🎯",
+        title: "ข้อเสนอแนะ",
+        icon_color: "#2563EB",
+        bg: "#EFF6FF",
+        border: "#BFDBFE",
+        text: aiInsightData.action || "ยังไม่มีข้อมูลบทวิเคราะห์ในส่วนนี้"
+      }
+    ];
+  }, [aiInsightData]);
 
   // SAFE EARLY RETURNS
   if (selectedAuditLog) {
@@ -1024,25 +1051,74 @@ export default function DashboardScreen({ role, isDesktop }) {
       </div>
 
       {/* ── 4. AI INSIGHTS — 3 การ์ดเรียงแนวนอน ── */}
-      <div>
-        <h2 className="text-sm sm:text-base font-bold mb-3" style={{ color: c.ink }}>สรุปโดย AI ประจำเดือน</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {aiInsightsList.map((ins) => (
-            <div
-              key={ins.type}
-              className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xs border flex flex-col gap-2"
-              style={{ background: ins.bg, borderColor: ins.border }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-xl">{ins.icon}</span>
-                <span className="text-xs sm:text-sm font-bold" style={{ color: ins.icon_color }}>{ins.title}</span>
-              </div>
-              <p className="text-xs sm:text-xs sm:text-sm font-medium leading-relaxed text-slate-700">
-                {ins.text}
-              </p>
-            </div>
-          ))}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles size={18} className="text-emerald-700 animate-pulse" />
+            <h2 className="text-sm sm:text-base font-bold text-slate-800">สรุปโดย AI ประจำเดือน</h2>
+          </div>
+          <button
+            type="button"
+            onClick={fetchAiInsights}
+            disabled={isAiLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs border border-slate-200 shadow-2xs cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+            title="กดเพื่อวิเคราะห์ข้อมูลใหม่"
+          >
+            <RefreshCw size={13} className={isAiLoading ? "animate-spin text-emerald-600" : "text-slate-500"} />
+            <span>{isAiLoading ? "กำลังวิเคราะห์..." : "วิเคราะห์ใหม่"}</span>
+          </button>
         </div>
+
+        {isAiLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { label: "จุดเด่น", bg: "#EFF8F6", border: "#A7D7CE" },
+              { label: "จุดควรระวัง", bg: "#FFFBEB", border: "#FDE68A" },
+              { label: "ข้อเสนอแนะ", bg: "#EFF6FF", border: "#BFDBFE" }
+            ].map((item, idx) => (
+              <div
+                key={idx}
+                className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xs border flex flex-col justify-center gap-2 min-h-[110px]"
+                style={{ background: item.bg, borderColor: item.border }}
+              >
+                <div className="flex items-center gap-2">
+                  <RefreshCw size={15} className="animate-spin text-slate-400" />
+                  <span className="text-xs sm:text-sm font-bold text-slate-600">{item.label}</span>
+                </div>
+                <p className="text-xs text-slate-400 font-medium animate-pulse">กำลังประมวลผลข้อมูล...</p>
+              </div>
+            ))}
+          </div>
+        ) : aiError ? (
+          <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center justify-between">
+            <span>{aiError}</span>
+            <button
+              type="button"
+              onClick={fetchAiInsights}
+              className="px-3 py-1 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 cursor-pointer"
+            >
+              ลองใหม่
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {aiInsightsList.map((ins) => (
+              <div
+                key={ins.type}
+                className="rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xs border flex flex-col gap-2"
+                style={{ background: ins.bg, borderColor: ins.border }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{ins.icon}</span>
+                  <span className="text-xs sm:text-sm font-bold" style={{ color: ins.icon_color }}>{ins.title}</span>
+                </div>
+                <p className="text-xs sm:text-sm font-medium leading-relaxed text-slate-700">
+                  {ins.text}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── 5. ACTION BUTTONS (ปุ่มใหญ่ด้านล่าง) ── */}

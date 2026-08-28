@@ -36,7 +36,7 @@ import FormEditorScreen from "./FormEditorScreen";
 
 
 export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
-  const { forms, refreshData } = React.useContext(DataContext);
+  const { forms, refreshData, currentUser } = React.useContext(DataContext);
   const [editing, setEditing] = useState(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -45,7 +45,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
 
-  const canManageForms = role === "STANDARD" || role === "ADMIN";
+  const canManageForms = role === "STANDARD" || role === "ADMIN" || currentUser?.role === "ADMIN" || (currentUser?.permissions || []).includes("forms.manage");
 
   const handleDeleteForm = async () => {
     if (!deleteModalForm) return;
