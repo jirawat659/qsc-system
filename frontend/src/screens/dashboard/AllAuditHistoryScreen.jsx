@@ -20,7 +20,7 @@ import api from "../../config/api";
 import { parseAuditTimestamp } from "../../utils/formatters";
 
 export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
-  const { locations, auditRecords, capTasks, schedules, activeDrafts } = React.useContext(DataContext);
+  const { locations, auditRecords, capTasks, schedules, activeDrafts, forms } = React.useContext(DataContext);
   const activeLocations = locations || [];
   const [trendsData, setTrendsData] = useState([]);
 
@@ -74,6 +74,20 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const allLogs = useMemo(() => {
     const logs = [];
 
+    const resolveFormTitle = (formId, directTitle) => {
+      if (directTitle && directTitle !== "-" && typeof directTitle === 'string' && directTitle.trim()) {
+        return directTitle.trim();
+      }
+      if (formId && forms && forms.length > 0) {
+        const found = forms.find(f => Number(f.id) === Number(formId));
+        if (found && (found.title || found.name)) return (found.title || found.name).trim();
+      }
+      if (forms && forms.length > 0 && (forms[0].title || forms[0].name)) {
+        return (forms[0].title || forms[0].name).trim();
+      }
+      return "แบบฟอร์มมาตรฐานใหม่";
+    };
+
     // 1. Completed Records
     if (auditRecords && auditRecords.length > 0) {
       auditRecords.forEach((r) => {
@@ -84,7 +98,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
         const timestamp = parseAuditTimestamp(rawDate, r.id);
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
-        const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "-";
+        const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
+        const directForm = r.surveyFormTitle || r.surveyForm?.title || r.formTitle || r.formName || r.form;
+        const formVal = resolveFormTitle(formId, directForm);
         
         logs.push({
           id: `completed-${r.id}`,
@@ -131,7 +147,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
         const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher or just normal timestamp
         const auditorVal = d.auditorName || d.primaryAuditor?.fullName || "-";
-        const formVal = d.formTitle || d.surveyForm?.title || "-";
+        const formId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id;
+        const directForm = d.surveyFormTitle || d.formTitle || d.surveyForm?.title || d.formName || d.form?.title || d.form?.name;
+        const formVal = resolveFormTitle(formId, directForm);
         const answeredCount = d.answers ? Object.keys(d.answers).length : 0;
         const totalCount = d.totalQuestions || 0;
         
@@ -166,13 +184,15 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         let dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
         
         // Add time if available
-        if (s.scheduledTime) {
-          dateFormatted += ` ${s.scheduledTime}`;
+        if (s.scheduledTime || s.time) {
+          dateFormatted += ` ${s.scheduledTime || s.time}`;
         }
         
         const timestamp = parseAuditTimestamp(rawDate, s.id) + 2000000000; // prioritize schedules (future)
         const auditorVal = s.auditorName || s.primaryAuditor?.fullName || "-";
-        const formVal = s.formTitle || s.surveyForm?.title || "-";
+        const formId = s.surveyFormId || s.formId || s.surveyForm?.id;
+        const directForm = s.surveyFormTitle || s.formTitle || s.surveyForm?.title || s.formName || s.form;
+        const formVal = resolveFormTitle(formId, directForm);
         
         logs.push({
           id: `schedule-${s.id}`,
@@ -221,7 +241,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
     
     return logs;
-  }, [auditRecords, activeDrafts, schedules, activeLocations]);
+  }, [auditRecords, activeDrafts, schedules, forms, activeLocations]);
 
   const baseLogs = useMemo(() => {
     return currentAuditorName ? allLogs.filter((log) => log.auditor.includes(currentAuditorName) || currentAuditorName.includes(log.auditor)) : allLogs;
