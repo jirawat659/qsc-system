@@ -225,18 +225,22 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
 
           const cTime = new Date(c.createdAt).getTime() || Date.now();
 
-          // Look for an attached photo uploaded by this sender within a 20-second window
-          let attachedPhoto = null;
-          const matchingImg = afterImgs.find(img => {
-            if (usedImgUrls.has(img.imageUrl)) return false;
-            const imgTime = new Date(img.uploadedAt).getTime() || 0;
-            const isUploader = (img.uploadedBy === c.senderId) || isSenderMe;
-            return isUploader && Math.abs(imgTime - cTime) < 20000;
-          });
+          // Look for attached photo directly from comment or from afterImgs
+          let attachedPhoto = c.imageUrl ? getFullImageUrl(c.imageUrl) : null;
+          if (!attachedPhoto) {
+            const matchingImg = afterImgs.find(img => {
+              if (usedImgUrls.has(img.imageUrl)) return false;
+              const imgTime = new Date(img.uploadedAt).getTime() || 0;
+              const isUploader = (img.uploadedBy === c.senderId) || isSenderMe;
+              return isUploader && Math.abs(imgTime - cTime) < 20000;
+            });
 
-          if (matchingImg) {
-            attachedPhoto = getFullImageUrl(matchingImg.imageUrl);
-            usedImgUrls.add(matchingImg.imageUrl);
+            if (matchingImg) {
+              attachedPhoto = getFullImageUrl(matchingImg.imageUrl);
+              usedImgUrls.add(matchingImg.imageUrl);
+            }
+          } else if (c.imageUrl) {
+            usedImgUrls.add(c.imageUrl);
           }
 
           const senderLabel = isSenderMe

@@ -208,6 +208,7 @@ namespace QSC.Api.Controllers
                     senderName = c.Sender?.FullName ?? "ผู้ใช้งาน",
                     senderRole = c.Sender?.Role?.Code ?? c.SenderRole,
                     message = c.Message,
+                    imageUrl = c.ImageUrl,
                     createdAt = c.CreatedAt
                 }).ToList()
             });
@@ -276,42 +277,19 @@ namespace QSC.Api.Controllers
             var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
             var now = DateTime.UtcNow;
 
-            // Add Chat Comment - sender is strictly the authenticated user
-            if (!string.IsNullOrWhiteSpace(dto.Message))
-            {
-                var comment = new CapTaskComment
-                {
-                    CapTaskId = id,
-                    SenderId = currentUserId,
-                    SenderRole = role,
-                    Message = dto.Message,
-                    CreatedAt = now
-                };
-                _context.CapTaskComments.Add(comment);
-
-                // Broadcast via SignalR
-                var commentPayload = new
-                {
-                    id = comment.Id,
-                    capTaskId = id,
-                    userId = currentUserId,
-                    userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
-                    userRole = user?.Role?.Code ?? role,
-                    comment = comment.Message,
-                    message = comment.Message,
-                    imageUrl = (string?)null,
-                    isAuditorComment = false,
-                    createdAt = comment.CreatedAt
-                };
-                await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
-            }
+            string? firstSavedImageUrl = null;
 
             // Save AFTER images
-            if (dto.ImageUrls.Any())
+            if (dto.ImageUrls != null && dto.ImageUrls.Any())
             {
                 foreach (var url in dto.ImageUrls)
                 {
                     var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "cap");
+                    if (firstSavedImageUrl == null && !string.IsNullOrWhiteSpace(savedUrl))
+                    {
+                        firstSavedImageUrl = savedUrl;
+                    }
+
                     _context.CapTaskImages.Add(new CapTaskImage
                     {
                         CapTaskId = id,
@@ -323,7 +301,41 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            await _context.SaveChangesAsync();
+            // Add Chat Comment (with or without image attachment)
+            if (!string.IsNullOrWhiteSpace(dto.Message) || !string.IsNullOrWhiteSpace(firstSavedImageUrl))
+            {
+                var comment = new CapTaskComment
+                {
+                    CapTaskId = id,
+                    SenderId = currentUserId,
+                    SenderRole = role,
+                    Message = dto.Message ?? string.Empty,
+                    ImageUrl = firstSavedImageUrl,
+                    CreatedAt = now
+                };
+                _context.CapTaskComments.Add(comment);
+                await _context.SaveChangesAsync();
+
+                // Broadcast via SignalR
+                var commentPayload = new
+                {
+                    id = comment.Id,
+                    capTaskId = id,
+                    userId = currentUserId,
+                    userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                    userRole = user?.Role?.Code ?? role,
+                    comment = comment.Message,
+                    message = comment.Message,
+                    imageUrl = comment.ImageUrl,
+                    isAuditorComment = false,
+                    createdAt = comment.CreatedAt
+                };
+                await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
+            }
+            else
+            {
+                await _context.SaveChangesAsync();
+            }
 
             // Broadcast real-time status update
             await _hubContext.Clients.Group($"cap_{id}").SendAsync("CapStatusUpdated", new
