@@ -204,7 +204,7 @@ export default function MainDashboard({ onLogout }) {
           {(screen === "reports" || screen === "history") && (
             <ConsolidatedReportsScreen
               onBack={undefined}
-              currentAuditorName={currentUser.name}
+              currentAuditorName={null}
               title="รายงานผลการตรวจประเมิน"
               onStartAudit={(plan) => handleStartAuditDirect(plan)}
               onResumeDraft={(draft) => {

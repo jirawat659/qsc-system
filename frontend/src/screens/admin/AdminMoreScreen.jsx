@@ -148,7 +148,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
     return (
       <ConsolidatedReportsScreen
         onBack={() => setOpen(null)}
-        currentAuditorName={currentUser?.name}
+        currentAuditorName={null}
         onStartAudit={(plan) => {
           setOpen(null);
           if (onStartAuditDirect) onStartAuditDirect(plan);
