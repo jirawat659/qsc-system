@@ -242,19 +242,62 @@ export default function DashboardScreen({ role, isDesktop }) {
   const [selectedAuditLog, setSelectedAuditLog] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
+  const [trendsData, setTrendsData] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/dashboard/trends')
+      .then(res => {
+        if (isMounted && res.data?.monthlyTrends) {
+          setTrendsData(res.data.monthlyTrends);
+        }
+      })
+      .catch(err => console.warn("Could not load dashboard trends:", err));
+    return () => { isMounted = false; };
+  }, []);
 
   const comparisonData = useMemo(() => {
     const now = new Date();
-    const months = [];
     const THAI_MONTHS_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const label = `${THAI_MONTHS_SHORT[d.getMonth()]} ${String(d.getFullYear() + 543).slice(-2)}`;
-      months.push({ label, avgScore: Math.round(80 + Math.random() * 15) });
+    
+    // 1. If backend API trendsData is available, use it!
+    if (trendsData && trendsData.length > 0) {
+      return trendsData.map(t => ({
+        label: t.month,
+        avgScore: t.score !== null && t.score !== undefined ? Math.round(t.score) : avgScore
+      }));
     }
-    months[5].avgScore = avgScore;
+
+    // 2. Otherwise calculate deterministically from auditRecords
+    const months = [];
+    const rawAudits = auditRecords || [];
+
+    for (let i = 5; i >= 0; i--) {
+      const targetMonthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const targetYear = targetMonthDate.getFullYear();
+      const targetMonth = targetMonthDate.getMonth();
+      const label = `${THAI_MONTHS_SHORT[targetMonth]} ${String(targetYear + 543).slice(-2)}`;
+
+      const startOfMonth = new Date(targetYear, targetMonth, 1, 0, 0, 0, 0);
+      const endOfMonth = new Date(targetYear, targetMonth + 1, 0, 23, 59, 59, 999);
+
+      const monthAudits = rawAudits.filter(r => {
+        const d = parseAuditDate(r.auditDate || r.createdAt);
+        return d && d >= startOfMonth && d <= endOfMonth;
+      });
+
+      let monthAvg = null;
+      if (monthAudits.length > 0) {
+        monthAvg = Math.round(monthAudits.reduce((acc, r) => acc + (r.percentageScore || r.score || 0), 0) / monthAudits.length);
+      } else {
+        monthAvg = avgScore > 0 ? avgScore : 93;
+      }
+
+      months.push({ label, avgScore: monthAvg });
+    }
+
     return months;
-  }, [avgScore]);
+  }, [trendsData, auditRecords, avgScore]);
 
   const categoryScores = useMemo(() => {
     return [
