@@ -13,6 +13,7 @@ import { ROLES } from '../../config/roles';
 import { DataContext } from '../../context/DataContext';
 import UserManagementTab from './components/UserManagementTab';
 import LocationManagementTab from './components/LocationManagementTab';
+import LocationGpsSection from './components/LocationGpsSection';
 
 export default function MasterManagementScreen({ onBack }) {
   const { refreshData } = React.useContext(DataContext);
@@ -99,7 +100,7 @@ export default function MasterManagementScreen({ onBack }) {
     name: '',
     brandName: '',
     locationTypeId: 1,
-    region: 'กรุงเทพฯ และปริมณฑล',
+    region: '',
     address: '',
     phone: '',
     latitude: 13.7466,
@@ -1727,15 +1728,12 @@ export default function MasterManagementScreen({ onBack }) {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">ที่อยู่สถานที่</label>
-                <input
-                  type="text"
-                  value={editLocationForm.address}
-                  onChange={(e) => setEditLocationForm({ ...editLocationForm, address: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                />
-              </div>
+              {/* 🗺️ Address & Interactive GPS Map Picker */}
+              <LocationGpsSection
+                form={editLocationForm}
+                setForm={setEditLocationForm}
+                showToast={showToast}
+              />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1883,7 +1881,7 @@ export default function MasterManagementScreen({ onBack }) {
                       }}
                       className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
                     >
-                      + พิมพ์แบรนด์ใหม่
+                      + เพิ่มแบรนด์ใหม่
                     </button>
                   ) : (
                     <button
@@ -1916,7 +1914,6 @@ export default function MasterManagementScreen({ onBack }) {
                     {existingBrands.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
-                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มแบรนด์ใหม่...</option>
                   </select>
                 ) : (
                   <input
@@ -1943,7 +1940,7 @@ export default function MasterManagementScreen({ onBack }) {
                       }}
                       className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
                     >
-                      + พิมพ์ภูมิภาคใหม่
+                      + เพิ่มภูมิภาคใหม่
                     </button>
                   ) : (
                     <button
@@ -1976,7 +1973,6 @@ export default function MasterManagementScreen({ onBack }) {
                     {existingRegions.map(r => (
                       <option key={r} value={r}>{r}</option>
                     ))}
-                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มภูมิภาคใหม่...</option>
                   </select>
                 ) : (
                   <input
@@ -1990,16 +1986,12 @@ export default function MasterManagementScreen({ onBack }) {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">ที่อยู่สถานที่</label>
-                <input
-                  type="text"
-                  value={locationForm.address}
-                  onChange={(e) => setLocationForm({ ...locationForm, address: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                  placeholder="ชั้น G โซน Veranda ถ.เจริญนคร"
-                />
-              </div>
+              {/* 🗺️ Address & Interactive GPS Map Picker */}
+              <LocationGpsSection
+                form={locationForm}
+                setForm={setLocationForm}
+                showToast={showToast}
+              />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
