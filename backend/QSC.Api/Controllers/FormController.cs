@@ -80,8 +80,16 @@ namespace QSC.Api.Controllers
                         questionType = i.QuestionType,
                         fullScore = i.FullScore,
                         isCritical = i.IsCritical,
-                        categoryCode = i.CategoryCode,
-                        categoryName = i.CategoryName,
+                        categoryCode = i.CategoryCode ?? "GEN",
+                        categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
+                        {
+                            "CLN" => "ความสะอาด",
+                            "DOC" => "เอกสาร",
+                            "OPS" => "กระบวนการทำงาน",
+                            "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                            "SVC" => "การบริการ",
+                            _ => "ความสะอาด"
+                        }),
                         orderIndex = i.OrderIndex
                     }).ToList()
                 }).ToList()
@@ -142,8 +150,16 @@ namespace QSC.Api.Controllers
                         questionType = i.QuestionType,
                         fullScore = i.FullScore,
                         isCritical = i.IsCritical,
-                        categoryCode = i.CategoryCode,
-                        categoryName = i.CategoryName,
+                        categoryCode = i.CategoryCode ?? "GEN",
+                        categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
+                        {
+                            "CLN" => "ความสะอาด",
+                            "DOC" => "เอกสาร",
+                            "OPS" => "กระบวนการทำงาน",
+                            "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                            "SVC" => "การบริการ",
+                            _ => "ความสะอาด"
+                        }),
                         orderIndex = i.OrderIndex
                     }).ToList()
                 }).ToList()
@@ -239,6 +255,33 @@ namespace QSC.Api.Controllers
                     int itemIdx = 1;
                     foreach (var iDto in sDto.Items)
                     {
+                        string? catName = !string.IsNullOrWhiteSpace(iDto.CategoryName) ? iDto.CategoryName.Trim() : null;
+                        string? catCode = !string.IsNullOrWhiteSpace(iDto.CategoryCode) ? iDto.CategoryCode.Trim() : null;
+                        if (string.IsNullOrEmpty(catCode) && !string.IsNullOrEmpty(catName))
+                        {
+                            catCode = catName switch
+                            {
+                                "ความสะอาด" => "CLN",
+                                "เอกสาร" => "DOC",
+                                "กระบวนการทำงาน" => "OPS",
+                                "คุณภาพสินค้า-วัตถุดิบ" => "QLT",
+                                "การบริการ" => "SVC",
+                                _ => "GEN"
+                            };
+                        }
+                        if (string.IsNullOrEmpty(catName) && !string.IsNullOrEmpty(catCode))
+                        {
+                            catName = catCode switch
+                            {
+                                "CLN" => "ความสะอาด",
+                                "DOC" => "เอกสาร",
+                                "OPS" => "กระบวนการทำงาน",
+                                "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                                "SVC" => "การบริการ",
+                                _ => "ความสะอาด"
+                            };
+                        }
+
                         var item = new SurveyItem
                         {
                             SurveySectionId = section.Id,
@@ -246,8 +289,8 @@ namespace QSC.Api.Controllers
                             QuestionType = iDto.QuestionType,
                             FullScore = iDto.FullScore,
                             IsCritical = iDto.IsCritical,
-                            CategoryCode = iDto.CategoryCode,
-                            CategoryName = iDto.CategoryName,
+                            CategoryCode = catCode ?? "GEN",
+                            CategoryName = catName ?? "ความสะอาด",
                             OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
                             IsActive = true
                         };
@@ -306,8 +349,9 @@ namespace QSC.Api.Controllers
                         }
                     }
 
-                    // Remove existing sections and items and recreate
-                    _context.SurveySections.RemoveRange(form.Sections);
+                    // Remove existing sections and items cleanly
+                    var oldSections = await _context.SurveySections.Where(s => s.SurveyFormId == id).ToListAsync();
+                    _context.SurveySections.RemoveRange(oldSections);
                     await _context.SaveChangesAsync();
 
                     int secIdx = 1;
@@ -327,6 +371,33 @@ namespace QSC.Api.Controllers
                         int itemIdx = 1;
                         foreach (var iDto in sDto.Items)
                         {
+                            string? catName = !string.IsNullOrWhiteSpace(iDto.CategoryName) ? iDto.CategoryName.Trim() : null;
+                            string? catCode = !string.IsNullOrWhiteSpace(iDto.CategoryCode) ? iDto.CategoryCode.Trim() : null;
+                            if (string.IsNullOrEmpty(catCode) && !string.IsNullOrEmpty(catName))
+                            {
+                                catCode = catName switch
+                                {
+                                    "ความสะอาด" => "CLN",
+                                    "เอกสาร" => "DOC",
+                                    "กระบวนการทำงาน" => "OPS",
+                                    "คุณภาพสินค้า-วัตถุดิบ" => "QLT",
+                                    "การบริการ" => "SVC",
+                                    _ => "GEN"
+                                };
+                            }
+                            if (string.IsNullOrEmpty(catName) && !string.IsNullOrEmpty(catCode))
+                            {
+                                catName = catCode switch
+                                {
+                                    "CLN" => "ความสะอาด",
+                                    "DOC" => "เอกสาร",
+                                    "OPS" => "กระบวนการทำงาน",
+                                    "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                                    "SVC" => "การบริการ",
+                                    _ => "ความสะอาด"
+                                };
+                            }
+
                             var item = new SurveyItem
                             {
                                 SurveySectionId = section.Id,
@@ -334,8 +405,8 @@ namespace QSC.Api.Controllers
                                 QuestionType = iDto.QuestionType,
                                 FullScore = iDto.FullScore,
                                 IsCritical = iDto.IsCritical,
-                                CategoryCode = iDto.CategoryCode,
-                                CategoryName = iDto.CategoryName,
+                                CategoryCode = catCode ?? "GEN",
+                                CategoryName = catName ?? "ความสะอาด",
                                 OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
                                 IsActive = true
                             };
@@ -398,6 +469,33 @@ namespace QSC.Api.Controllers
                         int itemIdx = 1;
                         foreach (var iDto in sDto.Items)
                         {
+                            string? catName = !string.IsNullOrWhiteSpace(iDto.CategoryName) ? iDto.CategoryName.Trim() : null;
+                            string? catCode = !string.IsNullOrWhiteSpace(iDto.CategoryCode) ? iDto.CategoryCode.Trim() : null;
+                            if (string.IsNullOrEmpty(catCode) && !string.IsNullOrEmpty(catName))
+                            {
+                                catCode = catName switch
+                                {
+                                    "ความสะอาด" => "CLN",
+                                    "เอกสาร" => "DOC",
+                                    "กระบวนการทำงาน" => "OPS",
+                                    "คุณภาพสินค้า-วัตถุดิบ" => "QLT",
+                                    "การบริการ" => "SVC",
+                                    _ => "GEN"
+                                };
+                            }
+                            if (string.IsNullOrEmpty(catName) && !string.IsNullOrEmpty(catCode))
+                            {
+                                catName = catCode switch
+                                {
+                                    "CLN" => "ความสะอาด",
+                                    "DOC" => "เอกสาร",
+                                    "OPS" => "กระบวนการทำงาน",
+                                    "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                                    "SVC" => "การบริการ",
+                                    _ => "ความสะอาด"
+                                };
+                            }
+
                             var item = new SurveyItem
                             {
                                 SurveySectionId = section.Id,
@@ -405,8 +503,8 @@ namespace QSC.Api.Controllers
                                 QuestionType = iDto.QuestionType,
                                 FullScore = iDto.FullScore,
                                 IsCritical = iDto.IsCritical,
-                                CategoryCode = iDto.CategoryCode,
-                                CategoryName = iDto.CategoryName,
+                                CategoryCode = catCode ?? "GEN",
+                                CategoryName = catName ?? "ความสะอาด",
                                 OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
                                 IsActive = true
                             };

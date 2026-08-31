@@ -11,13 +11,21 @@ import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 
-const DEFAULT_CATEGORIES = [
+export const DEFAULT_CATEGORIES = [
   "ความสะอาด",
   "เอกสาร",
   "กระบวนการทำงาน",
   "คุณภาพสินค้า-วัตถุดิบ",
   "การบริการ"
 ];
+
+export const CATEGORY_CODE_MAP = {
+  "ความสะอาด": "CLN",
+  "เอกสาร": "DOC",
+  "กระบวนการทำงาน": "OPS",
+  "คุณภาพสินค้า-วัตถุดิบ": "QLT",
+  "การบริการ": "SVC"
+};
 
 export const DEFAULT_FORM_METADATA_CONFIG = [
   {
@@ -56,7 +64,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const [locationTypes, setLocationTypes] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
-
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
       return form.metadataConfig;
@@ -118,14 +125,20 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         title: s.title,
         orderIndex: s.orderIndex,
         weightPercent: s.weightPercent || 0,
-        items: (s.items || []).map(i => ({
-          id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
-          text: i.questionText || i.text || i.title || "",
-          type: ((i.questionType || i.type || "yesno").toLowerCase() === "scale") ? "scale" : "yesno",
-          fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
-          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical),
-          category: i.categoryName || i.category || DEFAULT_CATEGORIES[0]
-        }))
+        items: (s.items || []).map(i => {
+          const cat = i.categoryName || i.category || (i.categoryCode === "DOC" ? "เอกสาร" : i.categoryCode === "OPS" ? "กระบวนการทำงาน" : i.categoryCode === "QLT" ? "คุณภาพสินค้า-วัตถุดิบ" : i.categoryCode === "SVC" ? "การบริการ" : DEFAULT_CATEGORIES[0]);
+          return {
+            id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
+            text: i.questionText || i.text || i.title || "",
+            questionText: i.questionText || i.text || i.title || "",
+            type: ((i.questionType || i.type || "yesno").toLowerCase() === "scale") ? "scale" : "yesno",
+            fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
+            critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical),
+            category: cat,
+            categoryName: cat,
+            categoryCode: i.categoryCode || CATEGORY_CODE_MAP[cat] || "GEN"
+          };
+        })
       }));
     }
     return [
@@ -133,7 +146,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         title: "หัวข้อหลัก",
         weightPercent: 0,
         items: [
-          { id: "q1", text: "คำถามรายข้อ", type: "yesno", fullScore: 10, critical: false, category: DEFAULT_CATEGORIES[0] }
+          { id: "q1", text: "คำถามรายข้อ", questionText: "คำถามรายข้อ", type: "yesno", fullScore: 10, critical: false, category: DEFAULT_CATEGORIES[0], categoryName: DEFAULT_CATEGORIES[0], categoryCode: "CLN" }
         ]
       }
     ];
@@ -221,19 +234,31 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   // Add question to section and auto-scroll to it
   const addItemToSection = (secIdx) => {
-    const next = [...sections];
     const newId = "q_" + Date.now();
-    const secTitle = next[secIdx]?.title || "";
+    const secTitle = sections[secIdx]?.title || "";
     const defaultCat = categories.find(c => secTitle.includes(c)) || categories[0] || DEFAULT_CATEGORIES[0];
-    next[secIdx].items.push({
-      id: newId,
-      text: "ระบุข้อคำถามใหม่...",
-      type: "yesno",
-      fullScore: 10,
-      critical: false,
-      category: defaultCat
-    });
-    setSections(next);
+    
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: [
+          ...(sec.items || []),
+          {
+            id: newId,
+            text: "ระบุข้อคำถามใหม่...",
+            questionText: "ระบุข้อคำถามใหม่...",
+            type: "yesno",
+            questionType: "YESNO",
+            fullScore: 10,
+            critical: false,
+            category: defaultCat,
+            categoryName: defaultCat,
+            categoryCode: CATEGORY_CODE_MAP[defaultCat] || "GEN"
+          }
+        ]
+      };
+    }));
 
     // Auto-scroll smooth to newly added question
     setTimeout(() => {
@@ -281,13 +306,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     }
 
     if (deleteTarget.type === "section") {
-      const next = sections.filter((_, idx) => idx !== deleteTarget.secIdx);
-      setSections(next);
+      setSections(prev => prev.filter((_, idx) => idx !== deleteTarget.secIdx));
       //showToast("ลบหมวดหมู่ออกเรียบร้อยแล้ว");
     } else if (deleteTarget.type === "item") {
-      const next = [...sections];
-      next[deleteTarget.secIdx].items = next[deleteTarget.secIdx].items.filter(i => i.id !== deleteTarget.itemId);
-      setSections(next);
+      setSections(prev => prev.map((sec, sIdx) => {
+        if (sIdx !== deleteTarget.secIdx) return sec;
+        return {
+          ...sec,
+          items: (sec.items || []).filter(i => i.id !== deleteTarget.itemId)
+        };
+      }));
       //showToast("ลบข้อคำถามเรียบร้อยแล้ว");
     }
 
@@ -296,32 +324,45 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   // Update question text
   const updateItemText = (secIdx, itemId, newText) => {
-    const next = [...sections];
-    const targetItem = next[secIdx].items.find(i => i.id === itemId);
-    if (targetItem) {
-      targetItem.text = newText;
-      setSections(next);
-    }
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => i.id === itemId ? { ...i, text: newText, questionText: newText } : i)
+      };
+    }));
   };
 
   // Update question type (yesno / scale / text)
   const updateItemType = (secIdx, itemId, newType) => {
-    const next = [...sections];
-    const targetItem = next[secIdx].items.find(i => i.id === itemId);
-    if (targetItem) {
-      targetItem.type = newType;
-      setSections(next);
-    }
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => i.id === itemId ? { ...i, type: newType, questionType: newType } : i)
+      };
+    }));
   };
 
   // Update question category (ความสะอาด, เอกสาร, กระบวนการทำงาน, etc.)
   const updateItemCategory = (secIdx, itemId, newCat) => {
-    const next = [...sections];
-    const targetItem = next[secIdx].items.find(i => i.id === itemId);
-    if (targetItem) {
-      targetItem.category = newCat;
-      setSections(next);
-    }
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => {
+          if (i.id === itemId) {
+            return {
+              ...i,
+              category: newCat,
+              categoryName: newCat,
+              categoryCode: CATEGORY_CODE_MAP[newCat] || "GEN"
+            };
+          }
+          return i;
+        })
+      };
+    }));
   };
 
   // Add new scoring category
@@ -346,11 +387,10 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     setCategories(prev => prev.filter(c => c !== catName));
     // Re-assign items that had this category to the first available category
     const fallbackCat = categories.find(c => c !== catName) || DEFAULT_CATEGORIES[0];
-    const next = sections.map(s => ({
+    setSections(prev => prev.map(s => ({
       ...s,
-      items: s.items.map(item => item.category === catName ? { ...item, category: fallbackCat } : item)
-    }));
-    setSections(next);
+      items: (s.items || []).map(item => (item.category === catName || item.categoryName === catName) ? { ...item, category: fallbackCat, categoryName: fallbackCat, categoryCode: CATEGORY_CODE_MAP[fallbackCat] || "GEN" } : item)
+    })));
     showToast(`ลบหมวดคะแนน "${catName}" เรียบร้อย`);
   };
 
@@ -359,7 +399,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     categories.forEach(c => { counts[c] = 0; });
     sections.forEach(s => {
       s.items.forEach(i => {
-        const cat = i.category || DEFAULT_CATEGORIES[0];
+        const cat = i.category || i.categoryName || DEFAULT_CATEGORIES[0];
         counts[cat] = (counts[cat] || 0) + 1;
       });
     });
@@ -368,19 +408,18 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   // Toggle Critical Failure Flag
   const toggleItemCritical = (secIdx, itemId) => {
-    const next = [...sections];
-    const targetItem = next[secIdx].items.find(i => i.id === itemId);
-    if (targetItem) {
-      targetItem.critical = !targetItem.critical;
-      setSections(next);
-    }
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => i.id === itemId ? { ...i, critical: !i.critical, isCritical: !i.critical } : i)
+      };
+    }));
   };
 
   // Update section title
   const updateSectionTitle = (secIdx, newTitle) => {
-    const next = [...sections];
-    next[secIdx].title = newTitle;
-    setSections(next);
+    setSections(prev => prev.map((sec, sIdx) => sIdx === secIdx ? { ...sec, title: newTitle } : sec));
   };
 
   // Move section Up/Down
@@ -623,15 +662,19 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         title: sec.title,
         orderIndex: sIdx + 1,
         weightPercent: 0,
-        items: (sec.items || []).map((item, iIdx) => ({
-          id: typeof item.id === 'number' ? item.id : undefined,
-          questionText: item.text,
-          questionType: item.type === "scale" ? "SCALE" : (item.type === "text" ? "TEXT" : "YESNO"),
-          fullScore: Number(item.fullScore) || 10,
-          isCritical: !!item.critical,
-          categoryName: item.category || DEFAULT_CATEGORIES[0],
-          orderIndex: iIdx + 1
-        }))
+        items: (sec.items || []).map((item, iIdx) => {
+          const cat = item.category || item.categoryName || DEFAULT_CATEGORIES[0];
+          return {
+            id: typeof item.id === 'number' ? item.id : undefined,
+            questionText: item.text || item.questionText || "",
+            questionType: (item.type || item.questionType) === "scale" ? "SCALE" : "YESNO",
+            fullScore: Number(item.fullScore) || 10,
+            isCritical: !!(item.critical || item.isCritical),
+            categoryCode: item.categoryCode || CATEGORY_CODE_MAP[cat] || "GEN",
+            categoryName: cat,
+            orderIndex: iIdx + 1
+          };
+        })
       }))
     };
 
@@ -878,25 +921,25 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         <div className="space-y-6 animate-in fade-in duration-150">
           {/* 🌟 2.5. SCORING CATEGORIES MANAGER (ประเภทหมวดคะแนน) */}
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold text-sm shrink-0">
-              🏷️
-            </div>
-            <div>
-              <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
-                ประเภทหมวดคะแนนในแบบฟอร์มนี้ (Scoring Categories)
-              </h3>
-              <p className="text-xs text-slate-500">
-                กำหนดหมวดคะแนนที่จะให้แต่ละข้อคำถามนำไปใช้คำนวณสถิติและ Dashboard แยกตามหมวด
-              </p>
-            </div>
-          </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold text-sm shrink-0">
+                  🏷️
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
+                    ประเภทหมวดคะแนนในแบบฟอร์มนี้ (Scoring Categories)
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    กำหนดหมวดคะแนนที่จะให้แต่ละข้อคำถามนำไปใช้คำนวณสถิติและ Dashboard แยกตามหมวด
+                  </p>
+                </div>
+              </div>
 
-          <span className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-100 text-slate-700 self-start sm:self-auto font-mono">
-            {categories.length} หมวดคะแนน
-          </span>
-        </div>
+              <span className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-100 text-slate-700 self-start sm:self-auto font-mono">
+                {categories.length} หมวดคะแนน
+              </span>
+            </div>
 
         {/* Categories Badges List */}
         <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1432,13 +1475,13 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
                   className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs"
                 >
-                  <option value="number">🔢 ตัวเลข / จำนวน (พร้อมระบุหน่วย)</option>
-                  <option value="date">📅 ปฏิทิน (วันที่ วัน/เดือน/ปี)</option>
-                  <option value="time">⏰ เวลา (ชั่วโมง:นาที)</option>
-                  <option value="select">🔘 ตัวเลือกปุ่มกด / Dropdown</option>
-                  <option value="text">📝 ข้อความสั้น (Text)</option>
-                  <option value="textarea">📄 ข้อความยาว / หมายเหตุ (Textarea)</option>
-                  <option value="toggle">🔲 สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
+                  <option value="number">ตัวเลข / จำนวน (พร้อมระบุหน่วย)</option>
+                  <option value="date">ปฏิทิน (วันที่ วัน/เดือน/ปี)</option>
+                  <option value="time">เวลา (ชั่วโมง:นาที)</option>
+                  <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
+                  <option value="text">ข้อความสั้น (Text)</option>
+                  <option value="textarea">ข้อความยาว / หมายเหตุ (Textarea)</option>
+                  <option value="toggle">สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
                 </select>
               </div>
 
@@ -1447,7 +1490,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3">
                   <div>
                     <label className="block text-xs font-bold text-emerald-950 mb-1">
-                      หน่วยของตัวเลข (Unit) เช่น คน, °C, บาท, ชิ้น, นาที, คิว
+                      หน่วยของตัวเลข
                     </label>
                     <input
                       type="text"
@@ -1456,19 +1499,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       placeholder="ระบุหน่วย เช่น คน หรือ °C"
                       className="w-full text-sm font-bold p-2.5 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
                     />
-                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                      <span className="text-[11px] text-emerald-800 font-semibold">ตัวอย่างหน่วย:</span>
-                      {["คน", "°C", "บาท", "ชิ้น", "นาที", "กล่อง", "%"].map(u => (
-                        <button
-                          key={u}
-                          type="button"
-                          onClick={() => setMetaFieldForm({ ...metaFieldForm, unit: u })}
-                          className="px-2 py-0.5 rounded-lg bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer shadow-2xs"
-                        >
-                          {u}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               )}
@@ -1554,7 +1584,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659]"
                 />
                 <span className="text-xs font-bold text-slate-800">
-                  บังคับกรอกข้อมูล (Required *) ก่อนจะข้ามไปหน้าตรวจ
+                  บังคับกรอกข้อมูล
                 </span>
               </label>
             </div>
