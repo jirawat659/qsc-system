@@ -343,16 +343,25 @@ export default function LiveAuditScreen({
   }, []);
 
   const auditorOptions = useMemo(() => {
-    const list = [...usersList];
+    // กรองเฉพาะผู้ใช้งานที่มีสิทธิ์ตรวจ: AUDITOR, ADMIN, STANDARD
+    const allowedRoles = ['AUDITOR', 'ADMIN', 'STANDARD'];
+    const filtered = usersList.filter(u => {
+      const rCode = (u.roleCode || u.role?.code || u.role || '').toUpperCase();
+      return allowedRoles.includes(rCode);
+    });
+
     const currentName = currentUser?.fullName || currentUser?.name || defaultAuditorName;
-    if (currentName && !list.some(u => (u.fullName || u.name) === currentName)) {
-      list.unshift({
-        id: currentUser?.id || 'current',
-        fullName: currentName,
-        roleCode: currentUser?.roleCode || currentUser?.role || 'AUDITOR'
-      });
+    if (currentName && !filtered.some(u => (u.fullName || u.name) === currentName)) {
+      const currentRole = (currentUser?.roleCode || currentUser?.role?.code || currentUser?.role || '').toUpperCase();
+      if (allowedRoles.includes(currentRole) || !filtered.length) {
+        filtered.unshift({
+          id: currentUser?.id || 'current',
+          fullName: currentName,
+          roleCode: currentUser?.roleCode || currentUser?.role || 'AUDITOR'
+        });
+      }
     }
-    return list.filter(u => u.isActive !== false);
+    return filtered.filter(u => u.isActive !== false);
   }, [usersList, currentUser, defaultAuditorName]);
 
   useEffect(() => {
