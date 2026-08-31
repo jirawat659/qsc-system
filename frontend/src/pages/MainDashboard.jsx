@@ -232,6 +232,13 @@ export default function MainDashboard({ onLogout }) {
               initialDraft={activeAuditDraft}
               currentUser={currentUser}
               onClearPlan={() => setPreselectedPlan(null)}
+              onBack={() => {
+                if (preselectedPlan) {
+                  setPreselectedPlan(null);
+                } else {
+                  setScreen("dashboard");
+                }
+              }}
               defaultAuditorName={currentUser.name || "-"}
               onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
               onSaveDraft={(draft) => {
@@ -240,6 +247,7 @@ export default function MainDashboard({ onLogout }) {
               onCompleteAudit={() => {
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
+                setScreen("reports");
               }}
             />
           )}

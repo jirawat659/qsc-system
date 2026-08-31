@@ -192,6 +192,7 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
 export default function LiveAuditScreen({
   preselectedPlan,
   onClearPlan,
+  onBack,
   currentUser: propUser,
   defaultAuditorName = "",
   initialDraft,
