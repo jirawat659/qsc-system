@@ -1,6 +1,8 @@
-﻿import React, { useState } from 'react';
-import { MapPin, Search, Navigation, ExternalLink, Loader2, X, Check, Compass } from 'lucide-react';
+﻿import React, { useState, useEffect, useRef } from 'react';
+import { MapPin, Search, Navigation, ExternalLink, Loader2, X, Check, Compass, ZoomIn, ZoomOut } from 'lucide-react';
 import ModalWrapper from '../../../shared/ModalWrapper';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 export default function LocationGpsSection({
   form,
@@ -15,7 +17,10 @@ export default function LocationGpsSection({
   const [searching, setSearching] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
 
-  // Normalize / auto-correct coordinates (handle Longitude/Latitude swap or missing decimals)
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+
+  // Normalize coordinates (handle Longitude/Latitude swap or missing decimals)
   const sanitizeCoordinates = (rawLat, rawLng) => {
     let lat = typeof rawLat === 'string' ? parseFloat(rawLat) : rawLat;
     let lng = typeof rawLng === 'string' ? parseFloat(rawLng) : rawLng;
@@ -55,6 +60,64 @@ export default function LocationGpsSection({
     setShowMapModal(true);
   };
 
+  // ── 🗺️ INITIALIZE INTERACTIVE LEAFLET MAP WITH CENTER PIN ──
+  useEffect(() => {
+    if (!showMapModal) {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (!mapContainerRef.current) return;
+
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+
+      const initialLat = tempLat || 13.7466;
+      const initialLng = tempLng || 100.5347;
+
+      const map = L.map(mapContainerRef.current, {
+        center: [initialLat, initialLng],
+        zoom: 16,
+        zoomControl: false
+      });
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
+      }).addTo(map);
+
+      // Track center coordinates in real-time as user moves/pans the map
+      map.on('move', () => {
+        const center = map.getCenter();
+        setTempLat(parseFloat(center.lat.toFixed(6)));
+        setTempLng(parseFloat(center.lng.toFixed(6)));
+      });
+
+      map.on('moveend', () => {
+        const center = map.getCenter();
+        setTempLat(parseFloat(center.lat.toFixed(6)));
+        setTempLng(parseFloat(center.lng.toFixed(6)));
+      });
+
+      mapInstanceRef.current = map;
+      map.invalidateSize();
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [showMapModal]);
+
   // ── 🔍 1. SEARCH / PARSE LOCATION (ชื่อสถานที่, ลิงก์ Google Maps, หรือตัวเลขพิกัด) ──
   const handleSearchLocation = async (e) => {
     if (e) e.preventDefault();
@@ -72,6 +135,9 @@ export default function LocationGpsSection({
         const { lat, lng } = sanitizeCoordinates(parseFloat(directCoordMatch[1]), parseFloat(directCoordMatch[2]));
         setTempLat(lat);
         setTempLng(lng);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1 });
+        }
         if (showToast) showToast(`✓ อัปเดตพิกัดสำเร็จ: (${lat}, ${lng})`);
         setSearching(false);
         return;
@@ -83,6 +149,9 @@ export default function LocationGpsSection({
         const { lat, lng } = sanitizeCoordinates(parseFloat(urlCoordMatch[2]), parseFloat(urlCoordMatch[3]));
         setTempLat(lat);
         setTempLng(lng);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1 });
+        }
         if (showToast) showToast(`✓ สกัดพิกัดจาก Google Maps สำเร็จ: (${lat}, ${lng})`);
         setSearching(false);
         return;
@@ -106,7 +175,11 @@ export default function LocationGpsSection({
           setTempAddress(foundAddress);
         }
 
-        if (showToast) showToast(`✓ ค้นพบตำแหน่ง: ${data[0].name || q}`);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1.2 });
+        }
+
+        if (showToast) showToast(`✓ เลื่อนหมุดไปยัง: ${data[0].name || q}`);
       } else {
         if (showToast) showToast(`ไม่พบพิกัดของ "${q}" กรุณาลองระบุชื่ออาคาร/ถนนเพิ่มเติม`, true);
       }
@@ -130,8 +203,11 @@ export default function LocationGpsSection({
         const { lat, lng } = sanitizeCoordinates(pos.coords.latitude, pos.coords.longitude);
         setTempLat(lat);
         setTempLng(lng);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1 });
+        }
         setGpsLoading(false);
-        if (showToast) showToast(`✓ ดึงตำแหน่ง GPS ปัจจุบันสำเร็จ: (${lat}, ${lng})`);
+        if (showToast) showToast(`✓ เลื่อนหมุดไปตำแหน่ง GPS ปัจจุบัน: (${lat}, ${lng})`);
       },
       (err) => {
         setGpsLoading(false);
@@ -209,10 +285,10 @@ export default function LocationGpsSection({
         </button>
       </div>
 
-      {/* ── 🗺️ 3. INTERACTIVE POP-UP MAP MODAL ── */}
+      {/* ── 🗺️ 3. INTERACTIVE POP-UP MAP MODAL WITH RED CENTER PIN ── */}
       {showMapModal && (
         <ModalWrapper onClose={() => setShowMapModal(false)} maxWidth="max-w-md sm:max-w-xl">
-          <div className="p-5 sm:p-6 space-y-4 flex flex-col max-h-[88vh]">
+          <div className="p-5 sm:p-6 space-y-4 flex flex-col max-h-[90vh]">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
@@ -225,7 +301,7 @@ export default function LocationGpsSection({
                     ปักหมุดพิกัดแผนที่สาขา
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    ค้นหาชื่อสถานที่ หรือดึงพิกัดจาก GPS เครื่อง
+                    เลื่อนแผนที่ให้หมุดสีแดงอยู่ตรงตำแหน่งที่ต้องการ
                   </p>
                 </div>
               </div>
@@ -264,7 +340,7 @@ export default function LocationGpsSection({
                 </button>
               </div>
 
-              {/* Quick GPS Button */}
+              {/* Quick GPS Button & Open Maps */}
               <div className="flex items-center justify-between pt-0.5">
                 <button
                   type="button"
@@ -273,7 +349,7 @@ export default function LocationGpsSection({
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all disabled:opacity-50"
                 >
                   {gpsLoading ? <Loader2 size={12} className="animate-spin" /> : <Navigation size={12} />}
-                  <span>ใช้ตำแหน่ง GPS ปัจจุบันของฉัน</span>
+                  <span>ใช้ตำแหน่ง GPS ปัจจุบัน</span>
                 </button>
 
                 <a
@@ -282,52 +358,63 @@ export default function LocationGpsSection({
                   rel="noopener noreferrer"
                   className="text-[11px] font-bold text-slate-500 hover:text-[#0F6659] flex items-center gap-1"
                 >
-                  <span>เปิด Google Maps เต็มจอ</span>
+                  <span>เปิดดูใน Google Maps</span>
                   <ExternalLink size={10} />
                 </a>
               </div>
             </div>
 
-            {/* Live Interactive Map Iframe */}
-            <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-inner bg-slate-100 h-56 sm:h-64 shrink-0">
-              <iframe
-                title="Pop-up Map Pin Preview"
-                width="100%"
-                height="100%"
-                style={{ border: 0 }}
-                loading="lazy"
-                allowFullScreen
-                referrerPolicy="no-referrer-when-downgrade"
-                src={`https://maps.google.com/maps?q=${tempLat},${tempLng}&hl=th&z=16&output=embed`}
-                className="w-full h-full block"
-              />
+            {/* 🔴 INTERACTIVE DRAGGABLE MAP WITH RED CENTER PIN MARKER */}
+            <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-inner bg-slate-100 h-64 sm:h-72 shrink-0">
+              {/* Leaflet Map Canvas */}
+              <div ref={mapContainerRef} className="w-full h-full z-0 cursor-grab active:cursor-grabbing" />
+
+              {/* 🎯 FIXED RED CENTER PIN MARKER (จุดปักหมุดแดงตรงกลางจอ) */}
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full z-[1000] pointer-events-none flex flex-col items-center select-none">
+                <div className="bg-slate-900/90 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full shadow-md mb-1 whitespace-nowrap">
+                  📍 ตำแหน่งที่ปักหมุด
+                </div>
+                <div className="relative flex flex-col items-center">
+                  <MapPin size={38} className="text-red-500 fill-red-500 drop-shadow-lg -mb-1" />
+                  {/* Pin Base Shadow / Target Dot */}
+                  <div className="w-2.5 h-2.5 bg-red-600 rounded-full ring-2 ring-white shadow-md animate-ping" />
+                </div>
+              </div>
+
+              {/* Map Zoom Controls */}
+              <div className="absolute bottom-3 right-3 z-[1000] flex flex-col gap-1 shadow-md rounded-xl overflow-hidden bg-white/90 backdrop-blur-xs border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => mapInstanceRef.current?.zoomIn()}
+                  className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer border-b border-slate-100"
+                  title="ขยายแผนที่"
+                >
+                  <ZoomIn size={15} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => mapInstanceRef.current?.zoomOut()}
+                  className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer"
+                  title="ย่อแผนที่"
+                >
+                  <ZoomOut size={15} />
+                </button>
+              </div>
+
+              {/* Hint badge at top of map */}
+              <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-[1000] bg-white/90 backdrop-blur-xs px-3 py-1 rounded-full border border-slate-200/80 text-[11px] font-semibold text-slate-600 shadow-xs pointer-events-none">
+                เลื่อนแผนที่เพื่อปรับจุดปักหมุด
+              </div>
             </div>
 
-            {/* Latitude & Longitude Manual Control */}
-            <div className="grid grid-cols-2 gap-3 shrink-0">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  ละติจูด (Latitude)
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={tempLat}
-                  onChange={(e) => setTempLat(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-mono text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs"
-                />
+            {/* Latitude & Longitude Real-Time Display */}
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-xs font-bold text-slate-700">พิกัดปัจจุบันที่กึ่งกลาง:</span>
               </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  ลองติจูด (Longitude)
-                </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={tempLng}
-                  onChange={(e) => setTempLng(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-mono text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs"
-                />
+              <div className="font-mono text-xs sm:text-sm font-bold text-[#0F6659]">
+                {tempLat.toFixed(6)}, {tempLng.toFixed(6)}
               </div>
             </div>
 
