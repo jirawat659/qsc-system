@@ -85,28 +85,19 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             return prev;
           }
 
-          const isSenderMe = comment.userId === currentUser?.id || 
-            (comment.userName && (comment.userName === currentUser?.fullName || comment.userName === currentUser?.name));
-
-          const senderLabel = isSenderMe
-            ? `${currentUser?.fullName || currentUser?.name || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
-            : `${comment.userName || "ผู้ใช้งาน"} (${comment.userRole === 'AUDITEE' ? 'สาขา' : 'ผู้ตรวจ/QA'})`;
-
           const newEntry = {
             id: comment.id,
-            who: senderLabel,
+            senderId: comment.userId,
+            senderRole: comment.userRole,
+            senderName: comment.userName || "ผู้ใช้งาน",
+            who: comment.userName || "ผู้ใช้งาน",
             text: comment.comment || comment.message || "",
             time: formatThaiTime(comment.createdAt),
-            isMe: isSenderMe,
             photo: comment.imageUrl ? getFullImageUrl(comment.imageUrl) : null,
             timestamp: comment.createdAt ? new Date(comment.createdAt).getTime() : Date.now()
           };
 
-          const updated = [...prev, newEntry];
-          try {
-            localStorage.setItem(`qsc_cap_chat_${item.id}`, JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
+          return [...prev, newEntry];
         });
 
         // Silent scroll to bottom on new message
@@ -136,23 +127,15 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
   }, [item?.id]);
 
   // Initial timeline from item
-  const [timeline, setTimeline] = useState(() => {
-    const saved = localStorage.getItem(`qsc_cap_chat_${item.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
+  const [timeline, setTimeline] = useState(() => [
+    {
+      who: `${item.unit || "ผู้ตรวจ"} (ผู้ตรวจ)`,
+      senderRole: "AUDITOR",
+      text: item.issueItem || item.title || item.desc || "ตรวจพบข้อบกพร่องตามมาตรฐาน Q.S.C. กรุณาดำเนินการแก้ไขและส่งหลักฐาน",
+      time: item.createdAt || "วันนี้",
+      photo: null
     }
-    return [
-      {
-        who: `${item.unit || "ผู้ตรวจ"} (ผู้ตรวจ)`,
-        text: item.issueItem || item.title || item.desc || "ตรวจพบข้อบกพร่องตามมาตรฐาน Q.S.C. กรุณาดำเนินการแก้ไขและส่งหลักฐาน",
-        time: item.createdAt || "วันนี้",
-        isMe: false,
-        photo: null
-      }
-    ];
-  });
+  ]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -243,16 +226,14 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             usedImgUrls.add(c.imageUrl);
           }
 
-          const senderLabel = isSenderMe
-            ? `${currentUser?.fullName || currentUser?.name || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
-            : `${c.senderName || "ผู้ใช้งาน"} (${c.senderRole === 'AUDITEE' ? 'สาขา' : 'ผู้ตรวจ/QA'})`;
-
           apiTimeline.push({
             id: c.id,
-            who: senderLabel,
+            senderId: c.senderId,
+            senderRole: c.senderRole,
+            senderName: c.senderName,
+            who: c.senderName || "ผู้ใช้งาน",
             text: c.message,
             time: formatThaiTime(c.createdAt),
-            isMe: isSenderMe,
             photo: attachedPhoto,
             timestamp: cTime
           });
@@ -262,21 +243,16 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       // Remaining after images from API (if not already merged with a comment)
       afterImgs.forEach((img) => {
         if (!usedImgUrls.has(img.imageUrl)) {
-          const isUploaderMe = img.uploadedBy === currentUser?.id || 
-            (img.uploaderName && (img.uploaderName === currentUser?.fullName || img.uploaderName === currentUser?.name)) ||
-            (img.uploaderName && img.uploaderName.includes("กานดา") && (currentUser?.username === "kanda" || currentUser?.name?.includes("กานดา")));
-
-          const uploaderLabel = isUploaderMe
-            ? `${currentUser?.fullName || currentUser?.name || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
-            : `${img.uploaderName || "ผู้ใช้งาน"} (${img.uploaderRole === 'AUDITEE' ? 'สาขา' : 'ผู้ตรวจ/QA'})`;
-
           const imgTime = new Date(img.uploadedAt).getTime() || Date.now();
 
           apiTimeline.push({
-            who: uploaderLabel,
+            id: `img_${img.id || imgTime}`,
+            senderId: img.uploadedBy,
+            senderRole: img.uploaderRole,
+            senderName: img.uploaderName,
+            who: img.uploaderName || "ผู้ใช้งาน",
             text: "",
             time: formatThaiTime(img.uploadedAt),
-            isMe: isUploaderMe,
             photo: getFullImageUrl(img.imageUrl),
             timestamp: imgTime
           });
@@ -289,9 +265,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
 
       if (apiTimeline.length > 1 || (apiTimeline.length === 1 && timeline.length <= 1)) {
         setTimeline(apiTimeline);
-        try {
-          localStorage.setItem(`qsc_cap_chat_${item.id}`, JSON.stringify(apiTimeline));
-        } catch (e) {}
       }
     }
   }, [capDetail]);
@@ -539,23 +512,33 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             className="flex-1 overflow-y-auto space-y-4 p-3 sm:p-4 rounded-2xl bg-slate-50/70 border border-slate-200/60 custom-tab-scrollbar min-h-[360px] max-h-[440px] lg:max-h-[500px]"
           >
             {timeline.map((tl, i) => {
-              const isMe = tl.isMe;
+              const isMe = (tl.senderId && currentUser?.id && tl.senderId === currentUser.id) ||
+                (tl.senderRole && role && tl.senderRole.toUpperCase() === role.toUpperCase()) ||
+                (tl.senderName && currentUser?.fullName && tl.senderName === currentUser.fullName) ||
+                (tl.senderName && currentUser?.name && tl.senderName === currentUser.name) ||
+                (tl.isMe === true);
+
+              const senderRoleText = (tl.senderRole === 'AUDITEE' || tl.role === 'AUDITEE') ? 'สาขา' : 'ผู้ตรวจ/QA';
+              const senderDisplayName = isMe 
+                ? `${currentUser?.fullName || currentUser?.name || tl.senderName || tl.who || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
+                : `${tl.senderName || tl.who || "ผู้ใช้งาน"} (${senderRoleText})`;
+
               return (
                 <div 
-                  key={i} 
+                  key={tl.id || i} 
                   className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} space-y-1.5 animate-in fade-in`}
                 >
                   {/* Sender Name & Time */}
                   <div className={`flex items-center gap-2 px-1 ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
                     <span className={`text-xs font-extrabold ${isMe ? 'text-[#0F6659]' : 'text-slate-700'}`}>
-                      {tl.who}
+                      {senderDisplayName}
                     </span>
                     <span className="text-[11px] text-slate-400 font-medium">{tl.time}</span>
                   </div>
 
                   {/* Chat Bubble */}
                   <div 
-                    className={`p-3.5 sm:p-4 rounded-2xl text-xs sm:text-sm font-semibold shadow-2xs max-w-[90%] sm:max-w-[82%] space-y-2.5 leading-relaxed ${
+                    className={`p-3 sm:p-3.5 rounded-2xl text-xs sm:text-sm font-semibold shadow-2xs max-w-[90%] sm:max-w-[85%] space-y-2 leading-relaxed ${
                       isMe
                         ? 'bg-[#0F6659] text-white rounded-tr-xs shadow-emerald-900/10'
                         : 'bg-white text-slate-800 border border-slate-200/90 rounded-tl-xs'
@@ -565,7 +548,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                       <p className="whitespace-pre-wrap">{tl.text}</p>
                     ) : null}
 
-                    {/* Attached Photo inside Bubble */}
+                    {/* Attached Photo inside Bubble (Preserves natural aspect ratio without cropping) */}
                     {tl.photo && (
                       <div 
                         onClick={() => setViewingPhoto(tl.photo)}
@@ -573,15 +556,19 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                           isMe ? 'border-white/20 bg-black/20' : 'border-slate-200 bg-slate-50'
                         }`}
                       >
-                        <img 
-                          src={getFullImageUrl(tl.photo)} 
-                          alt="หลักฐานประกอบ" 
-                          className="w-full h-40 sm:h-48 object-cover group-hover:scale-102 transition-transform duration-200" 
-                        />
+                        <div className="max-h-72 sm:max-h-80 flex items-center justify-center bg-black/5 overflow-hidden p-1">
+                          <img 
+                            src={getFullImageUrl(tl.photo)} 
+                            alt="หลักฐานประกอบ" 
+                            className="w-full max-h-72 sm:max-h-80 object-contain rounded-lg group-hover:scale-102 transition-transform duration-200" 
+                          />
+                        </div>
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
                           <Camera size={16} /> แตะเพื่อขยายรูปภาพ
                         </div>
-                        <div className="p-2 text-[11px] font-bold flex items-center gap-1.5">
+                        <div className={`p-2 text-[11px] font-bold flex items-center gap-1.5 border-t ${
+                          isMe ? 'border-white/10 text-emerald-100' : 'border-slate-200/80 text-slate-600'
+                        }`}>
                           <Camera size={13} />
                           <span>รูปถ่ายหลักฐานการดำเนินการ</span>
                         </div>
