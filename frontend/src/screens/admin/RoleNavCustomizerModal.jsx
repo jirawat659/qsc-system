@@ -144,43 +144,46 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
   const renderPhoneMockup = (isModal = false) => (
     <div className={`${
       isModal 
-        ? "w-full max-w-[320px] sm:max-w-[340px] h-[540px] sm:h-[580px]" 
-        : "w-[280px] sm:w-[290px] h-[490px] sm:h-[520px]"
-    } max-h-full rounded-[38px] border-[6px] border-slate-800 bg-slate-900 p-2 shadow-2xl relative flex flex-col overflow-hidden select-none shrink-0`}>
+        ? "w-full max-w-[320px] sm:max-w-[340px] h-[550px] sm:h-[590px]" 
+        : "w-[280px] sm:w-[290px] h-[500px] sm:h-[530px]"
+    } rounded-[42px] border-[8px] border-slate-800 bg-slate-800 shadow-2xl relative flex flex-col overflow-hidden select-none shrink-0 ${isModal ? "my-auto" : ""}`}>
       
-      {/* Top Dynamic Island / Notch */}
-      <div className="w-24 h-4 bg-slate-950 rounded-full mx-auto flex items-center justify-center shrink-0 z-30 shadow-xs">
-        <div className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-800 mr-2"></div>
-        <div className="w-1.5 h-1.5 rounded-full bg-blue-950"></div>
-      </div>
-
-      {/* Status Bar */}
-      <div className="flex items-center justify-between px-4 py-1 text-[10px] text-slate-400 font-mono shrink-0 z-20">
-        <span className="font-bold text-slate-300">09:00</span>
-        <div className="flex items-center gap-1">
-          <span>5G</span>
-          <div className="w-4 h-2 rounded-xs border border-slate-400 flex items-center p-0.5">
-            <div className="w-full h-full bg-emerald-400 rounded-2xs"></div>
-          </div>
-        </div>
-      </div>
-
-      {/* INSIDE MOCK APP SCREEN */}
-      <div className="flex-1 bg-[#F6F6F3] rounded-3xl overflow-hidden flex flex-col relative border border-slate-200/40">
+      {/* INSIDE MOCK APP SCREEN (Full Edge-to-Edge Canvas) */}
+      <div className="flex-1 bg-[#F6F6F3] overflow-hidden flex flex-col relative">
         
-        {/* Mini Top Bar */}
-        <div className="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-1.5">
-            <div className="w-5 h-5 rounded-md bg-[#0F6659] text-white flex items-center justify-center text-[10px] font-black">
-              Q
-            </div>
-            <div>
-              <div className="text-[11px] font-extrabold text-slate-900 leading-none">Q.S.C.</div>
-              <div className="text-[9px] font-bold text-emerald-700 mt-0.5">{role?.name}</div>
+        {/* Floating Top Dynamic Island / Notch */}
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-4 bg-slate-950 rounded-full z-30 flex items-center justify-center shadow-xs">
+          <div className="w-2 h-2 rounded-full bg-slate-900 border border-slate-800 mr-2"></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-950"></div>
+        </div>
+
+        {/* Top App Header with Status Bar (Seamless White going all the way to the top border) */}
+        <div className="bg-white border-b border-slate-200 shrink-0 pt-2 pb-2.5 px-3 z-20 space-y-1.5">
+          {/* Status Bar */}
+          <div className="flex items-center justify-between text-[10px] text-slate-700 font-mono font-bold px-1">
+            <span>09:00</span>
+            <div className="flex items-center gap-1 text-slate-700">
+              <span className="text-[9px]">5G</span>
+              <div className="w-4 h-2 rounded-xs border border-slate-700 flex items-center p-0.5">
+                <div className="w-full h-full bg-emerald-500 rounded-2xs"></div>
+              </div>
             </div>
           </div>
-          <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[9px] font-bold">
-            {role?.code?.substring(0, 2) || "US"}
+
+          {/* Mini Top Bar */}
+          <div className="flex items-center justify-between pt-0.5">
+            <div className="flex items-center gap-1.5">
+              <div className="w-5 h-5 rounded-md bg-[#0F6659] text-white flex items-center justify-center text-[10px] font-black">
+                Q
+              </div>
+              <div>
+                <div className="text-[11px] font-extrabold text-slate-900 leading-none">Q.S.C.</div>
+                <div className="text-[9px] font-bold text-emerald-700 mt-0.5">{role?.name}</div>
+              </div>
+            </div>
+            <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-[9px] font-bold">
+              {role?.code?.substring(0, 2) || "US"}
+            </div>
           </div>
         </div>
 
@@ -470,7 +473,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                   <div className="p-3 rounded-2xl bg-white border border-slate-200/90 space-y-1.5 flex flex-col justify-between shadow-2xs">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        ⬅️ ปุ่มซ้าย
+                        ปุ่มซ้าย
                       </label>
                       <div className="relative">
                         <select
@@ -503,11 +506,8 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-xs font-black text-emerald-900 flex items-center gap-1">
-                          ⭐ ตรงกลาง
+                          ตรงกลาง
                         </label>
-                        <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">
-                          เด่นลอย
-                        </span>
                       </div>
                       <div className="relative">
                         <select
@@ -521,7 +521,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         >
                           {Object.values(NAV_MODULES_DICT).map((mod) => (
                             <option key={mod.key} value={mod.key}>
-                              ★ {mod.label}
+                              {mod.label}
                             </option>
                           ))}
                         </select>
@@ -539,7 +539,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                   <div className="p-3 rounded-2xl bg-white border border-slate-200/90 space-y-1.5 flex flex-col justify-between shadow-2xs">
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        ➡️ ปุ่มขวา
+                        ปุ่มขวา
                       </label>
                       <div className="relative">
                         <select
@@ -597,7 +597,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
               </div>
 
               {/* Quick Presets Recommendation */}
-              <div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-2 shadow-2xs">
+              {/*<div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-2 shadow-2xs">
                 <span className="text-xs font-bold text-slate-700">แนะนำชุดเมนูตามบทบาทสากล (Best Practices):</span>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -617,7 +617,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                     <div className="text-slate-500 font-mono mt-0.5">ภาพรวม · แชทแก้งาน ★ · ระบบ</div>
                   </button>
                 </div>
-              </div>
+              </div>*/}
 
               {/* Actions: Cancel & Save */}
               <div className="flex items-center gap-3 pt-1">
@@ -666,21 +666,19 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
 
       {/* 📱 POPUP MODAL FOR MOBILE PREVIEW (On Small Screens) */}
       {showPreviewModal && (
-        <ModalWrapper onClose={() => setShowPreviewModal(false)} maxWidth="max-w-[350px] sm:max-w-[370px]">
-          <div className="flex flex-col items-center bg-slate-950 p-2 sm:p-2.5 rounded-[42px] relative shadow-2xl border-2 border-slate-700">
-            {/* Top Bar with Title and Close Button */}
-            <div className="w-full flex items-center justify-between px-3 py-1.5 text-white shrink-0 z-30 mb-1">
+        <ModalWrapper onClose={() => setShowPreviewModal(false)} maxWidth="max-w-sm">
+          <div className="flex flex-col items-center p-4 bg-slate-900 rounded-3xl relative overflow-hidden">
+            <div className="w-full flex items-center justify-between pb-2 text-white mb-1 shrink-0">
               <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-400">
                 <Smartphone size={15} />
-                <span>ตัวอย่างหน้าจอมือถือ</span>
+                <span>Live Preview</span>
               </span>
               <button
                 type="button"
                 onClick={() => setShowPreviewModal(false)}
-                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
-                title="ปิดหน้าต่าง"
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
               >
-                <X size={15} />
+                <X size={16} />
               </button>
             </div>
             {renderPhoneMockup(true)}
