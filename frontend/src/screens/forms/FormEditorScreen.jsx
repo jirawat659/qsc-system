@@ -55,7 +55,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
   const [locationTypes, setLocationTypes] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
-  const [activeEditorTab, setActiveEditorTab] = useState("checklist"); // 'checklist' | 'metadata'
+  const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
 
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
@@ -845,19 +845,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
           type="button"
-          onClick={() => setActiveEditorTab("checklist")}
-          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
-            activeEditorTab === "checklist"
-              ? "bg-[#0F6659] text-white shadow-sm"
-              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-          }`}
-        >
-          <CheckCircle2 size={16} />
-          <span>1. รายการตรวจ & หมวดหมู่ ({totalQuestions} ข้อ)</span>
-        </button>
-
-        <button
-          type="button"
           onClick={() => setActiveEditorTab("metadata")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
             activeEditorTab === "metadata"
@@ -866,10 +853,23 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           }`}
         >
           <SlidersHorizontal size={16} />
-          <span>2. ข้อมูลเริ่มต้นการตรวจ (Audit Details)</span>
+          <span>1. ข้อมูลเริ่มต้นการตรวจ (Audit Details)</span>
           <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-black font-mono">
             {metadataConfig.filter(f => f.enabled !== false).length} ฟิลด์
           </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveEditorTab("checklist")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            activeEditorTab === "checklist"
+              ? "bg-[#0F6659] text-white shadow-sm"
+              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          <CheckCircle2 size={16} />
+          <span>2. รายการตรวจ & หมวดหมู่ ({totalQuestions} ข้อ)</span>
         </button>
       </div>
 
