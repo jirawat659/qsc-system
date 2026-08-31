@@ -11,23 +11,41 @@ export default function AiScheduleAdvisorModal({ onClose }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [aiCooldown, setAiCooldown] = useState(0);
 
-  const fetchRecommendations = async () => {
+  useEffect(() => {
+    if (aiCooldown > 0) {
+      const timer = setInterval(() => {
+        setAiCooldown(prev => (prev > 1 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [aiCooldown]);
+
+  const fetchRecommendations = async (isManual = false) => {
+    if (loading || (isManual && aiCooldown > 0)) return;
     setLoading(true);
     setError(null);
     try {
       const res = await api.get("/ai/schedule-recommendations");
       setData(res.data);
+      if (isManual) {
+        setAiCooldown(15); // ⏳ 15s Cooldown
+      }
     } catch (err) {
       console.error("Failed to load AI schedule recommendations:", err);
-      setError("ไม่สามารถโหลดคำแนะนำจาก AI ได้ กรุณาลองใหม่อีกครั้ง");
+      if (err?.response?.status === 429) {
+        setError(err?.response?.data?.message || "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่");
+      } else {
+        setError("ไม่สามารถโหลดคำแนะนำจาก AI ได้ กรุณาลองใหม่อีกครั้ง");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchRecommendations();
+    fetchRecommendations(false);
   }, []);
 
   const getPriorityBadge = (lvl) => {
@@ -52,9 +70,9 @@ export default function AiScheduleAdvisorModal({ onClose }) {
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-xl">
-      <div className="flex flex-col max-h-[85vh]">
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-teal-50/60 rounded-t-3xl">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-teal-50/60 rounded-t-3xl shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-xs">
               <Sparkles size={19} className="animate-pulse" />
@@ -68,15 +86,20 @@ export default function AiScheduleAdvisorModal({ onClose }) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={fetchRecommendations}
-              disabled={loading}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-white transition-all cursor-pointer disabled:opacity-50"
-              title="วิเคราะห์ใหม่"
+              onClick={() => fetchRecommendations(true)}
+              disabled={loading || aiCooldown > 0}
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1 transition-all ${
+                loading || aiCooldown > 0
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 shadow-2xs cursor-pointer'
+              }`}
+              title={aiCooldown > 0 ? `รอคูลดาวน์อีก ${aiCooldown} วินาที` : "วิเคราะห์ใหม่"}
             >
-              <RefreshCw size={17} className={loading ? "animate-spin text-emerald-600" : ""} />
+              <RefreshCw size={14} className={loading ? "animate-spin text-emerald-600" : ""} />
+              {aiCooldown > 0 ? <span>{aiCooldown}s</span> : null}
             </button>
             <button
               type="button"
@@ -89,7 +112,10 @@ export default function AiScheduleAdvisorModal({ onClose }) {
         </div>
 
         {/* Content Body */}
-        <div className="p-5 overflow-y-auto space-y-4">
+        <div 
+          className="p-5 overflow-y-auto flex-1 overscroll-contain custom-tab-scrollbar space-y-4 transform-gpu"
+          style={{ WebkitOverflowScrolling: 'touch', willChange: 'scroll-position' }}
+        >
           {loading ? (
             <div className="py-12 flex flex-col items-center justify-center gap-2.5 text-center">
               <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center animate-bounce">

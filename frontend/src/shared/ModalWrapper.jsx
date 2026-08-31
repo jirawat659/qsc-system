@@ -22,8 +22,8 @@ export default function ModalWrapper({ children, onClose, maxWidth = "max-w-2xl"
       onClick={closeOnBackdrop ? onClose : undefined}
     >
       <div
-        className={`modal-transition bg-white rounded-3xl ${maxWidth} w-full shadow-2xl overflow-hidden flex flex-col max-h-[82dvh] sm:max-h-[88dvh] my-auto border`}
-        style={{ borderColor: c.border }}
+        className={`modal-transition bg-white rounded-3xl ${maxWidth} w-full shadow-2xl overflow-hidden flex flex-col max-h-[85dvh] sm:max-h-[88dvh] my-auto border transform-gpu`}
+        style={{ borderColor: c.border, transform: 'translateZ(0)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
