@@ -285,7 +285,7 @@ export default function DashboardScreen({ role, isDesktop }) {
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard ภาพรวมมาตรฐาน Q.S.C.</h1>
           <p className="text-sm text-slate-500 font-medium mt-1">ระบบสรุปผลการตรวจประเมินคุณภาพสาขา</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <PeriodDropdown
             value={periodFilter}
             onChange={setPeriodFilter}
@@ -298,16 +298,18 @@ export default function DashboardScreen({ role, isDesktop }) {
             ]}
           />
           <button
-            onClick={() => fetchAiDashboardInsights(true)}
-            disabled={isAiLoading || aiCooldown > 0}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold shadow-sm transition-all flex items-center gap-2 ${
-              isAiLoading || aiCooldown > 0
-                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                : 'bg-[#0F6659] hover:bg-[#0D5449] text-white border-[#0F6659] cursor-pointer'
-            }`}
+            onClick={() => setShowMonthlyModal(true)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
           >
-            <Sparkles size={14} className={isAiLoading ? "animate-spin text-white" : aiCooldown > 0 ? "text-slate-400" : "text-emerald-200"} />
-            <span>{isAiLoading ? "กำลังวิเคราะห์..." : aiCooldown > 0 ? `รอ ${aiCooldown} วิ` : "AI Insights"}</span>
+            <BarChart3 size={13} className="text-[#0F6659]" />
+            <span>รายงานประจำเดือน</span>
+          </button>
+          <button
+            onClick={() => setShowExportModal(true)}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+          >
+            <FileSpreadsheet size={13} className="text-emerald-700" />
+            <span>ส่งออก Excel</span>
           </button>
         </div>
       </div>
@@ -478,9 +480,23 @@ export default function DashboardScreen({ role, isDesktop }) {
       </div>
 
       <div>
-        <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
-          <Sparkles size={16} className="text-[#0F6659]" /> AI Insights
-        </h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <Sparkles size={16} className="text-[#0F6659]" /> AI Insights
+          </h3>
+          <button
+            onClick={() => fetchAiDashboardInsights(true)}
+            disabled={isAiLoading || aiCooldown > 0}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-bold shadow-2xs transition-all flex items-center gap-2 ${
+              isAiLoading || aiCooldown > 0
+                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                : 'bg-[#0F6659] hover:bg-[#0D5449] text-white border-[#0F6659] cursor-pointer active:scale-95'
+            }`}
+          >
+            <Sparkles size={14} className={isAiLoading ? "animate-spin text-white" : aiCooldown > 0 ? "text-slate-400" : "text-emerald-200"} />
+            <span>{isAiLoading ? "กำลังวิเคราะห์..." : aiCooldown > 0 ? `รอ ${aiCooldown} วิ` : "วิเคราะห์ด้วย AI"}</span>
+          </button>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {aiInsightsList.map((ins) => (
             <div key={ins.type} className="rounded-2xl p-4 shadow-sm border flex flex-col gap-2" style={{ background: ins.bg, borderColor: ins.border }}>
