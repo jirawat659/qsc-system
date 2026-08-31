@@ -1654,7 +1654,6 @@ export default function MasterManagementScreen({ onBack }) {
                     {existingBrands.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
-                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มแบรนด์ใหม่...</option>
                   </select>
                 ) : (
                   <input
@@ -1714,7 +1713,6 @@ export default function MasterManagementScreen({ onBack }) {
                     {existingRegions.map(r => (
                       <option key={r} value={r}>{r}</option>
                     ))}
-                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มภูมิภาคใหม่...</option>
                   </select>
                 ) : (
                   <input
@@ -1743,6 +1741,7 @@ export default function MasterManagementScreen({ onBack }) {
                     value={editLocationForm.phone}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, phone: e.target.value })}
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    placeholder="เช่น 02-xxx-xxxx หรือ 08x-xxx-xxxx"
                   />
                 </div>
                 <div>
@@ -2001,7 +2000,7 @@ export default function MasterManagementScreen({ onBack }) {
                     value={locationForm.phone}
                     onChange={(e) => setLocationForm({ ...locationForm, phone: e.target.value })}
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                    placeholder="02-495-7000"
+                    placeholder="เช่น 02-xxx-xxxx หรือ 08x-xxx-xxxx"
                   />
                 </div>
                 <div>
