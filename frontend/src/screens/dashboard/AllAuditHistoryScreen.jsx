@@ -867,43 +867,12 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         </td>
 
                         {/* 6. สถานะ & การดำเนินการ */}
+                        {/* 6. สถานะ */}
                         <td className="py-3.5 px-4 text-center overflow-hidden">
                           <div className="flex items-center justify-center">
-                            {log.type === 'schedule' ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onStartAudit) onStartAudit(log.record);
-                                }}
-                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-[#0F6659] text-white hover:bg-[#0D5449] hover:shadow-md cursor-pointer transition-all active:scale-95 shadow-2xs whitespace-nowrap"
-                                title="คลิกเพื่อเริ่มทำการตรวจสาขานี้ทันที"
-                              >
-                                <Play size={11} className="fill-white" />
-                                <span>เริ่มการตรวจ</span>
-                              </button>
-                            ) : log.type === 'draft' ? (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (onResumeDraft) onResumeDraft(log.record);
-                                  else if (onStartAudit) onStartAudit({ ...log.record, isResume: true });
-                                }}
-                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-amber-500 text-white hover:bg-amber-600 hover:shadow-md cursor-pointer transition-all active:scale-95 shadow-2xs whitespace-nowrap"
-                                title="คลิกเพื่อดำเนินการตรวจต่อ"
-                              >
-                                <Edit3 size={11} />
-                                <span>ตรวจต่อ</span>
-                              </button>
-                            ) : (
-                              <div className="flex items-center justify-center gap-1.5">
-                                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
-                                  {statusText}
-                                </span>
-                                <ChevronRight size={15} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
-                              </div>
-                            )}
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
+                              {statusText}
+                            </span>
                           </div>
                         </td>
                       </tr>
