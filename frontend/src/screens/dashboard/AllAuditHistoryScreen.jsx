@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   Search, ArrowUpDown, ChevronRight, ChevronLeft, CheckCircle2,
   Wrench, AlertTriangle, Download, X, Calendar, User, FileText,
-  Building2, MapPin, Filter, ClipboardCheck, CalendarDays, Award, Plus
+  Building2, MapPin, Filter, ClipboardCheck, CalendarDays, Award, Plus,
+  Play, Edit3
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
@@ -209,7 +210,21 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           formName: formVal,
           auditType: (s.auditType === 'unannounced' || s.auditType === 'spot') ? "นอกกำหนดการ" : (s.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
           status: "pending",
-          record: s
+          record: {
+            ...s,
+            id: s.id,
+            locationId: s.locationId,
+            locationName: branchName,
+            locationFullName: branchFullName,
+            unit: branchName,
+            surveyFormId: formId || s.surveyFormId || s.formId,
+            surveyFormTitle: formVal,
+            formTitle: formVal,
+            formName: formVal,
+            auditType: s.auditType || "announced",
+            auditorName: auditorVal,
+            scheduledDate: s.scheduledDate
+          }
         });
       });
     }
@@ -775,10 +790,16 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                             } else {
                               setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
                             }
-                          } else if (log.type === 'draft' && onResumeDraft) {
-                            onResumeDraft(log.record);
-                          } else if (log.type === 'schedule' && onStartAudit) {
-                            onStartAudit(log.record);
+                          } else if (log.type === 'draft') {
+                            if (onResumeDraft) {
+                              onResumeDraft(log.record);
+                            } else if (onStartAudit) {
+                              onStartAudit({ ...log.record, isResume: true });
+                            }
+                          } else if (log.type === 'schedule') {
+                            if (onStartAudit) {
+                              onStartAudit(log.record);
+                            }
                           }
                         }}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
@@ -845,31 +866,43 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                           </div>
                         </td>
 
-                        {/* 6. สถานะ & Arrow */}
+                        {/* 6. สถานะ & การดำเนินการ */}
                         <td className="py-3.5 px-4 text-center overflow-hidden">
-                          <div className="flex flex-col items-center justify-center gap-1.5">
-                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
-                              {statusText}
-                            </span>
-                            
-                            {log.type === 'draft' && onResumeDraft && (
+                          <div className="flex items-center justify-center">
+                            {log.type === 'schedule' ? (
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); onResumeDraft(log.record); }}
-                                className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md hover:bg-amber-100 font-bold w-full whitespace-nowrap"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (onStartAudit) onStartAudit(log.record);
+                                }}
+                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-[#0F6659] text-white hover:bg-[#0D5449] hover:shadow-md cursor-pointer transition-all active:scale-95 shadow-2xs whitespace-nowrap"
+                                title="คลิกเพื่อเริ่มทำการตรวจสาขานี้ทันที"
                               >
-                                ดำเนินการตรวจต่อ
+                                <Play size={11} className="fill-white" />
+                                <span>เริ่มการตรวจ</span>
                               </button>
-                            )}
-
-                            {log.type === 'schedule' && onStartAudit && (
+                            ) : log.type === 'draft' ? (
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); onStartAudit(log.record); }}
-                                className="text-[10px] bg-[#0F6659] text-white px-2 py-0.5 rounded-md hover:bg-emerald-800 font-bold w-full whitespace-nowrap"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (onResumeDraft) onResumeDraft(log.record);
+                                  else if (onStartAudit) onStartAudit({ ...log.record, isResume: true });
+                                }}
+                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold bg-amber-500 text-white hover:bg-amber-600 hover:shadow-md cursor-pointer transition-all active:scale-95 shadow-2xs whitespace-nowrap"
+                                title="คลิกเพื่อดำเนินการตรวจต่อ"
                               >
-                                เริ่มการตรวจ
+                                <Edit3 size={11} />
+                                <span>ตรวจต่อ</span>
                               </button>
+                            ) : (
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
+                                  {statusText}
+                                </span>
+                                <ChevronRight size={15} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+                              </div>
                             )}
                           </div>
                         </td>
