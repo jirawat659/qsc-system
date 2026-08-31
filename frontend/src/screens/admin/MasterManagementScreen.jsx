@@ -106,7 +106,7 @@ export default function MasterManagementScreen({ onBack }) {
   const [locationForm, setLocationForm] = useState({
     code: '',
     name: '',
-    brandName: 'Urban Burger',
+    brandName: '',
     locationTypeId: 1,
     region: 'กรุงเทพฯ และปริมณฑล',
     address: '',
@@ -264,7 +264,7 @@ export default function MasterManagementScreen({ onBack }) {
     setEditLocationForm({
       code: loc.code || '',
       name: loc.name || '',
-      brandName: loc.brandName || 'Urban Burger',
+      brandName: loc.brandName || '',
       locationTypeId: loc.locationTypeId || 1,
       region: loc.region || 'กรุงเทพฯ และปริมณฑล',
       address: loc.address || '',
@@ -307,7 +307,7 @@ export default function MasterManagementScreen({ onBack }) {
       setLocationForm({
         code: '',
         name: '',
-        brandName: 'Urban Burger',
+        brandName: '',
         locationTypeId: locationTypes[0]?.id || 1,
         region: 'กรุงเทพฯ และปริมณฑล',
         address: '',
@@ -1732,6 +1732,17 @@ export default function MasterManagementScreen({ onBack }) {
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                   placeholder="สาขาไอคอนสยาม"
                   required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">ชื่อแบรนด์ (Brand Name)</label>
+                <input
+                  type="text"
+                  value={locationForm.brandName}
+                  onChange={(e) => setLocationForm({ ...locationForm, brandName: e.target.value })}
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  placeholder="เช่น After You, Mikazuki"
                 />
               </div>
 

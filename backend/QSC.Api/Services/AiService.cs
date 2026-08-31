@@ -144,14 +144,13 @@ namespace QSC.Api.Services
             return _config["AI:Model"] ?? "gemini-1.5-flash";
         }
 
-        // ── 1. 📊 DASHBOARD INSIGHTS (3 กล่องล่าง) ──
+        // DASHBOARD
         public async Task<DashboardAiInsightsDto> GetDashboardInsightsAsync(DateTime? targetMonth = null)
         {
             var month = targetMonth ?? DateTime.UtcNow;
             var startOfMonth = new DateTime(month.Year, month.Month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddTicks(-1);
 
-            // รวบรวมสถิติจริงจาก DB
             var monthRecords = await _context.AuditRecords
                 .AsNoTracking()
                 .Include(r => r.Location)
@@ -171,7 +170,6 @@ namespace QSC.Api.Services
             var passCount = monthRecords.Count(r => r.IsPassed);
             var passRate = totalAudits > 0 ? Math.Round((double)passCount / totalAudits * 100, 1) : 0;
 
-            // ค้นหาข้อที่ตกบ่อยที่สุด
             var defectFrequencies = monthRecords
                 .SelectMany(r => r.Responses)
                 .Where(res => !res.IsPassed && !res.IsNa)
@@ -185,7 +183,6 @@ namespace QSC.Api.Services
                 ? string.Join(", ", defectFrequencies.Select(d => $"{d.Question} ({d.Count} ครั้ง)"))
                 : "ไม่พบข้อบกพร่องร้ายแรง";
 
-            // ลองเรียก Gemini AI
             var apiKey = GetApiKey();
             if (!string.IsNullOrWhiteSpace(apiKey))
             {
@@ -226,7 +223,7 @@ namespace QSC.Api.Services
                 }
             }
 
-            // Fallback สรุปจากข้อมูลจริงอย่างชาญฉลาด
+            // Fallback
             return new DashboardAiInsightsDto
             {
                 Highlight = totalAudits > 0
@@ -243,7 +240,7 @@ namespace QSC.Api.Services
             };
         }
 
-        // ── 2. 📅 SCHEDULE RECOMMENDATIONS (หน้าปฏิทินตรวจ) ──
+        // SCHEDULE
         public async Task<ScheduleAiRecommendationsDto> GetScheduleRecommendationsAsync()
         {
             var now = DateTime.UtcNow;
@@ -320,7 +317,7 @@ namespace QSC.Api.Services
                     reasons.Add("ยังไม่เคยมีประวัติการเข้าตรวจประเมิน");
                 }
 
-                // แนะนำผู้ตรวจตามประวัติเก่า หรือโซนพื้นที่
+                // แนะนำผู้ตรวจ
                 string suggestedAuditor = "";
                 string auditorReason = "";
                 
@@ -361,12 +358,11 @@ namespace QSC.Api.Services
                 .ThenBy(b => b.LastScore ?? 0)
                 .ThenByDescending(b => b.PendingCapCount)
                 .ThenByDescending(b => b.DaysSinceLastAudit)
-                .Take(5)
+                .Take(3)
                 .ToList();
 
             var totalPendingMonthly = branchStats.Count(b => !b.HasAuditedThisMonth);
 
-            // ลองเรียก Gemini เพื่อเขียน Summary และเหตุผลให้สละสลวย
             var apiKey = GetApiKey();
             if (!string.IsNullOrWhiteSpace(apiKey) && ranked.Any())
             {
@@ -378,15 +374,13 @@ namespace QSC.Api.Services
                     var prompt = $@"
 คุณคือ AI ผู้ช่วยวางแผนตารางตรวจมาตรฐาน QSC
 องค์กรมีกฎบังคับ: 'ทุกสาขาต้องได้รับการตรวจอย่างน้อย 1 ครั้งต่อเดือน'
-จงวิเคราะห์สาขาที่จัดอันดับความสำคัญเร่งด่วน 5 อันดับแรกนี้ และสรุปคำแนะนำในรูปแบบ JSON:
+จงวิเคราะห์สาขาที่จัดอันดับความสำคัญเร่งด่วน 3 อันดับแรกนี้ และสรุปคำแนะนำในรูปแบบ JSON:
 {{
   ""summary"": ""ข้อความสรุปภาพรวมแผนการตรวจของเดือน 2-3 ประโยค แนะนำภาพรวมทีม Auditor"",
   ""reasons"": [
      ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 1"",
      ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 2"",
-     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 3"",
-     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 4"",
-     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 5""
+     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 3""
   ]
 }}
 
@@ -414,7 +408,7 @@ namespace QSC.Api.Services
 
                         return new ScheduleAiRecommendationsDto
                         {
-                            Summary = summary ?? $"พบ {totalPendingMonthly} สาขาที่ยังไม่ได้รับการตรวจในเดือนนี้ แนะนำให้ทีมผู้ตรวจจัดตารางลงตรวจ 5 สาขาความเสี่ยงสูงนี้เป็นลำดับแรก",
+                            Summary = summary ?? $"พบ {totalPendingMonthly} สาขาที่ยังไม่ได้รับการตรวจในเดือนนี้ แนะนำให้ทีมผู้ตรวจจัดตารางลงตรวจ 3 สาขาความเสี่ยงสูงนี้เป็นลำดับแรก",
                             Recommendations = ranked,
                             TotalBranchesPendingMonthlyAudit = totalPendingMonthly,
                             GeneratedBy = "Gemini AI"
@@ -436,7 +430,7 @@ namespace QSC.Api.Services
             };
         }
 
-        // ── 3. 💬 CAP CHAT & EVIDENCE ANALYSIS (ห้องแชทแก้งาน) ──
+        // CAP CHAT & EVIDENCE ANALYSIS
         public async Task<CapAiAnalysisDto> AnalyzeCapTaskAsync(int capTaskId)
         {
             var task = await _context.CapTasks
@@ -512,7 +506,7 @@ namespace QSC.Api.Services
                 }
             }
 
-            // Fallback analysis
+            // Fallback
             var hasAfter = afterImgs.Any();
             var hasChat = comments.Count > 0;
 
