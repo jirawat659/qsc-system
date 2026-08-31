@@ -316,7 +316,7 @@ export default function LiveAuditScreen({
   const [comments, setComments] = useState(isResumeDraft ? (parsedDraftPayload?.comments || {}) : {});
   const [openComments, setOpenComments] = useState({});
   const [openNoteId, setOpenNoteId] = useState(null);
-  const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "0") : "0");
+  const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
   const [auditorName, setAuditorName] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
     return currentUser?.fullName || currentUser?.name || defaultAuditorName || "";
