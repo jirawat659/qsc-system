@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using QSC.Api.Data;
+using QSC.Api.Hubs;
 using QSC.Api.Models;
-
 using QSC.Api.Helpers;
 
 namespace QSC.Api.Controllers
@@ -16,11 +17,13 @@ namespace QSC.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _env;
+        private readonly IHubContext<CapChatHub> _hubContext;
 
-        public CapController(AppDbContext context, IWebHostEnvironment env)
+        public CapController(AppDbContext context, IWebHostEnvironment env, IHubContext<CapChatHub> hubContext)
         {
             _context = context;
             _env = env;
+            _hubContext = hubContext;
         }
 
         private static bool IsValidImageSignature(byte[] bytes)
@@ -262,26 +265,50 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
+            if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "งานแก้ไขนี้ถูกปิดแล้ว ไม่สามารถส่งข้อมูลเพิ่มเติมได้ (Cannot submit remediation to a closed CAP task)" });
+            }
+
             task.Status = "SUBMITTED";
             task.CompletedAt = DateTime.UtcNow;
+
+            var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
+            var now = DateTime.UtcNow;
 
             // Add Chat Comment - sender is strictly the authenticated user
             if (!string.IsNullOrWhiteSpace(dto.Message))
             {
-                _context.CapTaskComments.Add(new CapTaskComment
+                var comment = new CapTaskComment
                 {
                     CapTaskId = id,
                     SenderId = currentUserId,
                     SenderRole = role,
                     Message = dto.Message,
-                    CreatedAt = DateTime.UtcNow
-                });
+                    CreatedAt = now
+                };
+                _context.CapTaskComments.Add(comment);
+
+                // Broadcast via SignalR
+                var commentPayload = new
+                {
+                    id = comment.Id,
+                    capTaskId = id,
+                    userId = currentUserId,
+                    userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                    userRole = user?.Role?.Code ?? role,
+                    comment = comment.Message,
+                    message = comment.Message,
+                    imageUrl = (string?)null,
+                    isAuditorComment = false,
+                    createdAt = comment.CreatedAt
+                };
+                await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
             }
 
             // Save AFTER images
             if (dto.ImageUrls.Any())
             {
-                var now = DateTime.UtcNow;
                 foreach (var url in dto.ImageUrls)
                 {
                     var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "cap");
@@ -297,6 +324,16 @@ namespace QSC.Api.Controllers
             }
 
             await _context.SaveChangesAsync();
+
+            // Broadcast real-time status update
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("CapStatusUpdated", new
+            {
+                capTaskId = id,
+                status = task.Status,
+                updatedBy = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                updatedAt = task.CompletedAt
+            });
+
             return Ok(new { message = "ส่งมอบงานแก้ไขเรียบร้อยแล้ว", status = task.Status });
         }
 
@@ -319,23 +356,56 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
-            task.Status = "CLOSED";
-            task.VerifiedBy = currentUserId;
-            task.ClosedAt = DateTime.UtcNow;
+            var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
+            var now = DateTime.UtcNow;
+
+            if (task.Status != "CLOSED")
+            {
+                task.Status = "CLOSED";
+                task.VerifiedBy = currentUserId;
+                task.ClosedAt = now;
+            }
 
             if (!string.IsNullOrWhiteSpace(dto.Note))
             {
-                _context.CapTaskComments.Add(new CapTaskComment
+                var comment = new CapTaskComment
                 {
                     CapTaskId = id,
                     SenderId = currentUserId,
                     SenderRole = role,
                     Message = $"[อนุมัติปิดงาน] {dto.Note}",
-                    CreatedAt = DateTime.UtcNow
-                });
+                    CreatedAt = now
+                };
+                _context.CapTaskComments.Add(comment);
+
+                var commentPayload = new
+                {
+                    id = comment.Id,
+                    capTaskId = id,
+                    userId = currentUserId,
+                    userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                    userRole = user?.Role?.Code ?? role,
+                    comment = comment.Message,
+                    message = comment.Message,
+                    imageUrl = (string?)null,
+                    isAuditorComment = true,
+                    createdAt = comment.CreatedAt
+                };
+                await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
             }
 
             await _context.SaveChangesAsync();
+
+            // Broadcast real-time CLOSED status update
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("CapStatusUpdated", new
+            {
+                capTaskId = id,
+                status = "CLOSED",
+                note = dto.Note,
+                updatedBy = user?.FullName ?? user?.Username ?? "ผู้ตรวจประเมิน",
+                updatedAt = task.ClosedAt ?? now
+            });
+
             return Ok(new { message = "อนุมัติและปิดงานแก้ไขสมบูรณ์แล้ว", status = task.Status });
         }
 
@@ -358,18 +428,51 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
-            task.Status = "REJECTED";
+            if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Cannot reject a closed CAP task" });
+            }
 
-            _context.CapTaskComments.Add(new CapTaskComment
+            task.Status = "REJECTED";
+            var now = DateTime.UtcNow;
+            var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
+
+            var comment = new CapTaskComment
             {
                 CapTaskId = id,
                 SenderId = currentUserId,
                 SenderRole = role,
                 Message = $"[ตีกลับให้แก้ไขใหม่] {dto.Reason}",
-                CreatedAt = DateTime.UtcNow
-            });
+                CreatedAt = now
+            };
+            _context.CapTaskComments.Add(comment);
 
             await _context.SaveChangesAsync();
+
+            var commentPayload = new
+            {
+                id = comment.Id,
+                capTaskId = id,
+                userId = currentUserId,
+                userName = user?.FullName ?? user?.Username ?? "ผู้ตรวจประเมิน",
+                userRole = user?.Role?.Code ?? role,
+                comment = comment.Message,
+                message = comment.Message,
+                imageUrl = (string?)null,
+                isAuditorComment = true,
+                createdAt = comment.CreatedAt
+            };
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
+
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("CapStatusUpdated", new
+            {
+                capTaskId = id,
+                status = "REJECTED",
+                note = dto.Reason,
+                updatedBy = user?.FullName ?? user?.Username ?? "ผู้ตรวจประเมิน",
+                updatedAt = now
+            });
+
             return Ok(new { message = "ส่งข้อความตีกลับให้สาขาแก้ไขใหม่แล้ว", status = task.Status });
         }
 
@@ -393,25 +496,55 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
-            task.Status = dto.Status.ToUpper();
-            if (task.Status == "CLOSED")
+            var now = DateTime.UtcNow;
+            var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
+
+            var newStatus = dto.Status.ToUpper();
+            task.Status = newStatus;
+            if (newStatus == "CLOSED" && !task.ClosedAt.HasValue)
             {
-                task.ClosedAt = DateTime.UtcNow;
+                task.ClosedAt = now;
             }
 
             if (!string.IsNullOrWhiteSpace(dto.Note))
             {
-                _context.CapTaskComments.Add(new CapTaskComment
+                var comment = new CapTaskComment
                 {
                     CapTaskId = id,
                     SenderId = currentUserId,
                     SenderRole = role,
                     Message = $"[{dto.Status}] {dto.Note}",
-                    CreatedAt = DateTime.UtcNow
-                });
+                    CreatedAt = now
+                };
+                _context.CapTaskComments.Add(comment);
+
+                var commentPayload = new
+                {
+                    id = comment.Id,
+                    capTaskId = id,
+                    userId = currentUserId,
+                    userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                    userRole = user?.Role?.Code ?? role,
+                    comment = comment.Message,
+                    message = comment.Message,
+                    imageUrl = (string?)null,
+                    isAuditorComment = true,
+                    createdAt = comment.CreatedAt
+                };
+                await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
             }
 
             await _context.SaveChangesAsync();
+
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("CapStatusUpdated", new
+            {
+                capTaskId = id,
+                status = task.Status,
+                note = dto.Note,
+                updatedBy = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                updatedAt = now
+            });
+
             return Ok(new { message = $"ปรับปรุงสถานะเป็น {task.Status} สำเร็จ", status = task.Status });
         }
 
@@ -433,17 +566,44 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
+            if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { message = "Cannot add comments to a closed CAP task" });
+            }
+
+            var now = DateTime.UtcNow;
+            var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
+
             var comment = new CapTaskComment
             {
                 CapTaskId = id,
                 SenderId = currentUserId,
                 SenderRole = role,
-                Message = dto.Message,
-                CreatedAt = DateTime.UtcNow
+                Message = dto.Message ?? string.Empty,
+                CreatedAt = now
             };
 
             _context.CapTaskComments.Add(comment);
             await _context.SaveChangesAsync();
+
+            bool isAuditorComment = string.Equals(role, "AUDITOR", StringComparison.OrdinalIgnoreCase)
+                                 || string.Equals(role, "ADMIN", StringComparison.OrdinalIgnoreCase)
+                                 || string.Equals(role, "STANDARD", StringComparison.OrdinalIgnoreCase);
+
+            var commentPayload = new
+            {
+                id = comment.Id,
+                capTaskId = id,
+                userId = currentUserId,
+                userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                userRole = user?.Role?.Code ?? role,
+                comment = comment.Message,
+                message = comment.Message,
+                imageUrl = (string?)null,
+                isAuditorComment = isAuditorComment,
+                createdAt = comment.CreatedAt
+            };
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
 
             return Ok(comment);
         }

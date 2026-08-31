@@ -138,7 +138,7 @@ export default function LocationGpsSection({
         if (mapInstanceRef.current) {
           mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1 });
         }
-        if (showToast) showToast(`✓ อัปเดตพิกัดสำเร็จ: (${lat}, ${lng})`);
+        if (showToast) showToast(`อัปเดตพิกัดสำเร็จ: (${lat}, ${lng})`);
         setSearching(false);
         return;
       }
@@ -152,7 +152,7 @@ export default function LocationGpsSection({
         if (mapInstanceRef.current) {
           mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1 });
         }
-        if (showToast) showToast(`✓ สกัดพิกัดจาก Google Maps สำเร็จ: (${lat}, ${lng})`);
+        if (showToast) showToast(`สกัดพิกัดจาก Google Maps สำเร็จ: (${lat}, ${lng})`);
         setSearching(false);
         return;
       }
@@ -179,7 +179,7 @@ export default function LocationGpsSection({
           mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1.2 });
         }
 
-        if (showToast) showToast(`✓ เลื่อนหมุดไปยัง: ${data[0].name || q}`);
+        if (showToast) showToast(`เลื่อนหมุดไปยัง: ${data[0].name || q}`);
       } else {
         if (showToast) showToast(`ไม่พบพิกัดของ "${q}" กรุณาลองระบุชื่ออาคาร/ถนนเพิ่มเติม`, true);
       }
@@ -207,7 +207,7 @@ export default function LocationGpsSection({
           mapInstanceRef.current.flyTo([lat, lng], 17, { duration: 1 });
         }
         setGpsLoading(false);
-        if (showToast) showToast(`✓ เลื่อนหมุดไปตำแหน่ง GPS ปัจจุบัน: (${lat}, ${lng})`);
+        if (showToast) showToast(`เลื่อนหมุดไปตำแหน่ง GPS ปัจจุบัน: (${lat}, ${lng})`);
       },
       (err) => {
         setGpsLoading(false);
@@ -227,7 +227,7 @@ export default function LocationGpsSection({
       address: prev.address ? prev.address : tempAddress
     }));
     setShowMapModal(false);
-    if (showToast) showToast(`✓ บันทึกพิกัดแผนที่ (${lat}, ${lng}) เรียบร้อย`);
+    if (showToast) showToast(`บันทึกพิกัดแผนที่ (${lat}, ${lng}) เรียบร้อย`);
   };
 
   const currentLat = form.latitude ? parseFloat(form.latitude).toFixed(5) : '13.74660';
@@ -241,14 +241,6 @@ export default function LocationGpsSection({
           <label className="block text-sm font-medium text-slate-600">
             ที่อยู่สถานที่ (Address)
           </label>
-          <button
-            type="button"
-            onClick={handleOpenMapModal}
-            className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold flex items-center gap-1 cursor-pointer transition-colors"
-          >
-            <Compass size={13} />
-            <span>ปักหมุดแผนที่ / GPS</span>
-          </button>
         </div>
         <textarea
           value={form.address || ''}
@@ -269,9 +261,6 @@ export default function LocationGpsSection({
             <div className="text-xs font-bold text-slate-800 truncate">
               พิกัด GPS: <span className="font-mono text-emerald-800 font-semibold">{currentLat}, {currentLng}</span>
             </div>
-            <div className="text-[11px] text-slate-400 truncate">
-              ใช้สำหรับตรวจสอบระยะทางตอนผู้ตรวจลงตรวจหน้างาน
-            </div>
           </div>
         </div>
 
@@ -281,7 +270,7 @@ export default function LocationGpsSection({
           className="px-3 py-2 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0 flex items-center gap-1.5"
         >
           <Compass size={13} />
-          <span>ปักหมุด</span>
+          <span>เลือก</span>
         </button>
       </div>
 

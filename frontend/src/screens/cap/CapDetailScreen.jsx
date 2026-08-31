@@ -13,6 +13,7 @@ import ModalWrapper from "../../shared/ModalWrapper";
 import api, { getFullImageUrl } from "../../config/api";
 import { compressImageFile } from "../../utils/imageCompressor";
 import AiCapAdvisorModal from "../../modals/AiCapAdvisorModal";
+import signalrService from "../../services/signalrService";
 
 // 🇹🇭 Helper to correctly parse UTC timestamps into Thailand Local Time (UTC+7)
 const formatThaiTime = (dateInput) => {
@@ -69,6 +70,69 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
 
   useEffect(() => {
     loadCapDetail();
+
+    const parsedId = typeof item?.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item?.id;
+    if (!parsedId) return;
+
+    // 🌟 Join defect-isolated SignalR room (cap_{capTaskId})
+    signalrService.joinCapRoom(parsedId);
+
+    // 🌟 Listen for live incoming messages (SILENT MODE: Zero audio alerts, live visual UI stream only)
+    const unsubMessage = signalrService.onReceiveCapMessage((comment) => {
+      if (comment.capTaskId === parsedId) {
+        setTimeline((prev) => {
+          if (prev.some((m) => m.id === comment.id || (m.timestamp && comment.createdAt && m.timestamp === new Date(comment.createdAt).getTime()))) {
+            return prev;
+          }
+
+          const isSenderMe = comment.userId === currentUser?.id || 
+            (comment.userName && (comment.userName === currentUser?.fullName || comment.userName === currentUser?.name));
+
+          const senderLabel = isSenderMe
+            ? `${currentUser?.fullName || currentUser?.name || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
+            : `${comment.userName || "ผู้ใช้งาน"} (${comment.userRole === 'AUDITEE' ? 'สาขา' : 'ผู้ตรวจ/QA'})`;
+
+          const newEntry = {
+            id: comment.id,
+            who: senderLabel,
+            text: comment.comment || comment.message || "",
+            time: formatThaiTime(comment.createdAt),
+            isMe: isSenderMe,
+            photo: comment.imageUrl ? getFullImageUrl(comment.imageUrl) : null,
+            timestamp: comment.createdAt ? new Date(comment.createdAt).getTime() : Date.now()
+          };
+
+          const updated = [...prev, newEntry];
+          try {
+            localStorage.setItem(`qsc_cap_chat_${item.id}`, JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+
+        // Silent scroll to bottom on new message
+        setTimeout(() => {
+          if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+          }
+        }, 50);
+      }
+    });
+
+    // 🌟 Listen for live status updates (Instant UI lock on CLOSED status without page reload)
+    const unsubStatus = signalrService.onCapStatusUpdated((statusUpdate) => {
+      if (statusUpdate.capTaskId === parsedId) {
+        const newStatus = (statusUpdate.status || "").toUpperCase();
+        setLocalStatus(newStatus);
+        setCapDetail((prev) => prev ? { ...prev, status: newStatus } : prev);
+        if (refreshData) refreshData();
+      }
+    });
+
+    return () => {
+      unsubMessage();
+      unsubStatus();
+      signalrService.leaveCapRoom(parsedId);
+    };
   }, [item?.id]);
 
   // Initial timeline from item
@@ -233,51 +297,38 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
   const st = CAP_STATUS_MAP[currentStatus] || (isClosed ? CAP_STATUS_MAP.done : CAP_STATUS_MAP.pending);
 
   const send = async () => {
-    if (!reply.trim() && !hasPhoto) return;
+    if (isClosed || (!reply.trim() && !hasPhoto)) return;
     setIsSending(true);
 
     const senderName = currentUser?.fullName || currentUser?.name || (role === "AUDITEE" ? "ผู้จัดการสาขา" : "ผู้ตรวจ/QA");
     const sentReply = reply.trim();
     const sentPhoto = hasPhoto ? photoBase64 : null;
 
-    const newMsg = {
-      id: "msg_" + Date.now(),
-      who: `${senderName} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`,
-      text: sentReply,
-      time: formatThaiTime(new Date()),
-      isMe: true,
-      photo: sentPhoto
-    };
-
-    // 1. Instantly record in state & localStorage (Immediate save)
-    setTimeline(prev => {
-      const updated = [...prev, newMsg];
-      try {
-        localStorage.setItem(`qsc_cap_chat_${item.id}`, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
-
     setReply("");
     setHasPhoto(false);
     setPhotoBase64(null);
 
-    // 2. Persist to API immediately
     try {
       const parsedId = typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id;
       if (parsedId) {
-        if (sentPhoto) {
-          await api.post(`/cap/${parsedId}/submit`, {
-            userId: currentUser?.id || 1,
-            message: sentReply,
-            imageUrls: [sentPhoto]
-          });
-        } else if (sentReply) {
-          await api.post(`/cap/${parsedId}/comments`, {
-            senderId: currentUser?.id || 1,
-            senderRole: role,
-            message: sentReply
-          });
+        // Try real-time SignalR hub first
+        try {
+          await signalrService.sendCapMessage(parsedId, sentReply, sentPhoto);
+        } catch (sigErr) {
+          console.warn("SignalR send failed, using REST API fallback:", sigErr);
+          if (sentPhoto) {
+            await api.post(`/cap/${parsedId}/submit`, {
+              userId: currentUser?.id || 1,
+              message: sentReply,
+              imageUrls: [sentPhoto]
+            });
+          } else if (sentReply) {
+            await api.post(`/cap/${parsedId}/comments`, {
+              senderId: currentUser?.id || 1,
+              senderRole: role,
+              message: sentReply
+            });
+          }
         }
         await loadCapDetail();
       }
@@ -576,33 +627,43 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
           <div className="flex items-center gap-2 pt-1">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 cursor-pointer transition-all border shadow-2xs active:scale-95 ${
-                hasPhoto 
-                  ? 'bg-emerald-100 text-[#0F6659] border-emerald-400 shadow-xs' 
-                  : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-800'
+              disabled={isClosed}
+              onClick={() => !isClosed && fileInputRef.current?.click()}
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-all border shadow-2xs ${
+                isClosed
+                  ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
+                  : hasPhoto 
+                  ? 'bg-emerald-100 text-[#0F6659] border-emerald-400 shadow-xs cursor-pointer active:scale-95' 
+                  : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-800 cursor-pointer active:scale-95'
               }`}
-              title="ถ่ายรูปหรือเลือกรูปจากเครื่อง"
+              title={isClosed ? "ตั๋วงานนี้ปิดแล้ว ไม่สามารถแนบรูปถ่ายได้" : "ถ่ายรูปหรือเลือกรูปจากเครื่อง"}
             >
               <Camera size={20} />
             </button>
 
             <input
               value={reply}
+              disabled={isClosed}
               onChange={(e) => setReply(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-              placeholder="พิมพ์ข้อความตอบกลับหรือรายงานผล..."
-              className="flex-1 text-xs sm:text-sm px-4 py-3.5 rounded-2xl outline-none font-bold bg-slate-50/70 border border-slate-200 shadow-2xs focus:bg-white focus:border-[#0F6659] transition-all text-slate-900 placeholder:text-slate-400"
+              onKeyDown={(e) => { if (e.key === "Enter" && !isClosed) send(); }}
+              placeholder={isClosed ? "ตั๋วงานนี้ได้รับการอนุมัติและปิดงานเรียบร้อยแล้ว (ไม่สามารถส่งข้อความได้)" : "พิมพ์ข้อความตอบกลับหรือรายงานผล..."}
+              className={`flex-1 text-xs sm:text-sm px-4 py-3.5 rounded-2xl outline-none font-bold border shadow-2xs transition-all ${
+                isClosed
+                  ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed placeholder:text-slate-400"
+                  : "bg-slate-50/70 border-slate-200 focus:bg-white focus:border-[#0F6659] text-slate-900 placeholder:text-slate-400"
+              }`}
             />
 
-            <button 
-              type="button"
-              onClick={send} 
-              className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 cursor-pointer shadow-md bg-[#0F6659] hover:bg-[#0B4E44] text-white active:scale-95 transition-all"
-              title="ส่งข้อความ"
-            >
-              <Send size={18} />
-            </button>
+            {!isClosed && (
+              <button 
+                type="button"
+                onClick={send} 
+                className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 cursor-pointer shadow-md bg-[#0F6659] hover:bg-[#0B4E44] text-white active:scale-95 transition-all"
+                title="ส่งข้อความ"
+              >
+                <Send size={18} />
+              </button>
+            )}
           </div>
 
           {/* 🌟 ONLY 1 BUTTON: APPROVE & CLOSE CAP (Visible only for QA / Admin / Standard when NOT closed) */}

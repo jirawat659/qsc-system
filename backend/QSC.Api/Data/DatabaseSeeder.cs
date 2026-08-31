@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using QSC.Api.Helpers;
 using QSC.Api.Models;
 
 namespace QSC.Api.Data
@@ -26,27 +27,103 @@ namespace QSC.Api.Data
             {
                 var conn = context.Database.GetDbConnection();
                 if (conn.State != System.Data.ConnectionState.Open) conn.Open();
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = "PRAGMA table_info(AuditSchedules);";
-                using var reader = cmd.ExecuteReader();
-                bool hasTime = false;
-                while (reader.Read())
+
+                // 1. AuditSchedules.Time
+                using (var cmd = conn.CreateCommand())
                 {
-                    if (string.Equals(reader["name"]?.ToString(), "Time", StringComparison.OrdinalIgnoreCase))
+                    cmd.CommandText = "PRAGMA table_info(AuditSchedules);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasTime = false;
+                    while (reader.Read())
                     {
-                        hasTime = true;
-                        break;
+                        if (string.Equals(reader["name"]?.ToString(), "Time", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasTime = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasTime)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE AuditSchedules ADD COLUMN Time TEXT;";
+                        alterCmd.ExecuteNonQuery();
                     }
                 }
-                reader.Close();
-                if (!hasTime)
+
+                // 2. Roles.NavConfigJson
+                using (var cmd = conn.CreateCommand())
                 {
-                    using var alterCmd = conn.CreateCommand();
-                    alterCmd.CommandText = "ALTER TABLE AuditSchedules ADD COLUMN Time TEXT;";
-                    alterCmd.ExecuteNonQuery();
+                    cmd.CommandText = "PRAGMA table_info(Roles);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasNavConfig = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "NavConfigJson", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasNavConfig = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasNavConfig)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE Roles ADD COLUMN NavConfigJson TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                // 3. CapTaskComments.ImageUrl
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(CapTaskComments);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasImageUrl = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "ImageUrl", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasImageUrl = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasImageUrl)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE CapTaskComments ADD COLUMN ImageUrl TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] Migration warning: {ex.Message}");
+            }
+
+            // Backfill existing roles if NavConfigJson is NULL or empty
+            try
+            {
+                var existingRoles = context.Roles.ToList();
+                bool roleUpdated = false;
+                foreach (var role in existingRoles)
+                {
+                    if (string.IsNullOrWhiteSpace(role.NavConfigJson))
+                    {
+                        role.NavConfigJson = RoleNavHelper.GetDefaultNavConfigJson(role.Code);
+                        roleUpdated = true;
+                    }
+                }
+                if (roleUpdated)
+                {
+                    context.SaveChanges();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] Role NavConfig backfill warning: {ex.Message}");
+            }
 
             // Check if already seeded with rich dataset (>= 15 locations and >= 5 audit records)
             if (!forceRecreate && context.Locations.Count() >= 15 && context.AuditRecords.Count() >= 5)
@@ -83,11 +160,11 @@ namespace QSC.Api.Data
             // ==========================================
             // 1. SEED ROLES
             // ==========================================
-            var adminRole = new Role { Code = "ADMIN", Name = "ผู้ดูแลระบบ (Admin)", Description = "จัดการผู้ใช้ สิทธิ์ และการตั้งค่าระบบทั้งหมด" };
-            var auditorRole = new Role { Code = "AUDITOR", Name = "ผู้ตรวจประเมิน (QA Auditor)", Description = "ลงพื้นที่ตรวจหน้างาน บันทึกผล และเปิดตั๋ว CAP" };
-            var auditeeRole = new Role { Code = "AUDITEE", Name = "ผู้จัดการสาขา (Store Manager)", Description = "ดูผลตรวจสาขาตนเอง ชี้แจงและส่งงานแก้ไข CAP" };
-            var standardRole = new Role { Code = "STANDARD", Name = "ผู้ดูแลมาตรฐาน (QA Director)", Description = "สร้างแบบฟอร์ม วางแผนตรวจ และอนุมัติปิดงาน CAP" };
-            var execRole = new Role { Code = "EXEC", Name = "ผู้บริหารระดับสูง (Executive / COO)", Description = "ดูสรุปผลภาพรวมและวิเคราะห์สถิติระดับองค์กร" };
+            var adminRole = new Role { Code = "ADMIN", Name = "ผู้ดูแลระบบ (Admin)", Description = "จัดการผู้ใช้ สิทธิ์ และการตั้งค่าระบบทั้งหมด", NavConfigJson = RoleNavHelper.GetDefaultNavConfigJson("ADMIN") };
+            var auditorRole = new Role { Code = "AUDITOR", Name = "ผู้ตรวจประเมิน (QA Auditor)", Description = "ลงพื้นที่ตรวจหน้างาน บันทึกผล และเปิดตั๋ว CAP", NavConfigJson = RoleNavHelper.GetDefaultNavConfigJson("AUDITOR") };
+            var auditeeRole = new Role { Code = "AUDITEE", Name = "ผู้จัดการสาขา (Store Manager)", Description = "ดูผลตรวจสาขาตนเอง ชี้แจงและส่งงานแก้ไข CAP", NavConfigJson = RoleNavHelper.GetDefaultNavConfigJson("AUDITEE") };
+            var standardRole = new Role { Code = "STANDARD", Name = "ผู้ดูแลมาตรฐาน (QA Director)", Description = "สร้างแบบฟอร์ม วางแผนตรวจ และอนุมัติปิดงาน CAP", NavConfigJson = RoleNavHelper.GetDefaultNavConfigJson("STANDARD") };
+            var execRole = new Role { Code = "EXEC", Name = "ผู้บริหารระดับสูง (Executive / COO)", Description = "ดูสรุปผลภาพรวมและวิเคราะห์สถิติระดับองค์กร", NavConfigJson = RoleNavHelper.GetDefaultNavConfigJson("EXEC") };
 
             context.Roles.AddRange(adminRole, auditorRole, auditeeRole, standardRole, execRole);
             context.SaveChanges();

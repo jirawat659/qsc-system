@@ -4,12 +4,14 @@ import {
   Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw,
   MapPin, Phone, Shield, ArrowUpDown, UserCheck, Layers, ExternalLink,
   SlidersHorizontal, CheckSquare, Square, Globe, Lock, ArrowLeft,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Smartphone
 } from 'lucide-react';
 import api from '../../config/api';
 import Header from '../../shared/Header';
 import ModalWrapper from '../../shared/ModalWrapper';
-import { ROLES } from '../../config/roles';
+import { ROLES, getRoleNavConfig, NAV_MODULES_DICT } from '../../config/roles';
+import authStorage from '../../config/storage';
+import RoleNavCustomizerModal from './RoleNavCustomizerModal';
 import { DataContext } from '../../context/DataContext';
 import UserManagementTab from './components/UserManagementTab';
 import LocationManagementTab from './components/LocationManagementTab';
@@ -126,6 +128,29 @@ export default function MasterManagementScreen({ onBack }) {
     description: '',
     permissionIds: []
   });
+  const [customizingNavRole, setCustomizingNavRole] = useState(null);
+
+  const handleOpenNavCustomizer = (role, e) => {
+    e?.stopPropagation();
+    setCustomizingNavRole(role);
+  };
+
+  const handleSaveNavSuccess = (updatedRole, newNavConfig) => {
+    showToast(`✓ บันทึกการตั้งค่าแถบเมนูสำหรับบทบาท "${updatedRole.name || updatedRole.code}" สำเร็จ`);
+    setCustomizingNavRole(null);
+    loadAllData();
+
+    // If the logged-in user shares the updated role, synchronize their session immediately
+    const currentUser = authStorage.getUser();
+    if (currentUser && (currentUser.role === updatedRole.code || currentUser.roleId === updatedRole.id)) {
+      const updatedUser = {
+        ...currentUser,
+        navConfig: newNavConfig,
+        navConfigJson: JSON.stringify(newNavConfig)
+      };
+      authStorage.setUser(updatedUser);
+    }
+  };
 
   // Forms states for New Creation
   const [userForm, setUserForm] = useState({
@@ -959,46 +984,100 @@ export default function MasterManagementScreen({ onBack }) {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filteredRoles.map((r) => (
-                <div
-                  key={r.id}
-                  onClick={() => handleOpenEditRole(r)}
-                  className="p-4.5 rounded-2xl border border-slate-200 hover:border-purple-500 bg-white transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-3.5 flex flex-col justify-between group"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-purple-900 bg-purple-100 px-2.5 py-1 rounded-md border border-purple-200 font-mono">
-                        {r.code}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <Shield size={18} className="text-purple-600" />
-                        <ChevronRight size={18} className="text-slate-300 group-hover:text-purple-600 group-hover:translate-x-0.5 transition-all" />
-                      </div>
-                    </div>
-                    <div className="mt-2.5">
-                      <h4 className="text-base font-black text-slate-900 group-hover:text-purple-700 transition-colors">{r.name}</h4>
-                      <p className="text-xs text-slate-500 mt-1">{r.description || "บทบาทการทำงานในระบบ"}</p>
-                    </div>
-                    <div className="pt-2.5 border-t border-slate-100 mt-2">
-                      <span className="text-xs font-extrabold text-slate-400">สิทธิ์ที่เปิดใช้งาน ({r.permissions?.length || 0}):</span>
-                      <div className="flex flex-wrap gap-1.5 mt-2 max-h-28 overflow-y-auto">
-                        {(r.permissions || []).map((p, i) => (
-                          <span key={i} className="text-xs font-bold px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
-                            ✓ {p}
-                          </span>
-                        ))}
-                        {(!r.permissions || r.permissions.length === 0) && (
-                          <span className="text-xs text-slate-400">สิทธิ์มาตรฐานตามบทบาท</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+              {filteredRoles.map((r) => {
+                const roleNavItems = getRoleNavConfig(r.code, r.navConfig || r.navConfigJson);
 
-                  <div className="pt-2.5 border-t border-slate-100 flex justify-between text-xs text-slate-400">
-                    <span className="group-hover:text-purple-700 font-extrabold transition-colors">แตะเพื่อกำหนดสิทธิ์</span>
+                return (
+                  <div
+                    key={r.id}
+                    className="p-4.5 rounded-2xl border border-slate-200 bg-white transition-all shadow-2xs hover:shadow-xs space-y-3.5 flex flex-col justify-between group"
+                  >
+                    <div>
+                      {/* Role Header */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-purple-900 bg-purple-100 px-2.5 py-1 rounded-md border border-purple-200 font-mono">
+                          {r.code}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <Shield size={18} className="text-purple-600" />
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5">
+                        <h4 className="text-base font-black text-slate-900 group-hover:text-purple-700 transition-colors">
+                          {r.name}
+                        </h4>
+                        <p className="text-xs text-slate-500 mt-1">{r.description || "บทบาทการทำงานในระบบ"}</p>
+                      </div>
+
+                      {/* 🌟 Current Navigation Bar Preview Pills */}
+                      <div className="pt-2.5 border-t border-slate-100 mt-2 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-extrabold text-slate-400">แถบเมนูด้านล่าง (3 ช่อง):</span>
+                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                            ปุ่มกลางเด่น ★
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-center">
+                          {roleNavItems.map((slotItem, sIdx) => {
+                            const isCenter = sIdx === 1 || slotItem.slot === "center";
+                            return (
+                              <div
+                                key={sIdx}
+                                className={`py-1 px-1 rounded-lg text-[10px] truncate font-bold ${
+                                  isCenter
+                                    ? "bg-[#0F6659] text-white shadow-2xs"
+                                    : "bg-white text-slate-700 border border-slate-200"
+                                }`}
+                                title={slotItem.label}
+                              >
+                                {isCenter ? `★ ${slotItem.label}` : slotItem.label}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Permissions overview */}
+                      <div className="pt-2.5 border-t border-slate-100 mt-2">
+                        <span className="text-[11px] font-extrabold text-slate-400">สิทธิ์ที่เปิดใช้งาน ({r.permissions?.length || 0}):</span>
+                        <div className="flex flex-wrap gap-1.5 mt-1.5 max-h-20 overflow-y-auto">
+                          {(r.permissions || []).map((p, i) => (
+                            <span key={i} className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-600">
+                              ✓ {p}
+                            </span>
+                          ))}
+                          {(!r.permissions || r.permissions.length === 0) && (
+                            <span className="text-[11px] text-slate-400">สิทธิ์มาตรฐานตามบทบาท</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => handleOpenNavCustomizer(r, e)}
+                        className="py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border border-emerald-200"
+                        title="ปรับแต่งแถบเมนูด้านล่างสำหรับบทบาทนี้"
+                      >
+                        <Smartphone size={14} />
+                        <span>ปรับแต่งเมนู</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleOpenEditRole(r)}
+                        className="py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border border-purple-200"
+                        title="กำหนดสิทธิ์การเข้าถึงโมดูล"
+                      >
+                        <Shield size={14} />
+                        <span>กำหนดสิทธิ์</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1741,7 +1820,7 @@ export default function MasterManagementScreen({ onBack }) {
                     value={editLocationForm.phone}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, phone: e.target.value })}
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                    placeholder="เช่น 02-xxx-xxxx หรือ 08x-xxx-xxxx"
+                    placeholder="เช่น 02-xxx-xxxx"
                   />
                 </div>
                 <div>
@@ -2000,7 +2079,7 @@ export default function MasterManagementScreen({ onBack }) {
                     value={locationForm.phone}
                     onChange={(e) => setLocationForm({ ...locationForm, phone: e.target.value })}
                     className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                    placeholder="เช่น 02-xxx-xxxx หรือ 08x-xxx-xxxx"
+                    placeholder="เช่น 02-xxx-xxxx"
                   />
                 </div>
                 <div>
@@ -2359,6 +2438,15 @@ export default function MasterManagementScreen({ onBack }) {
             </form>
           </div>
         </ModalWrapper>
+      )}
+
+      {/* 5. MODAL: CUSTOMIZE ROLE NAVIGATION */}
+      {customizingNavRole && (
+        <RoleNavCustomizerModal
+          role={customizingNavRole}
+          onClose={() => setCustomizingNavRole(null)}
+          onSaveSuccess={handleSaveNavSuccess}
+        />
       )}
 
     </div>

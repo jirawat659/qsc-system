@@ -11,7 +11,7 @@ namespace QSC.Api.Models
         public User? Sender { get; set; }
         public string SenderRole { get; set; } = "AUDITEE"; // AUDITEE, QA, ADMIN
         public string Message { get; set; } = string.Empty;
+        public string? ImageUrl { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }
-

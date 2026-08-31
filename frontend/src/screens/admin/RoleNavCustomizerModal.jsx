@@ -1,0 +1,642 @@
+import React, { useState, useMemo } from "react";
+import {
+  LayoutDashboard, Plus, MoreHorizontal, MessageSquare,
+  ClipboardCheck, CalendarDays, Settings, ClipboardList,
+  BarChart3, Check, AlertTriangle, RotateCcw, X,
+  Smartphone, ArrowRightLeft, Shield, Eye
+} from "lucide-react";
+import api from "../../config/api";
+import ModalWrapper from "../../shared/ModalWrapper";
+import {
+  NAV_MODULES_DICT,
+  DEFAULT_ROLE_NAV_CONFIGS,
+  validateNavSlots,
+  getDefaultNavKeysForRole
+} from "../../config/roles";
+
+export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess }) {
+  // Parse initial config
+  const initialConfig = useMemo(() => {
+    if (role?.navConfig && typeof role.navConfig === "object") {
+      return {
+        left: role.navConfig.left || "dashboard",
+        center: role.navConfig.center || "audit",
+        right: role.navConfig.right || "more"
+      };
+    }
+    if (role?.navConfigJson) {
+      try {
+        const parsed = JSON.parse(role.navConfigJson);
+        if (parsed && parsed.left && parsed.center && parsed.right) {
+          return {
+            left: parsed.left,
+            center: parsed.center,
+            right: parsed.right
+          };
+        }
+      } catch (e) {
+        console.warn("Failed to parse role navConfigJson:", e);
+      }
+    }
+    const defaultForRole = getDefaultNavKeysForRole(role?.code);
+    return { ...defaultForRole };
+  }, [role]);
+
+  const [slotConfig, setSlotConfig] = useState(initialConfig);
+  const [activePreviewSlot, setActivePreviewSlot] = useState("center");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  // Validation Logic
+  const validation = useMemo(() => {
+    const { left, center, right } = slotConfig;
+    const errors = {};
+    const duplicates = [];
+
+    if (!left) errors.left = "กรุณาเลือกโมดูลสำหรับปุ่มซ้าย";
+    if (!center) errors.center = "กรุณาเลือกโมดูลสำหรับปุ่มหลักตรงกลาง";
+    if (!right) errors.right = "กรุณาเลือกโมดูลสำหรับปุ่มขวา";
+
+    if (left && center && left === center) duplicates.push({ slots: ["left", "center"], module: left });
+    if (left && right && left === right) duplicates.push({ slots: ["left", "right"], module: left });
+    if (center && right && center === right) duplicates.push({ slots: ["center", "right"], module: center });
+
+    if (duplicates.length > 0) {
+      duplicates.forEach(d => {
+        d.slots.forEach(s => {
+          const modName = NAV_MODULES_DICT[d.module]?.label || d.module;
+          errors[s] = `โมดูล "${modName}" ถูกเลือกซ้ำกัน`;
+        });
+      });
+    }
+
+    const { isValid: basicValid, error: basicError } = validateNavSlots(left, center, right);
+    const isValid = basicValid && Object.keys(errors).length === 0;
+    return { isValid, errors, duplicates, basicError };
+  }, [slotConfig]);
+
+  // Handle slot change
+  const handleSlotChange = (slotKey, newModuleKey) => {
+    setSlotConfig(prev => ({
+      ...prev,
+      [slotKey]: newModuleKey
+    }));
+  };
+
+  // Smart Auto-Swap for duplicates
+  const handleAutoSwap = (slotA, slotB) => {
+    setSlotConfig(prev => ({
+      ...prev,
+      [slotA]: prev[slotB],
+      [slotB]: prev[slotA]
+    }));
+  };
+
+  // Reset to default role preset
+  const handleResetToDefault = () => {
+    const defaultPreset = getDefaultNavKeysForRole(role?.code);
+    setSlotConfig({ ...defaultPreset });
+    setToastMessage({ type: "info", text: "รีเซ็ตค่าเป็นค่าเริ่มต้นของบทบาทเรียบร้อย" });
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Save handler
+  const handleSave = async (e) => {
+    e?.preventDefault();
+    if (!validation.isValid) {
+      setToastMessage({ type: "error", text: "กรุณาแก้ไขข้อผิดพลาดในการเลือกโมดูลก่อนบันทึก (ต้องไม่ซ้ำกันทั้ง 3 ช่อง)" });
+      setTimeout(() => setToastMessage(null), 3500);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        left: slotConfig.left,
+        center: slotConfig.center,
+        right: slotConfig.right
+      };
+
+      const response = await api.put(`/role/${role.id}/nav-config`, payload);
+      
+      setToastMessage({ type: "success", text: `✓ บันทึกการกำหนดแถบเมนูของ "${role.name}" สำเร็จ` });
+      
+      if (onSaveSuccess) {
+        onSaveSuccess(response.data?.role || { ...role, navConfig: payload, navConfigJson: JSON.stringify(payload) }, payload);
+      }
+      
+      setTimeout(() => {
+        onClose();
+      }, 700);
+    } catch (err) {
+      console.error("Error saving role nav config:", err);
+      const serverMsg = err.response?.data?.message || "บันทึกการกำหนดแถบเมนูไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+      setToastMessage({ type: "error", text: serverMsg });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const activeModuleKey = slotConfig[activePreviewSlot] || slotConfig.center;
+  const activeModule = NAV_MODULES_DICT[activeModuleKey] || NAV_MODULES_DICT.dashboard;
+
+  return (
+    <ModalWrapper onClose={onClose} maxWidth="max-w-4xl" closeOnBackdrop={false}>
+      <div className="flex flex-col h-full max-h-[88vh] bg-white rounded-3xl overflow-hidden shadow-2xl">
+        
+        {/* MODAL HEADER */}
+        <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-slate-50/60 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shadow-2xs">
+              <Smartphone size={22} strokeWidth={2.2} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
+                  ปรับแต่งแถบเมนูนำทาง (Dynamic Navigation)
+                </h3>
+                <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-200">
+                  {role?.code}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                กำหนดตำแหน่ง 3 เมนูด้านล่างสำหรับบทบาท: <span className="font-bold text-slate-800">{role?.name}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="ปิดหน้าต่าง"
+            className="w-9 h-9 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* TOAST ALERT NOTIFICATION BANNER */}
+        {toastMessage && (
+          <div
+            className={`px-5 py-2.5 text-xs font-bold flex items-center justify-between transition-all shrink-0 ${
+              toastMessage.type === "success"
+                ? "bg-emerald-600 text-white"
+                : toastMessage.type === "error"
+                ? "bg-rose-600 text-white"
+                : "bg-blue-600 text-white"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {toastMessage.type === "success" && <Check size={16} />}
+              {toastMessage.type === "error" && <AlertTriangle size={16} />}
+              <span>{toastMessage.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="text-white/80 hover:text-white"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* MODAL BODY (2-COLUMN LAYOUT) */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* 👈 LEFT COLUMN: CONFIGURATION CONTROLS (7 Cols) */}
+          <div className="lg:col-span-7 space-y-5">
+            
+            {/* Slot Configuration Form */}
+            <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  การกำหนดตำแหน่งเมนู (3 ช่อง)
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetToDefault}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0F6659] hover:underline cursor-pointer"
+                >
+                  <RotateCcw size={13} />
+                  <span>รีเซ็ตตามบทบาท</span>
+                </button>
+              </div>
+
+              {/* 1. LEFT SLOT SELECTOR */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  ช่องซ้าย (Left Slot) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={slotConfig.left}
+                    onChange={(e) => handleSlotChange("left", e.target.value)}
+                    className={`w-full py-2.5 px-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-semibold bg-white outline-none cursor-pointer appearance-none transition-all ${
+                      validation.errors.left
+                        ? "border-rose-400 text-rose-800 bg-rose-50/30 ring-2 ring-rose-300"
+                        : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20"
+                    }`}
+                  >
+                    {Object.values(NAV_MODULES_DICT).map((mod) => (
+                      <option key={mod.key} value={mod.key}>
+                        {mod.label} ({mod.englishLabel}) — {mod.desc.substring(0, 32)}...
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {validation.errors.left && (
+                  <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
+                    <AlertTriangle size={12} />
+                    {validation.errors.left}
+                  </p>
+                )}
+              </div>
+
+              {/* 2. CENTER SLOT SELECTOR (PRIMARY ACTION FAB) */}
+              <div className="p-3.5 rounded-xl bg-emerald-50/60 border-2 border-emerald-500/40 space-y-1.5 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                    <label className="text-xs font-black text-emerald-900">
+                      ปุ่มหลักตรงกลาง (Center Floating Button)
+                    </label>
+                  </div>
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">
+                    Primary Action (FAB)
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-800/80 font-medium">
+                  ปุ่มตรงกลางจะแสดงผลเป็นปุ่มกลมนูนเด่นสีเขียว (Floating Button) อัตโนมัติ
+                </p>
+                <div className="relative pt-1">
+                  <select
+                    value={slotConfig.center}
+                    onChange={(e) => handleSlotChange("center", e.target.value)}
+                    className={`w-full py-2.5 px-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-black bg-white outline-none cursor-pointer appearance-none transition-all ${
+                      validation.errors.center
+                        ? "border-rose-400 text-rose-800 bg-rose-50/30 ring-2 ring-rose-300"
+                        : "border-emerald-300 text-[#0F6659] focus:border-[#0F6659] focus:ring-2 focus:ring-emerald-500/20"
+                    }`}
+                  >
+                    {Object.values(NAV_MODULES_DICT).map((mod) => (
+                      <option key={mod.key} value={mod.key}>
+                        ★ {mod.label} ({mod.englishLabel}) — {mod.desc.substring(0, 32)}...
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {validation.errors.center && (
+                  <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
+                    <AlertTriangle size={12} />
+                    {validation.errors.center}
+                  </p>
+                )}
+              </div>
+
+              {/* 3. RIGHT SLOT SELECTOR */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700">
+                  ช่องขวา (Right Slot) <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={slotConfig.right}
+                    onChange={(e) => handleSlotChange("right", e.target.value)}
+                    className={`w-full py-2.5 px-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-semibold bg-white outline-none cursor-pointer appearance-none transition-all ${
+                      validation.errors.right
+                        ? "border-rose-400 text-rose-800 bg-rose-50/30 ring-2 ring-rose-300"
+                        : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20"
+                    }`}
+                  >
+                    {Object.values(NAV_MODULES_DICT).map((mod) => (
+                      <option key={mod.key} value={mod.key}>
+                        {mod.label} ({mod.englishLabel}) — {mod.desc.substring(0, 32)}...
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {validation.errors.right && (
+                  <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
+                    <AlertTriangle size={12} />
+                    {validation.errors.right}
+                  </p>
+                )}
+              </div>
+
+              {/* DUPLICATE WARNING & AUTO-SWAP BANNER */}
+              {validation.duplicates.length > 0 && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <h5 className="text-xs font-bold text-rose-900">ตรวจพบการเลือกโมดูลซ้ำในตำแหน่ง</h5>
+                      <p className="text-[11px] text-rose-700 mt-0.5">
+                        แถบเมนูต้องมีโมดูลไม่ซ้ำกันครบทั้ง 3 ช่อง กรุณาเลือกโมดูลที่ไม่ซ้ำ
+                      </p>
+                    </div>
+                  </div>
+                  {validation.duplicates.map((dup, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleAutoSwap(dup.slots[0], dup.slots[1])}
+                      className="w-full py-1.5 px-3 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100/50 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <ArrowRightLeft size={13} />
+                      <span>สลับตำแหน่ง ({dup.slots[0]} ⇄ {dup.slots[1]}) อัตโนมัติ</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Quick Presets Recommendation */}
+            <div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-2">
+              <span className="text-xs font-bold text-slate-700">แนะนำชุดเมนูตามบทบาทสากล (Best Practices):</span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSlotConfig({ left: "dashboard", center: "audit", right: "more" })}
+                  className="p-2 rounded-xl text-left bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-[11px] transition-all cursor-pointer"
+                >
+                  <div className="font-bold text-slate-800">สำหรับผู้ตรวจ (Auditor)</div>
+                  <div className="text-slate-500 font-mono">ภาพรวม · ตรวจหน้างาน ★ · ระบบ</div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSlotConfig({ left: "dashboard", center: "cap", right: "more" })}
+                  className="p-2 rounded-xl text-left bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-[11px] transition-all cursor-pointer"
+                >
+                  <div className="font-bold text-slate-800">สำหรับสาขา (Store Manager)</div>
+                  <div className="text-slate-500 font-mono">ภาพรวม · แชทแก้งาน ★ · ระบบ</div>
+                </button>
+              </div>
+            </div>
+
+            {/* Actions: Cancel & Save */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold cursor-pointer transition-all active:scale-98"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!validation.isValid || isSubmitting}
+                className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold text-white shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 ${
+                  !validation.isValid || isSubmitting
+                    ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
+                    : "bg-[#0F6659] hover:bg-emerald-800 cursor-pointer shadow-emerald-900/20"
+                }`}
+              >
+                {isSubmitting ? (
+                  <span>กำลังบันทึก...</span>
+                ) : (
+                  <>
+                    <Check size={16} />
+                    <span>บันทึกการตั้งค่า</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* 👉 RIGHT COLUMN: INTERACTIVE SMARTPHONE MINI-PREVIEW (5 Cols) */}
+          <div className="lg:col-span-5 flex flex-col items-center justify-center">
+            
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mb-2">
+              <Eye size={14} className="text-[#0F6659]" />
+              <span>ภาพจำลองหน้าจอสมาร์ตโฟน (Interactive Live Preview)</span>
+            </div>
+
+            {/* REALISTIC SMARTPHONE SHELL */}
+            <div className="w-[280px] sm:w-[300px] h-[550px] rounded-[38px] border-[6px] border-slate-800 bg-slate-900 p-2 shadow-2xl relative flex flex-col overflow-hidden select-none">
+              
+              {/* Top Dynamic Island / Notch */}
+              <div className="w-24 h-4 bg-slate-950 rounded-full mx-auto flex items-center justify-center shrink-0 z-30 shadow-xs">
+                <div className="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-800 mr-2"></div>
+                <div className="w-1.5 h-1.5 rounded-full bg-blue-950"></div>
+              </div>
+
+              {/* Status Bar */}
+              <div className="flex items-center justify-between px-4 py-1 text-[10px] text-slate-400 font-mono shrink-0 z-20">
+                <span className="font-bold text-slate-300">09:41</span>
+                <div className="flex items-center gap-1">
+                  <span>5G</span>
+                  <div className="w-4 h-2 rounded-xs border border-slate-400 flex items-center p-0.5">
+                    <div className="w-full h-full bg-emerald-400 rounded-2xs"></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* INSIDE MOCK APP SCREEN */}
+              <div className="flex-1 bg-[#F6F6F3] rounded-3xl overflow-hidden flex flex-col relative border border-slate-200/40">
+                
+                {/* Mini Top Bar */}
+                <div className="px-3 py-2 bg-white border-b border-slate-200 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-5 h-5 rounded-md bg-[#0F6659] text-white flex items-center justify-center text-[10px] font-black">
+                      Q
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-extrabold text-slate-900 leading-none">Q.S.C.</div>
+                      <div className="text-[9px] font-bold text-emerald-700 mt-0.5">{role?.name}</div>
+                    </div>
+                  </div>
+                  <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-[9px] font-bold">
+                    {role?.code?.substring(0, 2) || "US"}
+                  </div>
+                </div>
+
+                {/* Mock Screen Content Reactive to Active Slot */}
+                <div className="flex-1 p-2.5 overflow-y-auto space-y-2 pb-16">
+                  <div className="p-2.5 rounded-xl bg-white border border-slate-200 shadow-2xs space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                        หน้าปัจจุบัน (Active View)
+                      </span>
+                      <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${activeModule.bgColor} ${activeModule.textColor}`}>
+                        {activeModule.label}
+                      </span>
+                    </div>
+                    <h4 className="text-xs font-black text-slate-900">{activeModule.label} ({activeModule.englishLabel})</h4>
+                    <p className="text-[10px] text-slate-500 leading-snug">{activeModule.desc}</p>
+                  </div>
+
+                  {/* Contextual mini mock cards */}
+                  {activeModuleKey === "dashboard" && (
+                    <div className="space-y-1.5">
+                      <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
+                        <div className="text-[9px] font-bold text-emerald-800">คะแนนเฉลี่ยรวม</div>
+                        <div className="text-sm font-black text-[#0F6659]">94.8% (ผ่านเกณฑ์)</div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-white border border-slate-200 text-[10px] space-y-1">
+                        <div className="flex justify-between font-bold">
+                          <span>สาขาที่ตรวจแล้ว</span>
+                          <span className="text-[#0F6659]">18/20 สาขา</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="w-[90%] h-full bg-[#0F6659]"></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeModuleKey === "audit" && (
+                    <div className="space-y-1.5">
+                      <div className="p-2 rounded-xl bg-teal-50 border border-teal-200">
+                        <div className="text-[9px] font-bold text-teal-800">งานตรวจหน้างานที่มอบหมาย</div>
+                        <div className="text-[11px] font-extrabold text-teal-950">สาขา CTW - Central World</div>
+                      </div>
+                      <div className="p-2 rounded-xl bg-white border border-slate-200 text-[10px] text-slate-600">
+                        ✓ 1. ความสะอาดบริเวณจุดบริการ<br />
+                        ✓ 2. อุณหภูมิตู้แช่วัตถุดิบ (&lt; 4°C)
+                      </div>
+                    </div>
+                  )}
+
+                  {activeModuleKey === "cap" && (
+                    <div className="space-y-1.5">
+                      <div className="p-1.5 rounded-lg bg-white border border-slate-200 text-[9px] text-slate-700">
+                        <span className="font-bold text-slate-900">Auditor:</span> รบกวนส่งรูปแก้งานจุดที่ 3 ครับ
+                      </div>
+                      <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[9px] text-emerald-900 ml-3">
+                        <span className="font-bold">สาขา:</span> อัปโหลดรูปภาพแก้ไขเรียบร้อยแล้วครับ
+                      </div>
+                    </div>
+                  )}
+
+                  {activeModuleKey === "schedule" && (
+                    <div className="p-2 rounded-xl bg-sky-50 border border-sky-200 text-[10px] space-y-1 text-sky-900">
+                      <div className="font-bold">📅 แผนงานสัปดาห์นี้</div>
+                      <div>• จันทร์: สาขาพระราม 9</div>
+                      <div>• พุธ: สาขาสยามพารากอน</div>
+                    </div>
+                  )}
+
+                  {activeModuleKey === "forms" && (
+                    <div className="p-2 rounded-xl bg-purple-50 border border-purple-200 text-[10px] space-y-1 text-purple-900">
+                      <div className="font-bold">📋 แบบฟอร์มมาตรฐาน</div>
+                      <div>• เกณฑ์ตรวจ QSC ปี 2026 (50 ข้อ)</div>
+                    </div>
+                  )}
+
+                  {activeModuleKey === "reports" && (
+                    <div className="p-2 rounded-xl bg-blue-50 border border-blue-200 text-[10px] space-y-1 text-blue-900">
+                      <div className="font-bold">📊 รายงานวิเคราะห์</div>
+                      <div>• ส่งออกคะแนนรายสาขา (Excel)</div>
+                    </div>
+                  )}
+
+                  {activeModuleKey === "more" && (
+                    <div className="p-2 rounded-xl bg-slate-100 border border-slate-200 text-[10px] space-y-1 text-slate-700">
+                      <div className="font-bold">⚙️ เมนูตั้งค่าระบบ</div>
+                      <div>• จัดการผู้ใช้งานและสิทธิ์</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 🌟 CURVED DYNAMIC BOTTOM NAVIGATION BAR */}
+                <div className="absolute bottom-0 left-0 right-0 h-[56px] flex items-center justify-around px-2 z-20">
+                  {/* Elevated Curved Vector Background Path */}
+                  <svg
+                    className="absolute inset-0 w-full h-[76px] pointer-events-none -top-5 drop-shadow-[0_-3px_12px_rgba(0,0,0,0.08)]"
+                    viewBox="0 0 380 86"
+                    preserveAspectRatio="none"
+                  >
+                    <path
+                      d="M 18 26 
+                         L 138 26 
+                         C 156 26, 166 0, 190 0 
+                         C 214 0, 224 26, 242 26 
+                         L 362 26 
+                         A 16 16 0 0 1 378 42 
+                         L 378 70 
+                         A 16 16 0 0 1 362 86 
+                         L 18 86 
+                         A 16 16 0 0 1 2 70 
+                         L 2 42 
+                         A 16 16 0 0 1 18 26 
+                         Z"
+                      fill="#FFFFFF"
+                      stroke="#E2E8F0"
+                      strokeWidth="1.3"
+                    />
+                  </svg>
+
+                  {/* 1. Left Slot Item */}
+                  {(() => {
+                    const mod = NAV_MODULES_DICT[slotConfig.left] || NAV_MODULES_DICT.dashboard;
+                    const Icon = mod.icon;
+                    const active = activePreviewSlot === "left";
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setActivePreviewSlot("left")}
+                        className={`flex-1 flex flex-col items-center justify-center py-1 cursor-pointer relative z-20 transition-all ${
+                          active ? "text-[#0F6659] font-black" : "text-slate-400 hover:text-slate-600"
+                        }`}
+                      >
+                        <Icon size={16} strokeWidth={active ? 2.5 : 2} />
+                        <span className="text-[8.5px] mt-0.5 truncate max-w-[70px]">{mod.label}</span>
+                      </button>
+                    );
+                  })()}
+
+                  {/* 2. Center Slot Item (Primary Floating Action Button) */}
+                  {(() => {
+                    const mod = NAV_MODULES_DICT[slotConfig.center] || NAV_MODULES_DICT.audit;
+                    const Icon = mod.icon;
+                    const active = activePreviewSlot === "center";
+                    return (
+                      <div className="flex-1 flex flex-col items-center relative -top-3.5 z-20">
+                        <button
+                          type="button"
+                          onClick={() => setActivePreviewSlot("center")}
+                          className={`w-[42px] h-[42px] rounded-full flex items-center justify-center text-white cursor-pointer bg-gradient-to-tr from-[#075A4E] via-[#0F6659] to-emerald-500 shadow-md shadow-emerald-950/30 active:scale-90 transition-all ${
+                            active ? "ring-2 ring-emerald-400 shadow-lg scale-105" : "hover:scale-105"
+                          }`}
+                        >
+                          <Icon size={19} strokeWidth={2.5} />
+                        </button>
+                        <span className={`text-[8.5px] mt-0.5 truncate max-w-[70px] ${active ? "font-black text-[#0F6659]" : "font-bold text-slate-700"}`}>
+                          {mod.label}
+                        </span>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 3. Right Slot Item */}
+                  {(() => {
+                    const mod = NAV_MODULES_DICT[slotConfig.right] || NAV_MODULES_DICT.more;
+                    const Icon = mod.icon;
+                    const active = activePreviewSlot === "right";
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setActivePreviewSlot("right")}
+                        className={`flex-1 flex flex-col items-center justify-center py-1 cursor-pointer relative z-20 transition-all ${
+                          active ? "text-[#0F6659] font-black" : "text-slate-400 hover:text-slate-600"
+                        }`}
+                      >
+                        <Icon size={16} strokeWidth={active ? 2.5 : 2} />
+                        <span className="text-[8.5px] mt-0.5 truncate max-w-[70px]">{mod.label}</span>
+                      </button>
+                    );
+                  })()}
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </ModalWrapper>
+  );
+}

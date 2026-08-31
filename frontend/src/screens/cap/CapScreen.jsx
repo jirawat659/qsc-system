@@ -34,7 +34,7 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import CapDetailScreen from "./CapDetailScreen";
 import NewRemediationModal from "./NewRemediationModal";
 import api from "../../config/api";
-
+import signalrService from "../../services/signalrService";
 
 export default function CapScreen({ isDesktop, onBack, role = "STANDARD", currentUser }) {
   const { capTasks, locations, refreshData } = React.useContext(DataContext);
@@ -42,6 +42,16 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
   const [showNewModal, setShowNewModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+
+  useEffect(() => {
+    // 🌟 Subscribe to global SignalR status updates to refresh task list
+    const unsub = signalrService.onCapStatusUpdated(() => {
+      if (refreshData) refreshData();
+    });
+    return () => {
+      unsub();
+    };
+  }, [refreshData]);
 
   const capList = useMemo(() => {
     let tasks = capTasks || [];

@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../config/theme";
-import { ROLES, NAV_BY_ROLE } from "../config/roles";
+import { ROLES, NAV_BY_ROLE, getRoleNavConfig, NAV_MODULES_DICT } from "../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP } from "../config/constants";
 import { TopBarContext } from "../context/TopBarContext";
 import { DataContext } from "../context/DataContext";
@@ -107,8 +107,13 @@ export default function MainDashboard({ onLogout }) {
   const [toastText, setToastText] = useState(null);
   const [subHeader, setSubHeader] = useState(null);
   
-  const nav = NAV_BY_ROLE[role] || NAV_BY_ROLE.AUDITOR;
-  const [screen, setScreen] = useState(nav[0]?.key || "dashboard");
+  // 🌟 Dynamic 3-slot navigation configuration per role
+  const nav = useMemo(() => {
+    const userNavConfig = storedUser?.navConfig || storedUser?.navConfigJson;
+    return getRoleNavConfig(role, userNavConfig);
+  }, [role, storedUser]);
+
+  const [screen, setScreen] = useState(() => nav[0]?.key || "dashboard");
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
   const [preselectedPlan, setPreselectedPlan] = useState(null);
@@ -126,7 +131,9 @@ export default function MainDashboard({ onLogout }) {
         branchScope: storedUser.branchScope,
         allowedLocationIds: storedUser.allowedLocationIds || [],
         avatar: (storedUser.fullName || storedUser.username || "US").substring(0, 2),
-        permissions: storedUser.permissions || []
+        permissions: storedUser.permissions || [],
+        navConfig: storedUser.navConfig,
+        navConfigJson: storedUser.navConfigJson
       };
     }
     return {
@@ -145,7 +152,7 @@ export default function MainDashboard({ onLogout }) {
   const handleRoleChange = (r) => {
     setRole(r);
     authStorage.setRole(r);
-    const newNav = NAV_BY_ROLE[r] || NAV_BY_ROLE.AUDITOR;
+    const newNav = getRoleNavConfig(r, storedUser?.navConfig || storedUser?.navConfigJson);
     setScreen(newNav[0]?.key || "dashboard");
   };
 
@@ -176,11 +183,11 @@ export default function MainDashboard({ onLogout }) {
   const renderCurrentScreen = () => {
     return (
       <ErrorBoundary>
-        {screen === "history" && (
+        {(screen === "reports" || screen === "history") && (
           <ConsolidatedReportsScreen
             onBack={undefined}
             currentAuditorName={currentUser.name}
-            title="ประวัติการตรวจของฉัน"
+            title="รายงานผลการตรวจประเมิน"
           />
         )}
         {screen === "audit" && role === "AUDITOR" && !preselectedPlan && (
@@ -459,12 +466,13 @@ export default function MainDashboard({ onLogout }) {
               />
             </svg>
 
-            {/* 🌟 2. NAVIGATION BUTTONS */}
-            {nav.map((item) => {
+            {/* 🌟 2. NAVIGATION BUTTONS (3 SLOTS) */}
+            {nav.map((item, index) => {
               const Icon = item.icon;
               const active = screen === item.key;
+              const isCenter = item.isPrimary || item.slot === "center" || index === 1;
 
-              if (item.isPrimary) {
+              if (isCenter) {
                 return (
                   <div key={item.key} className="flex-1 flex flex-col items-center relative -top-4.5 z-20">
                     <button
@@ -472,7 +480,7 @@ export default function MainDashboard({ onLogout }) {
                       onClick={() => handleNavClick(item.key)}
                       aria-label={item.label}
                       title={item.label}
-                      className={`w-[50px] h-[50px] rounded-full flex items-center justify-center text-white cursor-pointer bg-gradient-to-tr from-[#075A4E] via-[#0F6659] to-emerald-500 shadow-md shadow-emerald-950/25 active:scale-90 transition-all duration-200 ${active ? "ring-2 ring-emerald-500 shadow-lg" : "hover:scale-105"}`}
+                      className={`w-[50px] h-[50px] rounded-full flex items-center justify-center text-white cursor-pointer bg-gradient-to-tr from-[#075A4E] via-[#0F6659] to-emerald-500 shadow-md shadow-emerald-950/25 active:scale-90 transition-all duration-200 ${active ? "ring-2 ring-emerald-500 shadow-lg scale-105" : "hover:scale-105"}`}
                     >
                       <Icon size={23} strokeWidth={2.5} />
                     </button>

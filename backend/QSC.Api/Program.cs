@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QSC.Api.Data;
+using QSC.Api.Hubs;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,7 +39,7 @@ builder.Services.AddCors(options =>
         .AllowCredentials());
 });
 
-// ตั้งค่า JWT Authentication
+// ตั้งค่า JWT Authentication & SignalR WebSocket Token Support
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "QscApi";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "QscFrontend";
@@ -56,8 +57,24 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwtAudience,
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
+
+        // 🌟 Handle JWT Token from SignalR WebSocket Query String (?access_token=...)
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = accessToken;
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
+builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
 
@@ -87,6 +104,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapControllers();
+app.MapHub<CapChatHub>("/hubs/cap-chat");
 
 // 🌟 Run Database Seeder on Startup (only seed if database is new or empty)
 using (var scope = app.Services.CreateScope())

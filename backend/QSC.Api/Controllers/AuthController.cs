@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QSC.Api.Data;
+using QSC.Api.Helpers;
 using QSC.Api.Models;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -117,6 +118,12 @@ namespace QSC.Api.Controllers
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var tokenString = tokenHandler.WriteToken(token);
 
+            var roleCode = user.Role?.Code ?? "AUDITOR";
+            var navConfig = RoleNavHelper.ParseOrDefault(user.Role?.NavConfigJson, roleCode);
+            var navConfigJson = !string.IsNullOrWhiteSpace(user.Role?.NavConfigJson)
+                ? user.Role.NavConfigJson
+                : RoleNavHelper.Serialize(navConfig);
+
             return Ok(new
             {
                 token = tokenString,
@@ -125,8 +132,10 @@ namespace QSC.Api.Controllers
                     id = user.Id,
                     username = user.Username,
                     fullName = user.FullName,
-                    role = user.Role?.Code ?? "AUDITOR",
+                    role = roleCode,
                     roleName = user.Role?.Name ?? "ผู้ใช้งาน",
+                    navConfigJson = navConfigJson,
+                    navConfig = navConfig,
                     branchScope = user.BranchScope,
                     allowedLocationIds = allowedLocationIds,
                     mustChangePassword = user.MustChangePassword,

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
+using QSC.Api.Helpers;
 using QSC.Api.Models;
 
 namespace QSC.Api.Controllers
@@ -214,6 +215,8 @@ namespace QSC.Api.Controllers
             public string Name { get; set; } = string.Empty;
             public string? Description { get; set; }
             public List<int> PermissionIds { get; set; } = new();
+            public RoleNavConfigDto? NavConfig { get; set; }
+            public string? NavConfigJson { get; set; }
         }
 
         [HttpGet]
@@ -225,28 +228,85 @@ namespace QSC.Api.Controllers
                 .Include(rp => rp.Permission)
                 .ToListAsync();
 
-            var result = roles.Select(r => new
+            var result = roles.Select(r =>
             {
-                id = r.Id,
-                code = r.Code,
-                name = r.Name,
-                description = r.Description,
-                permissionIds = rolePerms.Where(rp => rp.RoleId == r.Id).Select(rp => rp.PermissionId).ToList(),
-                permissions = rolePerms.Where(rp => rp.RoleId == r.Id).Select(rp => rp.Permission!.Code).ToList()
+                var navConfig = RoleNavHelper.ParseOrDefault(r.NavConfigJson, r.Code);
+                var navConfigJson = !string.IsNullOrWhiteSpace(r.NavConfigJson)
+                    ? r.NavConfigJson
+                    : RoleNavHelper.Serialize(navConfig);
+
+                return new
+                {
+                    id = r.Id,
+                    code = r.Code,
+                    name = r.Name,
+                    description = r.Description,
+                    navConfigJson = navConfigJson,
+                    navConfig = navConfig,
+                    permissionIds = rolePerms.Where(rp => rp.RoleId == r.Id).Select(rp => rp.PermissionId).ToList(),
+                    permissions = rolePerms.Where(rp => rp.RoleId == r.Id).Select(rp => rp.Permission!.Code).ToList()
+                };
             });
 
             return Ok(result);
         }
 
         [Authorize(Roles = "ADMIN")]
+        [HttpPut("{id}/nav-config")]
+        public async Task<IActionResult> UpdateRoleNavConfig(int id, [FromBody] RoleNavConfigDto dto)
+        {
+            var role = await _context.Roles.FindAsync(id);
+            if (role == null)
+            {
+                return NotFound(new { message = "ไม่พบบทบาทที่ระบุ" });
+            }
+
+            if (!RoleNavHelper.Validate(dto, out var errorMessage, out var normalizedConfig) || normalizedConfig == null)
+            {
+                return BadRequest(new { message = errorMessage });
+            }
+
+            var jsonString = RoleNavHelper.Serialize(normalizedConfig);
+            role.NavConfigJson = jsonString;
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                message = "บันทึกการตั้งค่าแถบเมนูสำเร็จ",
+                navConfig = normalizedConfig,
+                navConfigJson = jsonString
+            });
+        }
+
+        [Authorize(Roles = "ADMIN")]
         [HttpPost]
         public async Task<IActionResult> CreateRole([FromBody] RoleDto dto)
         {
+            string? navJson = null;
+            if (dto.NavConfig != null)
+            {
+                if (RoleNavHelper.Validate(dto.NavConfig, out _, out var normalized) && normalized != null)
+                {
+                    navJson = RoleNavHelper.Serialize(normalized);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(dto.NavConfigJson))
+            {
+                navJson = dto.NavConfigJson;
+            }
+            else
+            {
+                navJson = RoleNavHelper.GetDefaultNavConfigJson(dto.Code);
+            }
+
             var role = new Role
             {
                 Code = dto.Code.ToUpper(),
                 Name = dto.Name,
                 Description = dto.Description,
+                NavConfigJson = navJson,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -274,6 +334,18 @@ namespace QSC.Api.Controllers
 
             role.Name = dto.Name;
             role.Description = dto.Description;
+
+            if (dto.NavConfig != null)
+            {
+                if (RoleNavHelper.Validate(dto.NavConfig, out _, out var normalized) && normalized != null)
+                {
+                    role.NavConfigJson = RoleNavHelper.Serialize(normalized);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(dto.NavConfigJson))
+            {
+                role.NavConfigJson = dto.NavConfigJson;
+            }
 
             // Sync Permissions
             var existingPerms = await _context.RolePermissions.Where(rp => rp.RoleId == id).ToListAsync();
