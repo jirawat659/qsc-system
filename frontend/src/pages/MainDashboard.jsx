@@ -201,31 +201,35 @@ export default function MainDashboard({ onLogout }) {
     return (
       <ErrorBoundary>
         <React.Suspense fallback={<ScreenLoader />}>
-          {(screen === "reports" || screen === "history" || (screen === "audit" && !preselectedPlan)) && (
+          {(screen === "reports" || screen === "history") && (
             <ConsolidatedReportsScreen
               onBack={undefined}
               currentAuditorName={null}
-              title="ตรวจประเมินหน้างาน (Audit Hub)"
+              title="รายงานผลการตรวจประเมิน"
               onStartAudit={(plan) => handleStartAuditDirect(plan)}
               onResumeDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 handleStartAuditDirect({ ...draft, isResume: true });
               }}
               onStartNewAudit={() => {
-                setPreselectedPlan({ isNewAudit: true });
+                setPreselectedPlan(null);
                 setActiveAuditDraft(null);
                 setScreen("audit");
               }}
             />
           )}
-          {screen === "audit" && preselectedPlan && (
+          {screen === "audit" && (
             <LiveAuditScreen
               preselectedPlan={preselectedPlan}
               initialDraft={activeAuditDraft}
               currentUser={currentUser}
               onClearPlan={() => setPreselectedPlan(null)}
               onBack={() => {
-                setPreselectedPlan(null);
+                if (preselectedPlan) {
+                  setPreselectedPlan(null);
+                } else {
+                  setScreen("dashboard");
+                }
               }}
               defaultAuditorName={currentUser.name || "-"}
               onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
@@ -235,7 +239,7 @@ export default function MainDashboard({ onLogout }) {
               onCompleteAudit={() => {
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
-                setScreen("audit");
+                setScreen("reports");
               }}
             />
           )}
