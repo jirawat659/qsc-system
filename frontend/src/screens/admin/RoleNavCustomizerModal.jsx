@@ -141,8 +141,8 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
   const activeModule = NAV_MODULES_DICT[activeModuleKey] || NAV_MODULES_DICT.dashboard;
 
   return (
-    <ModalWrapper onClose={onClose} maxWidth="max-w-4xl" closeOnBackdrop={false}>
-      <div className="flex flex-col h-full max-h-[88vh] bg-white rounded-3xl overflow-hidden shadow-2xl">
+    <ModalWrapper onClose={onClose} maxWidth="max-w-5xl" closeOnBackdrop={false}>
+      <div className="flex flex-col flex-1 min-h-0 bg-white rounded-3xl overflow-hidden shadow-2xl">
         
         {/* MODAL HEADER */}
         <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-slate-50/60 shrink-0">
@@ -200,17 +200,17 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
           </div>
         )}
 
-        {/* MODAL BODY (2-COLUMN LAYOUT) */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* MODAL BODY (INDEPENDENT 2-COLUMN LAYOUT) */}
+        <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-0">
           
-          {/* 👈 LEFT COLUMN: CONFIGURATION CONTROLS (7 Cols) */}
-          <div className="lg:col-span-7 space-y-5">
+          {/* 👈 LEFT COLUMN: CONFIGURATION CONTROLS (7 Cols, independently scrollable) */}
+          <div className="lg:col-span-7 overflow-y-auto p-4 sm:p-5 space-y-4 custom-tab-scrollbar">
             
-            {/* Slot Configuration Form */}
-            <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 sm:p-5 space-y-4">
+            {/* Slot Configuration Form (3 SLOTS IN 1 HORIZONTAL ROW) */}
+            <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3.5 shadow-2xs">
               <div className="flex items-center justify-between pb-2 border-b border-slate-200">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  การกำหนดตำแหน่งเมนู (3 ช่อง)
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                  ตำแหน่งเมนู 3 ช่อง (เรียงตามลำดับหน้าจอ)
                 </span>
                 <button
                   type="button"
@@ -222,116 +222,121 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                 </button>
               </div>
 
-              {/* 1. LEFT SLOT SELECTOR */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  ช่องซ้าย (Left Slot) <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={slotConfig.left}
-                    onChange={(e) => handleSlotChange("left", e.target.value)}
-                    className={`w-full py-2.5 px-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-semibold bg-white outline-none cursor-pointer appearance-none transition-all ${
-                      validation.errors.left
-                        ? "border-rose-400 text-rose-800 bg-rose-50/30 ring-2 ring-rose-300"
-                        : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20"
-                    }`}
-                  >
-                    {Object.values(NAV_MODULES_DICT).map((mod) => (
-                      <option key={mod.key} value={mod.key}>
-                        {mod.label} ({mod.englishLabel}) — {mod.desc.substring(0, 32)}...
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {validation.errors.left && (
-                  <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
-                    <AlertTriangle size={12} />
-                    {validation.errors.left}
-                  </p>
-                )}
-              </div>
-
-              {/* 2. CENTER SLOT SELECTOR (PRIMARY ACTION FAB) */}
-              <div className="p-3.5 rounded-xl bg-emerald-50/60 border-2 border-emerald-500/40 space-y-1.5 relative overflow-hidden">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-                    <label className="text-xs font-black text-emerald-900">
-                      ปุ่มหลักตรงกลาง (Center Floating Button)
+              {/* 3 SLOTS IN 1 ROW */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-stretch">
+                
+                {/* 1. LEFT SLOT SELECTOR */}
+                <div className="p-3 rounded-2xl bg-white border border-slate-200/90 space-y-1.5 flex flex-col justify-between shadow-2xs">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ⬅️ ปุ่มซ้าย
                     </label>
+                    <div className="relative">
+                      <select
+                        value={slotConfig.left}
+                        onChange={(e) => handleSlotChange("left", e.target.value)}
+                        className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ${
+                          validation.errors.left
+                            ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
+                            : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:bg-white"
+                        }`}
+                      >
+                        {Object.values(NAV_MODULES_DICT).map((mod) => (
+                          <option key={mod.key} value={mod.key}>
+                            {mod.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-2xs">
-                    Primary Action (FAB)
-                  </span>
+                  {validation.errors.left && (
+                    <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-1">
+                      <AlertTriangle size={11} />
+                      {validation.errors.left}
+                    </p>
+                  )}
                 </div>
-                <p className="text-[11px] text-emerald-800/80 font-medium">
-                  ปุ่มตรงกลางจะแสดงผลเป็นปุ่มกลมนูนเด่นสีเขียว (Floating Button) อัตโนมัติ
-                </p>
-                <div className="relative pt-1">
-                  <select
-                    value={slotConfig.center}
-                    onChange={(e) => handleSlotChange("center", e.target.value)}
-                    className={`w-full py-2.5 px-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-black bg-white outline-none cursor-pointer appearance-none transition-all ${
-                      validation.errors.center
-                        ? "border-rose-400 text-rose-800 bg-rose-50/30 ring-2 ring-rose-300"
-                        : "border-emerald-300 text-[#0F6659] focus:border-[#0F6659] focus:ring-2 focus:ring-emerald-500/20"
-                    }`}
-                  >
-                    {Object.values(NAV_MODULES_DICT).map((mod) => (
-                      <option key={mod.key} value={mod.key}>
-                        ★ {mod.label} ({mod.englishLabel}) — {mod.desc.substring(0, 32)}...
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {validation.errors.center && (
-                  <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
-                    <AlertTriangle size={12} />
-                    {validation.errors.center}
-                  </p>
-                )}
-              </div>
 
-              {/* 3. RIGHT SLOT SELECTOR */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  ช่องขวา (Right Slot) <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={slotConfig.right}
-                    onChange={(e) => handleSlotChange("right", e.target.value)}
-                    className={`w-full py-2.5 px-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-semibold bg-white outline-none cursor-pointer appearance-none transition-all ${
-                      validation.errors.right
-                        ? "border-rose-400 text-rose-800 bg-rose-50/30 ring-2 ring-rose-300"
-                        : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20"
-                    }`}
-                  >
-                    {Object.values(NAV_MODULES_DICT).map((mod) => (
-                      <option key={mod.key} value={mod.key}>
-                        {mod.label} ({mod.englishLabel}) — {mod.desc.substring(0, 32)}...
-                      </option>
-                    ))}
-                  </select>
+                {/* 2. CENTER SLOT SELECTOR (PRIMARY FAB HIGHLIGHT) */}
+                <div className="p-3 rounded-2xl bg-emerald-50/80 border-2 border-emerald-500/60 space-y-1.5 flex flex-col justify-between shadow-xs relative overflow-hidden">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-black text-emerald-900 flex items-center gap-1">
+                        ⭐ ตรงกลาง
+                      </label>
+                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">
+                        เด่นลอย
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <select
+                        value={slotConfig.center}
+                        onChange={(e) => handleSlotChange("center", e.target.value)}
+                        className={`w-full py-2 px-2.5 rounded-xl border text-xs font-black bg-white outline-none cursor-pointer transition-all ${
+                          validation.errors.center
+                            ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
+                            : "border-emerald-400 text-[#0F6659] focus:border-[#0F6659] focus:ring-1 focus:ring-emerald-500"
+                        }`}
+                      >
+                        {Object.values(NAV_MODULES_DICT).map((mod) => (
+                          <option key={mod.key} value={mod.key}>
+                            ★ {mod.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {validation.errors.center && (
+                    <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-1">
+                      <AlertTriangle size={11} />
+                      {validation.errors.center}
+                    </p>
+                  )}
                 </div>
-                {validation.errors.right && (
-                  <p className="text-[11px] font-bold text-rose-600 flex items-center gap-1">
-                    <AlertTriangle size={12} />
-                    {validation.errors.right}
-                  </p>
-                )}
+
+                {/* 3. RIGHT SLOT SELECTOR */}
+                <div className="p-3 rounded-2xl bg-white border border-slate-200/90 space-y-1.5 flex flex-col justify-between shadow-2xs">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      ➡️ ปุ่มขวา
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={slotConfig.right}
+                        onChange={(e) => handleSlotChange("right", e.target.value)}
+                        className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ${
+                          validation.errors.right
+                            ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
+                            : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:bg-white"
+                        }`}
+                      >
+                        {Object.values(NAV_MODULES_DICT).map((mod) => (
+                          <option key={mod.key} value={mod.key}>
+                            {mod.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {validation.errors.right && (
+                    <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1 mt-1">
+                      <AlertTriangle size={11} />
+                      {validation.errors.right}
+                    </p>
+                  )}
+                </div>
+
               </div>
 
               {/* DUPLICATE WARNING & AUTO-SWAP BANNER */}
               {validation.duplicates.length > 0 && (
-                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 space-y-2 mt-2">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle size={16} className="text-rose-600 shrink-0 mt-0.5" />
+                    <AlertTriangle size={15} className="text-rose-600 shrink-0 mt-0.5" />
                     <div>
-                      <h5 className="text-xs font-bold text-rose-900">ตรวจพบการเลือกโมดูลซ้ำในตำแหน่ง</h5>
+                      <h5 className="text-xs font-bold text-rose-900">ตรวจพบการเลือกโมดูลซ้ำกัน</h5>
                       <p className="text-[11px] text-rose-700 mt-0.5">
-                        แถบเมนูต้องมีโมดูลไม่ซ้ำกันครบทั้ง 3 ช่อง กรุณาเลือกโมดูลที่ไม่ซ้ำ
+                        แถบเมนูต้องมีโมดูลไม่ซ้ำกันครบทั้ง 3 ช่อง
                       </p>
                     </div>
                   </div>
@@ -351,7 +356,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
             </div>
 
             {/* Quick Presets Recommendation */}
-            <div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-2">
+            <div className="p-3.5 rounded-2xl border border-slate-200 bg-white space-y-2 shadow-2xs">
               <span className="text-xs font-bold text-slate-700">แนะนำชุดเมนูตามบทบาทสากล (Best Practices):</span>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -360,7 +365,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                   className="p-2 rounded-xl text-left bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-[11px] transition-all cursor-pointer"
                 >
                   <div className="font-bold text-slate-800">สำหรับผู้ตรวจ (Auditor)</div>
-                  <div className="text-slate-500 font-mono">ภาพรวม · ตรวจหน้างาน ★ · ระบบ</div>
+                  <div className="text-slate-500 font-mono mt-0.5">ภาพรวม · ตรวจหน้างาน ★ · ระบบ</div>
                 </button>
                 <button
                   type="button"
@@ -368,17 +373,17 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                   className="p-2 rounded-xl text-left bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-[11px] transition-all cursor-pointer"
                 >
                   <div className="font-bold text-slate-800">สำหรับสาขา (Store Manager)</div>
-                  <div className="text-slate-500 font-mono">ภาพรวม · แชทแก้งาน ★ · ระบบ</div>
+                  <div className="text-slate-500 font-mono mt-0.5">ภาพรวม · แชทแก้งาน ★ · ระบบ</div>
                 </button>
               </div>
             </div>
 
             {/* Actions: Cancel & Save */}
-            <div className="flex items-center gap-3 pt-2">
+            <div className="flex items-center gap-3 pt-1">
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold cursor-pointer transition-all active:scale-98"
+                className="flex-1 py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold cursor-pointer transition-all active:scale-98"
               >
                 ยกเลิก
               </button>
@@ -386,7 +391,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                 type="button"
                 onClick={handleSave}
                 disabled={!validation.isValid || isSubmitting}
-                className={`flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold text-white shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 ${
+                className={`flex-1 py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold text-white shadow-md transition-all active:scale-98 flex items-center justify-center gap-2 ${
                   !validation.isValid || isSubmitting
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed shadow-none"
                     : "bg-[#0F6659] hover:bg-emerald-800 cursor-pointer shadow-emerald-900/20"
@@ -404,12 +409,12 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
             </div>
           </div>
 
-          {/* 👉 RIGHT COLUMN: INTERACTIVE SMARTPHONE MINI-PREVIEW (5 Cols) */}
-          <div className="lg:col-span-5 flex flex-col items-center justify-center">
+          {/* 👉 RIGHT COLUMN: LOCKED / PINNED SMARTPHONE MINI-PREVIEW (5 Cols, fixed) */}
+          <div className="lg:col-span-5 p-4 sm:p-5 bg-slate-50/70 border-t lg:border-t-0 lg:border-l border-slate-200/90 flex flex-col items-center justify-center overflow-hidden shrink-0">
             
-            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mb-2.5">
               <Eye size={14} className="text-[#0F6659]" />
-              <span>ภาพจำลองหน้าจอสมาร์ตโฟน (Interactive Live Preview)</span>
+              <span>ภาพจำลองหน้าจอมือถือ (Live Preview)</span>
             </div>
 
             {/* REALISTIC SMARTPHONE SHELL */}
