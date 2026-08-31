@@ -647,13 +647,17 @@ export default function LiveAuditScreen({
     });
   }, [locations, searchBranch, userCoords, currentUser]);
 
-  // 📸 Handle Photo Upload with Client-side Compression & Instant Draft Save
-  const handlePhotoUpload = async (questionId, file) => {
-    if (!file) return;
+  // 📸 Handle Photo Upload with Client-side Compression & Multiple Photos Support
+  const handlePhotoUpload = async (questionId, files) => {
+    if (!files || files.length === 0) return;
     try {
-      const compressedDataUrl = await compressImageFile(file);
+      const fileList = Array.from(files);
+      const compressedUrls = await Promise.all(fileList.map(f => compressImageFile(f)));
       setPhotos(prev => {
-        const next = { ...prev, [questionId]: compressedDataUrl };
+        const existing = Array.isArray(prev[questionId])
+          ? prev[questionId]
+          : (prev[questionId] ? [prev[questionId]] : []);
+        const next = { ...prev, [questionId]: [...existing, ...compressedUrls] };
         performSaveDraft({ photos: next });
         return next;
       });
@@ -662,10 +666,22 @@ export default function LiveAuditScreen({
     }
   };
 
-  const handlePhotoDelete = (questionId) => {
+  const handlePhotoDelete = (questionId, photoIdx) => {
     setPhotos(prev => {
       const next = { ...prev };
-      delete next[questionId];
+      const existing = Array.isArray(next[questionId])
+        ? next[questionId]
+        : (next[questionId] ? [next[questionId]] : []);
+      if (typeof photoIdx === 'number') {
+        const updated = existing.filter((_, i) => i !== photoIdx);
+        if (updated.length > 0) {
+          next[questionId] = updated;
+        } else {
+          delete next[questionId];
+        }
+      } else {
+        delete next[questionId];
+      }
       performSaveDraft({ photos: next });
       return next;
     });
@@ -838,6 +854,11 @@ export default function LiveAuditScreen({
             scoreGiven = (num / 5) * (q.fullScore || 10);
           }
 
+          const rawPhotos = photos[q.id];
+          const itemPhotos = Array.isArray(rawPhotos)
+            ? rawPhotos
+            : (rawPhotos ? [rawPhotos] : []);
+
           responses.push({
             surveyItemId: q.id,
             rawAnswer: String(ans !== undefined ? ans : "yes"),
@@ -847,7 +868,7 @@ export default function LiveAuditScreen({
             isPassed,
             isNa,
             notes: comments[q.id] || "",
-            imageUrls: photos[q.id] ? [photos[q.id]] : []
+            imageUrls: itemPhotos
           });
         });
       });
@@ -1286,7 +1307,9 @@ export default function LiveAuditScreen({
                       const isHighlighted = highlightedQuestionId === q.id;
                       const isNa = answers[q.id] === "na";
                       const isFailed = !isNa && (answers[q.id] === "no" || answers[q.id] === false || (Number(answers[q.id]) < 3 && answers[q.id] !== undefined && answers[q.id] !== ""));
-                      const hasPhoto = !!photos[q.id];
+                      const rawP = photos[q.id];
+                      const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
+                      const hasPhoto = questionPhotos.length > 0;
                       const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
                       const isScale = qType === "scale" || qType === "rating";
                       const isCommentOpen = Boolean(openComments[q.id] || (comments[q.id] && comments[q.id].trim().length > 0));
@@ -1340,19 +1363,66 @@ export default function LiveAuditScreen({
                               >
                                 <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
                               </button>
-                              <label className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${
-                                hasPhoto ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                              }`}>
-                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoUpload(q.id, e.target.files[0])} />
+                              <label
+                                className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${
+                                  hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                }`}
+                                title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
+                              >
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    handlePhotoUpload(q.id, e.target.files);
+                                    e.target.value = '';
+                                  }}
+                                />
                                 <Camera size={16} />
+                                {hasPhoto && (
+                                  <span className="text-[11px] font-black font-mono">
+                                    {questionPhotos.length}
+                                  </span>
+                                )}
                               </label>
                             </div>
                           </div>
 
+                          {/* 📸 Horizontal Photo Gallery */}
                           {hasPhoto && (
-                            <div className="relative inline-block mb-3 rounded-xl overflow-hidden border border-slate-200">
-                              <img src={photos[q.id]} alt="Evidence" className="h-24 w-36 object-cover" />
-                              <button type="button" onClick={() => handlePhotoDelete(q.id)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center text-xs hover:bg-red-600 cursor-pointer">✕</button>
+                            <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
+                              {questionPhotos.map((imgUrl, imgIdx) => (
+                                <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
+                                  <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePhotoDelete(q.id, imgIdx)}
+                                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
+                                    title="ลบรูปภาพนี้"
+                                  >
+                                    ✕
+                                  </button>
+                                  <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
+                                    #{imgIdx + 1}
+                                  </span>
+                                </div>
+                              ))}
+                              {/* Add More Photos Quick Button inside gallery */}
+                              <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    handlePhotoUpload(q.id, e.target.files);
+                                    e.target.value = '';
+                                  }}
+                                />
+                                <Plus size={18} />
+                                <span className="text-[10px] font-bold">เพิ่มรูป</span>
+                              </label>
                             </div>
                           )}
 
