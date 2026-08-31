@@ -200,11 +200,11 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
           </div>
         )}
 
-        {/* MODAL BODY (INDEPENDENT 2-COLUMN LAYOUT) */}
-        <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12 min-h-0">
+        {/* MODAL BODY (INDEPENDENT 2-COLUMN LAYOUT WITH PHONE PREVIEW PRIORITY) */}
+        <div className="flex-1 overflow-hidden flex flex-col lg:flex-row min-h-0">
           
-          {/* 👈 LEFT COLUMN: CONFIGURATION CONTROLS (7 Cols, independently scrollable) */}
-          <div className="lg:col-span-7 overflow-y-auto p-4 sm:p-5 space-y-4 custom-tab-scrollbar">
+          {/* 👈 LEFT COLUMN: CONFIGURATION CONTROLS (Flex-1, shrinks first, independently scrollable) */}
+          <div className="flex-1 min-w-0 overflow-y-auto p-4 sm:p-5 space-y-4 custom-tab-scrollbar">
             
             {/* Slot Configuration Form (3 SLOTS IN 1 HORIZONTAL ROW) */}
             <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3.5 shadow-2xs">
@@ -264,9 +264,6 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                       <label className="text-xs font-black text-emerald-900 flex items-center gap-1">
                         ⭐ ตรงกลาง
                       </label>
-                      <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">
-                        เด่นลอย
-                      </span>
                     </div>
                     <div className="relative">
                       <select
@@ -409,8 +406,8 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
             </div>
           </div>
 
-          {/* 👉 RIGHT COLUMN: LOCKED / PINNED SMARTPHONE MINI-PREVIEW (5 Cols, fixed) */}
-          <div className="lg:col-span-5 p-4 sm:p-5 bg-slate-50/70 border-t lg:border-t-0 lg:border-l border-slate-200/90 flex flex-col items-center justify-center overflow-hidden shrink-0">
+          {/* 👉 RIGHT COLUMN: LOCKED / PINNED SMARTPHONE MINI-PREVIEW (Fixed Width, shrink-0, preserves full size) */}
+          <div className="w-full lg:w-[340px] xl:w-[360px] shrink-0 p-4 sm:p-5 bg-slate-50/70 border-t lg:border-t-0 lg:border-l border-slate-200/90 flex flex-col items-center justify-center overflow-hidden">
             
             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500 mb-2.5">
               <Eye size={14} className="text-[#0F6659]" />
@@ -418,7 +415,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
             </div>
 
             {/* REALISTIC SMARTPHONE SHELL */}
-            <div className="w-[280px] sm:w-[300px] h-[550px] rounded-[38px] border-[6px] border-slate-800 bg-slate-900 p-2 shadow-2xl relative flex flex-col overflow-hidden select-none">
+            <div className="w-[280px] sm:w-[290px] h-[490px] sm:h-[520px] max-h-full rounded-[38px] border-[6px] border-slate-800 bg-slate-900 p-2 shadow-2xl relative flex flex-col overflow-hidden select-none shrink-0">
               
               {/* Top Dynamic Island / Notch */}
               <div className="w-24 h-4 bg-slate-950 rounded-full mx-auto flex items-center justify-center shrink-0 z-30 shadow-xs">
