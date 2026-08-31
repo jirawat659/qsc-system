@@ -61,10 +61,43 @@ export default function MasterManagementScreen({ onBack }) {
   // 2. Location Modals
   const [showAddLocationModal, setShowAddLocationModal] = useState(false);
   const [editLocation, setEditLocation] = useState(null);
+  const [isCustomBrandAdd, setIsCustomBrandAdd] = useState(false);
+  const [isCustomRegionAdd, setIsCustomRegionAdd] = useState(false);
+  const [isCustomBrandEdit, setIsCustomBrandEdit] = useState(false);
+  const [isCustomRegionEdit, setIsCustomRegionEdit] = useState(false);
+
+  const existingBrands = useMemo(() => {
+    const set = new Set();
+    locations.forEach(l => {
+      if (l.brandName && l.brandName.trim()) set.add(l.brandName.trim());
+    });
+    if (set.size === 0) {
+      set.add('After You');
+      set.add('Mikazuki');
+    }
+    return Array.from(set).sort();
+  }, [locations]);
+
+  const existingRegions = useMemo(() => {
+    const set = new Set();
+    locations.forEach(l => {
+      if (l.region && l.region.trim()) set.add(l.region.trim());
+    });
+    if (set.size === 0) {
+      set.add('กรุงเทพฯ และปริมณฑล');
+      set.add('ภาคกลาง');
+      set.add('ภาคเหนือ');
+      set.add('ภาคตะวันออกเฉียงเหนือ');
+      set.add('ภาคใต้');
+      set.add('ภาคตะวันออก');
+    }
+    return Array.from(set).sort();
+  }, [locations]);
+
   const [editLocationForm, setEditLocationForm] = useState({
     code: '',
     name: '',
-    brandName: 'Urban Burger',
+    brandName: '',
     locationTypeId: 1,
     region: 'กรุงเทพฯ และปริมณฑล',
     address: '',
@@ -261,6 +294,8 @@ export default function MasterManagementScreen({ onBack }) {
   // ── 🏬 LOCATION HANDLERS ──
   const handleOpenEditLocation = (loc) => {
     setEditLocation(loc);
+    setIsCustomBrandEdit(false);
+    setIsCustomRegionEdit(false);
     setEditLocationForm({
       code: loc.code || '',
       name: loc.name || '',
@@ -1572,24 +1607,124 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
+              {/* Brand Selection / Custom Input */}
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">แบรนด์</label>
-                <input
-                  type="text"
-                  value={editLocationForm.brandName}
-                  onChange={(e) => setEditLocationForm({ ...editLocationForm, brandName: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-slate-600">แบรนด์ (Brand Name)</label>
+                  {!isCustomBrandEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomBrandEdit(true);
+                        setEditLocationForm(prev => ({ ...prev, brandName: '' }));
+                      }}
+                      className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
+                    >
+                      + พิมพ์แบรนด์ใหม่
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomBrandEdit(false);
+                        setEditLocationForm(prev => ({ ...prev, brandName: existingBrands[0] || '' }));
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors"
+                    >
+                      ← เลือกจากรายการ
+                    </button>
+                  )}
+                </div>
+
+                {!isCustomBrandEdit ? (
+                  <select
+                    value={editLocationForm.brandName || ''}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsCustomBrandEdit(true);
+                        setEditLocationForm(prev => ({ ...prev, brandName: '' }));
+                      } else {
+                        setEditLocationForm(prev => ({ ...prev, brandName: e.target.value }));
+                      }
+                    }}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                  >
+                    <option value="">-- เลือกแบรนด์ --</option>
+                    {existingBrands.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มแบรนด์ใหม่...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={editLocationForm.brandName}
+                    onChange={(e) => setEditLocationForm(prev => ({ ...prev, brandName: e.target.value }))}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    placeholder="พิมพ์ชื่อแบรนด์ใหม่ เช่น After You, Mikazuki"
+                    autoFocus
+                  />
+                )}
               </div>
 
+              {/* Region Selection / Custom Input */}
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">ภูมิภาค / เขต</label>
-                <input
-                  type="text"
-                  value={editLocationForm.region}
-                  onChange={(e) => setEditLocationForm({ ...editLocationForm, region: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-slate-600">ภูมิภาค / เขต (Region)</label>
+                  {!isCustomRegionEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomRegionEdit(true);
+                        setEditLocationForm(prev => ({ ...prev, region: '' }));
+                      }}
+                      className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
+                    >
+                      + พิมพ์ภูมิภาคใหม่
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomRegionEdit(false);
+                        setEditLocationForm(prev => ({ ...prev, region: existingRegions[0] || 'กรุงเทพฯ และปริมณฑล' }));
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors"
+                    >
+                      ← เลือกจากรายการ
+                    </button>
+                  )}
+                </div>
+
+                {!isCustomRegionEdit ? (
+                  <select
+                    value={editLocationForm.region || ''}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsCustomRegionEdit(true);
+                        setEditLocationForm(prev => ({ ...prev, region: '' }));
+                      } else {
+                        setEditLocationForm(prev => ({ ...prev, region: e.target.value }));
+                      }
+                    }}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                  >
+                    <option value="">-- เลือกภูมิภาค --</option>
+                    {existingRegions.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มภูมิภาคใหม่...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={editLocationForm.region}
+                    onChange={(e) => setEditLocationForm(prev => ({ ...prev, region: e.target.value }))}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    placeholder="พิมพ์ภูมิภาคใหม่ เช่น ภาคตะวันออก, ชลบุรี"
+                    autoFocus
+                  />
+                )}
               </div>
 
               <div>
@@ -1735,26 +1870,124 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
+              {/* Brand Selection / Custom Input */}
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">ชื่อแบรนด์ (Brand Name)</label>
-                <input
-                  type="text"
-                  value={locationForm.brandName}
-                  onChange={(e) => setLocationForm({ ...locationForm, brandName: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                  placeholder="เช่น After You, Mikazuki"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-slate-600">ชื่อแบรนด์ (Brand Name)</label>
+                  {!isCustomBrandAdd ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomBrandAdd(true);
+                        setLocationForm(prev => ({ ...prev, brandName: '' }));
+                      }}
+                      className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
+                    >
+                      + พิมพ์แบรนด์ใหม่
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomBrandAdd(false);
+                        setLocationForm(prev => ({ ...prev, brandName: existingBrands[0] || '' }));
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors"
+                    >
+                      ← เลือกจากรายการ
+                    </button>
+                  )}
+                </div>
+
+                {!isCustomBrandAdd ? (
+                  <select
+                    value={locationForm.brandName || ''}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsCustomBrandAdd(true);
+                        setLocationForm(prev => ({ ...prev, brandName: '' }));
+                      } else {
+                        setLocationForm(prev => ({ ...prev, brandName: e.target.value }));
+                      }
+                    }}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                  >
+                    <option value="">-- เลือกแบรนด์ --</option>
+                    {existingBrands.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มแบรนด์ใหม่...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={locationForm.brandName}
+                    onChange={(e) => setLocationForm(prev => ({ ...prev, brandName: e.target.value }))}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    placeholder="พิมพ์ชื่อแบรนด์ใหม่ เช่น After You, Mikazuki"
+                    autoFocus
+                  />
+                )}
               </div>
 
+              {/* Region Selection / Custom Input */}
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">ภูมิภาค / เขต</label>
-                <input
-                  type="text"
-                  value={locationForm.region}
-                  onChange={(e) => setLocationForm({ ...locationForm, region: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
-                  placeholder="กรุงเทพฯ และปริมณฑล"
-                />
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-slate-600">ภูมิภาค / เขต (Region)</label>
+                  {!isCustomRegionAdd ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomRegionAdd(true);
+                        setLocationForm(prev => ({ ...prev, region: '' }));
+                      }}
+                      className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
+                    >
+                      + พิมพ์ภูมิภาคใหม่
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomRegionAdd(false);
+                        setLocationForm(prev => ({ ...prev, region: existingRegions[0] || 'กรุงเทพฯ และปริมณฑล' }));
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors"
+                    >
+                      ← เลือกจากรายการ
+                    </button>
+                  )}
+                </div>
+
+                {!isCustomRegionAdd ? (
+                  <select
+                    value={locationForm.region || ''}
+                    onChange={(e) => {
+                      if (e.target.value === '__NEW__') {
+                        setIsCustomRegionAdd(true);
+                        setLocationForm(prev => ({ ...prev, region: '' }));
+                      } else {
+                        setLocationForm(prev => ({ ...prev, region: e.target.value }));
+                      }
+                    }}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                  >
+                    <option value="">-- เลือกภูมิภาค --</option>
+                    {existingRegions.map(r => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                    <option value="__NEW__" className="font-bold text-[#0F6659]">➕ เพิ่มภูมิภาคใหม่...</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={locationForm.region}
+                    onChange={(e) => setLocationForm(prev => ({ ...prev, region: e.target.value }))}
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    placeholder="พิมพ์ภูมิภาคใหม่ เช่น ภาคตะวันออก, ชลบุรี"
+                    autoFocus
+                  />
+                )}
               </div>
 
               <div>
