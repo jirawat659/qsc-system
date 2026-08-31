@@ -142,7 +142,11 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
   const activeModule = NAV_MODULES_DICT[activeModuleKey] || NAV_MODULES_DICT.dashboard;
 
   const renderPhoneMockup = (isModal = false) => (
-    <div className={`w-[280px] sm:w-[290px] h-[490px] sm:h-[520px] max-h-full rounded-[38px] border-[6px] border-slate-800 bg-slate-900 p-2 shadow-2xl relative flex flex-col overflow-hidden select-none shrink-0 ${isModal ? "my-auto" : ""}`}>
+    <div className={`${
+      isModal 
+        ? "w-full max-w-[320px] sm:max-w-[340px] h-[540px] sm:h-[580px]" 
+        : "w-[280px] sm:w-[290px] h-[490px] sm:h-[520px]"
+    } max-h-full rounded-[38px] border-[6px] border-slate-800 bg-slate-900 p-2 shadow-2xl relative flex flex-col overflow-hidden select-none shrink-0`}>
       
       {/* Top Dynamic Island / Notch */}
       <div className="w-24 h-4 bg-slate-950 rounded-full mx-auto flex items-center justify-center shrink-0 z-30 shadow-xs">
@@ -152,7 +156,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
 
       {/* Status Bar */}
       <div className="flex items-center justify-between px-4 py-1 text-[10px] text-slate-400 font-mono shrink-0 z-20">
-        <span className="font-bold text-slate-300">09:41</span>
+        <span className="font-bold text-slate-300">09:00</span>
         <div className="flex items-center gap-1">
           <span>5G</span>
           <div className="w-4 h-2 rounded-xs border border-slate-400 flex items-center p-0.5">
@@ -397,7 +401,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                 title="กดเพื่อดูตัวอย่างหน้าจอมือถือจำลอง"
               >
                 <Eye size={15} />
-                <span>ดูตัวอย่างมือถือ</span>
+                <span>Preview</span>
               </button>
 
               <button
@@ -662,19 +666,21 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
 
       {/* 📱 POPUP MODAL FOR MOBILE PREVIEW (On Small Screens) */}
       {showPreviewModal && (
-        <ModalWrapper onClose={() => setShowPreviewModal(false)} maxWidth="max-w-sm">
-          <div className="flex flex-col items-center p-4 bg-slate-900 rounded-3xl relative overflow-hidden">
-            <div className="w-full flex items-center justify-between pb-2 text-white mb-1 shrink-0">
+        <ModalWrapper onClose={() => setShowPreviewModal(false)} maxWidth="max-w-[350px] sm:max-w-[370px]">
+          <div className="flex flex-col items-center bg-slate-950 p-2 sm:p-2.5 rounded-[42px] relative shadow-2xl border-2 border-slate-700">
+            {/* Top Bar with Title and Close Button */}
+            <div className="w-full flex items-center justify-between px-3 py-1.5 text-white shrink-0 z-30 mb-1">
               <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-400">
                 <Smartphone size={15} />
-                <span>ตัวอย่างหน้าจอมือถือ (Live Preview)</span>
+                <span>ตัวอย่างหน้าจอมือถือ</span>
               </span>
               <button
                 type="button"
                 onClick={() => setShowPreviewModal(false)}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer transition-colors"
+                title="ปิดหน้าต่าง"
               >
-                <X size={16} />
+                <X size={15} />
               </button>
             </div>
             {renderPhoneMockup(true)}
