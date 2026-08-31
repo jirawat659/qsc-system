@@ -19,12 +19,73 @@ const DEFAULT_CATEGORIES = [
   "การบริการ"
 ];
 
+export const DEFAULT_FORM_METADATA_CONFIG = [
+  {
+    id: "auditor",
+    label: "ผู้ตรวจประเมิน (Auditor)",
+    type: "auditor",
+    required: true,
+    enabled: true,
+    isSystem: true
+  },
+  {
+    id: "audit_type",
+    label: "ประเภทการตรวจ (Audit Type)",
+    type: "select",
+    options: ["ตามกำหนดการ", "นอกกำหนดการ (Spot)", "ปลอมตัว"],
+    required: true,
+    enabled: true,
+    isSystem: true
+  },
+  {
+    id: "staff_count",
+    label: "จำนวนพนักงานขณะตรวจ",
+    type: "number",
+    unit: "คน",
+    min: 0,
+    required: true,
+    enabled: true,
+    isSystem: true
+  }
+];
+
 export default function FormEditorScreen({ form, onBack, onSave }) {
   const [formName, setFormName] = useState(form ? (form.name || form.title) : "แบบฟอร์มมาตรฐานใหม่");
   const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
   const [locationTypes, setLocationTypes] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [activeEditorTab, setActiveEditorTab] = useState("checklist"); // 'checklist' | 'metadata'
+
+  const [metadataConfig, setMetadataConfig] = useState(() => {
+    if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
+      return form.metadataConfig;
+    }
+    if (form?.metadataConfigJson) {
+      try {
+        const parsed = JSON.parse(form.metadataConfigJson);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    return DEFAULT_FORM_METADATA_CONFIG;
+  });
+
+  const [metaFieldModal, setMetaFieldModal] = useState(false);
+  const [metaFieldForm, setMetaFieldForm] = useState({
+    id: "",
+    label: "",
+    type: "number",
+    unit: "คน",
+    min: 0,
+    max: 9999,
+    options: ["ตามกำหนดการ", "สุ่มตรวจ (Spot)", "ปลอมตัว"],
+    newOptionInput: "",
+    required: false,
+    enabled: true,
+    placeholder: ""
+  });
+  const [editingMetaIndex, setEditingMetaIndex] = useState(null);
+
   const [description, setDescription] = useState(
     form?.description || "แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และสุขอนามัยประจำสาขา (Q.S.C. Standard)"
   );
@@ -426,14 +487,126 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
   };
-
   const totalQuestions = useMemo(() => {
     return sections.reduce((sum, s) => sum + s.items.length, 0);
   }, [sections]);
 
-  const handleFormSave = async () => {
+  // Metadata field helpers
+  const getFieldTypeLabel = (type) => {
+    switch (type) {
+      case "number": return "ตัวเลข / จำนวน";
+      case "date": return "ปฏิทิน (วันที่)";
+      case "time": return "เวลา (ชั่วโมง:นาที)";
+      case "select": return "ตัวเลือก (Dropdown/Badges)";
+      case "text": return "ข้อความสั้น";
+      case "textarea": return "ข้อความยาว";
+      case "toggle": return "สวิตช์ ใช่/ไม่ใช่";
+      case "auditor": return "ผู้ตรวจประเมิน";
+      default: return type || "ทั่วไป";
+    }
+  };
+
+  const moveMetaField = (index, direction) => {
+    const targetIdx = index + direction;
+    if (targetIdx < 0 || targetIdx >= metadataConfig.length) return;
+    const next = [...metadataConfig];
+    const temp = next[index];
+    next[index] = next[targetIdx];
+    next[targetIdx] = temp;
+    setMetadataConfig(next);
+  };
+
+  const toggleMetaFieldEnabled = (id) => {
+    setMetadataConfig(prev => prev.map(f => f.id === id ? { ...f, enabled: f.enabled === false ? true : false } : f));
+  };
+
+  const deleteMetaField = (id) => {
+    setMetadataConfig(prev => prev.filter(f => f.id !== id));
+    showToast("ลบฟิลด์ข้อมูลเรียบร้อย");
+  };
+
+  const openAddMetaField = () => {
+    setEditingMetaIndex(null);
+    setMetaFieldForm({
+      id: "meta_" + Date.now().toString(36),
+      label: "",
+      type: "number",
+      unit: "คน",
+      min: 0,
+      max: 9999,
+      options: ["ตามกำหนดการ", "สุ่มตรวจ (Spot)", "ปลอมตัว"],
+      newOptionInput: "",
+      required: false,
+      enabled: true,
+      placeholder: ""
+    });
+    setMetaFieldModal(true);
+  };
+
+  const openEditMetaField = (field, index) => {
+    setEditingMetaIndex(index);
+    setMetaFieldForm({
+      id: field.id || ("meta_" + index),
+      label: field.label || "",
+      type: field.type || "text",
+      unit: field.unit || "",
+      min: field.min !== undefined ? field.min : 0,
+      max: field.max !== undefined ? field.max : 9999,
+      options: Array.isArray(field.options) ? [...field.options] : ["ตามกำหนดการ", "สุ่มตรวจ (Spot)", "ปลอมตัว"],
+      newOptionInput: "",
+      required: !!field.required,
+      enabled: field.enabled !== false,
+      placeholder: field.placeholder || "",
+      isSystem: !!field.isSystem
+    });
+    setMetaFieldModal(true);
+  };
+
+  const handleSaveMetaField = () => {
+    if (!metaFieldForm.label.trim()) {
+      showToast("กรุณาระบุชื่อฟิลด์ข้อมูล");
+      return;
+    }
+
+    const fieldObj = {
+      id: metaFieldForm.id || ("meta_" + Date.now().toString(36)),
+      label: metaFieldForm.label.trim(),
+      type: metaFieldForm.type,
+      required: !!metaFieldForm.required,
+      enabled: metaFieldForm.enabled !== false,
+      placeholder: metaFieldForm.placeholder?.trim() || "",
+      isSystem: !!metaFieldForm.isSystem
+    };
+
+    if (metaFieldForm.type === "number") {
+      fieldObj.unit = metaFieldForm.unit?.trim() || "";
+      if (metaFieldForm.min !== "") fieldObj.min = Number(metaFieldForm.min);
+      if (metaFieldForm.max !== "") fieldObj.max = Number(metaFieldForm.max);
+    } else if (metaFieldForm.type === "select") {
+      fieldObj.options = metaFieldForm.options.filter(opt => opt.trim().length > 0);
+    }
+
+    if (editingMetaIndex !== null && editingMetaIndex >= 0) {
+      const next = [...metadataConfig];
+      next[editingMetaIndex] = fieldObj;
+      setMetadataConfig(next);
+      showToast("อัปเดตฟิลด์ข้อมูลเรียบร้อย");
+    } else {
+      setMetadataConfig(prev => [...prev, fieldObj]);
+      showToast("เพิ่มฟิลด์ข้อมูลเรียบร้อย");
+    }
+
+    setMetaFieldModal(false);
+  };
+
+  // Save form
+  const handleSave = async () => {
     if (!formName.trim()) {
       showToast("กรุณาระบุชื่อแบบฟอร์ม");
+      return;
+    }
+    if (sections.length === 0) {
+      showToast("ต้องมีอย่างน้อย 1 หมวดหมู่");
       return;
     }
 
@@ -444,6 +617,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       passingScore: Number(passingScore) || 85,
       targetingMode: "ALL_LOCATIONS",
       version: form?.version || "v1.0",
+      metadataConfigJson: JSON.stringify(metadataConfig),
       sections: sections.map((sec, sIdx) => ({
         id: typeof sec.id === 'number' ? sec.id : undefined,
         title: sec.title,
@@ -487,6 +661,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       locationTypeId: locationTypeId || 1,
       description: description.trim(),
       passingScore: Number(passingScore) || 85,
+      metadataConfig: metadataConfig,
+      metadataConfigJson: JSON.stringify(metadataConfig),
       sections: sections,
       itemCount: totalQuestions,
       updatedAt: "วันนี้"
@@ -665,8 +841,43 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         </div>
       </div>
 
-      {/* 🌟 2.5. SCORING CATEGORIES MANAGER (ประเภทหมวดคะแนน) */}
-      <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
+      {/* 🌟 TABS NAVIGATION */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveEditorTab("checklist")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            activeEditorTab === "checklist"
+              ? "bg-[#0F6659] text-white shadow-sm"
+              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          <CheckCircle2 size={16} />
+          <span>1. รายการตรวจ & หมวดหมู่ ({totalQuestions} ข้อ)</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveEditorTab("metadata")}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+            activeEditorTab === "metadata"
+              ? "bg-[#0F6659] text-white shadow-sm"
+              : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          <SlidersHorizontal size={16} />
+          <span>2. ข้อมูลเริ่มต้นการตรวจ (Audit Details)</span>
+          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-black font-mono">
+            {metadataConfig.filter(f => f.enabled !== false).length} ฟิลด์
+          </span>
+        </button>
+      </div>
+
+      {/* 📋 TAB 1: CHECKLIST & QUESTIONS */}
+      {activeEditorTab === "checklist" && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* 🌟 2.5. SCORING CATEGORIES MANAGER (ประเภทหมวดคะแนน) */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold text-sm shrink-0">
@@ -1015,7 +1226,140 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             </button>
           </div>
         ))}
-      </div>
+          </div>
+        </div>
+      )}
+
+      {/* ⚙️ TAB 2: AUDIT DETAILS METADATA CONFIG */}
+      {activeEditorTab === "metadata" && (
+        <div className="space-y-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <SlidersHorizontal size={18} className="text-[#0F6659]" />
+                  <span>ฟิลด์ข้อมูลการตรวจหน้าแรก (Audit Details Fields)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  กำหนดรายการข้อมูลที่ต้องระบุก่อนเริ่มตรวจ เช่น ผู้ตรวจ, ประเภทการตรวจ, จำนวนพนักงาน, วันที่, เวลา, กะ หรืออุณหภูมิห้อง
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={openAddMetaField}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+              >
+                <Plus size={15} />
+                <span>+ เพิ่มฟิลด์ข้อมูลใหม่</span>
+              </button>
+            </div>
+
+            {/* List of Fields */}
+            <div className="space-y-3">
+              {metadataConfig.map((field, idx) => (
+                <div
+                  key={field.id || idx}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    field.enabled !== false
+                      ? "bg-slate-50/70 border-slate-200 hover:border-emerald-300 shadow-2xs"
+                      : "bg-slate-100/50 border-slate-200 opacity-60"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => moveMetaField(idx, -1)}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                        title="เลื่อนขึ้น"
+                      >
+                        <ChevronUp size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === metadataConfig.length - 1}
+                        onClick={() => moveMetaField(idx, 1)}
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
+                        title="เลื่อนลง"
+                      >
+                        <ChevronDown size={14} />
+                      </button>
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-slate-900">{field.label}</span>
+                        {field.required && (
+                          <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
+                            * บังคับกรอก
+                          </span>
+                        )}
+                        {field.enabled === false && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">
+                            ปิดใช้งาน
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 font-semibold text-slate-700">
+                          ประเภท: {getFieldTypeLabel(field.type)}
+                        </span>
+                        {field.type === "number" && field.unit && (
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
+                            หน่วย: {field.unit}
+                          </span>
+                        )}
+                        {field.type === "select" && Array.isArray(field.options) && field.options.length > 0 && (
+                          <span className="px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-800 font-medium truncate max-w-xs">
+                            ตัวเลือก ({field.options.length}): {field.options.join(", ")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleMetaFieldEnabled(field.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
+                        field.enabled !== false
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                          : "bg-slate-200 text-slate-600 border-slate-300 hover:bg-slate-300"
+                      }`}
+                    >
+                      {field.enabled !== false ? "✓ เปิดใช้งาน" : "ปิดใช้งาน"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => openEditMetaField(field, idx)}
+                      className="p-2 text-slate-500 hover:text-[#0F6659] bg-white border border-slate-200 rounded-xl hover:border-emerald-400 cursor-pointer shadow-2xs"
+                      title="แก้ไขฟิลด์นี้"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+
+                    {!field.isSystem && (
+                      <button
+                        type="button"
+                        onClick={() => deleteMetaField(field.id)}
+                        className="p-2 text-slate-400 hover:text-rose-600 bg-white border border-slate-200 rounded-xl hover:border-rose-300 cursor-pointer shadow-2xs"
+                        title="ลบฟิลด์นี้"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -1040,13 +1384,200 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         )}
         <button
           type="button"
-          onClick={handleFormSave}
+          onClick={handleSave}
           className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
         >
           <Check size={18} />
           <span>บันทึกแบบฟอร์ม</span>
         </button>
       </div>
+
+      {/* ⚙️ POPUP MODAL: ADD / EDIT METADATA FIELD */}
+      {metaFieldModal && (
+        <ModalWrapper onClose={() => setMetaFieldModal(false)} maxWidth="max-w-lg">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <SlidersHorizontal size={18} className="text-[#0F6659]" />
+                <span>{editingMetaIndex !== null ? "แก้ไขฟิลด์ข้อมูลการตรวจ" : "เพิ่มฟิลด์ข้อมูลการตรวจใหม่"}</span>
+              </h3>
+              <button onClick={() => setMetaFieldModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Field Label */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ชื่อฟิลด์ข้อมูล (Label) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={metaFieldForm.label}
+                  onChange={(e) => setMetaFieldForm({ ...metaFieldForm, label: e.target.value })}
+                  placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน, หมายเหตุเปิดสาขา..."
+                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs"
+                />
+              </div>
+
+              {/* Field Type */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  ประเภทข้อมูล (Input Type) <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={metaFieldForm.type}
+                  disabled={metaFieldForm.isSystem}
+                  onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
+                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs"
+                >
+                  <option value="number">🔢 ตัวเลข / จำนวน (พร้อมระบุหน่วย)</option>
+                  <option value="date">📅 ปฏิทิน (วันที่ วัน/เดือน/ปี)</option>
+                  <option value="time">⏰ เวลา (ชั่วโมง:นาที)</option>
+                  <option value="select">🔘 ตัวเลือกปุ่มกด / Dropdown</option>
+                  <option value="text">📝 ข้อความสั้น (Text)</option>
+                  <option value="textarea">📄 ข้อความยาว / หมายเหตุ (Textarea)</option>
+                  <option value="toggle">🔲 สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
+                </select>
+              </div>
+
+              {/* Specific Config for NUMBER (Unit & Min/Max) */}
+              {metaFieldForm.type === "number" && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3">
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-950 mb-1">
+                      หน่วยของตัวเลข (Unit) เช่น คน, °C, บาท, ชิ้น, นาที, คิว
+                    </label>
+                    <input
+                      type="text"
+                      value={metaFieldForm.unit}
+                      onChange={(e) => setMetaFieldForm({ ...metaFieldForm, unit: e.target.value })}
+                      placeholder="ระบุหน่วย เช่น คน หรือ °C"
+                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                    />
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <span className="text-[11px] text-emerald-800 font-semibold">ตัวอย่างหน่วย:</span>
+                      {["คน", "°C", "บาท", "ชิ้น", "นาที", "กล่อง", "%"].map(u => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => setMetaFieldForm({ ...metaFieldForm, unit: u })}
+                          className="px-2 py-0.5 rounded-lg bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer shadow-2xs"
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Specific Config for SELECT (Options Manager) */}
+              {metaFieldForm.type === "select" && (
+                <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-200 space-y-3">
+                  <label className="block text-xs font-bold text-blue-950">
+                    รายการตัวเลือก (Options)
+                  </label>
+                  <div className="space-y-1.5">
+                    {(metaFieldForm.options || []).map((opt, oIdx) => (
+                      <div key={oIdx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={opt}
+                          onChange={(e) => {
+                            const next = [...metaFieldForm.options];
+                            next[oIdx] = e.target.value;
+                            setMetaFieldForm({ ...metaFieldForm, options: next });
+                          }}
+                          className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none focus:border-blue-500"
+                        />
+                        {metaFieldForm.options.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = metaFieldForm.options.filter((_, idx) => idx !== oIdx);
+                              setMetaFieldForm({ ...metaFieldForm, options: next });
+                            }}
+                            className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      placeholder="พิมพ์ตัวเลือกเพิ่ม..."
+                      value={metaFieldForm.newOptionInput || ""}
+                      onChange={(e) => setMetaFieldForm({ ...metaFieldForm, newOptionInput: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && metaFieldForm.newOptionInput?.trim()) {
+                          e.preventDefault();
+                          setMetaFieldForm({
+                            ...metaFieldForm,
+                            options: [...metaFieldForm.options, metaFieldForm.newOptionInput.trim()],
+                            newOptionInput: ""
+                          });
+                        }
+                      }}
+                      className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (metaFieldForm.newOptionInput?.trim()) {
+                          setMetaFieldForm({
+                            ...metaFieldForm,
+                            options: [...metaFieldForm.options, metaFieldForm.newOptionInput.trim()],
+                            newOptionInput: ""
+                          });
+                        }
+                      }}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-2xs"
+                    >
+                      + เพิ่ม
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Required Toggle */}
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={metaFieldForm.required}
+                  onChange={(e) => setMetaFieldForm({ ...metaFieldForm, required: e.target.checked })}
+                  className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659]"
+                />
+                <span className="text-xs font-bold text-slate-800">
+                  บังคับกรอกข้อมูล (Required *) ก่อนจะข้ามไปหน้าตรวจ
+                </span>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setMetaFieldModal(false)}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveMetaField}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0F6659] text-white hover:bg-emerald-800 cursor-pointer shadow-sm active:scale-95 transition-all"
+              >
+                บันทึกฟิลด์
+              </button>
+            </div>
+          </div>
+        </ModalWrapper>
+      )}
 
       {/* 🛑 5. POPUP CONFIRMATION FOR DELETION */}
       {deleteTarget && (
@@ -1116,11 +1647,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             )}
 
             {/* Action Buttons */}
-            <div className="grid grid-cols-2 gap-3 pt-2">
+            <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
-                className="py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold border border-slate-200 text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors active:scale-95"
+                className="flex-1 py-3 px-4 rounded-2xl text-xs sm:text-sm font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors active:scale-95"
               >
                 ยกเลิก
               </button>

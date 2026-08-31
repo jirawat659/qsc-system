@@ -18,6 +18,7 @@ namespace QSC.Api.Models
         public bool IsActive { get; set; } = true;
         public int? CreatedBy { get; set; }
         public User? Creator { get; set; }
+        public string? MetadataConfigJson { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public List<SurveySection> Sections { get; set; } = new();

@@ -61,6 +61,7 @@ namespace QSC.Api.Controllers
                 version = f.Version,
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
+                metadataConfigJson = f.MetadataConfigJson,
                 createdAt = f.CreatedAt,
                 usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
                 scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
@@ -122,6 +123,7 @@ namespace QSC.Api.Controllers
                 version = f.Version,
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
+                metadataConfigJson = f.MetadataConfigJson,
                 createdAt = f.CreatedAt,
                 usedCount = auditCount,
                 scheduledCount = scheduleCount,
@@ -155,6 +157,7 @@ namespace QSC.Api.Controllers
             public double PassingScore { get; set; } = 85.0;
             public string TargetingMode { get; set; } = "ALL_LOCATIONS";
             public string Version { get; set; } = "v1.0";
+            public string? MetadataConfigJson { get; set; }
             public int? CreatedBy { get; set; }
             public List<int> TargetLocationIds { get; set; } = new();
             public List<SectionDto> Sections { get; set; } = new();
@@ -195,6 +198,7 @@ namespace QSC.Api.Controllers
                     PassingScore = dto.PassingScore,
                     TargetingMode = dto.TargetingMode,
                     Version = dto.Version,
+                    MetadataConfigJson = dto.MetadataConfigJson,
                     IsLatest = true,
                     IsActive = true,
                     CreatedBy = dto.CreatedBy,
@@ -218,14 +222,14 @@ namespace QSC.Api.Controllers
                 }
 
                 // Save Sections & Items
-                int secIdx = 1;
+                int sectionIdx = 1;
                 foreach (var sDto in dto.Sections)
                 {
                     var section = new SurveySection
                     {
                         SurveyFormId = form.Id,
                         Title = sDto.Title,
-                        OrderIndex = sDto.OrderIndex > 0 ? sDto.OrderIndex : secIdx++,
+                        OrderIndex = sDto.OrderIndex > 0 ? sDto.OrderIndex : sectionIdx++,
                         WeightPercent = sDto.WeightPercent,
                         IsActive = true
                     };
@@ -253,7 +257,7 @@ namespace QSC.Api.Controllers
                 }
 
                 await transaction.CommitAsync();
-                return CreatedAtAction(nameof(GetForm), new { id = form.Id }, form);
+                return CreatedAtAction(nameof(GetForm), new { id = form.Id }, new { message = "สร้างแบบฟอร์มสำเร็จ", formId = form.Id });
             }
             catch (Exception ex)
             {
@@ -288,6 +292,7 @@ namespace QSC.Api.Controllers
                     form.PassingScore = dto.PassingScore;
                     form.TargetingMode = dto.TargetingMode;
                     form.Version = dto.Version;
+                    form.MetadataConfigJson = dto.MetadataConfigJson;
 
                     // Sync Target Locations
                     var existingTargets = await _context.SurveyFormTargetLocations.Where(t => t.SurveyFormId == id).ToListAsync();
@@ -356,6 +361,7 @@ namespace QSC.Api.Controllers
                         PassingScore = dto.PassingScore,
                         TargetingMode = dto.TargetingMode,
                         Version = dto.Version,
+                        MetadataConfigJson = dto.MetadataConfigJson,
                         IsLatest = true,
                         IsActive = true,
                         CreatedBy = dto.CreatedBy ?? form.CreatedBy,

@@ -311,6 +311,7 @@ namespace QSC.Api.Controllers
             public int StaffCount { get; set; } = 0;
             public string AuditType { get; set; } = "announced";
             public string? Notes { get; set; }
+            public string? MetadataValuesJson { get; set; }
 
             // Signatures
             public string? AuditorSignatureUrl { get; set; }
@@ -515,6 +516,7 @@ namespace QSC.Api.Controllers
                     StaffCount = dto.StaffCount,
                     AuditType = dto.AuditType,
                     Notes = dto.Notes,
+                    MetadataValuesJson = dto.MetadataValuesJson,
                     AuditorSignatureUrl = auditorSigUrl,
                     AuditeeSignatureUrl = auditeeSigUrl,
                     SignedAt = dto.SignedAt ?? DateTime.UtcNow,
@@ -722,6 +724,7 @@ namespace QSC.Api.Controllers
                 staffCount = r.StaffCount,
                 auditType = r.AuditType,
                 notes = r.Notes,
+                metadataValuesJson = r.MetadataValuesJson,
                 auditorSignatureUrl = r.AuditorSignatureUrl,
                 auditeeSignatureUrl = r.AuditeeSignatureUrl,
                 signedAt = r.SignedAt,

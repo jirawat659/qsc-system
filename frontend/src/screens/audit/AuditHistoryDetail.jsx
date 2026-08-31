@@ -59,6 +59,18 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     ? "นอกกำหนดการ" 
     : (record.auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ");
 
+  const parsedMetadataValues = useMemo(() => {
+    if (record?.metadataValues && typeof record.metadataValues === "object") {
+      return record.metadataValues;
+    }
+    if (record?.metadataValuesJson) {
+      try {
+        return JSON.parse(record.metadataValuesJson);
+      } catch (e) {}
+    }
+    return {};
+  }, [record]);
+
   // Location and GPS Metadata
   const matchedLocation = useMemo(() => {
     return locations.find(l => (record.locationId && l.id === record.locationId) || l.name === locationTitle || l.fullName === locationTitle);
@@ -905,6 +917,29 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               </div>
             </div>
           </div>
+
+          {/* Custom Audit Metadata Information Card */}
+          {Object.keys(parsedMetadataValues).length > 0 && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
+                <SlidersHorizontal size={15} className="text-[#0F6659]" />
+                <span>ข้อมูลและตัวแปรเฉพาะรอบการตรวจ (Custom Audit Details)</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                {Object.entries(parsedMetadataValues).map(([key, val]) => {
+                  if (val === undefined || val === null || val === "" || key === "auditor" || key === "audit_type" || key === "staff_count") return null;
+                  return (
+                    <div key={key} className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                      <div className="text-[11px] font-bold text-slate-500 capitalize">{key.replace(/_/g, ' ')}</div>
+                      <div className="text-sm font-extrabold text-slate-800 mt-0.5">
+                        {typeof val === "boolean" ? (val ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)") : String(val)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

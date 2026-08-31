@@ -322,6 +322,30 @@ export default function LiveAuditScreen({
     if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
     return currentUser?.fullName || currentUser?.name || defaultAuditorName || "";
   });
+  const [metadataValues, setMetadataValues] = useState(() => {
+    return parsedDraftPayload?.metadataValues || {};
+  });
+
+  const activeMetadataFields = useMemo(() => {
+    let fields = null;
+    if (selectedForm?.metadataConfig && Array.isArray(selectedForm.metadataConfig) && selectedForm.metadataConfig.length > 0) {
+      fields = selectedForm.metadataConfig;
+    } else if (selectedForm?.metadataConfigJson) {
+      try {
+        const parsed = JSON.parse(selectedForm.metadataConfigJson);
+        if (Array.isArray(parsed) && parsed.length > 0) fields = parsed;
+      } catch (e) {}
+    }
+
+    if (!fields || fields.length === 0) {
+      fields = [
+        { id: "auditor", label: "ผู้ตรวจประเมิน (Auditor)", type: "auditor", required: true, enabled: true, isSystem: true },
+        { id: "audit_type", label: "ประเภทการตรวจ (Audit Type)", type: "select", options: ["ตามกำหนดการ", "นอกกำหนดการ (Spot)", "ปลอมตัว"], required: true, enabled: true, isSystem: true },
+        { id: "staff_count", label: "จำนวนพนักงานขณะตรวจ", type: "number", unit: "คน", min: 0, required: true, enabled: true, isSystem: true }
+      ];
+    }
+    return fields.filter(f => f.enabled !== false);
+  }, [selectedForm]);
 
   const [usersList, setUsersList] = useState([]);
 
@@ -539,6 +563,7 @@ export default function LiveAuditScreen({
         auditorName: currentAuditorName,
         auditType: currentAuditType,
         extraNote: currentExtraNote,
+        metadataValues: metadataValues,
         startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
       };
 
@@ -581,6 +606,7 @@ export default function LiveAuditScreen({
         auditorName: currentAuditorName,
         auditType: currentAuditType,
         extraNote: currentExtraNote,
+        metadataValues: metadataValues,
         locationId: currentUnit.id,
         locationName: currentUnit.name,
         locationFullName: currentUnit.fullName,
@@ -617,7 +643,7 @@ export default function LiveAuditScreen({
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [unit, selectedForm, sectionIdx, answers, photos, comments, staffCount, auditorName, auditType, extraNote, step, hasUserAnswers, currentUser]);
+  }, [unit, selectedForm, sectionIdx, answers, photos, comments, staffCount, auditorName, auditType, extraNote, metadataValues, step, hasUserAnswers, currentUser]);
 
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
@@ -884,6 +910,7 @@ export default function LiveAuditScreen({
         staffCount: Number(staffCount) || 0,
         auditType: auditType || "announced",
         notes: extraNote || "",
+        metadataValuesJson: JSON.stringify(metadataValues),
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
@@ -1117,6 +1144,33 @@ export default function LiveAuditScreen({
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "audit") {
     const handleProceedToSection = () => {
+      // Validate all required metadata fields
+      for (const field of activeMetadataFields) {
+        if (!field.required) continue;
+
+        if (field.type === "auditor" && !auditorName?.trim()) {
+          alert("กรุณาระบุผู้ตรวจประเมิน");
+          return;
+        }
+
+        if (field.id === "audit_type" && !auditType?.trim()) {
+          alert("กรุณาเลือกประเภทการตรวจ");
+          return;
+        }
+
+        if (field.id === "staff_count" && (staffCount === "" || staffCount === undefined)) {
+          alert("กรุณาระบุจำนวนพนักงานขณะตรวจ");
+          return;
+        }
+
+        if (field.id !== "auditor" && field.id !== "audit_type" && field.id !== "staff_count") {
+          const val = metadataValues[field.id];
+          if (val === undefined || val === null || val === "" || (typeof val === "string" && !val.trim())) {
+            alert(`กรุณากรอกข้อมูล "${field.label}"`);
+            return;
+          }
+        }
+      }
       setActiveTab(2);
     };
 
@@ -1223,65 +1277,261 @@ export default function LiveAuditScreen({
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4 animate-in fade-in duration-200">
               <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>
               
-              <div>
-                <label className="text-xs font-extrabold text-slate-700 block mb-1.5">ผู้ตรวจประเมิน (Auditor) <span className="text-rose-500">*</span></label>
-                <div className="relative">
-                  <select
-                    value={auditorName}
-                    onChange={(e) => setAuditorName(e.target.value)}
-                    className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
-                  >
-                    <option value="">-- เลือกผู้ตรวจ --</option>
-                    {auditorOptions.map(u => (
-                      <option key={u.id || u.fullName} value={u.fullName || u.name}>{u.fullName || u.name}</option>
-                    ))}
-                  </select>
-                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                    <ChevronDown size={18} />
+              {activeMetadataFields.map((field) => {
+                // System field: Auditor
+                if (field.id === "auditor" || field.type === "auditor") {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={auditorName}
+                          onChange={(e) => setAuditorName(e.target.value)}
+                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
+                        >
+                          <option value="">-- เลือกผู้ตรวจ --</option>
+                          {auditorOptions.map(u => (
+                            <option key={u.id || u.fullName} value={u.fullName || u.name}>{u.fullName || u.name}</option>
+                          ))}
+                        </select>
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <ChevronDown size={18} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // System field: Audit Type
+                if (field.id === "audit_type") {
+                  const opts = Array.isArray(field.options) && field.options.length > 0
+                    ? field.options
+                    : ["ตามกำหนดการ", "นอกกำหนดการ (Spot)", "ปลอมตัว"];
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {opts.map(opt => {
+                          const key = opt.includes("นอก") ? "unannounced" : opt.includes("ปลอม") ? "undercover" : "announced";
+                          const isSelected = (auditType === key || auditType === opt);
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setAuditType(key)}
+                              className={`py-2.5 px-1 rounded-xl text-[10px] sm:text-xs font-bold border transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // System field: Staff Count
+                if (field.id === "staff_count") {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min="0"
+                          value={staffCount}
+                          onChange={(e) => setStaffCount(e.target.value)}
+                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                          placeholder={field.placeholder || "ระบุจำนวน (คน)"}
+                        />
+                        <div className="absolute right-3 px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none">
+                          {field.unit || "คน"}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                const currentVal = metadataValues[field.id];
+
+                // Number field with custom unit
+                if (field.type === "number") {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="number"
+                          min={field.min !== undefined ? field.min : 0}
+                          max={field.max !== undefined ? field.max : 999999}
+                          value={currentVal ?? ""}
+                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
+                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                        />
+                        {field.unit && (
+                          <div className="absolute right-3 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 select-none">
+                            {field.unit}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Date Picker field
+                if (field.type === "date") {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <input
+                        type="date"
+                        value={currentVal || ""}
+                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
+                      />
+                    </div>
+                  );
+                }
+
+                // Time Picker field
+                if (field.type === "time") {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <input
+                        type="time"
+                        value={currentVal || ""}
+                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
+                      />
+                    </div>
+                  );
+                }
+
+                // Select / Choice Badges field
+                if (field.type === "select") {
+                  const opts = Array.isArray(field.options) ? field.options : [];
+                  const isSmall = opts.length <= 4;
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      {isSmall ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {opts.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: opt }))}
+                              className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                                currentVal === opt
+                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <select
+                          value={currentVal || ""}
+                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                        >
+                          <option value="">-- เลือก --</option>
+                          {opts.map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Toggle Switch field
+                if (field.type === "toggle") {
+                  const isTrue = Boolean(currentVal);
+                  return (
+                    <div key={field.id} className="flex items-center justify-between p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+                      <div>
+                        <span className="text-xs font-extrabold text-slate-800 block">
+                          {field.label} {field.required && <span className="text-rose-500">*</span>}
+                        </span>
+                        {field.placeholder && <span className="text-[11px] text-slate-500">{field.placeholder}</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: !isTrue }))}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          isTrue
+                            ? 'bg-[#0F6659] text-white shadow-2xs'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {isTrue ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)"}
+                      </button>
+                    </div>
+                  );
+                }
+
+                // Textarea field
+                if (field.type === "textarea") {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={currentVal || ""}
+                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                        placeholder={field.placeholder || "กรอกรายละเอียด..."}
+                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-none"
+                      />
+                    </div>
+                  );
+                }
+
+                // Text field (default)
+                return (
+                  <div key={field.id}>
+                    <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
+                      {field.label} {field.required && <span className="text-rose-500">*</span>}
+                    </label>
+                    <input
+                      type="text"
+                      value={currentVal || ""}
+                      onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                      placeholder={field.placeholder || "กรอกข้อมูล..."}
+                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                    />
                   </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-extrabold text-slate-700 block mb-1.5">ประเภทการตรวจ (Audit Type) <span className="text-rose-500">*</span></label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { key: "announced", label: "ตามกำหนดการ" },
-                    { key: "unannounced", label: "นอกกำหนดการ (Spot)" },
-                    { key: "undercover", label: "ปลอมตัว" }
-                  ].map(t => (
-                    <button
-                      key={t.key}
-                      type="button"
-                      onClick={() => setAuditType(t.key)}
-                      className={`py-2.5 px-1 rounded-xl text-[10px] sm:text-xs font-bold border transition-all ${
-                        auditType === t.key
-                          ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-extrabold text-slate-700 block mb-1.5">จำนวนพนักงานขณะตรวจ <span className="text-rose-500">*</span></label>
-                <input
-                  type="number"
-                  min="1"
-                  value={staffCount}
-                  onChange={(e) => setStaffCount(e.target.value)}
-                  className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
-                  placeholder="ระบุจำนวน (คน)"
-                />
-              </div>
+                );
+              })}
 
               <button
                 type="button"
                 onClick={handleProceedToSection}
-                className="w-full py-4 mt-2 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2"
+                className="w-full py-4 mt-2 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer hover:bg-emerald-800 transition-all"
               >
                 ไปที่รายการตรวจทั้งหมด <ChevronRight size={16} />
               </button>

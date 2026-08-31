@@ -26,6 +26,7 @@ namespace QSC.Api.Models
         public int StaffCount { get; set; } = 0;
         public string AuditType { get; set; } = "announced";
         public string? Notes { get; set; }
+        public string? MetadataValuesJson { get; set; }
         
         // Digital Signatures
         public string? AuditorSignatureUrl { get; set; }
