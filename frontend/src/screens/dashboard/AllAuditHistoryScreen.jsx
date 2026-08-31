@@ -43,7 +43,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const [filterCategory, setFilterCategory] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all"); // 'all' | 'completed' | 'draft' | 'pending'
   const [sortBy, setSortBy] = useState("date-desc"); // 'date-desc' | 'date-asc' | 'branch-asc' | 'branch-desc' | 'score-desc' | 'score-asc'
-  const [viewType, setViewType] = useState("history"); // 'history' (รายครั้ง) | 'table' (สาขา) | 'chart' (กราฟ)
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
   const [showExportModal, setShowExportModal] = useState(false);
@@ -54,7 +53,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   // Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterCategory, statusFilter, sortBy, viewType]);
+  }, [searchTerm, filterCategory, statusFilter, sortBy]);
 
   // Sync input text with currentPage when navigating via buttons
   useEffect(() => {
@@ -240,15 +239,37 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
 
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      list = list.filter(l =>
-        (l.unitName && l.unitName.toLowerCase().includes(q)) ||
-        (l.unitFullName && l.unitFullName.toLowerCase().includes(q)) ||
-        (l.region && l.region.toLowerCase().includes(q)) ||
-        (l.date && l.date.toLowerCase().includes(q)) ||
-        (l.auditor && l.auditor.toLowerCase().includes(q)) ||
-        (l.formName && l.formName.toLowerCase().includes(q))
-      );
+      const q = searchTerm.toLowerCase().trim();
+      list = list.filter(l => {
+        const isCompleted = l.type === 'completed';
+        const isDraft = l.type === 'draft';
+        const isPending = l.type === 'schedule';
+
+        const statusKeywords = [];
+        if (isCompleted) {
+          statusKeywords.push('ตรวจแล้ว', 'completed', 'เสร็จสิ้น', 'pass', 'ผ่าน');
+          if (l.status === 'pass' || (l.score !== null && l.score >= 85)) statusKeywords.push('ผ่านเกณฑ์', 'ผ่าน');
+          if (l.status === 'fail' || (l.score !== null && l.score < 85)) statusKeywords.push('ไม่ผ่าน', 'ตกเกณฑ์', 'ปรับปรุง', 'fail');
+        } else if (isDraft) {
+          statusKeywords.push('กำลังตรวจ', 'draft', 'ฉบับร่าง', 'ค้างตรวจ', 'ร่าง');
+        } else if (isPending) {
+          statusKeywords.push('ยังไม่ตรวจ', 'pending', 'schedule', 'รอดำเนินการ', 'ตามกำหนดการ', 'นัดหมาย');
+        }
+
+        const matchStatus = statusKeywords.some(k => k.includes(q) || q.includes(k));
+
+        return (
+          (l.unitName && l.unitName.toLowerCase().includes(q)) ||
+          (l.unitFullName && l.unitFullName.toLowerCase().includes(q)) ||
+          (l.region && l.region.toLowerCase().includes(q)) ||
+          (l.date && l.date.toLowerCase().includes(q)) ||
+          (l.auditor && l.auditor.toLowerCase().includes(q)) ||
+          (l.formName && l.formName.toLowerCase().includes(q)) ||
+          (l.auditType && l.auditType.toLowerCase().includes(q)) ||
+          (l.progressText && l.progressText.toLowerCase().includes(q)) ||
+          matchStatus
+        );
+      });
     }
 
     if (filterCategory === "passed") {
@@ -285,7 +306,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
 
     return list;
-  }, [baseLogs, searchTerm, filterCategory, sortBy]);
+  }, [baseLogs, searchTerm, filterCategory, statusFilter, sortBy]);
 
   // 🌟 Map branches list with real last score, date, and complete history across all rounds
   const allBranches = useMemo(() => {
@@ -534,24 +555,25 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         </div>
       </div>
 
-      {/* ── 🌟 2. THREE SEGMENTED TABS (รายครั้ง / สาขา / กราฟ) ── */}
+      {/* ── 🌟 MASTER AUDIT LIST TABLE CARD ── */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
         
-        {/* Toggle Bar — 3 ปุ่มใหญ่เต็มความกว้าง */}
-        <div className="p-3 border-b flex gap-2 bg-[#FAF9F5]" style={{ borderColor: c.border }}>
+        {/* Status Filter Tabs */}
+        <div className="px-3.5 py-2.5 border-b bg-[#FAF9F5] flex gap-2 overflow-x-auto custom-tab-scrollbar" style={{ borderColor: c.border }}>
           {[
-            { key: "history", label: "📅  รายครั้ง" },
-            { key: "table",   label: "📋  สาขา" },
-            { key: "chart",   label: "📈  กราฟ" },
+            { key: "all", label: "ทั้งหมด (All)" },
+            { key: "completed", label: "🟢 ตรวจแล้ว" },
+            { key: "draft", label: "🟡 กำลังตรวจ" },
+            { key: "pending", label: "⚪ ยังไม่ตรวจ" },
           ].map(({ key, label }) => (
             <button
               key={key}
               type="button"
-              onClick={() => setViewType(key)}
-              className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-bold cursor-pointer transition-all active:scale-98 ${
-                viewType === key
-                  ? "bg-[#0F6659] text-white shadow-md"
-                  : "bg-white text-slate-600 border border-slate-200 hover:border-emerald-400 hover:text-emerald-800"
+              onClick={() => setStatusFilter(key)}
+              className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                statusFilter === key
+                  ? "bg-slate-800 text-white shadow-md"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
               }`}
             >
               {label}
@@ -559,49 +581,23 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           ))}
         </div>
 
-        {/* Status Filter Tabs (Only for history view) */}
-        {viewType === "history" && (
-          <div className="px-3.5 py-2.5 border-b bg-white flex gap-2 overflow-x-auto custom-tab-scrollbar" style={{ borderColor: c.border }}>
-            {[
-              { key: "all", label: "ทั้งหมด (All)" },
-              { key: "completed", label: "🟢 ตรวจแล้ว" },
-              { key: "draft", label: "🟡 กำลังตรวจ" },
-              { key: "pending", label: "⚪ ยังไม่ตรวจ" },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setStatusFilter(key)}
-                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  statusFilter === key
-                    ? "bg-slate-800 text-white shadow-md"
-                    : "bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100"
-                }`}
-              >
-                {label}
+        {/* Filter bar */}
+        <div className="px-3.5 py-2.5 border-b flex flex-col sm:flex-row items-stretch sm:items-center gap-2" style={{ borderColor: c.border }}>
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="ค้นหาชื่อสาขา, วันที่, ผู้ตรวจ, สถานะ..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full text-xs pl-8 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
+            />
+            {searchTerm && (
+              <button onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X size={12} />
               </button>
-            ))}
+            )}
           </div>
-        )}
-
-        {/* Filter bar (เฉพาะโหมดสาขา / รายครั้ง) */}
-        {(viewType === "history" || viewType === "table") && (
-          <div className="px-3.5 py-2.5 border-b flex flex-col sm:flex-row items-stretch sm:items-center gap-2" style={{ borderColor: c.border }}>
-            <div className="relative flex-1">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="ค้นหาชื่อสาขา, วันที่, ผู้ตรวจ..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full text-xs pl-8 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
-              />
-              {searchTerm && (
-                <button onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
 
             <div className="flex items-center gap-2 flex-1 w-full">
               <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] transition-colors">
@@ -637,12 +633,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               </button>
             </div>
           </div>
-        )}
 
-        {/* ── Tab Content: ตารางผลตรวจรายครั้ง ── */}
-        {viewType === "history" ? (
-          <div className="space-y-2">
-            <div className="overflow-x-auto custom-tab-scrollbar">
+        {/* ── Master History Table ── */}
+        <div className="space-y-2">
+          <div className="overflow-x-auto custom-tab-scrollbar">
               <table className="w-full text-left border-collapse min-w-[1100px] table-fixed">
                 {/* Table Header */}
                 <thead>
@@ -916,251 +910,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               </div>
             )}
           </div>
-        ) : viewType === "table" ? (
-          /* ── Tab: สาขา (Branch Tab with Sorting & Pagination) ── */
-          <div className="space-y-2">
-            <div className="overflow-x-auto custom-tab-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[1000px] table-fixed">
-                <thead>
-                  <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
-                    <th className="py-3 px-4 w-[50%]">
-                      <button 
-                        type="button" 
-                        onClick={() => setSortBy(prev => prev === 'branch-asc' ? 'branch-desc' : 'branch-asc')}
-                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
-                          sortBy.startsWith('branch') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
-                        }`}
-                        title="เรียงตามชื่อสาขา (ก-ฮ / ฮ-ก)"
-                      >
-                        <span className="truncate">อันดับ & ชื่อสาขา</span>
-                        {sortBy === 'branch-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲ ก-ฮ</span>}
-                        {sortBy === 'branch-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼ ฮ-ก</span>}
-                        {!sortBy.startsWith('branch') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
-                      </button>
-                    </th>
-                    <th className="py-3 px-4 w-[13%] text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
-                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border shadow-2xs text-xs font-bold transition-all cursor-pointer ${
-                          sortBy.startsWith('score')
-                            ? 'bg-emerald-50 border-emerald-400 text-[#0F6659] font-black ring-2 ring-emerald-500/20'
-                            : 'bg-white border-slate-200 text-slate-700 hover:border-[#0F6659] hover:text-[#0F6659]'
-                        }`}
-                        title="เรียงตามคะแนน (มากไปน้อย / น้อยไปมาก)"
-                      >
-                        <span>คะแนน</span>
-                        {sortBy === 'score-desc' && <span className="text-[10px] text-[#0F6659] font-black">▼</span>}
-                        {sortBy === 'score-asc' && <span className="text-[10px] text-[#0F6659] font-black">▲</span>}
-                        {!sortBy.startsWith('score') && <ArrowUpDown size={11} className="text-slate-400" />}
-                      </button>
-                    </th>
-                    <th className="py-3 px-4 w-[20%]">
-                      <span className="truncate">ภูมิภาค / ประเภท</span>
-                    </th>
-                    <th className="py-3 px-4 w-[13%]">
-                      <button 
-                        type="button" 
-                        onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
-                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
-                          sortBy.startsWith('date') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
-                        }`}
-                        title="เรียงตามเวลาตรวจล่าสุด (ล่าสุด / เก่าสุด)"
-                      >
-                        <span className="truncate">ตรวจล่าสุด</span>
-                        {sortBy === 'date-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼</span>}
-                        {sortBy === 'date-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲</span>}
-                        {!sortBy.startsWith('date') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
-                      </button>
-                    </th>
-                    <th className="py-3 px-4 w-[15%] text-center">
-                      <span className="truncate">สถานะ</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {paginatedBranches.map((u, idx) => {
-                    const rowNumber = (currentPage - 1) * pageSize + idx + 1;
-                    const isPassed = u.lastScore >= 85;
-                    const isCritical = u.lastScore < 70;
-
-                    const circleColor = isCritical
-                      ? "border-rose-600 text-rose-700"
-                      : isPassed
-                      ? "border-emerald-600 text-emerald-800"
-                      : "border-amber-600 text-amber-800";
-
-                    const scorePill = isCritical
-                      ? "bg-rose-50 text-rose-700 border border-rose-200/60"
-                      : isPassed
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
-                      : "bg-amber-50 text-amber-700 border border-amber-200/60";
-
-                    const statusBadge = isCritical
-                      ? "bg-rose-100 text-rose-800"
-                      : isPassed
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-amber-100 text-amber-900";
-
-                    const statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
-
-                    return (
-                      <tr
-                        key={u.id || u.name || idx}
-                        onClick={() => {
-                          setSelectedBranch(u);
-                        }}
-                        className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                      >
-                        {/* 1. อันดับ & สาขา */}
-                        <td className="py-3.5 px-4 overflow-hidden">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
-                              {rowNumber}
-                            </span>
-                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
-                              {u.lastScore}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={u.name}>
-                                {u.name}
-                              </div>
-                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={u.fullName || u.region}>
-                                {u.fullName || u.region}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 2. คะแนน */}
-                        <td className="py-3.5 px-4 text-center overflow-hidden">
-                          <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
-                            {u.lastScore}%
-                          </span>
-                        </td>
-
-                        {/* 3. ภูมิภาค */}
-                        <td className="py-3.5 px-4 overflow-hidden">
-                          <div className="min-w-0">
-                            <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate" title={u.region}>
-                              {u.region}
-                            </div>
-                            <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={u.locationType}>
-                              {u.locationType}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 4. ตรวจล่าสุด */}
-                        <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
-                          <div className="truncate" title={u.dateFormatted}>
-                            {u.dateFormatted}
-                          </div>
-                        </td>
-
-                        {/* 5. สถานะ & Arrow */}
-                        <td className="py-3.5 px-4 text-center overflow-hidden">
-                          <div className="flex items-center justify-center gap-2">
-                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
-                              {statusText}
-                            </span>
-                            <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {filteredAndSortedBranches.length === 0 && (
-                <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white">
-                  ไม่พบข้อมูลสาขาที่ตรงกับคำค้นหา
-                </div>
-              )}
-            </div>
-
-            {/* Pagination Controls for Branch Tab */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs font-medium text-slate-500 bg-white">
-                <span>หน้า {currentPage} จาก {totalPages} ({totalCount} สาขา)</span>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
-                  >
-                    ก่อนหน้า
-                  </button>
-                  
-                  <input
-                    type="number"
-                    min="1"
-                    max={totalPages}
-                    value={pageInput}
-                    onChange={(e) => setPageInput(e.target.value)}
-                    onBlur={handlePageSubmit}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handlePageSubmit();
-                        e.target.blur();
-                      }
-                    }}
-                    className="w-10 h-7 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
-                  >
-                    ถัดไป
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-        ) : (
-          /* ── Tab: กราฟ (Charts) ── */
-          <div className="p-4 space-y-4">
-            <div className="text-xs font-bold text-slate-700">แนวโน้มคะแนนเฉลี่ยย้อนหลัง 6 เดือน</div>
-            <div className="h-56 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendsData} margin={{ top: 10, right: 15, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="scoreGradReport" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#0F6659" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="#0F6659" stopOpacity={0.0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#64748B' }} />
-                  <YAxis domain={['dataMin - 4', 100]} tick={{ fontSize: 11, fill: '#64748B' }} />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: 12, border: '1px solid #E2E8F0', fontSize: 12 }} 
-                    formatter={(val) => [`${val}%`, 'คะแนนเฉลี่ย']}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="score" 
-                    stroke="#0F6659" 
-                    strokeWidth={3} 
-                    dot={{ r: 4, fill: '#0F6659' }}
-                    activeDot={{ r: 6 }}
-                    fillOpacity={1} 
-                    fill="url(#scoreGradReport)" 
-                    name="คะแนนเฉลี่ย" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-      </div>
+        </div>
 
       {showExportModal && (
         <ExcelExportModal onClose={() => setShowExportModal(false)} />
