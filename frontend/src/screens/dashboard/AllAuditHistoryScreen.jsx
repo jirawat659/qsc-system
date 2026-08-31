@@ -424,12 +424,11 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   }, [allBranches, searchTerm, filterCategory, sortBy]);
 
   // Pagination calculation
-  const activeList = viewType === "table" ? filteredAndSortedBranches : filteredAndSortedLogs;
+  const activeList = filteredAndSortedLogs;
   const totalCount = activeList.length;
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
   const startIndex = (currentPage - 1) * pageSize;
   const paginatedLogs = filteredAndSortedLogs.slice(startIndex, startIndex + pageSize);
-  const paginatedBranches = filteredAndSortedBranches.slice(startIndex, startIndex + pageSize);
   const startItem = totalCount === 0 ? 0 : startIndex + 1;
   const endItem = Math.min(startIndex + pageSize, totalCount);
 
