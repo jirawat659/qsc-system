@@ -92,6 +92,52 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   const totalCaps = monthCaps.length;
   const pendingCaps = totalCaps - closedCaps;
 
+  const handleExportCsv = () => {
+    let csv = "\uFEFF";
+    csv += `รายงานสรุปผลการตรวจสำหรับที่ประชุมประจำเดือน (Monthly Meeting Quality Review)\n`;
+    csv += `ประจำเดือน: ${currentMonthName}, วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH')}\n\n`;
+    
+    csv += `1. สรุปภาพรวม KPI ประจำเดือน\n`;
+    csv += `สาขาทั้งหมด,สาขาที่ตรวจแล้วในเดือนนี้,คะแนนเฉลี่ยรวม(%),อัตราผ่านเกณฑ์(%),ดีเยี่ยม(≥90%),ผ่านเกณฑ์(≥85%),ตกเกณฑ์\n`;
+    csv += `"${totalLocations}","${monthRecords.length}","${avgScore}%","${passRate}%","${excellentCount}","${passedCount}","${monthRecords.length - passedCount}"\n\n`;
+    
+    csv += `2. ผลคะแนนเฉลี่ยแยกตามหมวดหมู่\n`;
+    csv += `ลำดับ,หมวดหมู่,คะแนนเฉลี่ย(%)\n`;
+    if (sectionBreakdown.length > 0) {
+      sectionBreakdown.forEach((s, idx) => {
+        csv += `"${idx + 1}","${s.title}","${s.percent}%"\n`;
+      });
+    } else {
+      csv += `"-","ไม่พบข้อมูลคำตอบการตรวจในเดือนนี้","-"\n`;
+    }
+    csv += `\n`;
+
+    csv += `3. Top 5 ข้อบกพร่องที่พบบ่อย (Defect Frequency)\n`;
+    csv += `ลำดับ,ข้อบกพร่อง,จำนวนครั้งที่พบ\n`;
+    if (topDefects.length > 0) {
+      topDefects.forEach((d, idx) => {
+        csv += `"${idx + 1}","${d.text}","${d.count} ครั้ง"\n`;
+      });
+    } else {
+      csv += `"-","ไม่พบข้อบกพร่องในเดือนนี้","-"\n`;
+    }
+    csv += `\n`;
+
+    csv += `4. สถานะงานแก้ไข CAP ประจำเดือน\n`;
+    csv += `งาน CAP ทั้งหมด,ปิดงานสำเร็จ (Closed),รอดำเนินการ (Pending)\n`;
+    csv += `"${monthCaps.length}","${closedCaps}","${pendingCaps}"\n`;
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `QSC_Monthly_Meeting_Report_${currentYear + 543}_${currentMonth + 1}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-2xl">
       {/* Header */}
@@ -120,101 +166,98 @@ export default function MonthlyMeetingReportModal({ onClose }) {
               สรุปผลการตรวจสอบมาตรฐาน Q.S.C. ประจำเดือน {currentMonthName}
             </div>
           </div>
-          <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800">
-            {totalLocations > 0 ? `${totalLocations} สาขา` : 'ยังไม่มีข้อมูลสาขา'}
+          <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">
+            ตรวจแล้ว {monthRecords.length}/{totalLocations} สาขา
           </span>
         </div>
 
-        {/* 1. Core KPIs */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200">
-            <div className="text-xs font-bold text-emerald-800">อัตราผ่านเกณฑ์ (≥85%)</div>
-            <div className="text-xl font-bold text-emerald-900 font-mono mt-0.5">{passRate}%</div>
-            <div className="text-xs text-emerald-700">{passedCount} จาก {monthRecords.length} รายการ</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200">
-            <div className="text-xs font-bold text-teal-800">ดีเยี่ยม (≥90%)</div>
-            <div className="text-xl font-bold text-teal-900 font-mono mt-0.5">{excellentRate}%</div>
-            <div className="text-xs text-teal-700">{excellentCount} รายการตัวอย่าง</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
-            <div className="text-xs font-bold text-slate-600">เวลาตรวจเฉลี่ย/สาขา</div>
-            <div className="text-xl font-bold text-slate-800 font-mono mt-0.5">-</div>
-            <div className="text-xs text-slate-400">ไม่มีข้อมูลในระบบ</div>
-          </div>
-          <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200">
-            <div className="text-xs font-bold text-amber-800">คะแนนเฉลี่ย</div>
-            <div className="text-xl font-bold text-amber-900 font-mono mt-0.5">{avgScore}%</div>
-            <div className="text-xs text-amber-700">{monthRecords.length} รายการตรวจ</div>
+        {/* Executive KPI Summary */}
+        <div>
+          <div className="text-xs font-bold text-slate-500 mb-2">สรุปภาพรวม KPI ประจำเดือน</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
+              <div className="text-2xl font-bold text-slate-800 font-mono">{avgScore}%</div>
+              <div className="text-xs text-slate-500 font-bold mt-0.5">คะแนนเฉลี่ยรวม</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
+              <div className="text-2xl font-bold text-emerald-800 font-mono">{passRate}%</div>
+              <div className="text-xs text-emerald-700 font-bold mt-0.5">อัตราผ่านเกณฑ์</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-sky-50 border border-sky-200 text-center">
+              <div className="text-2xl font-bold text-sky-800 font-mono">{excellentRate}%</div>
+              <div className="text-xs text-sky-700 font-bold mt-0.5">ดีเยี่ยม (≥90%)</div>
+            </div>
+            <div className="p-3 rounded-2xl bg-teal-50 border border-teal-200 text-center">
+              <div className="text-2xl font-bold text-teal-800 font-mono">{monthRecords.length}</div>
+              <div className="text-xs text-teal-700 font-bold mt-0.5">สาขาที่ตรวจแล้ว</div>
+            </div>
           </div>
         </div>
 
-        {/* 2. Category Breakdown */}
-        <div className="space-y-2">
-          <h4 className="text-xs font-bold text-slate-700">คะแนนเฉลี่ยแยกตามหมวดหมู่ (Category Averages)</h4>
-          {sectionBreakdown.length > 0 ? (
+        {/* Section Breakdown */}
+        {sectionBreakdown.length > 0 && (
+          <div>
+            <div className="text-xs font-bold text-slate-500 mb-2">คะแนนเฉลี่ยแยกตามหมวดหมู่</div>
             <div className="space-y-2">
-              {sectionBreakdown.map(cat => (
-                <div key={cat.title} className="space-y-1">
-                  <div className="flex justify-between text-xs font-bold text-slate-700">
-                    <span>{cat.title}</span>
-                    <span style={{ fontFamily: mono }}>{cat.percent}%</span>
+              {sectionBreakdown.map((s, idx) => (
+                <div key={idx} className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center justify-between text-xs font-bold mb-1.5">
+                    <span className="text-slate-700">{s.title}</span>
+                    <span className={s.percent >= 85 ? "text-emerald-700" : "text-amber-700"}>
+                      {s.percent}%
+                    </span>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                    <div className="h-full rounded-full bg-[#0F6659]" style={{ width: `${cat.percent}%` }}></div>
+                  <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        s.percent >= 90 ? "bg-emerald-500" : s.percent >= 85 ? "bg-teal-500" : "bg-amber-500"
+                      }`}
+                      style={{ width: `${s.percent}%` }}
+                    />
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-400">
-              ไม่มีข้อมูลหมวดหมู่สำหรับเดือนนี้
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* 3. Top 5 Defect Frequency */}
-        <div className="space-y-2">
-          <h4 className="text-xs font-bold text-slate-700">ข้อบกพร่องที่พบบ่อยที่สุดในรอบเดือน (Top 5 Defect Frequency)</h4>
+        {/* Top 5 Defect Frequency */}
+        <div>
+          <div className="text-xs font-bold text-slate-500 mb-2">Top 5 ข้อบกพร่องที่พบบ่อย (Defect Frequency)</div>
           {topDefects.length > 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-              {topDefects.map((def, idx) => (
-                <div key={idx} className="p-3 flex items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <span className="w-5 h-5 rounded-full bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center shrink-0">
+            <div className="space-y-1.5">
+              {topDefects.map((d, idx) => (
+                <div key={idx} className="p-2.5 rounded-xl bg-rose-50/60 border border-rose-200/60 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-rose-900 font-medium">
+                    <span className="w-5 h-5 rounded-full bg-rose-200 text-rose-800 font-bold flex items-center justify-center text-[10px] shrink-0">
                       {idx + 1}
                     </span>
-                    <div className="min-w-0">
-                      <div className="font-bold text-slate-800 truncate">{def.text}</div>
-                    </div>
+                    <span className="line-clamp-1">{d.text}</span>
                   </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-bold text-red-700 font-mono">{def.count} ครั้ง</div>
-                  </div>
+                  <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-bold shrink-0">
+                    {d.count} ครั้ง
+                  </span>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-400">
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-center text-xs text-slate-400 font-medium">
               ไม่พบข้อบกพร่องในเดือนนี้
             </div>
           )}
         </div>
 
-        {/* 4. CAP Summary */}
-        <div className="space-y-2">
-          <h4 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-            <ShieldCheck size={14} className="text-emerald-700" />
-            <span>สรุปงาน CAP ประจำเดือน</span>
-          </h4>
+        {/* CAP Status */}
+        <div>
+          <div className="text-xs font-bold text-slate-500 mb-2">สถานะงานแก้ไขข้อบกพร่อง (CAP) ประจำเดือน</div>
           <div className="grid grid-cols-3 gap-2.5">
             <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
               <div className="text-xl font-bold text-slate-800 font-mono">{totalCaps}</div>
-              <div className="text-xs text-slate-500 font-bold mt-0.5">รายการทั้งหมด</div>
+              <div className="text-xs text-slate-500 font-bold mt-0.5">งาน CAP ทั้งหมด</div>
             </div>
             <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
               <div className="text-xl font-bold text-emerald-800 font-mono">{closedCaps}</div>
-              <div className="text-xs text-emerald-700 font-bold mt-0.5">ปิดแล้ว</div>
+              <div className="text-xs text-emerald-700 font-bold mt-0.5">ปิดงานแล้ว</div>
             </div>
             <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-center">
               <div className="text-xl font-bold text-amber-800 font-mono">{pendingCaps}</div>
@@ -227,12 +270,18 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       {/* Footer Actions */}
       <div className="shrink-0 p-4 border-t bg-slate-50 flex items-center justify-between gap-2" style={{ borderColor: c.border }}>
         <button
-          onClick={() => {}}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer shadow-2xs"
+          type="button"
+          onClick={handleExportCsv}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer shadow-2xs transition-all active:scale-95"
         >
-          <Download size={14} /> ส่งออกสรุปรายงานประจำเดือน (.csv)
+          <Download size={14} />
+          <span>ส่งออกสรุปรายงานประจำเดือน (.csv)</span>
         </button>
-        <button onClick={onClose} className="px-5 py-2.5 rounded-xl bg-[#0F6659] text-white text-xs font-bold cursor-pointer shadow-md">
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-5 py-2.5 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs font-bold cursor-pointer shadow-md transition-all active:scale-95"
+        >
           ปิดหน้ารายงาน
         </button>
       </div>

@@ -1,5 +1,3 @@
-import AssignedAuditPlanScreen from "../screens/schedule/AssignedAuditPlanScreen";
-import ConsolidatedReportsScreen from "../screens/admin/ConsolidatedReportsScreen";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
@@ -26,14 +24,23 @@ import api from "../config/api";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import ProfileModal from "../modals/ProfileModal";
 
-// Screens
-import DashboardScreen from "../screens/dashboard/DashboardScreen";
-import ScheduleScreen from "../screens/schedule/ScheduleScreen";
-import LiveAuditScreen from "../screens/audit/LiveAuditScreen";
-import AllAuditHistoryScreen from "../screens/dashboard/AllAuditHistoryScreen";
-import FormsScreen from "../screens/forms/FormsScreen";
-import CapScreen from "../screens/cap/CapScreen";
-import AdminMoreScreen from "../screens/admin/AdminMoreScreen";
+// 🌟 Lazy-loaded Screens for Code Splitting & Performance Optimization
+const DashboardScreen = React.lazy(() => import("../screens/dashboard/DashboardScreen"));
+const ScheduleScreen = React.lazy(() => import("../screens/schedule/ScheduleScreen"));
+const LiveAuditScreen = React.lazy(() => import("../screens/audit/LiveAuditScreen"));
+const AllAuditHistoryScreen = React.lazy(() => import("../screens/dashboard/AllAuditHistoryScreen"));
+const FormsScreen = React.lazy(() => import("../screens/forms/FormsScreen"));
+const CapScreen = React.lazy(() => import("../screens/cap/CapScreen"));
+const AdminMoreScreen = React.lazy(() => import("../screens/admin/AdminMoreScreen"));
+const AssignedAuditPlanScreen = React.lazy(() => import("../screens/schedule/AssignedAuditPlanScreen"));
+const ConsolidatedReportsScreen = React.lazy(() => import("../screens/admin/ConsolidatedReportsScreen"));
+
+const ScreenLoader = () => (
+  <div className="flex-1 min-h-[400px] flex flex-col items-center justify-center p-8">
+    <div className="w-10 h-10 border-4 border-emerald-200 border-t-[#0F6659] rounded-full animate-spin"></div>
+    <span className="text-xs font-bold text-slate-400 mt-3 animate-pulse">กำลังโหลดข้อมูลหน้าจอ...</span>
+  </div>
+);
 
 export default function MainDashboard({ onLogout }) {
 
@@ -183,56 +190,54 @@ export default function MainDashboard({ onLogout }) {
   const renderCurrentScreen = () => {
     return (
       <ErrorBoundary>
-        {(screen === "reports" || screen === "history") && (
-          <ConsolidatedReportsScreen
-            onBack={undefined}
-            currentAuditorName={currentUser.name}
-            title="รายงานผลการตรวจประเมิน"
-          />
-        )}
-        {screen === "audit" && role === "AUDITOR" && !preselectedPlan && (
-          <AssignedAuditPlanScreen
-            auditorName={currentUser.name}
-            onStart={(plan) => setPreselectedPlan(plan)}
-            activeDraft={activeAuditDraft || activeDraft}
-            onResumeDraft={(plan) => setPreselectedPlan(plan ? { ...plan, isResume: true } : { ...(activeAuditDraft || activeDraft || {}), isResume: true })}
-          />
-        )}
-        {screen === "audit" && (role !== "AUDITOR" || preselectedPlan) && (
-          <LiveAuditScreen
-            preselectedPlan={preselectedPlan}
-            initialDraft={activeAuditDraft}
-            currentUser={currentUser}
-            onClearPlan={() => setPreselectedPlan(null)}
-            defaultAuditorName={currentUser.name || "สมชาย ใจดี"}
-            onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
-            onSaveDraft={(draft) => {
-              setActiveAuditDraft(draft);
-              //setToastText("✓ บันทึกฉบับร่างเรียบร้อยแล้ว สถานะเปลี่ยนเป็น 'กำลังดำเนินการตรวจ'");
-              //setTimeout(() => setToastText(null), 3000);
-            }}
-            onCompleteAudit={() => {
-              setActiveAuditDraft(null);
-              setPreselectedPlan(null);
-              //setToastText("✓ บันทึกผลการตรวจสาขาสำเร็จ และออกใบรายงานผลอัตโนมัติเรียบร้อย");
-              //setTimeout(() => setToastText(null), 3000);
-            }}
-          />
-        )}
-        {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
-        {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
-        {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} currentUser={currentUser} onNavigate={handleNavClick} />}
-        {screen === "schedule" && (
-          <ScheduleScreen
-            role={role}
-            currentUser={currentUser}
-            isDesktop={true}
-            onStartAuditDirect={handleStartAuditDirect}
-            currentAuditorName={role === "AUDITOR" ? currentUser.name : null}
-            onBack={role === "STANDARD" || role === "ADMIN" ? () => setScreen("more") : undefined}
-          />
-        )}
-        {screen === "dashboard" && <DashboardScreen role={role} isDesktop={true} />}
+        <React.Suspense fallback={<ScreenLoader />}>
+          {(screen === "reports" || screen === "history") && (
+            <ConsolidatedReportsScreen
+              onBack={undefined}
+              currentAuditorName={currentUser.name}
+              title="รายงานผลการตรวจประเมิน"
+            />
+          )}
+          {screen === "audit" && role === "AUDITOR" && !preselectedPlan && (
+            <AssignedAuditPlanScreen
+              auditorName={currentUser.name}
+              onStart={(plan) => setPreselectedPlan(plan)}
+              activeDraft={activeAuditDraft || activeDraft}
+              onResumeDraft={(plan) => setPreselectedPlan(plan ? { ...plan, isResume: true } : { ...(activeAuditDraft || activeDraft || {}), isResume: true })}
+            />
+          )}
+          {screen === "audit" && (role !== "AUDITOR" || preselectedPlan) && (
+            <LiveAuditScreen
+              preselectedPlan={preselectedPlan}
+              initialDraft={activeAuditDraft}
+              currentUser={currentUser}
+              onClearPlan={() => setPreselectedPlan(null)}
+              defaultAuditorName={currentUser.name || "-"}
+              onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
+              onSaveDraft={(draft) => {
+                setActiveAuditDraft(draft);
+              }}
+              onCompleteAudit={() => {
+                setActiveAuditDraft(null);
+                setPreselectedPlan(null);
+              }}
+            />
+          )}
+          {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
+          {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
+          {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} currentUser={currentUser} onNavigate={handleNavClick} />}
+          {screen === "schedule" && (
+            <ScheduleScreen
+              role={role}
+              currentUser={currentUser}
+              isDesktop={true}
+              onStartAuditDirect={handleStartAuditDirect}
+              currentAuditorName={role === "AUDITOR" ? currentUser.name : null}
+              onBack={role === "STANDARD" || role === "ADMIN" ? () => setScreen("more") : undefined}
+            />
+          )}
+          {screen === "dashboard" && <DashboardScreen role={role} isDesktop={true} />}
+        </React.Suspense>
       </ErrorBoundary>
     );
   };

@@ -125,14 +125,15 @@ namespace QSC.Api.Data
                 Console.WriteLine($"[DatabaseSeeder] Role NavConfig backfill warning: {ex.Message}");
             }
 
-            // Check if already seeded with rich dataset (>= 15 locations and >= 5 audit records)
-            if (!forceRecreate && context.Locations.Count() >= 15 && context.AuditRecords.Count() >= 5)
+            // Check if already seeded (never wipe existing data if database is already initialized)
+            if (!forceRecreate && context.Roles.Any())
             {
+                Console.WriteLine("[DatabaseSeeder] Database already initialized. Skipping seed to protect production data.");
                 return;
             }
 
-            // Wipe existing data if force recreating or updating schema
-            if (context.Roles.Any())
+            // Only wipe if forceRecreate was explicitly requested
+            if (forceRecreate && context.Roles.Any())
             {
                 context.CapTaskComments.RemoveRange(context.CapTaskComments);
                 context.CapTaskImages.RemoveRange(context.CapTaskImages);

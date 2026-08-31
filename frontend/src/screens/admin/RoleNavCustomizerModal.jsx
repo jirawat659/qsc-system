@@ -182,7 +182,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
               </div>
             </div>
             <div className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center text-[9px] font-bold">
-              {role?.code?.substring(0, 2) || "US"}
+              AU
             </div>
           </div>
         </div>

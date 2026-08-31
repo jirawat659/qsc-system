@@ -70,6 +70,18 @@ namespace QSC.Api.Hubs
         public async Task JoinCapRoom(int capTaskId)
         {
             if (capTaskId <= 0) return;
+
+            var task = await _context.CapTasks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == capTaskId);
+            if (task == null) return;
+
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(Context.User ?? new ClaimsPrincipal(), _context);
+
+            // If user has restricted branch scope (e.g. Auditee/Store Manager), ensure they only access their branch's CAP tasks
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
+            {
+                throw new HubException("คุณไม่มีสิทธิ์เข้าถึงห้องแชทของงาน CAP นี้");
+            }
+
             var groupName = $"cap_{capTaskId}";
             await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
         }

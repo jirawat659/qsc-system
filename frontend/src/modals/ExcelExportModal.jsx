@@ -31,7 +31,7 @@ import ErrorBoundary from "../shared/ErrorBoundary";
 
 
 export default function ExcelExportModal({ initialUnit = null, onClose }) {
-  const { locations } = React.useContext(DataContext);
+  const { locations = [], auditRecords = [] } = React.useContext(DataContext);
   const isBranchScoped = !!initialUnit;
   const [exportMode, setExportMode] = useState(isBranchScoped ? "detailed_questions" : "all"); // 'all' | 'unit' | 'detailed_questions'
   const [searchQuery, setSearchQuery] = useState("");
@@ -44,19 +44,21 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
     if (!searchQuery.trim()) return locations;
     const q = searchQuery.toLowerCase();
     return locations.filter(u => 
-      u.name.toLowerCase().includes(q) || 
-      u.fullName.toLowerCase().includes(q) || 
-      u.region.toLowerCase().includes(q) ||
-      u.address.toLowerCase().includes(q)
+      u.name?.toLowerCase().includes(q) || 
+      u.fullName?.toLowerCase().includes(q) || 
+      u.region?.toLowerCase().includes(q) ||
+      u.address?.toLowerCase().includes(q)
     );
-  }, [searchQuery]);
+  }, [searchQuery, locations]);
 
   const handleDownload = () => {
     exportToExcel({
       mode: exportMode,
       targetUnit: selectedUnit,
       timeRange: isBranchScoped ? selectedRound : timeRange,
-      region: regionFilter
+      region: regionFilter,
+      locations: locations || [],
+      auditRecords: auditRecords || []
     });
     onClose();
   };

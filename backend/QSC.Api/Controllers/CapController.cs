@@ -641,6 +641,11 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "ขนาดไฟล์รูปภาพเกินกำหนด (ไม่เกิน 10MB)" });
             }
 
+            if (!IsValidImageSignature(bytes))
+            {
+                return BadRequest(new { message = "รูปแบบไฟล์รูปภาพไม่ถูกต้อง (รองรับเฉพาะ JPEG, PNG, WEBP, GIF)" });
+            }
+
             await System.IO.File.WriteAllBytesAsync(filePath, bytes);
 
             var relativeUrl = $"/uploads/cap_images/{fileName}";

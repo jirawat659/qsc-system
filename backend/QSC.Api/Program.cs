@@ -77,7 +77,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = true;
-    options.MaximumReceiveMessageSize = 15 * 1024 * 1024; // 15MB to support real-time base64 image streaming
+    options.MaximumReceiveMessageSize = 15 * 1024 * 1024;
 });
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
