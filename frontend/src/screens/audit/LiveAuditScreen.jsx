@@ -323,7 +323,43 @@ export default function LiveAuditScreen({
   const [openComments, setOpenComments] = useState({});
   const [openNoteId, setOpenNoteId] = useState(null);
   const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "0") : "0");
-  const [auditorName, setAuditorName] = useState(isResumeDraft ? (parsedDraftPayload?.auditorName || defaultAuditorName) : defaultAuditorName);
+  const [auditorName, setAuditorName] = useState(() => {
+    if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
+    return currentUser?.fullName || currentUser?.name || defaultAuditorName || "";
+  });
+
+  const [usersList, setUsersList] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/user')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setUsersList(res.data);
+        }
+      })
+      .catch(err => console.warn('Could not load users for LiveAuditScreen:', err));
+    return () => { isMounted = false; };
+  }, []);
+
+  const auditorOptions = useMemo(() => {
+    const list = [...usersList];
+    const currentName = currentUser?.fullName || currentUser?.name || defaultAuditorName;
+    if (currentName && !list.some(u => (u.fullName || u.name) === currentName)) {
+      list.unshift({
+        id: currentUser?.id || 'current',
+        fullName: currentName,
+        roleCode: currentUser?.roleCode || currentUser?.role || 'AUDITOR'
+      });
+    }
+    return list.filter(u => u.isActive !== false);
+  }, [usersList, currentUser, defaultAuditorName]);
+
+  useEffect(() => {
+    if (!auditorName && (currentUser?.fullName || currentUser?.name)) {
+      setAuditorName(currentUser.fullName || currentUser.name);
+    }
+  }, [currentUser]);
   const [auditType, setAuditType] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditType) {
       const t = parsedDraftPayload.auditType.toLowerCase();
@@ -1090,28 +1126,42 @@ export default function LiveAuditScreen({
         />
 
         <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4">
-          {/* 1. ผู้ตรวจประเมิน */}
+          {/* 1. ผู้ตรวจประเมิน (Auditor) - Select Dropdown */}
           <div>
             <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1">
               <span>ผู้ตรวจประเมิน (Auditor)</span>
               <span className="text-rose-500 font-black">*</span>
             </label>
-            <input
-              type="text"
-              placeholder="ระบุชื่อผู้ตรวจประเมิน..."
-              value={auditorName}
-              onChange={(e) => {
-                setAuditorName(e.target.value);
-                if (detailsErrors.auditorName) {
-                  setDetailsErrors(prev => ({ ...prev, auditorName: null }));
-                }
-              }}
-              className={`w-full text-sm p-3.5 rounded-xl border outline-none font-bold transition-all ${
-                detailsErrors.auditorName
-                  ? 'border-rose-400 bg-rose-50/40 text-slate-800 ring-2 ring-rose-300/40 focus:border-rose-500'
-                  : 'border-slate-200 text-slate-800 focus:border-[#0F6659]'
-              }`}
-            />
+            <div className="relative">
+              <select
+                value={auditorName}
+                onChange={(e) => {
+                  setAuditorName(e.target.value);
+                  if (detailsErrors.auditorName) {
+                    setDetailsErrors(prev => ({ ...prev, auditorName: null }));
+                  }
+                }}
+                className={`w-full text-sm p-3.5 rounded-xl border outline-none font-bold transition-all bg-white cursor-pointer appearance-none pr-10 shadow-2xs ${
+                  detailsErrors.auditorName
+                    ? 'border-rose-400 bg-rose-50/40 text-slate-800 ring-2 ring-rose-300/40 focus:border-rose-500'
+                    : 'border-slate-200 text-slate-800 focus:border-[#0F6659]'
+                }`}
+              >
+                <option value="">-- กรุณาเลือกผู้ตรวจประเมิน --</option>
+                {auditorOptions.map(u => {
+                  const name = u.fullName || u.name;
+                  const role = u.roleCode || u.role?.name || u.role?.code;
+                  return (
+                    <option key={u.id || name} value={name}>
+                      {name} {role ? `(${role})` : ''}
+                    </option>
+                  );
+                })}
+              </select>
+              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown size={18} />
+              </div>
+            </div>
             {detailsErrors.auditorName && (
               <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1 animate-in fade-in duration-150">
                 <AlertCircle size={12} className="shrink-0" />
