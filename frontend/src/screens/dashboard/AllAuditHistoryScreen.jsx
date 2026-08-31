@@ -17,6 +17,7 @@ import Header from "../../shared/Header";
 import ExcelExportModal from "../../modals/ExcelExportModal";
 import AuditHistoryDetail from "../audit/AuditHistoryDetail";
 import BranchProfile from "./BranchProfile";
+import LiveAuditScreen from "../audit/LiveAuditScreen";
 import api from "../../config/api";
 import { parseAuditTimestamp } from "../../utils/formatters";
 
@@ -49,6 +50,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const [showExportModal, setShowExportModal] = useState(false);
   const [selectedAuditLog, setSelectedAuditLog] = useState(null);
   const [selectedBranch, setSelectedBranch] = useState(null);
+  const [activeDirectPlan, setActiveDirectPlan] = useState(null);
   const pageSize = 10;
 
   // Reset page to 1 when filters change
@@ -479,6 +481,37 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
   };
 
+  const handleTriggerAudit = (record) => {
+    if (onStartAudit) {
+      onStartAudit(record);
+    } else {
+      setActiveDirectPlan(record);
+      window.dispatchEvent(new CustomEvent('app:start-audit', { detail: record }));
+    }
+  };
+
+  const handleTriggerResume = (record) => {
+    if (onResumeDraft) {
+      onResumeDraft(record);
+    } else if (onStartAudit) {
+      onStartAudit({ ...record, isResume: true });
+    } else {
+      setActiveDirectPlan({ ...record, isResume: true });
+      window.dispatchEvent(new CustomEvent('app:start-audit', { detail: { ...record, isResume: true } }));
+    }
+  };
+
+  if (activeDirectPlan) {
+    return (
+      <LiveAuditScreen
+        preselectedPlan={activeDirectPlan}
+        onClearPlan={() => setActiveDirectPlan(null)}
+        onBack={() => setActiveDirectPlan(null)}
+        onCompleteAudit={() => setActiveDirectPlan(null)}
+      />
+    );
+  }
+
   if (selectedBranch) {
     return (
       <BranchProfile
@@ -780,10 +813,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                     return (
                       <tr
                         key={log.id || idx}
-                        onClick={(e) => {
-                          // Prevent row click if clicking a button inside it
-                          if (e.target.closest('button')) return;
-
+                        onClick={() => {
                           if (log.type === 'completed') {
                             if (onSelectLog) {
                               onSelectLog({ unitName: log.unitFullName, record: log.record });
@@ -791,15 +821,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                               setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
                             }
                           } else if (log.type === 'draft') {
-                            if (onResumeDraft) {
-                              onResumeDraft(log.record);
-                            } else if (onStartAudit) {
-                              onStartAudit({ ...log.record, isResume: true });
-                            }
+                            handleTriggerResume(log.record);
                           } else if (log.type === 'schedule') {
-                            if (onStartAudit) {
-                              onStartAudit(log.record);
-                            }
+                            handleTriggerAudit(log.record);
                           }
                         }}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"

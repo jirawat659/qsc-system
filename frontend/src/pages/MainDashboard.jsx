@@ -187,6 +187,16 @@ export default function MainDashboard({ onLogout }) {
     setScreen("audit");
   };
 
+  useEffect(() => {
+    const handleCustomStartAudit = (e) => {
+      if (e.detail) {
+        handleStartAuditDirect(e.detail);
+      }
+    };
+    window.addEventListener('app:start-audit', handleCustomStartAudit);
+    return () => window.removeEventListener('app:start-audit', handleCustomStartAudit);
+  }, [role]);
+
   const renderCurrentScreen = () => {
     return (
       <ErrorBoundary>
@@ -235,7 +245,7 @@ export default function MainDashboard({ onLogout }) {
           )}
           {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
           {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
-          {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} currentUser={currentUser} onNavigate={handleNavClick} />}
+          {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} currentUser={currentUser} onNavigate={handleNavClick} onStartAuditDirect={handleStartAuditDirect} />}
           {screen === "schedule" && (
             <ScheduleScreen
               role={role}

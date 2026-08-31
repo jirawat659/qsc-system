@@ -39,7 +39,7 @@ import MasterManagementScreen from "./MasterManagementScreen";
 import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
-export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser }) {
+export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect }) {
   const { locations = [] } = React.useContext(DataContext);
   const [open, setOpen] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -145,7 +145,24 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
   }
 
   if (open === "reports") {
-    return <ConsolidatedReportsScreen onBack={() => setOpen(null)} />;
+    return (
+      <ConsolidatedReportsScreen
+        onBack={() => setOpen(null)}
+        currentAuditorName={currentUser?.name}
+        onStartAudit={(plan) => {
+          setOpen(null);
+          if (onStartAuditDirect) onStartAuditDirect(plan);
+          else if (onNavigate) onNavigate("audit", { plan });
+          else window.dispatchEvent(new CustomEvent('app:start-audit', { detail: plan }));
+        }}
+        onResumeDraft={(draft) => {
+          setOpen(null);
+          if (onStartAuditDirect) onStartAuditDirect({ ...draft, isResume: true });
+          else if (onNavigate) onNavigate("audit", { plan: { ...draft, isResume: true } });
+          else window.dispatchEvent(new CustomEvent('app:start-audit', { detail: { ...draft, isResume: true } }));
+        }}
+      />
+    );
   }
 
   if (open === "auditor_profile") {
