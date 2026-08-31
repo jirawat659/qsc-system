@@ -278,13 +278,13 @@ export default function LiveAuditScreen({
     (preselectedPlan.locationId || preselectedPlan.locationName || preselectedPlan.unit)
   );
 
-  // Step flow: select-unit -> select-form -> details -> section -> review-modal
-  // 🌟 หากเป็นการเปิดฉบับร่างค้างตรวจ ให้ข้ามไปหน้า 'section' ทันที!
+  // Step flow: select-unit -> select-form -> audit
+  // 🌟 หากเป็นการเปิดฉบับร่างค้างตรวจ หรือตามแผนงาน ให้ข้ามไปหน้า 'audit' ทันที!
   const [step, setStep] = useState(() => {
-    if (isResumeDraft) return "section";
-    if (isFromAssignedPlan) return "details";
+    if (isResumeDraft || isFromAssignedPlan) return "audit";
     return "select-unit";
   });
+  const [activeTab, setActiveTab] = useState(1);
 
   const [searchBranch, setSearchBranch] = useState("");
   const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
@@ -470,7 +470,8 @@ export default function LiveAuditScreen({
         const foundForm = formList.find(f => f.id === parsedDraftPayload.formId);
         if (foundForm) setSelectedForm(foundForm);
       }
-      setStep("section");
+      setStep("audit");
+      setActiveTab(2);
     }
   }, [parsedDraftPayload, isResumeDraft, unit, selectedForm, formList]);
 
@@ -492,7 +493,7 @@ export default function LiveAuditScreen({
 
   // Inform parent whether an active live audit is happening
   useEffect(() => {
-    const isActivelyAuditing = step === "details" || step === "section";
+    const isActivelyAuditing = step === "audit";
     if (onActiveStateChange) {
       onActiveStateChange(isActivelyAuditing);
     }
@@ -1056,7 +1057,7 @@ export default function LiveAuditScreen({
             <button
               key={f.id || f.title}
               type="button"
-              onClick={() => { setSelectedForm(f); setStep("details"); }}
+              onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
               className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${
                 selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
               }`}
@@ -1090,661 +1091,449 @@ export default function LiveAuditScreen({
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // STEP 3: DETAILS (AUDITOR INFO & TYPE)
+  // AUDIT WORKFLOW (3 TABS)
   // ════════════════════════════════════════════════════════════════════════════
-  if (step === "details") {
+  if (step === "audit") {
     const handleProceedToSection = () => {
-      const errors = {};
-      if (!auditorName || !auditorName.trim()) {
-        errors.auditorName = "กรุณาระบุชื่อผู้ตรวจประเมิน (ห้ามเว้นว่าง)";
-      }
-      if (!auditType || (auditType !== "announced" && auditType !== "spot" && auditType !== "unannounced" && auditType !== "undercover")) {
-        errors.auditType = "กรุณาเลือกประเภทการตรวจ (ห้ามเว้นว่าง)";
-      }
-      if (!staffCount || isNaN(Number(staffCount)) || Number(staffCount) <= 0) {
-        errors.staffCount = "กรุณาระบุจำนวนพนักงานที่ปฏิบัติงานขณะตรวจ (อย่างน้อย 1 คน)";
-      }
+      setActiveTab(2);
+    };
 
-      if (Object.keys(errors).length > 0) {
-        setDetailsErrors(errors);
+    const handleFinalSubmitTab3 = async () => {
+      const missing = checkUnansweredQuestions();
+      if (missing.length > 0) {
+        setActiveTab(2);
+        const firstMissing = missing[0];
+        triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
         return;
       }
-
-      setDetailsErrors({});
-      setStep("section");
+      setShowConfirmModal(true);
     };
 
     return (
-      <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto">
-        <Header
-          title="รายละเอียดการตรวจ"
-          subtitle={`${unit?.fullName || unit?.name}\n${selectedForm?.title || selectedForm?.name || "แบบฟอร์มการตรวจ"}`}
-          onBack={() => {
-            if (isFromAssignedPlan) {
-              onClearPlan();
-            } else {
-              setStep("select-form");
-            }
-          }}
-        />
+      <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20">
+        {/* Sticky Top Header Card */}
+        <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2 pb-3 px-4 shadow-sm border-b border-slate-200">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <button type="button" onClick={() => setStep("select-form")} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-600 transition-colors">
+              <ChevronDown className="rotate-90" size={20} />
+            </button>
+            
+            <div className="flex items-center gap-1.5">
+              {syncStatus === "saving" ? (
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-700 animate-pulse">
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>Syncing...</span>
+                </div>
+              ) : syncStatus === "error" ? (
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 border border-rose-200 text-[11px] font-bold text-rose-700">
+                  <AlertCircle size={12} />
+                  <span>Sync Failed</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-700">
+                  <CheckCircle2 size={12} />
+                  <span>Synced</span>
+                </div>
+              )}
+            </div>
+          </div>
 
-        <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4">
-          {/* 1. ผู้ตรวจประเมิน (Auditor) - Select Dropdown */}
-          <div>
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1">
-              <span>ผู้ตรวจประเมิน (Auditor)</span>
-              <span className="text-rose-500 font-black">*</span>
-            </label>
-            <div className="relative">
-              <select
-                value={auditorName}
-                onChange={(e) => {
-                  setAuditorName(e.target.value);
-                  if (detailsErrors.auditorName) {
-                    setDetailsErrors(prev => ({ ...prev, auditorName: null }));
-                  }
-                }}
-                className={`w-full text-sm p-3.5 rounded-xl border outline-none font-bold transition-all bg-white cursor-pointer appearance-none pr-10 shadow-2xs ${
-                  detailsErrors.auditorName
-                    ? 'border-rose-400 bg-rose-50/40 text-slate-800 ring-2 ring-rose-300/40 focus:border-rose-500'
-                    : 'border-slate-200 text-slate-800 focus:border-[#0F6659]'
-                }`}
-              >
-                <option value="">-- กรุณาเลือกผู้ตรวจประเมิน --</option>
-                {auditorOptions.map(u => {
-                  const name = u.fullName || u.name;
-                  const role = u.roleCode || u.role?.name || u.role?.code;
-                  return (
-                    <option key={u.id || name} value={name}>
-                      {name} {role ? `(${role})` : ''}
-                    </option>
-                  );
-                })}
-              </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                <ChevronDown size={18} />
+          <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">{unit?.fullName || unit?.name}</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">{selectedForm?.title}</p>
+              <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
+                <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
+                  <PenTool size={11} /> {auditorName || "ระบุผู้ตรวจ"}
+                </span>
+                <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
+                  <Clock size={11} /> เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
             </div>
-            {detailsErrors.auditorName && (
-              <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1 animate-in fade-in duration-150">
-                <AlertCircle size={12} className="shrink-0" />
-                <span>{detailsErrors.auditorName}</span>
-              </p>
-            )}
-          </div>
-
-          {/* 2. ประเภทการตรวจ */}
-          <div>
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1">
-              <span>ประเภทการตรวจ (Audit Type)</span>
-              <span className="text-rose-500 font-black">*</span>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { key: "announced", label: "ตามกำหนดการ" },
-                { key: "unannounced", label: "นอกกำหนดการ" },
-                { key: "undercover", label: "ปลอมตัว" },
-              ].map(t => {
-                const isSelected = auditType === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    type="button"
-                    onClick={() => {
-                      setAuditType(t.key);
-                      if (detailsErrors.auditType) {
-                        setDetailsErrors(prev => ({ ...prev, auditType: null }));
-                      }
-                    }}
-                    className={`py-3 rounded-xl text-xs font-bold border cursor-pointer transition-all active:scale-95 ${
-                      isSelected
-                        ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs ring-2 ring-[#0F6659]/30'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
+            
+            <div className="shrink-0 flex flex-col items-center justify-center">
+              <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                  <path className="text-slate-100" strokeWidth="4" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  <path className={`${scoreAnalysis.percentage >= passingScore ? 'text-emerald-500' : 'text-amber-500'} transition-all duration-1000 ease-out`} strokeDasharray={`${scoreAnalysis.percentage}, 100`} strokeWidth="4" stroke="currentColor" fill="none" strokeLinecap="round" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-sm sm:text-base font-black text-slate-800 leading-none">{scoreAnalysis.percentage}%</span>
+                </div>
+              </div>
+              <span className={`text-[9px] sm:text-[10px] font-extrabold mt-1.5 ${scoreAnalysis.isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {scoreAnalysis.isPassed ? "ผ่านเกณฑ์มาตรฐาน" : "กำลังประเมิน"}
+              </span>
+              <span className="text-[9px] text-slate-400 font-medium">เกณฑ์ ≥{passingScore}%</span>
             </div>
-            {detailsErrors.auditType && (
-              <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1 animate-in fade-in duration-150">
-                <AlertCircle size={12} className="shrink-0" />
-                <span>{detailsErrors.auditType}</span>
-              </p>
-            )}
-          </div>
-
-          {/* 3. จำนวนพนักงาน */}
-          <div>
-            <label className="text-xs font-extrabold text-slate-700 block mb-1.5 flex items-center gap-1">
-              <span>จำนวนพนักงานที่ปฏิบัติงานขณะตรวจ</span>
-              <span className="text-rose-500 font-black">*</span>
-            </label>
-            <input
-              type="number"
-              min="1"
-              placeholder="ระบุจำนวนพนักงาน (คน)..."
-              value={staffCount}
-              onChange={(e) => {
-                setStaffCount(e.target.value);
-                if (detailsErrors.staffCount) {
-                  setDetailsErrors(prev => ({ ...prev, staffCount: null }));
-                }
-              }}
-              className={`w-full text-sm p-3.5 rounded-xl border outline-none font-bold transition-all ${
-                detailsErrors.staffCount
-                  ? 'border-rose-400 bg-rose-50/40 text-slate-800 ring-2 ring-rose-300/40 focus:border-rose-500'
-                  : 'border-slate-200 text-slate-800 focus:border-[#0F6659]'
-              }`}
-            />
-            {detailsErrors.staffCount && (
-              <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1 animate-in fade-in duration-150">
-                <AlertCircle size={12} className="shrink-0" />
-                <span>{detailsErrors.staffCount}</span>
-              </p>
-            )}
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleProceedToSection}
-          className="w-full py-4 rounded-2xl text-base font-extrabold bg-[#0F6659] hover:bg-[#0c5248] text-white shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-2 transition-all"
-        >
-          <span>เริ่มตรวจข้อประเมิน</span>
-          <ChevronRight size={18} />
-        </button>
+        {/* Navigation Tabs */}
+        <div className="px-4 mb-4 mt-2">
+          <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-2xs">
+            {[
+              { id: 1, label: "ข้อมูลการตรวจ", icon: <ClipboardList size={14} /> },
+              { id: 2, label: "รายการตรวจ", icon: <CheckCheck size={14} /> },
+              { id: 3, label: "ลงชื่อ&ส่งผล", icon: <PenTool size={14} /> }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 py-2 text-[11px] sm:text-xs font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition-all ${
+                  activeTab === tab.id
+                    ? "bg-[#0F6659] text-white shadow-md"
+                    : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                {tab.icon}
+                <span className="truncate">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-4 space-y-4">
+          {/* TAB 1: INFO */}
+          {activeTab === 1 && (
+            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4 animate-in fade-in duration-200">
+              <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>
+              
+              <div>
+                <label className="text-xs font-extrabold text-slate-700 block mb-1.5">ผู้ตรวจประเมิน (Auditor) <span className="text-rose-500">*</span></label>
+                <div className="relative">
+                  <select
+                    value={auditorName}
+                    onChange={(e) => setAuditorName(e.target.value)}
+                    className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
+                  >
+                    <option value="">-- เลือกผู้ตรวจ --</option>
+                    {auditorOptions.map(u => (
+                      <option key={u.id || u.fullName} value={u.fullName || u.name}>{u.fullName || u.name}</option>
+                    ))}
+                  </select>
+                  <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                    <ChevronDown size={18} />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold text-slate-700 block mb-1.5">ประเภทการตรวจ (Audit Type) <span className="text-rose-500">*</span></label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { key: "announced", label: "ตามกำหนดการ" },
+                    { key: "unannounced", label: "นอกกำหนดการ (Spot)" },
+                    { key: "undercover", label: "ปลอมตัว" }
+                  ].map(t => (
+                    <button
+                      key={t.key}
+                      type="button"
+                      onClick={() => setAuditType(t.key)}
+                      className={`py-2.5 px-1 rounded-xl text-[10px] sm:text-xs font-bold border transition-all ${
+                        auditType === t.key
+                          ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-extrabold text-slate-700 block mb-1.5">จำนวนพนักงานขณะตรวจ <span className="text-rose-500">*</span></label>
+                <input
+                  type="number"
+                  min="1"
+                  value={staffCount}
+                  onChange={(e) => setStaffCount(e.target.value)}
+                  className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                  placeholder="ระบุจำนวน (คน)"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleProceedToSection}
+                className="w-full py-4 mt-2 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2"
+              >
+                ไปที่รายการตรวจทั้งหมด <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+
+          {/* TAB 2: QUESTIONS */}
+          {activeTab === 2 && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              {currentSections.map((sec, sIdx) => (
+                <div key={sec.id || sIdx} className="space-y-3">
+                  <div className="sticky top-44 z-30 flex items-center justify-between gap-2 bg-slate-50/95 backdrop-blur-sm py-2 px-1 rounded-xl">
+                    <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs">{sIdx + 1}</span>
+                      {sec.title}
+                    </h3>
+                    <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                      {sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length}/{sec.items?.length || 0} ตอบแล้ว
+                    </span>
+                  </div>
+
+                  <div className="space-y-4">
+                    {(sec.items || []).map((q, idx) => {
+                      const isHighlighted = highlightedQuestionId === q.id;
+                      const isNa = answers[q.id] === "na";
+                      const isFailed = !isNa && (answers[q.id] === "no" || answers[q.id] === false || (Number(answers[q.id]) < 3 && answers[q.id] !== undefined && answers[q.id] !== ""));
+                      const hasPhoto = !!photos[q.id];
+                      const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+                      const isScale = qType === "scale" || qType === "rating";
+                      const isCommentOpen = Boolean(openComments[q.id] || (comments[q.id] && comments[q.id].trim().length > 0));
+                      const scoreGiven = isNa ? 0 : (isScale ? (Number(answers[q.id]) || 0) / 5 * (q.fullScore || 10) : ((answers[q.id] === "yes" || answers[q.id] === true) ? (q.fullScore || 10) : 0));
+                      const isAnswered = answers[q.id] !== undefined && answers[q.id] !== "";
+
+                      return (
+                        <div
+                          key={q.id || idx}
+                          id={`question-card-${q.id}`}
+                          className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${
+                            isHighlighted
+                              ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
+                              : isNa
+                              ? "bg-slate-50/90 border-slate-300"
+                              : isFailed
+                              ? "bg-red-50/50 border-red-300"
+                              : "bg-white border-slate-200 shadow-2xs"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3 mb-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
+                                {q.isCritical && (
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">🚨 จุดวิกฤต (Critical)</span>
+                                )}
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                  คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
+                                </span>
+                                {isHighlighted && (
+                                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
+                                )}
+                              </div>
+                              <h4 className={`text-sm sm:text-base font-semibold leading-snug ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                                {q.questionText || q.text}
+                              </h4>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0 mt-1">
+                              <button
+                                type="button"
+                                onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
+                                className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${
+                                  (comments[q.id] && comments[q.id].trim().length > 0)
+                                    ? 'bg-amber-50 text-amber-700 border-amber-300'
+                                    : isCommentOpen
+                                    ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
+                              </button>
+                              <label className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${
+                                hasPhoto ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                              }`}>
+                                <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => handlePhotoUpload(q.id, e.target.files[0])} />
+                                <Camera size={16} />
+                              </label>
+                            </div>
+                          </div>
+
+                          {hasPhoto && (
+                            <div className="relative inline-block mb-3 rounded-xl overflow-hidden border border-slate-200">
+                              <img src={photos[q.id]} alt="Evidence" className="h-24 w-36 object-cover" />
+                              <button type="button" onClick={() => handlePhotoDelete(q.id)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center text-xs hover:bg-red-600 cursor-pointer">✕</button>
+                            </div>
+                          )}
+
+                          {!isScale && (
+                            <div className="grid grid-cols-3 gap-2">
+                              <button type="button" onClick={() => handleAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "yes" || answers[q.id] === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+                                <CheckCircle2 size={18} /><span>ผ่าน / Yes</span>
+                              </button>
+                              <button type="button" onClick={() => handleAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "no" || answers[q.id] === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+                                <XCircle size={18} /><span>ไม่ผ่าน / No</span>
+                              </button>
+                              <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
+                                <Minus size={18} /><span>ข้าม (N/A)</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {isScale && (
+                            <div className="flex gap-1.5 items-center">
+                              {[1, 2, 3, 4, 5].map((n) => (
+                                <button key={n} type="button" onClick={() => handleAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answers[q.id] === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+                                  {n}
+                                </button>
+                              ))}
+                              <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black cursor-pointer transition-all border ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                <Minus size={14} className="mr-0.5" /> N/A
+                              </button>
+                            </div>
+                          )}
+
+                          {isCommentOpen && (
+                            <div className="mt-3">
+                              <QuestionCommentInput initialValue={comments[q.id]} onChange={(val) => handleCommentChange(q.id, val)} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              <div className="pt-4">
+                <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2">
+                  ไปที่การลงชื่อและส่งผล <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: SIGNATURES & SUBMIT */}
+          {activeTab === 3 && (
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-5">
+                <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2">การลงชื่อรับทราบผลตรวจ (Signatures)</h3>
+                
+                <SignaturePad
+                  label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}
+                  signatoryName={auditeeSignName}
+                  onNameChange={setAuditeeSignName}
+                  onSignChange={setAuditeeSignature}
+                  placeholderName="ระบุชื่อ-นามสกุล..."
+                />
+
+                <SignaturePad
+                  label={`2. ผู้ตรวจประเมิน (${auditorName || defaultAuditorName})`}
+                  onSignChange={setAuditorSignature}
+                />
+              </div>
+
+              <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-bold text-slate-800">สรุปคะแนนประเมิน</h3>
+                  <span className={`text-xs font-black px-2.5 py-1 rounded-xl ${scoreAnalysis.isPassed ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                    {scoreAnalysis.percentage}%
+                  </span>
+                </div>
+                <div className="space-y-2 text-xs font-medium text-slate-600">
+                  <div className="flex justify-between">
+                    <span>คะแนนที่ได้</span>
+                    <span className="font-bold text-slate-900">{scoreAnalysis.earnedScore.toFixed(1)} / {scoreAnalysis.maxScore}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ข้อที่ข้าม (N/A)</span>
+                    <span className="font-bold text-slate-900">{scoreAnalysis.naCount} ข้อ</span>
+                  </div>
+                  <div className="flex justify-between text-rose-600">
+                    <span>ข้อที่ไม่ผ่าน / บกพร่อง</span>
+                    <span className="font-bold">{scoreAnalysis.failedQuestions.length} ข้อ</span>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleFinalSubmitTab3}
+                className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95 flex items-center justify-center gap-2 transition-all"
+              >
+                <CheckCircle2 size={18} />
+                บันทึกและส่งผลตรวจประเมิน
+              </button>
+
+              {hasUserAnswers && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardDraft}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    ยกเลิกและล้างแบบร่างทั้งหมด
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* CONFIRMATION MODAL */}
+        {showConfirmModal && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+              <div className="text-center">
+                <div className="w-14 h-14 rounded-3xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-3 shadow-2xs">
+                  <CheckCircle2 size={32} />
+                </div>
+                <h3 className="text-xl font-extrabold text-slate-900">ยืนยันการส่งผลตรวจ?</h3>
+                <p className="text-xs font-bold text-slate-500 mt-0.5">{unit?.fullName || unit?.name}</p>
+              </div>
+
+              <div className={`rounded-2xl p-4 text-center border ${scoreAnalysis.isPassed ? 'bg-emerald-50/70 border-emerald-300' : 'bg-red-50/70 border-red-300'}`}>
+                <div className="text-4xl sm:text-5xl font-black mb-2" style={{ color: scoreAnalysis.isPassed ? '#0F6659' : '#B91C1C', fontFamily: mono }}>
+                  {scoreAnalysis.percentage}%
+                </div>
+                <div className={`text-xs font-extrabold ${scoreAnalysis.isPassed ? 'text-emerald-800' : 'text-red-800'}`}>
+                  {scoreAnalysis.isPassed ? "✓ ผ่านเกณฑ์มาตรฐาน Q.S.C." : "⚠️ ไม่ผ่านเกณฑ์"}
+                </div>
+              </div>
+
+              {submitError && (
+                <div className="bg-rose-50 border border-rose-300 p-3.5 rounded-2xl text-xs font-bold text-rose-800 flex items-start gap-2">
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                  <span>{submitError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowConfirmModal(false)} disabled={isSubmitting} className="flex-1 py-3.5 rounded-2xl text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700">
+                  ย้อนกลับ
+                </button>
+                <button type="button" onClick={handleFinalSubmit} disabled={isSubmitting} className="flex-1 py-3.5 rounded-2xl text-xs sm:text-sm font-extrabold bg-[#0F6659] hover:bg-emerald-800 text-white shadow-md flex items-center justify-center gap-2">
+                  {isSubmitting ? <><Loader2 size={16} className="animate-spin" /> กำลังบันทึก...</> : <><Check size={16} /> ยืนยันส่งผล</>}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        {/* DISCARD MODAL */}
+        {showDiscardConfirmModal && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 text-center animate-in zoom-in-95">
+              <div className="w-16 h-16 rounded-3xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto border border-rose-200">
+                <Trash2 size={28} />
+              </div>
+              <div>
+                <h4 className="text-lg font-black text-slate-900">ยกเลิกร่างการตรวจ?</h4>
+                <p className="text-xs text-slate-500 font-medium mt-1 px-2">ข้อมูลที่ตรวจค้างไว้ของสาขานี้จะถูกลบทั้งหมด</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-2">
+                <button onClick={() => setShowDiscardConfirmModal(false)} className="py-3 px-4 rounded-2xl bg-slate-100 text-slate-700 font-bold text-xs">ย้อนกลับ</button>
+                <button onClick={confirmDiscardDraft} className="py-3 px-4 rounded-2xl bg-rose-600 text-white font-bold text-xs shadow-md">ยืนยันลบ</button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
       </div>
     );
   }
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // STEP 4: SECTION QUESTIONS WITH REAL-TIME AUTO-SYNC (GOOGLE FORMS STYLE)
-  // ════════════════════════════════════════════════════════════════════════════
-  const activeSec = currentSections[sectionIdx] || currentSections[0];
-  const items = activeSec?.items || [];
-
-  return (
-    <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16">
-      {/* Header with Auto-Sync Status Indicator */}
-      <Header
-        title={selectedForm?.title || "ตรวจประเมินหน้างาน"}
-        subtitle={`${unit?.fullName || unit?.name}\n${activeSec?.title || "หมวดการตรวจ"} (${sectionIdx + 1}/${currentSections.length})`}
-        onBack={async () => {
-          await performSaveDraft();
-          if (onClearPlan) {
-            onClearPlan();
-          } else {
-            setStep("select-unit");
-          }
-        }}
-        action={
-          <div className="flex items-center gap-1.5 shrink-0">
-            {syncStatus === "saving" ? (
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-300 shadow-2xs text-[11px] font-bold text-amber-800 animate-pulse">
-                <Loader2 size={12} className="animate-spin text-amber-600" />
-                <span>Syncing...</span>
-              </div>
-            ) : syncStatus === "error" ? (
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 border border-rose-300 shadow-2xs text-[11px] font-bold text-rose-800">
-                <AlertCircle size={12} className="text-rose-600" />
-                <span>Sync ไม่สำเร็จ</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-300/90 shadow-2xs text-[11px] font-bold text-emerald-800">
-                <CheckCircle2 size={12} className="text-emerald-600" />
-                <span>Sync</span>
-              </div>
-            )}
-          </div>
-        }
-      />
-
-      {/* 🌟 Horizontal Scrollable Category Bar (แถบเลือกหมวดหมู่เลื่อนๆ) */}
-      <div className="overflow-x-auto pb-1 custom-tab-scrollbar scroll-smooth" style={{ scrollbarWidth: "none" }}>
-        <div className="flex gap-2 min-w-max">
-          {currentSections.map((sec, sIdx) => {
-            const isCurrent = sIdx === sectionIdx;
-            const secItems = sec.items || [];
-            const answeredCount = secItems.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length;
-            const isCompleted = secItems.length > 0 && answeredCount === secItems.length;
-
-            return (
-              <button
-                key={sec.id || sIdx}
-                type="button"
-                onClick={() => setSectionIdx(sIdx)}
-                className={`px-3.5 py-2 rounded-2xl text-xs font-bold cursor-pointer transition-all shrink-0 flex items-center gap-2 border shadow-2xs ${
-                  isCurrent
-                    ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-xs ring-2 ring-[#0F6659]/30'
-                    : isCompleted
-                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                }`}
-              >
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 ${
-                  isCurrent
-                    ? 'bg-white/20 text-white'
-                    : isCompleted
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 text-slate-600'
-                }`}>
-                  {isCompleted && !isCurrent ? <Check size={11} strokeWidth={3} /> : (sIdx + 1)}
-                </span>
-                <span className="whitespace-nowrap">{sec.title}</span>
-                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${
-                  isCurrent ? 'bg-black/20 text-white' : 'bg-slate-100 text-slate-500'
-                }`}>
-                  {answeredCount}/{secItems.length}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Questions List */}
-      <div className="space-y-4">
-        {items.map((q, idx) => {
-          const isHighlighted = highlightedQuestionId === q.id;
-          const isNa = answers[q.id] === "na";
-          const isFailed = !isNa && (answers[q.id] === "no" || answers[q.id] === false || (Number(answers[q.id]) < 3 && answers[q.id] !== undefined && answers[q.id] !== ""));
-          const hasPhoto = !!photos[q.id];
-          const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-          const isScale = qType === "scale" || qType === "rating";
-          const isCommentOpen = Boolean(openComments[q.id] || (comments[q.id] && comments[q.id].trim().length > 0));
-
-          return (
-            <div
-              key={q.id || idx}
-              id={`question-card-${q.id}`}
-              className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${
-                isHighlighted
-                  ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
-                  : isNa
-                  ? "bg-slate-50/90 border-slate-300 ring-1 ring-slate-300/50"
-                  : isFailed
-                  ? "bg-red-50/50 border-red-300 ring-1 ring-red-400/30"
-                  : "bg-white border-slate-200 shadow-2xs"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="text-xs font-semibold text-slate-400">#{idx + 1}</span>
-                    {isHighlighted && (
-                      <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-rose-600 text-white animate-bounce shadow-xs flex items-center gap-1">
-                        <AlertTriangle size={12} />
-                        <span>กรุณาตอบข้อนี้</span>
-                      </span>
-                    )}
-                    {q.isCritical && (
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">
-                        🚨 จุดวิกฤต (Critical)
-                      </span>
-                    )}
-                    {isNa ? (
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 border border-slate-300">
-                        ⚪ ข้าม (N/A: ไม่คิดคะแนน)
-                      </span>
-                    ) : (
-                      <span className="text-[11px] font-normal text-slate-400">
-                        คะแนนเต็ม {q.fullScore || 10}
-                      </span>
-                    )}
-                  </div>
-                  <h4 className={`text-sm sm:text-base font-medium leading-snug ${isNa ? "text-slate-500 line-through" : "text-slate-900"}`}>
-                    {q.questionText || q.text}
-                  </h4>
-                </div>
-
-                {/* Right Action Buttons: Comment Toggle + Camera */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {/* Comment Toggle Button */}
-                  <button
-                    type="button"
-                    onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
-                    className={`w-10 h-10 rounded-2xl flex items-center justify-center cursor-pointer transition-all border ${
-                      (comments[q.id] && comments[q.id].trim().length > 0)
-                        ? 'bg-amber-50 text-amber-800 border-amber-300 shadow-2xs'
-                        : isCommentOpen
-                        ? 'bg-slate-200 text-slate-800 border-slate-300'
-                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                    }`}
-                    title={isCommentOpen ? "ซ่อนกล่องข้อคิดเห็น" : "พิมพ์ข้อคิดเห็น / บันทึกข้อบกพร่อง"}
-                  >
-                    <MessageSquare size={17} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40 text-amber-700" : ""} />
-                  </button>
-
-                  {/* Camera Button */}
-                  <label className={`w-10 h-10 rounded-2xl flex items-center justify-center cursor-pointer transition-all shrink-0 border ${
-                    hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
-                  }`} title="ถ่ายรูปหลักฐาน">
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) => handlePhotoUpload(q.id, e.target.files[0])}
-                    />
-                    <Camera size={18} />
-                  </label>
-                </div>
-              </div>
-
-              {/* Photo Preview if attached */}
-              {hasPhoto && (
-                <div className="relative inline-block mb-3 rounded-2xl overflow-hidden border border-slate-200 shadow-2xs">
-                  <img src={photos[q.id]} alt="Evidence" className="h-28 w-44 object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => handlePhotoDelete(q.id)}
-                    className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center text-xs hover:bg-red-600 cursor-pointer"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-
-              {/* Answer Controls with Toggle to Unselect (คลิกซ้ำเพื่อยกเลิกคำตอบ) */}
-              {!isScale && (
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleAnswerSelect(q.id, "yes")}
-                    className={`py-2.5 sm:py-3 rounded-2xl text-xs sm:text-sm font-semibold border cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                      answers[q.id] === "yes" || answers[q.id] === true
-                        ? 'bg-emerald-700 text-white border-emerald-700 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="คลิกซ้ำเพื่อยกเลิกคำตอบ"
-                  >
-                    <CheckCircle2 size={15} />
-                    <span>ผ่าน</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAnswerSelect(q.id, "no")}
-                    className={`py-3 rounded-2xl text-xs sm:text-sm font-extrabold border cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                      answers[q.id] === "no" || answers[q.id] === false
-                        ? 'bg-red-700 text-white border-red-700 shadow-2xs'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="คลิกซ้ำเพื่อยกเลิกคำตอบ"
-                  >
-                    <XCircle size={15} />
-                    <span>ไม่ผ่าน</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleAnswerSelect(q.id, "na")}
-                    className={`py-3 rounded-2xl text-xs sm:text-sm font-extrabold border cursor-pointer transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                      answers[q.id] === "na"
-                        ? 'bg-slate-700 text-white border-slate-700 shadow-2xs'
-                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="ข้ามข้อนี้ไป ไม่นำคะแนนเต็มไปนับรวม"
-                  >
-                    <Minus size={15} />
-                    <span>ข้าม</span>
-                  </button>
-                </div>
-              )}
-
-              {isScale && (
-                <div className="flex gap-2 pt-1 items-center">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => handleAnswerSelect(q.id, n)}
-                      className={`flex-1 py-3 rounded-xl flex items-center justify-center text-sm font-extrabold cursor-pointer transition-all active:scale-95 ${
-                        answers[q.id] === n
-                          ? 'bg-[#0F6659] text-white shadow-2xs'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}
-                      title="คลิกซ้ำเพื่อยกเลิก"
-                    >
-                      {n}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => handleAnswerSelect(q.id, "na")}
-                    className={`px-3 py-3 rounded-xl flex items-center justify-center text-xs font-extrabold cursor-pointer transition-all active:scale-95 border ${
-                      answers[q.id] === "na"
-                        ? 'bg-slate-700 text-white border-slate-700'
-                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                    }`}
-                    title="ข้ามข้อนี้ไป ไม่นำคะแนนเต็มไปนับรวม"
-                  >
-                    <Minus size={13} className="mr-0.5" />
-                    <span>ข้าม</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Note / Comment textarea - shown ONLY when toggled or has text */}
-              {isCommentOpen && (
-                <div className="mt-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
-                  <QuestionCommentInput
-                    initialValue={comments[q.id]}
-                    onChange={(val) => handleCommentChange(q.id, val)}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Navigation Footer */}
-      <div className="space-y-3 pt-4">
-        <div className="flex gap-3">
-          {sectionIdx > 0 && (
-            <button
-              type="button"
-              onClick={goPrevSection}
-              className="flex-1 py-4 rounded-2xl text-sm font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer shadow-2xs active:scale-98"
-            >
-              ย้อนกลับ
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={goNext}
-            className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold bg-[#0F6659] text-white shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-2"
-          >
-            <span>{sectionIdx < currentSections.length - 1 ? "หมวดถัดไป ➔" : "ตรวจสอบและส่งผลตรวจ ➔"}</span>
-          </button>
-        </div>
-
-        {/* 🗑️ Discard Draft Option */}
-        {hasUserAnswers && (
-          <div className="text-center pt-1">
-            <button
-              type="button"
-              onClick={handleDiscardDraft}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors cursor-pointer py-1.5 px-3 rounded-xl hover:bg-red-50"
-            >
-              <Trash2 size={13} />
-              <span>ยกเลิกและล้างแบบร่างการตรวจนี้</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* 🛑 FINAL CONFIRMATION REVIEW MODAL (สรุปและยืนยันรอบสุดท้ายก่อนส่งจริง - Fullscreen Portal) */}
-      {showConfirmModal && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
-            <div className="text-center">
-              <div className="w-14 h-14 rounded-3xl bg-emerald-100 text-[#0F6659] flex items-center justify-center mx-auto mb-3 shadow-2xs">
-                <CheckCircle2 size={32} />
-              </div>
-              <h3 className="text-xl font-extrabold text-slate-900">สรุปผลการตรวจประเมิน</h3>
-              <p className="text-xs font-bold text-slate-500 mt-0.5">{unit?.fullName || unit?.name}</p>
-            </div>
-
-            {/* Score Ring Summary */}
-            <div className={`rounded-2xl p-4 text-center border ${
-              scoreAnalysis.isPassed ? 'bg-emerald-50/70 border-emerald-300' : 'bg-red-50/70 border-red-300'
-            }`}>
-              <div className="text-xs font-bold text-slate-500 mb-1">คะแนนรวมที่คำนวณได้ (เกณฑ์ผ่าน {passingScore}%)</div>
-              <div className="text-4xl sm:text-5xl font-black" style={{ color: scoreAnalysis.isPassed ? '#0F6659' : '#B91C1C', fontFamily: mono }}>
-                {scoreAnalysis.percentage}%
-              </div>
-              <div className={`text-xs font-extrabold mt-1.5 ${scoreAnalysis.isPassed ? 'text-emerald-800' : 'text-red-800'}`}>
-                {scoreAnalysis.isPassed ? "✓ ผ่านเกณฑ์มาตรฐาน Q.S.C." : "⚠️ ไม่ผ่านเกณฑ์ (ต้องสร้างตั๋ว CAP แก้ไข)"}
-              </div>
-              {scoreAnalysis.naCount > 0 && (
-                <div className="text-[11px] font-bold text-slate-500 mt-1">
-                  ⚪ มีข้อที่ข้าม (N/A) ทั้งหมด {scoreAnalysis.naCount} ข้อ (คำนวณคะแนนเต็ม {scoreAnalysis.maxScore} คะแนน)
-                </div>
-              )}
-            </div>
-
-            {/* Critical Defect Alert */}
-            {scoreAnalysis.hasCriticalDefect && (
-              <div className="bg-red-50 border border-red-300 p-3.5 rounded-2xl flex items-start gap-2.5 text-red-950 text-xs font-extrabold shadow-2xs">
-                <ShieldAlert size={18} className="text-red-600 shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-red-800">🚨 พบข้อบกพร่องระดับวิกฤต (Critical Defect)</div>
-                  <div className="text-[11px] text-red-700 font-normal mt-0.5 leading-relaxed">
-                    ระบบบังคับปรับตกทั้งฉบับโดยอัตโนมัติ เพื่อให้เป็นไปตามมาตรฐานความปลอดภัยทางอาหารสากล
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Failed Items warning */}
-            {scoreAnalysis.failedQuestions.length > 0 && (
-              <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-2xl space-y-1.5">
-                <div className="text-xs font-extrabold text-amber-950 flex items-center gap-1.5">
-                  <AlertTriangle size={15} className="text-amber-600 shrink-0" />
-                  <span>ตรวจพบข้อบกพร่อง {scoreAnalysis.failedQuestions.length} รายการ (จะสร้างตั๋ว CAP อัตโนมัติ):</span>
-                </div>
-                <ul className="text-[11.5px] text-amber-900 space-y-1 pl-4 list-disc font-medium">
-                  {scoreAnalysis.failedQuestions.map((fq, i) => (
-                    <li key={i} className="truncate">- {fq.questionText || fq.text}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Submit Error Banner */}
-            {submitError && (
-              <div className="bg-rose-50 border border-rose-300 p-3.5 rounded-2xl flex items-start gap-2.5 text-rose-950 text-xs font-bold shadow-2xs">
-                <AlertTriangle size={18} className="text-rose-600 shrink-0 mt-0.5" />
-                <div>
-                  <div className="text-rose-800">เกิดข้อผิดพลาดในการบันทึกผลตรวจ</div>
-                  <div className="text-[11px] text-rose-700 font-normal mt-0.5 leading-relaxed">{submitError}</div>
-                </div>
-              </div>
-            )}
-
-            {/* ✍️ DIGITAL SIGNATURES SECTION (การลงนามรับทราบผลตรวจ) */}
-            <div className="bg-slate-50/90 border border-slate-200 p-4 rounded-2xl space-y-3.5 text-left">
-              <div className="flex items-center justify-between pb-1 border-b border-slate-200">
-                <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                  <PenTool size={14} className="text-[#0F6659]" />
-                  <span>การลงนามรับทราบผลตรวจ (Digital Signatures)</span>
-                </div>
-                <span className="text-[10.5px] font-bold text-slate-400">เซ็นชื่อด้วยนิ้วหรือปากกา</span>
-              </div>
-
-              {/* 1. Auditee / Store Manager Signature */}
-              <SignaturePad
-                label={`1. ลายเซ็นผู้จัดการสาขา / ผู้รับการตรวจ (${unit?.fullName || unit?.name})`}
-                signatoryName={auditeeSignName}
-                onNameChange={setAuditeeSignName}
-                onSignChange={setAuditeeSignature}
-                placeholderName="ระบุชื่อ-นามสกุล ผู้จัดการสาขา / ผู้รับตรวจ"
-              />
-
-              {/* 2. Auditor Signature */}
-              <SignaturePad
-                label={`2. ลายเซ็นผู้ตรวจประเมิน (${currentUser?.name || defaultAuditorName})`}
-                onSignChange={setAuditorSignature}
-              />
-            </div>
-
-            {/* Permanent Lock Warning */}
-            <div className="text-center text-xs font-bold text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200">
-              ⚠️ กรุณาตรวจสอบความถูกต้องก่อนกดยืนยัน
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowConfirmModal(false)}
-                disabled={isSubmitting}
-                className="flex-1 py-3.5 rounded-2xl text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 cursor-pointer transition-colors"
-              >
-                ย้อนกลับไปแก้ไข
-              </button>
-              <button
-                type="button"
-                onClick={handleFinalSubmit}
-                disabled={isSubmitting}
-                className="flex-1 py-3.5 rounded-2xl text-xs sm:text-sm font-extrabold bg-[#0F6659] hover:bg-emerald-800 text-white shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-2"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>กำลังบันทึก...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check size={16} />
-                    <span>ยืนยันและส่งผลตรวจ</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* 🗑️ Custom Discard Draft Confirm Modal (Fullscreen Portal) */}
-      {showDiscardConfirmModal && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200/80 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
-              <Trash2 size={28} strokeWidth={2} />
-            </div>
-
-            <div className="space-y-1">
-              <h4 className="text-lg font-black text-slate-900">ยกเลิกร่างการตรวจ?</h4>
-              <p className="text-xs text-slate-500 font-medium px-2">
-                คุณต้องการยกเลิกและล้างคำตอบของแบบร่างสาขา <br/>
-                <span className="font-bold text-slate-800">"{unit?.fullName || unit?.name}"</span> ทั้งหมดใช่หรือไม่?
-              </p>
-            </div>
-
-            <div className="pt-2 grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => setShowDiscardConfirmModal(false)}
-                className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs cursor-pointer transition-all active:scale-95 border border-slate-200"
-              >
-                ย้อนกลับ
-              </button>
-              <button
-                type="button"
-                onClick={confirmDiscardDraft}
-                className="py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs cursor-pointer transition-all active:scale-95 shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5"
-              >
-                ยืนยันยกเลิกร่าง
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
-  );
+  return null;
 }

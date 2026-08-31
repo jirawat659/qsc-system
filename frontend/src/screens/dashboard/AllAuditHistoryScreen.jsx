@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import {
   Search, ArrowUpDown, ChevronRight, ChevronLeft, CheckCircle2,
   Wrench, AlertTriangle, Download, X, Calendar, User, FileText,
-  Building2, MapPin, Filter, ClipboardCheck, CalendarDays, Award
+  Building2, MapPin, Filter, ClipboardCheck, CalendarDays, Award, Plus
 } from "lucide-react";
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
@@ -19,8 +19,8 @@ import BranchProfile from "./BranchProfile";
 import api from "../../config/api";
 import { parseAuditTimestamp } from "../../utils/formatters";
 
-export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ" }) {
-  const { locations, auditRecords, capTasks } = React.useContext(DataContext);
+export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
+  const { locations, auditRecords, capTasks, schedules, activeDrafts } = React.useContext(DataContext);
   const activeLocations = locations || [];
   const [trendsData, setTrendsData] = useState([]);
 
@@ -41,6 +41,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all"); // 'all' | 'completed' | 'draft' | 'pending'
   const [sortBy, setSortBy] = useState("date-desc"); // 'date-desc' | 'date-asc' | 'branch-asc' | 'branch-desc' | 'score-desc' | 'score-asc'
   const [viewType, setViewType] = useState("history"); // 'history' (รายครั้ง) | 'table' (สาขา) | 'chart' (กราฟ)
   const [currentPage, setCurrentPage] = useState(1);
@@ -53,7 +54,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   // Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filterCategory, sortBy, viewType]);
+  }, [searchTerm, filterCategory, statusFilter, sortBy, viewType]);
 
   // Sync input text with currentPage when navigating via buttons
   useEffect(() => {
@@ -72,8 +73,11 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
   // 🌟 Map logs from Live Database if available, otherwise from mocks
   const allLogs = useMemo(() => {
+    const logs = [];
+
+    // 1. Completed Records
     if (auditRecords && auditRecords.length > 0) {
-      return auditRecords.map((r) => {
+      auditRecords.forEach((r) => {
         const score = Math.round(r.percentageScore || 0);
         const branchName = r.locationName || r.location?.name || "-";
         const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "-";
@@ -82,8 +86,11 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const timestamp = parseAuditTimestamp(rawDate, r.id);
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
         const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "-";
-        return {
-          id: r.id,
+        
+        logs.push({
+          id: `completed-${r.id}`,
+          originalId: r.id,
+          type: 'completed',
           unitName: branchName,
           unitFullName: branchFullName,
           region: r.locationRegion || r.location?.region || "-",
@@ -112,33 +119,110 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             isPassed: r.isPassed,
             hasCriticalDefect: r.hasCriticalDefect
           }
-        };
+        });
       });
     }
 
-    const logs = [];
-    activeLocations.forEach(u => {
-      (u.history || []).forEach((h, hIdx) => {
-        const timestamp = parseAuditTimestamp(h.date, h.id || hIdx);
+    // 2. Drafts
+    if (activeDrafts && activeDrafts.length > 0) {
+      activeDrafts.forEach((d) => {
+        const branchName = d.locationName || d.location?.name || "-";
+        const branchFullName = d.locationName || d.location?.fullName || d.location?.name || "-";
+        const rawDate = d.updatedAt || d.createdAt || null;
+        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher or just normal timestamp
+        const auditorVal = d.auditorName || d.primaryAuditor?.fullName || "-";
+        const formVal = d.formTitle || d.surveyForm?.title || "-";
+        const answeredCount = d.answers ? Object.keys(d.answers).length : 0;
+        const totalCount = d.totalQuestions || 0;
+        
         logs.push({
-          id: h.id || `hist-${u.id || u.name}-${hIdx}`,
-          unitName: u.name,
-          unitFullName: u.fullName || u.name,
-          region: u.region || "-",
-          date: h.date,
-          rawDate: h.date,
+          id: `draft-${d.id}`,
+          originalId: d.id,
+          type: 'draft',
+          unitName: branchName,
+          unitFullName: branchFullName,
+          region: d.locationRegion || d.location?.region || "-",
+          date: "-",
+          rawDate: rawDate,
           timestamp: timestamp,
-          score: h.score,
-          auditor: h.auditor || "-",
-          formName: h.form || "-",
-          auditType: (h.auditType === 'unannounced' || h.auditType === 'spot') ? "นอกกำหนดการ" : (h.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
-          status: h.status,
-          record: h
+          score: null, // '-'
+          auditor: auditorVal,
+          formName: formVal,
+          auditType: (d.auditType === 'unannounced' || d.auditType === 'spot') ? "นอกกำหนดการ" : (d.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+          status: "draft",
+          progressText: `ตอบแล้ว ${answeredCount}${totalCount ? `/${totalCount}` : ''} ข้อ`,
+          record: d
         });
       });
-    });
+    }
+
+    // 3. Schedules
+    if (schedules && schedules.length > 0) {
+      schedules.forEach((s) => {
+        if (s.status === 'completed' || s.status === 'in_progress') return; // skip if already in records/drafts
+        const branchName = s.locationName || s.location?.name || "-";
+        const branchFullName = s.locationName || s.location?.fullName || s.location?.name || "-";
+        const rawDate = s.scheduledDate || null;
+        let dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        
+        // Add time if available
+        if (s.scheduledTime) {
+          dateFormatted += ` ${s.scheduledTime}`;
+        }
+        
+        const timestamp = parseAuditTimestamp(rawDate, s.id) + 2000000000; // prioritize schedules (future)
+        const auditorVal = s.auditorName || s.primaryAuditor?.fullName || "-";
+        const formVal = s.formTitle || s.surveyForm?.title || "-";
+        
+        logs.push({
+          id: `schedule-${s.id}`,
+          originalId: s.id,
+          type: 'schedule',
+          unitName: branchName,
+          unitFullName: branchFullName,
+          region: s.locationRegion || s.location?.region || "-",
+          date: dateFormatted, // scheduled date
+          rawDate: rawDate,
+          timestamp: timestamp,
+          score: null,
+          auditor: auditorVal,
+          formName: formVal,
+          auditType: (s.auditType === 'unannounced' || s.auditType === 'spot') ? "นอกกำหนดการ" : (s.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+          status: "pending",
+          record: s
+        });
+      });
+    }
+
+    // If no data, use mocks
+    if (logs.length === 0) {
+      activeLocations.forEach(u => {
+        (u.history || []).forEach((h, hIdx) => {
+          const timestamp = parseAuditTimestamp(h.date, h.id || hIdx);
+          logs.push({
+            id: h.id || `hist-${u.id || u.name}-${hIdx}`,
+            originalId: h.id || `hist-${u.id || u.name}-${hIdx}`,
+            type: 'completed',
+            unitName: u.name,
+            unitFullName: u.fullName || u.name,
+            region: u.region || "-",
+            date: h.date,
+            rawDate: h.date,
+            timestamp: timestamp,
+            score: h.score,
+            auditor: h.auditor || "-",
+            formName: h.form || "-",
+            auditType: (h.auditType === 'unannounced' || h.auditType === 'spot') ? "นอกกำหนดการ" : (h.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+            status: h.status,
+            record: h
+          });
+        });
+      });
+    }
+    
     return logs;
-  }, [auditRecords, activeLocations]);
+  }, [auditRecords, activeDrafts, schedules, activeLocations]);
 
   const baseLogs = useMemo(() => {
     return currentAuditorName ? allLogs.filter((log) => log.auditor.includes(currentAuditorName) || currentAuditorName.includes(log.auditor)) : allLogs;
@@ -146,6 +230,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
   const filteredAndSortedLogs = useMemo(() => {
     let list = [...baseLogs];
+
+    if (statusFilter === "completed") {
+      list = list.filter(l => l.type === "completed");
+    } else if (statusFilter === "draft") {
+      list = list.filter(l => l.type === "draft");
+    } else if (statusFilter === "pending") {
+      list = list.filter(l => l.type === "schedule");
+    }
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
@@ -360,6 +452,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           title={title}
           subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจ ${baseLogs.length} รอบตรวจ`}
           onBack={onBack}
+          action={
+            onStartNewAudit && (
+              <button
+                type="button"
+                onClick={onStartNewAudit}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
+              >
+                <Plus size={14} />
+                <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
+                <span className="sm:hidden">นอกแผน</span>
+              </button>
+            )
+          }
         />
       )}
 
@@ -371,9 +476,22 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               {`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length} รอบตรวจ`}
             </p>
           </div>
-          <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs text-[11px] font-bold text-slate-700">
-            <CalendarDays size={12} className="text-[#0F6659]" />
-            <span>{new Date().toLocaleDateString('th-TH', { month: 'short', year: 'numeric' })}</span>
+          <div className="flex items-center gap-2">
+            {onStartNewAudit && (
+              <button
+                type="button"
+                onClick={onStartNewAudit}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
+              >
+                <Plus size={14} />
+                <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
+                <span className="sm:hidden">นอกแผน</span>
+              </button>
+            )}
+            <div className="flex items-center gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs text-[11px] font-bold text-slate-700 h-[32px]">
+              <CalendarDays size={12} className="text-[#0F6659]" />
+              <span>{new Date().toLocaleDateString('th-TH', { month: 'short', year: 'numeric' })}</span>
+            </div>
           </div>
         </div>
       )}
@@ -440,6 +558,31 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             </button>
           ))}
         </div>
+
+        {/* Status Filter Tabs (Only for history view) */}
+        {viewType === "history" && (
+          <div className="px-3.5 py-2.5 border-b bg-white flex gap-2 overflow-x-auto custom-tab-scrollbar" style={{ borderColor: c.border }}>
+            {[
+              { key: "all", label: "ทั้งหมด (All)" },
+              { key: "completed", label: "🟢 ตรวจแล้ว" },
+              { key: "draft", label: "🟡 กำลังตรวจ" },
+              { key: "pending", label: "⚪ ยังไม่ตรวจ" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStatusFilter(key)}
+                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  statusFilter === key
+                    ? "bg-slate-800 text-white shadow-md"
+                    : "bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Filter bar (เฉพาะโหมดสาขา / รายครั้ง) */}
         {(viewType === "history" || viewType === "table") && (
@@ -570,37 +713,59 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                     const isPassed = log.score >= 85;
                     const isCritical = log.score < 70;
 
-                    // Score Circle Color:
-                    const circleColor = isCritical
-                      ? "border-rose-600 text-rose-700"
-                      : isPassed
-                      ? "border-emerald-600 text-emerald-800"
-                      : "border-amber-600 text-amber-800";
+                    let circleColor = "border-slate-200 text-slate-400 bg-slate-50";
+                    let scoreDisplay = "-";
+                    let scorePill = "bg-slate-50 text-slate-500 border border-slate-200/60";
+                    let statusBadge = "bg-slate-100 text-slate-800";
+                    let statusText = "-";
 
-                    // Percentage Pill:
-                    const scorePill = isCritical
-                      ? "bg-rose-50 text-rose-700 border border-rose-200/60"
-                      : isPassed
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
-                      : "bg-amber-50 text-amber-700 border border-amber-200/60";
-
-                    // Status Pill:
-                    const statusBadge = isCritical
-                      ? "bg-rose-100 text-rose-800"
-                      : isPassed
-                      ? "bg-emerald-100 text-emerald-800"
-                      : "bg-amber-100 text-amber-900";
-
-                    const statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+                    if (log.type === 'completed') {
+                      circleColor = isCritical
+                        ? "border-rose-600 text-rose-700 bg-white"
+                        : isPassed
+                        ? "border-emerald-600 text-emerald-800 bg-white"
+                        : "border-amber-600 text-amber-800 bg-white";
+                      
+                      scoreDisplay = log.score;
+                      
+                      scorePill = isCritical
+                        ? "bg-rose-50 text-rose-700 border border-rose-200/60"
+                        : isPassed
+                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                        : "bg-amber-50 text-amber-700 border border-amber-200/60";
+                      
+                      statusBadge = isCritical
+                        ? "bg-rose-100 text-rose-800"
+                        : isPassed
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-amber-100 text-amber-900";
+                      
+                      statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+                    } else if (log.type === 'draft') {
+                      statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
+                      statusText = "กำลังตรวจ";
+                    } else if (log.type === 'schedule') {
+                      statusBadge = "bg-slate-100 text-slate-600 border border-slate-200";
+                      statusText = "ยังไม่ตรวจ";
+                    }
 
                     return (
                       <tr
                         key={log.id || idx}
-                        onClick={() => {
-                          if (onSelectLog) {
-                            onSelectLog({ unitName: log.unitFullName, record: log.record });
-                          } else {
-                            setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
+                        onClick={(e) => {
+                          // Prevent row click if clicking a button inside it
+                          if (e.target.closest('button')) return;
+
+                          if (log.type === 'completed') {
+                            if (onSelectLog) {
+                              onSelectLog({ unitName: log.unitFullName, record: log.record });
+                            } else {
+                              setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
+                            }
+                          } else if (log.type === 'draft' && onResumeDraft) {
+                            onResumeDraft(log.record);
+                          } else if (log.type === 'schedule' && onStartAudit) {
+                            onStartAudit(log.record);
                           }
                         }}
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
@@ -611,8 +776,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                             <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
                               {rowNumber}
                             </span>
-                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
-                              {log.score}
+                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono shadow-2xs ${circleColor}`}>
+                              {scoreDisplay}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
@@ -627,9 +792,13 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
                         {/* 2. คะแนน */}
                         <td className="py-3.5 px-4 text-center overflow-hidden">
-                          <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
-                            {log.score}%
-                          </span>
+                          {log.type === 'completed' ? (
+                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
+                              {log.score}%
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-bold">-</span>
+                          )}
                         </td>
 
                         {/* 3. แบบฟอร์มการตรวจ */}
@@ -649,6 +818,11 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                           <div className="truncate" title={log.date}>
                             {log.date}
                           </div>
+                          {log.type === 'draft' && log.progressText && (
+                            <div className="text-[10px] text-amber-600 font-semibold mt-0.5">
+                              {log.progressText}
+                            </div>
+                          )}
                         </td>
 
                         {/* 5. ผู้ตรวจประเมิน */}
@@ -660,11 +834,30 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
                         {/* 6. สถานะ & Arrow */}
                         <td className="py-3.5 px-4 text-center overflow-hidden">
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex flex-col items-center justify-center gap-1.5">
                             <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
                               {statusText}
                             </span>
-                            <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+                            
+                            {log.type === 'draft' && onResumeDraft && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onResumeDraft(log.record); }}
+                                className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-md hover:bg-amber-100 font-bold w-full whitespace-nowrap"
+                              >
+                                ดำเนินการตรวจต่อ
+                              </button>
+                            )}
+
+                            {log.type === 'schedule' && onStartAudit && (
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onStartAudit(log.record); }}
+                                className="text-[10px] bg-[#0F6659] text-white px-2 py-0.5 rounded-md hover:bg-emerald-800 font-bold w-full whitespace-nowrap"
+                              >
+                                เริ่มการตรวจ
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

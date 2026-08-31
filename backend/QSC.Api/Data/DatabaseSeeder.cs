@@ -96,6 +96,56 @@ namespace QSC.Api.Data
                         alterCmd.ExecuteNonQuery();
                     }
                 }
+
+                // 4. SurveyItems.CategoryCode & CategoryName
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(SurveyItems);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasCatCode = false, hasCatName = false;
+                    while (reader.Read())
+                    {
+                        var colName = reader["name"]?.ToString();
+                        if (string.Equals(colName, "CategoryCode", StringComparison.OrdinalIgnoreCase)) hasCatCode = true;
+                        if (string.Equals(colName, "CategoryName", StringComparison.OrdinalIgnoreCase)) hasCatName = true;
+                    }
+                    reader.Close();
+                    if (!hasCatCode)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE SurveyItems ADD COLUMN CategoryCode TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                    if (!hasCatName)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE SurveyItems ADD COLUMN CategoryName TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                // 5. AuditResponses.CategoryName
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(AuditResponses);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasCatName = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "CategoryName", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasCatName = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasCatName)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE AuditResponses ADD COLUMN CategoryName TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
             }
             catch (Exception ex)
             {

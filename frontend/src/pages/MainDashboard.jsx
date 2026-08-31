@@ -196,6 +196,16 @@ export default function MainDashboard({ onLogout }) {
               onBack={undefined}
               currentAuditorName={currentUser.name}
               title="รายงานผลการตรวจประเมิน"
+              onStartAudit={(plan) => handleStartAuditDirect(plan)}
+              onResumeDraft={(draft) => {
+                setActiveAuditDraft(draft);
+                handleStartAuditDirect({ ...draft, isResume: true });
+              }}
+              onStartNewAudit={() => {
+                setPreselectedPlan(null);
+                setActiveAuditDraft(null);
+                setScreen("audit");
+              }}
             />
           )}
           {screen === "audit" && role === "AUDITOR" && !preselectedPlan && (

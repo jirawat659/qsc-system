@@ -36,7 +36,7 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import AuditHistoryDetail from "../audit/AuditHistoryDetail";
 
 
-export default function ConsolidatedReportsScreen({ onBack, currentAuditorName = null, title = "รายงานผลการตรวจ" }) {
+export default function ConsolidatedReportsScreen({ onBack, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
   const [selectedLog, setSelectedLog] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
 
@@ -58,6 +58,9 @@ export default function ConsolidatedReportsScreen({ onBack, currentAuditorName =
         onExportExcel={() => setShowExportModal(true)}
         currentAuditorName={currentAuditorName}
         title={title}
+        onStartAudit={onStartAudit}
+        onResumeDraft={onResumeDraft}
+        onStartNewAudit={onStartNewAudit}
       />
       {showExportModal && <ExcelExportModal onClose={() => setShowExportModal(false)} />}
     </>
