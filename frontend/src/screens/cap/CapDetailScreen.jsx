@@ -100,12 +100,17 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
           return [...prev, newEntry];
         });
 
-        // Silent scroll to bottom on new message
+        // Silent auto-scroll to bottom on new message
         setTimeout(() => {
           if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
           }
         }, 50);
+        setTimeout(() => {
+          if (chatContainerRef.current) {
+            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+          }
+        }, 250);
       }
     });
 
@@ -560,6 +565,11 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                           <img 
                             src={getFullImageUrl(tl.photo)} 
                             alt="หลักฐานประกอบ" 
+                            onLoad={() => {
+                              if (chatContainerRef.current) {
+                                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+                              }
+                            }}
                             className="w-full max-h-72 sm:max-h-80 object-contain rounded-lg group-hover:scale-102 transition-transform duration-200" 
                           />
                         </div>
