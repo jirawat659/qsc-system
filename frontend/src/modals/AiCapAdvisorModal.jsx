@@ -10,16 +10,34 @@ export default function AiCapAdvisorModal({ taskId, onClose }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [aiCooldown, setAiCooldown] = useState(0);
 
-  const fetchCapAnalysis = async () => {
+  useEffect(() => {
+    if (aiCooldown > 0) {
+      const timer = setInterval(() => {
+        setAiCooldown(prev => (prev > 1 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [aiCooldown]);
+
+  const fetchCapAnalysis = async (isManual = false) => {
+    if (loading || (isManual && aiCooldown > 0)) return;
     setLoading(true);
     setError(null);
     try {
       const res = await api.get(`/ai/cap-analysis/${taskId}`);
       setData(res.data);
+      if (isManual) {
+        setAiCooldown(15); // ⏳ 15 วินาที cooldown
+      }
     } catch (err) {
       console.error("Failed to load AI CAP analysis:", err);
-      setError("ไม่สามารถวิเคราะห์ข้อมูลด้วย AI ได้ กรุณาลองใหม่อีกครั้ง");
+      if (err?.response?.status === 429) {
+        setError(err?.response?.data?.message || "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่");
+      } else {
+        setError("ไม่สามารถวิเคราะห์ข้อมูลด้วย AI ได้ กรุณาลองใหม่อีกครั้ง");
+      }
     } finally {
       setLoading(false);
     }
@@ -27,7 +45,7 @@ export default function AiCapAdvisorModal({ taskId, onClose }) {
 
   useEffect(() => {
     if (taskId) {
-      fetchCapAnalysis();
+      fetchCapAnalysis(false);
     }
   }, [taskId]);
 
@@ -69,15 +87,20 @@ export default function AiCapAdvisorModal({ taskId, onClose }) {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={fetchCapAnalysis}
-              disabled={loading}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-white transition-all cursor-pointer disabled:opacity-50"
-              title="วิเคราะห์ใหม่"
+              onClick={() => fetchCapAnalysis(true)}
+              disabled={loading || aiCooldown > 0}
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1 transition-all ${
+                loading || aiCooldown > 0
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  : 'text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 shadow-2xs cursor-pointer'
+              }`}
+              title={aiCooldown > 0 ? `รอคูลดาวน์อีก ${aiCooldown} วินาที` : "วิเคราะห์ใหม่"}
             >
-              <RefreshCw size={17} className={loading ? "animate-spin text-[#0F6659]" : ""} />
+              <RefreshCw size={14} className={loading ? "animate-spin text-[#0F6659]" : ""} />
+              {aiCooldown > 0 ? <span>{aiCooldown}s</span> : null}
             </button>
             <button
               type="button"

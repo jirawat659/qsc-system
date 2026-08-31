@@ -97,13 +97,27 @@ export default function DashboardScreen({ role, isDesktop }) {
   const [periodFilter, setPeriodFilter] = useState("month"); // 'month' | 'last_month' | '3m' | '6m' | 'ytd'
   const [aiInsightsData, setAiInsightsData] = useState(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiCooldown, setAiCooldown] = useState(0);
 
-  const fetchAiDashboardInsights = async () => {
+  useEffect(() => {
+    if (aiCooldown > 0) {
+      const timer = setInterval(() => {
+        setAiCooldown(prev => (prev > 1 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [aiCooldown]);
+
+  const fetchAiDashboardInsights = async (isManual = false) => {
+    if (isAiLoading || (isManual && aiCooldown > 0)) return;
     setIsAiLoading(true);
     try {
       const res = await api.get('/ai/dashboard-insights');
       if (res.data) {
         setAiInsightsData(res.data);
+        if (isManual) {
+          setAiCooldown(15); // ⏳ 15 วินาที cooldown
+        }
       }
     } catch (err) {
       console.error('Failed to load AI dashboard insights:', err);
@@ -1038,13 +1052,23 @@ export default function DashboardScreen({ role, isDesktop }) {
           </div>
           <button
             type="button"
-            onClick={fetchAiDashboardInsights}
-            disabled={isAiLoading}
-            className="px-3.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-98 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="ให้ AI วิเคราะห์สถิติจริงของเดือนนี้ใหม่"
+            onClick={() => fetchAiDashboardInsights(true)}
+            disabled={isAiLoading || aiCooldown > 0}
+            className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold shadow-2xs hover:shadow-xs active:scale-98 transition-all flex items-center gap-1.5 ${
+              isAiLoading || aiCooldown > 0
+                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 cursor-pointer'
+            }`}
+            title={aiCooldown > 0 ? `รอคูลดาวน์อีก ${aiCooldown} วินาที` : "ให้ AI วิเคราะห์สถิติจริงของเดือนนี้ใหม่"}
           >
-            <Sparkles size={14} className={isAiLoading ? "animate-spin text-emerald-600" : "text-amber-500"} />
-            <span>{isAiLoading ? "กำลังวิเคราะห์..." : "วิเคราะห์ใหม่"}</span>
+            <Sparkles size={14} className={isAiLoading ? "animate-spin text-emerald-600" : aiCooldown > 0 ? "text-slate-400" : "text-amber-500"} />
+            <span>
+              {isAiLoading 
+                ? "กำลังวิเคราะห์..." 
+                : aiCooldown > 0 
+                ? `รออีก ${aiCooldown} วิ` 
+                : "✨ วิเคราะห์ใหม่"}
+            </span>
           </button>
         </div>
 

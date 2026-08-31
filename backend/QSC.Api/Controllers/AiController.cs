@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using QSC.Api.Services;
 
 namespace QSC.Api.Controllers
 {
     [Authorize]
+    [EnableRateLimiting("AiRateLimit")]
     [ApiController]
     [Route("api/[controller]")]
     public class AiController : ControllerBase
