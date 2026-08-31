@@ -512,29 +512,29 @@ export default function DashboardScreen({ role, isDesktop }) {
     {
       type: "highlight",
       icon: "✨",
-      title: "จุดเด่นที่น่าชื่นชม",
+      title: "จุดเด่น",
       icon_color: "#0F6659",
       bg: "#EFF8F6",
       border: "#A7D7CE",
-      text: aiInsightsData?.highlight || `สาขาส่วนใหญ่ทำคะแนนด้านสุขอนามัยได้ดีเยี่ยม คะแนนเฉลี่ยภาพรวมอยู่ที่ ${avgScore}% และผ่านเกณฑ์ถึง ${passRate}%`
+      text: aiInsightsData?.highlight || `คะแนนเฉลี่ยภาพรวม ${avgScore}% ผ่านเกณฑ์ ${passRate}%`
     },
     {
       type: "attention",
       icon: "⚠️",
-      title: "จุดที่ต้องเฝ้าระวัง",
+      title: "จุดเฝ้าระวัง",
       icon_color: "#D97706",
       bg: "#FFFBEB",
       border: "#FDE68A",
-      text: aiInsightsData?.attention || `มีงานแก้ไขคงค้าง (CAP) ที่ต้องเร่งติดตาม ${pendingCapCount} รายการ เพื่อให้การแก้ไขเสร็จสิ้นตามกรอบ SLA`
+      text: aiInsightsData?.attention || `มีงานค้างส่ง CAP ${pendingCapCount} รายการที่ต้องติดตาม`
     },
     {
       type: "action",
       icon: "🎯",
-      title: "ข้อเสนอแนะเชิงปฏิบัติการ",
+      title: "ข้อเสนอแนะ",
       icon_color: "#2563EB",
       bg: "#EFF6FF",
       border: "#BFDBFE",
-      text: aiInsightsData?.action || "ควรเน้นการตรวจสอบอุณหภูมิตู้แช่วัตถุดิบและเอกสารบันทึกประจำวันของสาขาเป็นพิเศษ"
+      text: aiInsightsData?.action || "เน้นย้ำมาตรฐานจุดตรวจที่ตกบ่อยและติดตามสม่ำเสมอ"
     }
   ], [aiInsightsData, avgScore, passRate, pendingCapCount]);
 
@@ -578,11 +578,6 @@ export default function DashboardScreen({ role, isDesktop }) {
             <h2 className="text-base font-bold text-slate-800">
               {periodFilter === "month" ? `ภาพรวมคุณภาพ ${currentMonthLabel}` : periodFilter === "last_month" ? `ภาพรวมคุณภาพ ${lastMonthLabel}` : periodFilter === "ytd" ? "ภาพรวมคุณภาพทั้งปี" : "ภาพรวมคุณภาพตามช่วงเวลา"}
             </h2>
-            <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${
-              avgScore >= 85 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-            }`}>
-              {avgScore >= 85 ? "✓ มาตรฐานดีเยี่ยม" : "⚠️ ต้องปรับปรุง"}
-            </span>
           </div>
 
           <PeriodDropdown
@@ -613,7 +608,7 @@ export default function DashboardScreen({ role, isDesktop }) {
               <div>
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0F6659] bg-emerald-50 border border-emerald-200/80 px-2.5 py-0.5 rounded-lg shadow-2xs">
                   <CheckCircle2 size={13} className="text-[#0F6659]" />
-                  <span>{avgScore >= 85 ? "ผ่านเกณฑ์มาตรฐาน (≥85%)" : "ต้องปรับปรุง (เกณฑ์ ≥85%)"}</span>
+                  <span>{avgScore >= 85 ? "ผ่านเกณฑ์มาตรฐาน (≥ 85%)" : "ต้องปรับปรุง (≤ 85%)"}</span>
                 </span>
               </div>
             </div>
@@ -1040,11 +1035,6 @@ export default function DashboardScreen({ role, isDesktop }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <h2 className="text-sm sm:text-base font-bold" style={{ color: c.ink }}>สรุปประจำเดือนโดย AI</h2>
-            {aiInsightsData?.generatedBy && (
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                {aiInsightsData.generatedBy}
-              </span>
-            )}
           </div>
           <button
             type="button"

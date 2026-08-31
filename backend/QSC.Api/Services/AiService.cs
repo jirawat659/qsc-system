@@ -179,9 +179,16 @@ namespace QSC.Api.Services
                 .Take(3)
                 .ToList();
 
-            var topDefectStr = defectFrequencies.Any() 
-                ? string.Join(", ", defectFrequencies.Select(d => $"{d.Question} ({d.Count} ครั้ง)"))
-                : "ไม่พบข้อบกพร่องร้ายแรง";
+            string TruncateText(string text, int maxLen = 30)
+            {
+                if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+                var clean = text.Split('(')[0].Trim();
+                return clean.Length > maxLen ? clean.Substring(0, maxLen - 3) + "..." : clean;
+            }
+
+            var topDefectShort = defectFrequencies.Any() 
+                ? TruncateText(defectFrequencies.First().Question, 28)
+                : "ไม่พบข้อบกพร่อง";
 
             var apiKey = GetApiKey();
             if (!string.IsNullOrWhiteSpace(apiKey))
@@ -189,21 +196,16 @@ namespace QSC.Api.Services
                 try
                 {
                     var prompt = $@"
-คุณคือ AI ผู้เชี่ยวชาญด้านระบบควบคุมคุณภาพมาตรฐานร้านอาหารและบริการ (QSC Quality, Service, Cleanliness)
-ให้วิเคราะห์สถิติการตรวจประเมินสาขาประจำเดือนนี้ แล้วเขียนสรุปคำแนะนำใน 3 ด้าน ตอบเป็น JSON ภาษาไทยที่มีโครงสร้าง:
+คุณคือ AI ผู้เชี่ยวชาญด้านระบบควบคุมคุณภาพมาตรฐานร้านอาหาร (QSC)
+ให้สรุปสถิติประจำเดือนแบบสั้น กระชับ ตรงประเด็น (ความยาวไม่เกิน 1 ประโยคสั้นๆ ต่อหัวข้อ)
+ตอบเป็น JSON:
 {{
-  ""highlight"": ""ข้อความสรุปจุดเด่นที่น่าชื่นชม 1-2 ประโยคกระชับ สดใสและให้กำลังใจ มีตัวเลขประกอบ"",
-  ""attention"": ""ข้อความสรุปจุดที่ต้องเฝ้าระวัง 1-2 ประโยค ระบุข้อบกพร่องที่พบซ้ำและงาน CAP คงค้าง"",
-  ""action"": ""ข้อความสรุปข้อเสนอแนะเชิงปฏิบัติการ 1-2 ประโยค ที่สาขาและทีมตรวจสอบควรปฏิบัติทันที""
+  ""highlight"": ""ประโยคสั้นมาก 1 ประโยค เช่น คะแนนเฉลี่ยภาพรวม {avgScore}% ผ่านเกณฑ์ {passRate}%"",
+  ""attention"": ""ประโยคสั้นมาก 1 ประโยค ระบุงาน CAP ค้าง {pendingCaps.Count} รายการ หรือข้อบกพร่องสั้นๆ"",
+  ""action"": ""ประโยคสั้นมาก 1 ประโยค ข้อเสนอแนะสั้นๆ กระชับ""
 }}
-
-ข้อมูลสถิติจริงของเดือนนี้:
-- จำนวนรอบตรวจทั้งหมด: {totalAudits} ครั้ง
-- คะแนนเฉลี่ยภาพรวม: {avgScore}%
-- อัตราการผ่านเกณฑ์มาตรฐาน: {passRate}%
-- ข้อบกพร่องที่พบซ้ำมากที่สุด: {topDefectStr}
-- งานแก้ไขคงค้าง (CAP Tasks): {pendingCaps.Count} รายการ
-ตอบเฉพาะ JSON ล้วนๆ ไม่มี Markdown block ใดๆ
+ข้อมูลจริง: รอบตรวจ {totalAudits} ครั้ง, คะแนนเฉลี่ย {avgScore}%, ผ่านเกณฑ์ {passRate}%, งาน CAP ค้าง {pendingCaps.Count} รายการ, ตกบ่อยสุด: {topDefectShort}
+ตอบเฉพาะ JSON ล้วนๆ
 ";
                     var aiResultJson = await CallGeminiRestApiAsync(prompt, apiKey, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiResultJson))
@@ -223,18 +225,18 @@ namespace QSC.Api.Services
                 }
             }
 
-            // Fallback
+            // Fallback: ข้อความสั้น กระชับ อ่านง่าย
             return new DashboardAiInsightsDto
             {
                 Highlight = totalAudits > 0
-                    ? $"สาขาส่วนใหญ่รักษามาตรฐานได้ดี คะแนนเฉลี่ยภาพรวมอยู่ที่ {avgScore}% และมีอัตราผ่านเกณฑ์ถึง {passRate}%"
-                    : "ระบบพร้อมสำหรับการบันทึกผลตรวจรอบใหม่ประจำเดือนนี้",
+                    ? $"คะแนนเฉลี่ยภาพรวม {avgScore}% ผ่านเกณฑ์มาตรฐาน {passRate}%"
+                    : "ระบบพร้อมสำหรับการบันทึกผลตรวจรอบใหม่",
                 Attention = pendingCaps.Count > 0
-                    ? $"มีงานแก้ไขคงค้าง (CAP) ที่ต้องเร่งติดตาม {pendingCaps.Count} รายการ โดยเฉพาะประเด็น: {topDefectStr}"
-                    : "ไม่มีงานแก้ไขคงค้างเกินกำหนด สาขาสามารถจัดการตามกรอบเวลาได้ดี",
+                    ? $"งานค้างส่ง CAP {pendingCaps.Count} รายการ (พบตกบ่อย: {topDefectShort})"
+                    : "ไม่มีงานค้างส่ง CAP จัดการได้ตามกรอบเวลา",
                 Action = defectFrequencies.Any()
-                    ? $"ควรเน้นการตรวจสอบการปฏิบัติงานและบันทึกอุณหภูมิตามรายการที่ตกบ่อย ({defectFrequencies.First().Question}) เป็นพิเศษ"
-                    : "ควรรักษามาตรฐานการสุ่มตรวจตามรอบและติดตามการตรวจอย่างสม่ำเสมอ",
+                    ? $"เน้นย้ำมาตรฐาน {topDefectShort} เป็นพิเศษ"
+                    : "ควรรักษามาตรฐานการสุ่มตรวจตามรอบอย่างต่อเนื่อง",
                 GeneratedBy = "Smart Analytics Engine",
                 GeneratedAt = DateTime.UtcNow
             };
