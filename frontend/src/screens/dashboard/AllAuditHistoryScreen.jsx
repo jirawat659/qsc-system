@@ -626,8 +626,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
         
         {/* Status Filter Tabs & Action */}
-        <div className="px-3.5 py-2.5 border-b bg-[#FAF9F5] flex flex-wrap items-center justify-between gap-2" style={{ borderColor: c.border }}>
-          <div className="flex items-center gap-2 overflow-x-auto custom-tab-scrollbar">
+        <div className="px-3.5 py-2.5 border-b bg-[#FAF9F5] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5" style={{ borderColor: c.border }}>
+          <div className="flex items-center gap-2 overflow-x-auto custom-tab-scrollbar pb-1 sm:pb-0 w-full sm:w-auto">
             {[
               { key: "all", label: "ทั้งหมด (All)" },
               { key: "completed", label: "🟢 ตรวจแล้ว" },
@@ -658,7 +658,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                 handleTriggerAudit({ isNewAudit: true });
               }
             }}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 ml-auto shrink-0"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
           >
             <Plus size={15} />
             <span>ตรวจงานใหม่</span>
