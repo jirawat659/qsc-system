@@ -201,43 +201,31 @@ export default function MainDashboard({ onLogout }) {
     return (
       <ErrorBoundary>
         <React.Suspense fallback={<ScreenLoader />}>
-          {(screen === "reports" || screen === "history") && (
+          {(screen === "reports" || screen === "history" || (screen === "audit" && !preselectedPlan)) && (
             <ConsolidatedReportsScreen
               onBack={undefined}
               currentAuditorName={null}
-              title="รายงานผลการตรวจประเมิน"
+              title="ตรวจประเมินหน้างาน (Audit Hub)"
               onStartAudit={(plan) => handleStartAuditDirect(plan)}
               onResumeDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 handleStartAuditDirect({ ...draft, isResume: true });
               }}
               onStartNewAudit={() => {
-                setPreselectedPlan(null);
+                setPreselectedPlan({ isNewAudit: true });
                 setActiveAuditDraft(null);
                 setScreen("audit");
               }}
             />
           )}
-          {screen === "audit" && role === "AUDITOR" && !preselectedPlan && (
-            <AssignedAuditPlanScreen
-              auditorName={currentUser.name}
-              onStart={(plan) => setPreselectedPlan(plan)}
-              activeDraft={activeAuditDraft || activeDraft}
-              onResumeDraft={(plan) => setPreselectedPlan(plan ? { ...plan, isResume: true } : { ...(activeAuditDraft || activeDraft || {}), isResume: true })}
-            />
-          )}
-          {screen === "audit" && (role !== "AUDITOR" || preselectedPlan) && (
+          {screen === "audit" && preselectedPlan && (
             <LiveAuditScreen
               preselectedPlan={preselectedPlan}
               initialDraft={activeAuditDraft}
               currentUser={currentUser}
               onClearPlan={() => setPreselectedPlan(null)}
               onBack={() => {
-                if (preselectedPlan) {
-                  setPreselectedPlan(null);
-                } else {
-                  setScreen("dashboard");
-                }
+                setPreselectedPlan(null);
               }}
               defaultAuditorName={currentUser.name || "-"}
               onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
@@ -247,7 +235,7 @@ export default function MainDashboard({ onLogout }) {
               onCompleteAudit={() => {
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
-                setScreen("reports");
+                setScreen("audit");
               }}
             />
           )}

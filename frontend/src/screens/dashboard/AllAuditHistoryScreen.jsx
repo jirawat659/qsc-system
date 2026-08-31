@@ -625,27 +625,44 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       {/* ── 🌟 MASTER AUDIT LIST TABLE CARD ── */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
         
-        {/* Status Filter Tabs */}
-        <div className="px-3.5 py-2.5 border-b bg-[#FAF9F5] flex gap-2 overflow-x-auto custom-tab-scrollbar" style={{ borderColor: c.border }}>
-          {[
-            { key: "all", label: "ทั้งหมด (All)" },
-            { key: "completed", label: "🟢 ตรวจแล้ว" },
-            { key: "draft", label: "🟡 กำลังตรวจ" },
-            { key: "pending", label: "⚪ ยังไม่ตรวจ" },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setStatusFilter(key)}
-              className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                statusFilter === key
-                  ? "bg-slate-800 text-white shadow-md"
-                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Status Filter Tabs & Action */}
+        <div className="px-3.5 py-2.5 border-b bg-[#FAF9F5] flex flex-wrap items-center justify-between gap-2" style={{ borderColor: c.border }}>
+          <div className="flex items-center gap-2 overflow-x-auto custom-tab-scrollbar">
+            {[
+              { key: "all", label: "ทั้งหมด (All)" },
+              { key: "completed", label: "🟢 ตรวจแล้ว" },
+              { key: "draft", label: "🟡 กำลังตรวจ" },
+              { key: "pending", label: "⚪ ยังไม่ตรวจ" },
+            ].map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStatusFilter(key)}
+                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  statusFilter === key
+                    ? "bg-slate-800 text-white shadow-md"
+                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (onStartNewAudit) {
+                onStartNewAudit();
+              } else {
+                handleTriggerAudit({ isNewAudit: true });
+              }
+            }}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 ml-auto shrink-0"
+          >
+            <Plus size={15} />
+            <span>ตรวจงานใหม่</span>
+          </button>
         </div>
 
         {/* Filter bar */}
