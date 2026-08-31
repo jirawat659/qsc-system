@@ -334,7 +334,6 @@ namespace QSC.Api.Controllers
             public double ScoreGiven { get; set; }
             public bool IsPassed { get; set; }
             public bool IsNa { get; set; } = false; // "ข้าม" / Not Applicable
-            public string? CategoryName { get; set; }
             public string? RawAnswer { get; set; } // Raw answer e.g. "yes", "no", "na", "1".."5"
             public string? AnswerValue { get; set; }
             public double? ScaleScore { get; set; }
@@ -348,7 +347,6 @@ namespace QSC.Api.Controllers
             public double ScoreGiven { get; set; }
             public bool IsPassed { get; set; }
             public bool IsNa { get; set; }
-            public string? CategoryName { get; set; }
             public string? Notes { get; set; }
             public List<string> ImageUrls { get; set; } = new();
         }
@@ -439,7 +437,6 @@ namespace QSC.Api.Controllers
                     ScoreGiven = scoreGiven,
                     IsPassed = isPassed,
                     IsNa = isNa,
-                    CategoryName = item.CategoryName ?? respDto.CategoryName,
                     Notes = respDto.Notes,
                     ImageUrls = respDto.ImageUrls ?? new List<string>()
                 });
@@ -534,15 +531,12 @@ namespace QSC.Api.Controllers
 
                 foreach (var computedResp in processedResponses)
                 {
-                    allItems.TryGetValue(computedResp.SurveyItemId, out var matchedItem);
-
                     var response = new AuditResponse
                     {
                         SurveyItemId = computedResp.SurveyItemId,
                         ScoreGiven = computedResp.ScoreGiven,
                         IsPassed = computedResp.IsPassed,
                         IsNa = computedResp.IsNa,
-                        CategoryName = matchedItem?.CategoryName ?? computedResp.CategoryName ?? "ทั่วไป",
                         Notes = computedResp.Notes
                     };
 

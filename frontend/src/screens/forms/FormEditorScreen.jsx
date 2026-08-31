@@ -11,6 +11,14 @@ import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 
+const DEFAULT_CATEGORIES = [
+  "ความสะอาด",
+  "เอกสาร",
+  "กระบวนการทำงาน",
+  "คุณภาพสินค้า-วัตถุดิบ",
+  "การบริการ"
+];
+
 export default function FormEditorScreen({ form, onBack, onSave }) {
   const [formName, setFormName] = useState(form ? (form.name || form.title) : "แบบฟอร์มมาตรฐานใหม่");
   const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
@@ -27,6 +35,21 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     return 85;
   });
 
+  const [categories, setCategories] = useState(() => {
+    const fromItems = new Set();
+    if (form?.sections) {
+      form.sections.forEach(s => {
+        (s.items || []).forEach(i => {
+          if (i.categoryName) fromItems.add(i.categoryName);
+          else if (i.category) fromItems.add(i.category);
+        });
+      });
+    }
+    DEFAULT_CATEGORIES.forEach(c => fromItems.add(c));
+    return Array.from(fromItems);
+  });
+  const [newCategoryInput, setNewCategoryInput] = useState("");
+
   const [sections, setSections] = useState(() => {
     if (form?.sections && form.sections.length > 0) {
       return form.sections.map(s => ({
@@ -39,7 +62,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           text: i.questionText || i.text || i.title || "",
           type: ((i.questionType || i.type || "yesno").toLowerCase() === "scale") ? "scale" : "yesno",
           fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
-          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical)
+          critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical),
+          category: i.categoryName || i.category || DEFAULT_CATEGORIES[0]
         }))
       }));
     }
@@ -48,7 +72,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         title: "หัวข้อหลัก",
         weightPercent: 0,
         items: [
-          { id: "q1", text: "คำถามรายข้อ", type: "yesno", fullScore: 10, critical: false }
+          { id: "q1", text: "คำถามรายข้อ", type: "yesno", fullScore: 10, critical: false, category: DEFAULT_CATEGORIES[0] }
         ]
       }
     ];
@@ -95,11 +119,12 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const addSection = () => {
     const newSecNumber = sections.length + 1;
     const newSecIdx = sections.length;
+    const defaultCat = categories[0] || DEFAULT_CATEGORIES[0];
     const newSection = {
       title: `หมวดหมู่ใหม่ (New Section)`,
       weightPercent: 0,
       items: [
-        { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", fullScore: 10, critical: false }
+        { id: "q_" + Date.now(), text: "ระบุข้อคำถามที่ต้องการตรวจประเมิน...", type: "yesno", fullScore: 10, critical: false, category: defaultCat }
       ]
     };
     setSections([...sections, newSection]);
@@ -137,12 +162,15 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const addItemToSection = (secIdx) => {
     const next = [...sections];
     const newId = "q_" + Date.now();
+    const secTitle = next[secIdx]?.title || "";
+    const defaultCat = categories.find(c => secTitle.includes(c)) || categories[0] || DEFAULT_CATEGORIES[0];
     next[secIdx].items.push({
       id: newId,
       text: "ระบุข้อคำถามใหม่...",
       type: "yesno",
       fullScore: 10,
-      critical: false
+      critical: false,
+      category: defaultCat
     });
     setSections(next);
 
@@ -224,6 +252,58 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       setSections(next);
     }
   };
+
+  // Update question category (ความสะอาด, เอกสาร, กระบวนการทำงาน, etc.)
+  const updateItemCategory = (secIdx, itemId, newCat) => {
+    const next = [...sections];
+    const targetItem = next[secIdx].items.find(i => i.id === itemId);
+    if (targetItem) {
+      targetItem.category = newCat;
+      setSections(next);
+    }
+  };
+
+  // Add new scoring category
+  const handleAddCategory = () => {
+    const trimmed = newCategoryInput.trim();
+    if (!trimmed) return;
+    if (categories.includes(trimmed)) {
+      showToast("มีหมวดคะแนนนี้อยู่แล้ว");
+      return;
+    }
+    setCategories(prev => [...prev, trimmed]);
+    setNewCategoryInput("");
+    showToast(`เพิ่มหมวดคะแนน "${trimmed}" เรียบร้อย`);
+  };
+
+  // Remove custom scoring category
+  const handleRemoveCategory = (catName) => {
+    if (categories.length <= 1) {
+      showToast("ต้องมีหมวดคะแนนอย่างน้อย 1 หมวด");
+      return;
+    }
+    setCategories(prev => prev.filter(c => c !== catName));
+    // Re-assign items that had this category to the first available category
+    const fallbackCat = categories.find(c => c !== catName) || DEFAULT_CATEGORIES[0];
+    const next = sections.map(s => ({
+      ...s,
+      items: s.items.map(item => item.category === catName ? { ...item, category: fallbackCat } : item)
+    }));
+    setSections(next);
+    showToast(`ลบหมวดคะแนน "${catName}" เรียบร้อย`);
+  };
+
+  const categoryCounts = useMemo(() => {
+    const counts = {};
+    categories.forEach(c => { counts[c] = 0; });
+    sections.forEach(s => {
+      s.items.forEach(i => {
+        const cat = i.category || DEFAULT_CATEGORIES[0];
+        counts[cat] = (counts[cat] || 0) + 1;
+      });
+    });
+    return counts;
+  }, [categories, sections]);
 
   // Toggle Critical Failure Flag
   const toggleItemCritical = (secIdx, itemId) => {
@@ -375,6 +455,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           questionType: item.type === "scale" ? "SCALE" : (item.type === "text" ? "TEXT" : "YESNO"),
           fullScore: Number(item.fullScore) || 10,
           isCritical: !!item.critical,
+          categoryName: item.category || DEFAULT_CATEGORIES[0],
           orderIndex: iIdx + 1
         }))
       }))
@@ -581,6 +662,85 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
             />
           </div>
+        </div>
+      </div>
+
+      {/* 🌟 2.5. SCORING CATEGORIES MANAGER (ประเภทหมวดคะแนน) */}
+      <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold text-sm shrink-0">
+              🏷️
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
+                ประเภทหมวดคะแนนในแบบฟอร์มนี้ (Scoring Categories)
+              </h3>
+              <p className="text-xs text-slate-500">
+                กำหนดหมวดคะแนนที่จะให้แต่ละข้อคำถามนำไปใช้คำนวณสถิติและ Dashboard แยกตามหมวด
+              </p>
+            </div>
+          </div>
+
+          <span className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-100 text-slate-700 self-start sm:self-auto font-mono">
+            {categories.length} หมวดคะแนน
+          </span>
+        </div>
+
+        {/* Categories Badges List */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          {categories.map((cat, idx) => {
+            const count = categoryCounts[cat] || 0;
+            return (
+              <div
+                key={idx}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs font-bold group shadow-2xs transition-all"
+              >
+                <span>{cat}</span>
+                <span className="px-1.5 py-0.5 rounded-md bg-white border border-emerald-200 text-[#0F6659] text-[10px] font-black font-mono">
+                  {count} ข้อ
+                </span>
+                {categories.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveCategory(cat)}
+                    className="text-emerald-400 hover:text-rose-600 p-0.5 rounded hover:bg-white cursor-pointer transition-colors"
+                    title={`ลบหมวดคะแนน "${cat}"`}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Add Category Input Bar */}
+        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+          <div className="relative flex-1 max-w-sm">
+            <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="พิมพ์ชื่อหมวดคะแนนใหม่ (เช่น ความปลอดภัย, สุขาภิบาล)..."
+              value={newCategoryInput}
+              onChange={(e) => setNewCategoryInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddCategory();
+                }
+              }}
+              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleAddCategory}
+            className="px-3.5 py-2 rounded-xl bg-[#0F6659] hover:bg-[#0D5449] text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs shrink-0"
+          >
+            <Plus size={14} />
+            <span>เพิ่มหมวดคะแนน</span>
+          </button>
         </div>
       </div>
 
@@ -795,15 +955,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       )}
                     </div>
 
-                    {/* Question Type Selector Buttons */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100/80">
+                    {/* Question Footer: Type Selector (Left) & Category Selector (Right) */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100/80">
+                      {/* Left: Answer Type */}
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] font-bold text-slate-400">ประเภทคำตอบ:</span>
                         <div className="flex rounded-xl p-0.5 bg-slate-200/70 text-xs font-bold">
                           <button
                             type="button"
                             onClick={() => updateItemType(secIdx, item.id, "yesno")}
-                            className={`px-3.5 py-1.5 rounded-lg cursor-pointer transition-all ${
+                            className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
                               item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
@@ -812,12 +973,29 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           <button
                             type="button"
                             onClick={() => updateItemType(secIdx, item.id, "scale")}
-                            className={`px-3.5 py-1.5 rounded-lg cursor-pointer transition-all ${
+                            className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
                               item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             คะแนน 1-5
                           </button>
+                        </div>
+                      </div>
+
+                      {/* Right: Category Selector (หมวดคะแนนของข้อนี้) */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-400">หมวดคะแนน:</span>
+                        <div className="relative">
+                          <select
+                            value={item.category || DEFAULT_CATEGORIES[0]}
+                            onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
+                            className="text-xs font-extrabold pl-3 pr-7 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
+                          >
+                            {categories.map((cat, cIdx) => (
+                              <option key={cIdx} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         </div>
                       </div>
                     </div>

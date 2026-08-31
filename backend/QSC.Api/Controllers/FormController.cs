@@ -79,6 +79,8 @@ namespace QSC.Api.Controllers
                         questionType = i.QuestionType,
                         fullScore = i.FullScore,
                         isCritical = i.IsCritical,
+                        categoryCode = i.CategoryCode,
+                        categoryName = i.CategoryName,
                         orderIndex = i.OrderIndex
                     }).ToList()
                 }).ToList()
@@ -138,6 +140,8 @@ namespace QSC.Api.Controllers
                         questionType = i.QuestionType,
                         fullScore = i.FullScore,
                         isCritical = i.IsCritical,
+                        categoryCode = i.CategoryCode,
+                        categoryName = i.CategoryName,
                         orderIndex = i.OrderIndex
                     }).ToList()
                 }).ToList()
@@ -172,6 +176,8 @@ namespace QSC.Api.Controllers
             public string QuestionType { get; set; } = "YESNO";
             public double FullScore { get; set; } = 10.0;
             public bool IsCritical { get; set; } = false;
+            public string? CategoryCode { get; set; }
+            public string? CategoryName { get; set; }
             public int OrderIndex { get; set; }
         }
 
@@ -236,6 +242,8 @@ namespace QSC.Api.Controllers
                             QuestionType = iDto.QuestionType,
                             FullScore = iDto.FullScore,
                             IsCritical = iDto.IsCritical,
+                            CategoryCode = iDto.CategoryCode,
+                            CategoryName = iDto.CategoryName,
                             OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
                             IsActive = true
                         };
@@ -321,6 +329,8 @@ namespace QSC.Api.Controllers
                                 QuestionType = iDto.QuestionType,
                                 FullScore = iDto.FullScore,
                                 IsCritical = iDto.IsCritical,
+                                CategoryCode = iDto.CategoryCode,
+                                CategoryName = iDto.CategoryName,
                                 OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
                                 IsActive = true
                             };
@@ -389,6 +399,8 @@ namespace QSC.Api.Controllers
                                 QuestionType = iDto.QuestionType,
                                 FullScore = iDto.FullScore,
                                 IsCritical = iDto.IsCritical,
+                                CategoryCode = iDto.CategoryCode,
+                                CategoryName = iDto.CategoryName,
                                 OrderIndex = iDto.OrderIndex > 0 ? iDto.OrderIndex : itemIdx++,
                                 IsActive = true
                             };
