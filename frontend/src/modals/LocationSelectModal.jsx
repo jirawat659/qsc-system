@@ -147,21 +147,22 @@ export default function LocationSelectModal({
         <div className="p-4 border-b space-y-2.5 bg-white shrink-0 border-slate-100">
           {/* Search Box - NO autoFocus so mobile virtual keyboard doesn't pop up unexpectedly */}
           <div className="relative">
-            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="ค้นหาชื่อสาขา (เช่น สยาม, พระราม 9), รหัสสาขา (UB-001), หรือที่อยู่..."
+              placeholder="ค้นหาชื่อสาขา, รหัสสาขา หรือที่อยู่..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-10 py-2.5 sm:py-3 text-xs sm:text-sm rounded-2xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-semibold placeholder-slate-400 transition-all focus:bg-white focus:ring-2 focus:ring-emerald-500/20"
+              className="w-full pl-8.5 pr-8 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-medium placeholder-slate-400 transition-all focus:bg-white focus:ring-1 focus:ring-emerald-500/20"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => setSearchTerm("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
+                title="ล้างข้อความค้นหา"
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             )}
           </div>

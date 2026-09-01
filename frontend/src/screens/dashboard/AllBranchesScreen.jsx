@@ -202,19 +202,24 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
       </div>
 
       {/* 🌟 2. Search & Excel Export Row (ปุ่ม Excel อยู่แถวเดียวกับค้นหา) */}
-      <div className="flex items-center gap-2.5 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+      <div className="flex items-center gap-2.5 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="ค้นหาชื่อสาขา, ภูมิภาค หรือชื่อผู้ตรวจ..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full text-xs sm:text-sm pl-10 pr-9 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] transition-colors"
+            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
           />
           {searchTerm && (
-            <button onClick={() => setSearchTerm("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer">
-              <X size={14} />
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
+              title="ล้างข้อความค้นหา"
+            >
+              <X size={13} />
             </button>
           )}
         </div>

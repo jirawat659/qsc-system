@@ -145,17 +145,22 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
       {/* Search & Filter Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="ค้นหาชื่องานแก้ไข, สาขา หรือข้อคำถาม..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full text-xs sm:text-sm pl-10 pr-9 py-2.5 rounded-2xl bg-white border border-slate-200 shadow-2xs outline-none font-bold text-slate-800 focus:border-emerald-600 transition-colors"
+            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal"
           />
           {searchTerm && (
-            <button onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-lg">
-              <X size={14} />
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
+              title="ล้างข้อความค้นหา"
+            >
+              <X size={13} />
             </button>
           )}
         </div>
