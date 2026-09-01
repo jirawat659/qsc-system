@@ -557,6 +557,16 @@ export default function LiveAuditScreen({
 
   // ⚡ Instant Event-driven Auto-Sync to Backend & LocalStorage
   const autoSaveTimerRef = useRef(null);
+  const hasUserAnswers = useMemo(() => {
+    return (
+      Object.keys(answers).length > 0 ||
+      Object.keys(photos).length > 0 ||
+      Object.keys(comments).length > 0 ||
+      Boolean(staffCount) ||
+      Boolean(extraNote) ||
+      Object.keys(metadataValues).length > 0
+    );
+  }, [answers, photos, comments, staffCount, extraNote, metadataValues]);
 
   const performSaveDraft = async (overrideData = {}) => {
     try {
