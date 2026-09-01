@@ -98,7 +98,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
           <select
             value={selectedLocationId}
             onChange={(e) => setSelectedLocationId(e.target.value)}
-            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800"
+            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800 ios-zoom-fix-xs"
           >
             {locations.map(loc => (
               <option key={loc.id} value={loc.id}>{loc.name} - {loc.fullName || loc.name}</option>
@@ -111,7 +111,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
           <select
             value={selectedIssue}
             onChange={(e) => setSelectedIssue(e.target.value)}
-            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800"
+            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800 ios-zoom-fix-xs"
           >
             {availableIssues.map(issue => (
               <option key={issue.id} value={issue.id}>{issue.title}</option>
@@ -129,7 +129,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
             }}
             placeholder="อธิบายสิ่งที่สาขาได้ดำเนินการปรับปรุงแก้ไข..."
             rows={3}
-            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800 placeholder-slate-400"
+            className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold bg-white text-slate-800 placeholder-slate-400 ios-zoom-fix-xs"
           />
         </div>
 
@@ -142,7 +142,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
             accept="image/*"
             ref={fileInputRef}
             onChange={handleFileChange}
-            className="hidden"
+            className="hidden ios-zoom-fix-xs"
           />
 
           {photoBase64 ? (

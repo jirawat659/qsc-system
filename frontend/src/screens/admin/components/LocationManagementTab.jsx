@@ -19,7 +19,7 @@ export default function LocationManagementTab({
                 placeholder="ค้นหารหัสสาขา, ชื่อสาขา, หรือภูมิภาค..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none ios-zoom-fix-sm"
               />
             </div>
             <button

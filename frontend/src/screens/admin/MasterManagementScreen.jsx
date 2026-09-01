@@ -890,7 +890,7 @@ export default function MasterManagementScreen({ onBack }) {
                 placeholder="ค้นหารหัส หรือชื่อประเภทสถานที่..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none ios-zoom-fix-sm"
               />
             </div>
             <button
@@ -956,7 +956,7 @@ export default function MasterManagementScreen({ onBack }) {
                 placeholder="ค้นหาชื่อบทบาท หรือสิทธิ์..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none ios-zoom-fix-sm"
               />
             </div>
             <button
@@ -1121,7 +1121,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editUserForm.fullName}
                   onChange={(e) => setEditUserForm({ ...editUserForm, fullName: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-sm"
                   placeholder="เช่น นายวันทร์ หนวดเขี้ยว"
                   required
                 />
@@ -1134,7 +1134,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <select
                   value={editUserForm.roleId}
                   onChange={(e) => setEditUserForm({ ...editUserForm, roleId: parseInt(e.target.value) })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer ios-zoom-fix-sm"
                 >
                   {roles.length === 0 ? (
                     <option value="">กำลังโหลดบทบาท...</option>
@@ -1153,7 +1153,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <select
                   value={editUserForm.branchScope}
                   onChange={(e) => setEditUserForm({ ...editUserForm, branchScope: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer ios-zoom-fix-sm"
                 >
                   <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
                   <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
@@ -1229,7 +1229,7 @@ export default function MasterManagementScreen({ onBack }) {
                   placeholder="กรอกรหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)"
                   value={editUserForm.newPassword || ''}
                   onChange={(e) => setEditUserForm({ ...editUserForm, newPassword: e.target.value })}
-                  className="w-full px-4.5 py-3 rounded-xl bg-white border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
+                  className="w-full px-4.5 py-3 rounded-xl bg-white border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400 ios-zoom-fix-sm"
                 />
               </div>
 
@@ -1308,7 +1308,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={userForm.username}
                   onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-sm"
                   placeholder="เช่น somsak_bkk"
                   required
                 />
@@ -1322,7 +1322,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={userForm.fullName}
                   onChange={(e) => setUserForm({ ...userForm, fullName: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-sm"
                   placeholder="เช่น นายสมศักดิ์ มั่นคง"
                   required
                 />
@@ -1336,7 +1336,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="password"
                   value={userForm.password}
                   onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-sm"
                   required
                 />
               </div>
@@ -1348,7 +1348,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <select
                   value={userForm.roleId}
                   onChange={(e) => setUserForm({ ...userForm, roleId: parseInt(e.target.value) })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer ios-zoom-fix-sm"
                 >
                   {roles.length === 0 ? (
                     <option value="">กำลังโหลดบทบาท...</option>
@@ -1367,7 +1367,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <select
                   value={userForm.branchScope}
                   onChange={(e) => setUserForm({ ...userForm, branchScope: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer ios-zoom-fix-sm"
                 >
                   <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
                   <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
@@ -1480,7 +1480,7 @@ export default function MasterManagementScreen({ onBack }) {
                 placeholder="ค้นหาชื่อสาขา หรือรหัสสาขา"
                 value={branchSearchTerm}
                 onChange={(e) => setBranchSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-[#0F6659] outline-none transition-colors"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-medium text-slate-800 placeholder:text-slate-400 focus:bg-white focus:border-[#0F6659] outline-none transition-colors ios-zoom-fix-sm"
               />
             </div>
 
@@ -1491,7 +1491,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <select
                   value={branchRegionFilter}
                   onChange={(e) => setBranchRegionFilter(e.target.value)}
-                  className={`w-full py-2.5 pl-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-bold outline-none cursor-pointer appearance-none transition-all ${
+                  className={`w-full py-2.5 pl-3.5 pr-8 rounded-xl border text-xs sm:text-sm font-bold outline-none cursor-pointer appearance-none transition-all ios-zoom-fix-xs ${
                     branchRegionFilter !== 'ALL'
                       ? 'border-[#0F6659] text-[#0F6659] bg-emerald-50/40 ring-1 ring-[#0F6659]/20'
                       : 'border-[#0F6659] text-[#0F6659] bg-white hover:bg-slate-50'
@@ -1654,7 +1654,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={editLocationForm.code}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, code: e.target.value.toUpperCase() })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                     required
                   />
                 </div>
@@ -1663,7 +1663,7 @@ export default function MasterManagementScreen({ onBack }) {
                   <select
                     value={editLocationForm.locationTypeId}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, locationTypeId: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     {locationTypes.length === 0 ? (
                       <option value="">กำลังโหลดประเภทสถานที่...</option>
@@ -1682,7 +1682,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editLocationForm.name}
                   onChange={(e) => setEditLocationForm({ ...editLocationForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   required
                 />
               </div>
@@ -1727,7 +1727,7 @@ export default function MasterManagementScreen({ onBack }) {
                         setEditLocationForm(prev => ({ ...prev, brandName: e.target.value }));
                       }
                     }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     <option value="">-- เลือกแบรนด์ --</option>
                     {existingBrands.map(b => (
@@ -1739,7 +1739,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={editLocationForm.brandName}
                     onChange={(e) => setEditLocationForm(prev => ({ ...prev, brandName: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in ios-zoom-fix-sm"
                     placeholder="พิมพ์ชื่อแบรนด์ใหม่ เช่น After You, Mikazuki"
                     autoFocus
                   />
@@ -1786,7 +1786,7 @@ export default function MasterManagementScreen({ onBack }) {
                         setEditLocationForm(prev => ({ ...prev, region: e.target.value }));
                       }
                     }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     <option value="">-- เลือกภูมิภาค --</option>
                     {existingRegions.map(r => (
@@ -1798,7 +1798,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={editLocationForm.region}
                     onChange={(e) => setEditLocationForm(prev => ({ ...prev, region: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in ios-zoom-fix-sm"
                     placeholder="พิมพ์ภูมิภาคใหม่ เช่น ภาคตะวันออก, ชลบุรี"
                     autoFocus
                   />
@@ -1819,7 +1819,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={editLocationForm.phone}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, phone: e.target.value })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                     placeholder="เช่น 02-xxx-xxxx"
                   />
                 </div>
@@ -1828,7 +1828,7 @@ export default function MasterManagementScreen({ onBack }) {
                   <select
                     value={editLocationForm.managerUserId || ''}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, managerUserId: e.target.value ? parseInt(e.target.value) : null })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     <option value="">-- ไม่ระบุ --</option>
                     {users.filter(u => u.roleCode === 'AUDITEE' || u.role?.code === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
@@ -1911,7 +1911,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={locationForm.code}
                     onChange={(e) => setLocationForm({ ...locationForm, code: e.target.value.toUpperCase() })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                     placeholder="BKK-006"
                     required
                   />
@@ -1921,7 +1921,7 @@ export default function MasterManagementScreen({ onBack }) {
                   <select
                     value={locationForm.locationTypeId}
                     onChange={(e) => setLocationForm({ ...locationForm, locationTypeId: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     {locationTypes.length === 0 ? (
                       <option value="">กำลังโหลดประเภทสถานที่...</option>
@@ -1940,7 +1940,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={locationForm.name}
                   onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   placeholder="สาขาไอคอนสยาม"
                   required
                 />
@@ -1986,7 +1986,7 @@ export default function MasterManagementScreen({ onBack }) {
                         setLocationForm(prev => ({ ...prev, brandName: e.target.value }));
                       }
                     }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     <option value="">-- เลือกแบรนด์ --</option>
                     {existingBrands.map(b => (
@@ -1998,7 +1998,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={locationForm.brandName}
                     onChange={(e) => setLocationForm(prev => ({ ...prev, brandName: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in ios-zoom-fix-sm"
                     placeholder="พิมพ์ชื่อแบรนด์ใหม่ เช่น After You, Mikazuki"
                     autoFocus
                   />
@@ -2045,7 +2045,7 @@ export default function MasterManagementScreen({ onBack }) {
                         setLocationForm(prev => ({ ...prev, region: e.target.value }));
                       }
                     }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     <option value="">-- เลือกภูมิภาค --</option>
                     {existingRegions.map(r => (
@@ -2057,7 +2057,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={locationForm.region}
                     onChange={(e) => setLocationForm(prev => ({ ...prev, region: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in ios-zoom-fix-sm"
                     placeholder="พิมพ์ภูมิภาคใหม่ เช่น ภาคตะวันออก, ชลบุรี"
                     autoFocus
                   />
@@ -2078,7 +2078,7 @@ export default function MasterManagementScreen({ onBack }) {
                     type="text"
                     value={locationForm.phone}
                     onChange={(e) => setLocationForm({ ...locationForm, phone: e.target.value })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                     placeholder="เช่น 02-xxx-xxxx"
                   />
                 </div>
@@ -2087,7 +2087,7 @@ export default function MasterManagementScreen({ onBack }) {
                   <select
                     value={locationForm.managerUserId || ''}
                     onChange={(e) => setLocationForm({ ...locationForm, managerUserId: e.target.value ? parseInt(e.target.value) : null })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer ios-zoom-fix-sm"
                   >
                     <option value="">-- ไม่ระบุ --</option>
                     {users.filter(u => u.role?.code === 'AUDITEE' || u.roleCode === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
@@ -2147,7 +2147,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editTypeForm.code}
                   onChange={(e) => setEditTypeForm({ ...editTypeForm, code: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   required
                 />
               </div>
@@ -2158,7 +2158,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editTypeForm.name}
                   onChange={(e) => setEditTypeForm({ ...editTypeForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   required
                 />
               </div>
@@ -2168,7 +2168,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <textarea
                   value={editTypeForm.description}
                   onChange={(e) => setEditTypeForm({ ...editTypeForm, description: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   rows={3}
                 />
               </div>
@@ -2220,7 +2220,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={typeForm.code}
                   onChange={(e) => setTypeForm({ ...typeForm, code: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   placeholder="เช่น FOOD_TRUCK หรือ KIOSK"
                   required
                 />
@@ -2232,7 +2232,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={typeForm.name}
                   onChange={(e) => setTypeForm({ ...typeForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   placeholder="เช่น รถจำหน่ายอาหาร (Food Truck)"
                   required
                 />
@@ -2299,7 +2299,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editRoleForm.name}
                   onChange={(e) => setEditRoleForm({ ...editRoleForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   required
                 />
               </div>
@@ -2310,7 +2310,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editRoleForm.description}
                   onChange={(e) => setEditRoleForm({ ...editRoleForm, description: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                 />
               </div>
 
@@ -2391,7 +2391,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={roleForm.code}
                   onChange={(e) => setRoleForm({ ...roleForm, code: e.target.value.toUpperCase().replace(/\s+/g, '_') })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   placeholder="เช่น REGIONAL_MANAGER"
                   required
                 />
@@ -2403,7 +2403,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={roleForm.name}
                   onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   placeholder="เช่น ผู้จัดการเขตพื้นที่"
                   required
                 />
@@ -2414,7 +2414,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <textarea
                   value={roleForm.description}
                   onChange={(e) => setRoleForm({ ...roleForm, description: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs ios-zoom-fix-sm"
                   rows={2}
                   placeholder="ระบุหน้าที่ความรับผิดชอบ..."
                 />

@@ -163,16 +163,16 @@ export default function MainDashboard({ onLogout }) {
     setScreen(newNav[0]?.key || "dashboard");
   };
 
-  const [navResetKey, setNavResetKey] = useState(0);
   const mainContentRef = useRef(null);
 
-  const scrollToTop = () => {
+  const scrollToTop = (smooth = true) => {
+    const behavior = smooth ? "smooth" : "instant";
     try {
-      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-      document.documentElement.scrollTo({ top: 0, left: 0, behavior: "instant" });
-      document.body.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      window.scrollTo({ top: 0, left: 0, behavior });
+      document.documentElement.scrollTo({ top: 0, left: 0, behavior });
+      document.body.scrollTo({ top: 0, left: 0, behavior });
       if (mainContentRef.current) {
-        mainContentRef.current.scrollTo({ top: 0, left: 0, behavior: "instant" });
+        mainContentRef.current.scrollTo({ top: 0, left: 0, behavior });
       }
     } catch (e) {
       window.scrollTo(0, 0);
@@ -180,22 +180,26 @@ export default function MainDashboard({ onLogout }) {
   };
 
   const handleNavClick = (key) => {
+    if (screen === key) {
+      // 🌟 เมื่อกดแท็บเดิมซ้ำ ให้เลื่อนขึ้นด้านบนแบบ Smooth Scroll ให้เห็นการเคลื่อนไหว
+      scrollToTop(true);
+      return;
+    }
     if (key === "audit") {
       setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
     }
-    setNavResetKey(prev => prev + 1);
     setScreen(key);
-    scrollToTop();
+    scrollToTop(true);
   };
 
-  // Scroll to top automatically whenever screen changes or same nav tab is clicked
+  // Scroll to top automatically whenever screen changes
   useEffect(() => {
-    scrollToTop();
-    const timer = requestAnimationFrame(() => {
-      scrollToTop();
-    });
-    return () => cancelAnimationFrame(timer);
-  }, [screen, navResetKey]);
+    scrollToTop(true);
+    const timer = setTimeout(() => {
+      scrollToTop(true);
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [screen]);
 
   const showToast = (msg) => {
     setToastText(msg);
@@ -479,7 +483,7 @@ export default function MainDashboard({ onLogout }) {
 
         {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
         <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto min-h-screen pb-16 lg:pb-8">
-          <div key={`${role}_${screen}_${navResetKey}`} className="page-transition flex-1 flex flex-col">
+          <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col">
             {renderCurrentScreen()}
           </div>
         </main>

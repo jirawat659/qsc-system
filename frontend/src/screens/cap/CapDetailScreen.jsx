@@ -596,7 +596,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             accept="image/*"
             ref={fileInputRef}
             onChange={handleFileChange}
-            className="hidden"
+            className="hidden ios-zoom-fix-xs"
           />
 
           {/* Photo Attachment Preview Banner */}
@@ -652,7 +652,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                 isClosed
                   ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed placeholder:text-slate-400"
                   : "bg-slate-50/70 border-slate-200 focus:bg-white focus:border-[#0F6659] text-slate-900 placeholder:text-slate-400"
-              }`}
+              } ios-zoom-fix-sm`}
             />
 
             {!isClosed && (

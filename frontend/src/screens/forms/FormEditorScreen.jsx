@@ -781,7 +781,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder="เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Store Audit)..."
-              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
+              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-base"
               required
             />
           </div>
@@ -807,7 +807,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     onBlur={() => {
                       if (!passingScore || passingScore < 1) setPassingScore(85);
                     }}
-                    className="w-10 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-10 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ios-zoom-fix-base"
                     placeholder="85"
                     required
                   />
@@ -849,7 +849,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   const selectedObj = locationTypes.find(lt => lt.id === val);
                   if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
                 }}
-                className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
+                className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate ios-zoom-fix-base"
               >
                 {locationTypes.length > 0 ? (
                   locationTypes.map(lt => (
@@ -878,7 +878,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="ระบุคำอธิบาย หรือข้อแนะนำสำหรับผู้ตรวจ..."
-              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
+              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-base"
             />
           </div>
         </div>
@@ -984,7 +984,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   handleAddCategory();
                 }
               }}
-              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
+              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all ios-zoom-fix-xs"
             />
           </div>
           <button
@@ -1036,7 +1036,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       onChange={(e) => updateSectionTitle(secIdx, e.target.value)}
                       onBlur={() => setEditingSecIdx(null)}
                       onKeyDown={(e) => { if (e.key === "Enter") setEditingSecIdx(null); }}
-                      className="text-sm sm:text-base font-bold px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 focus:outline-none flex-1 shadow-2xs"
+                      className="text-sm sm:text-base font-bold px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 focus:outline-none flex-1 shadow-2xs ios-zoom-fix-base"
                       autoFocus
                     />
                   </div>
@@ -1142,7 +1142,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             max="500"
                             value={item.fullScore !== undefined ? item.fullScore : 10}
                             onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
-                            className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
+                            className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 ios-zoom-fix-xs"
                             title="กำหนดคะแนนเต็มของข้อนี้"
                           />
                           <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
@@ -1191,7 +1191,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               }
                             }}
                             placeholder="ระบุข้อความคำถามสำหรับการตรวจประเมิน..."
-                            className="w-full text-xs sm:text-sm font-medium p-3 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs resize-none leading-relaxed"
+                            className="w-full text-xs sm:text-sm font-medium p-3 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs resize-none leading-relaxed ios-zoom-fix-sm"
                             autoFocus
                           />
                         </div>
@@ -1243,7 +1243,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           <select
                             value={item.category || DEFAULT_CATEGORIES[0]}
                             onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
-                            className="text-xs font-extrabold pl-3 pr-7 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
+                            className="text-xs font-extrabold pl-3 pr-7 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none ios-zoom-fix-xs"
                           >
                             {categories.map((cat, cIdx) => (
                               <option key={cIdx} value={cat}>{cat}</option>
@@ -1460,7 +1460,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   value={metaFieldForm.label}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, label: e.target.value })}
                   placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน, หมายเหตุเปิดสาขา..."
-                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs"
+                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs ios-zoom-fix-sm"
                 />
               </div>
 
@@ -1473,7 +1473,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   value={metaFieldForm.type}
                   disabled={metaFieldForm.isSystem}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs"
+                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs ios-zoom-fix-sm"
                 >
                   <option value="number">ตัวเลข / จำนวน (พร้อมระบุหน่วย)</option>
                   <option value="date">ปฏิทิน (วันที่ วัน/เดือน/ปี)</option>
@@ -1497,7 +1497,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       value={metaFieldForm.unit}
                       onChange={(e) => setMetaFieldForm({ ...metaFieldForm, unit: e.target.value })}
                       placeholder="ระบุหน่วย เช่น คน หรือ °C"
-                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white ios-zoom-fix-sm"
                     />
                   </div>
                 </div>
@@ -1520,7 +1520,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             next[oIdx] = e.target.value;
                             setMetaFieldForm({ ...metaFieldForm, options: next });
                           }}
-                          className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none focus:border-blue-500"
+                          className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none focus:border-blue-500 ios-zoom-fix-xs"
                         />
                         {metaFieldForm.options.length > 1 && (
                           <button
@@ -1554,7 +1554,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           });
                         }
                       }}
-                      className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none"
+                      className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none ios-zoom-fix-xs"
                     />
                     <button
                       type="button"
@@ -1581,7 +1581,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   type="checkbox"
                   checked={metaFieldForm.required}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, required: e.target.checked })}
-                  className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659]"
+                  className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] ios-zoom-fix-xs"
                 />
                 <span className="text-xs font-bold text-slate-800">
                   บังคับกรอกข้อมูล

@@ -246,7 +246,7 @@ export default function LocationGpsSection({
           value={form.address || ''}
           onChange={(e) => setForm(prev => ({ ...prev, address: e.target.value }))}
           rows={2}
-          className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-700 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
+          className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-700 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400 ios-zoom-fix-sm"
           placeholder="เช่น ชั้น G โซน Veranda ถ.เจริญนคร แขวงคลองต้นไทร เขตคลองสาน กรุงเทพฯ 10600"
         />
       </div>
@@ -314,7 +314,7 @@ export default function LocationGpsSection({
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearchLocation(); } }}
                     placeholder="พิมพ์ชื่อสถานที่, วางลิงก์ Google Maps, หรือพิกัด..."
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-normal text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs placeholder:text-slate-400"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-normal text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs placeholder:text-slate-400 ios-zoom-fix-xs"
                     autoFocus
                   />
                 </div>

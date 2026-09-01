@@ -675,6 +675,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full text-xs pl-8 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
+              style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
             />
             {searchTerm && (
               <button onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -690,6 +691,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                   value={filterCategory}
                   onChange={(e) => setFilterCategory(e.target.value)}
                   className="bg-transparent text-xs font-bold outline-none cursor-pointer text-slate-700 flex-1 w-full"
+                  style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
                 >
                   <option value="all">ทุกสาขา</option>
                   <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
@@ -957,7 +959,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         e.target.blur();
                       }
                     }}
-                    className="w-10 h-7 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    style={{ transform: "scale(0.75)", transformOrigin: "center center", width: "53.33px", height: "37.33px" }}
                   />
 
                   <button
