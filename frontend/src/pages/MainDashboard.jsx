@@ -220,11 +220,7 @@ export default function MainDashboard({ onLogout }) {
 
   // Scroll to top automatically whenever screen changes
   useEffect(() => {
-    scrollToTop(true);
-    const timer = setTimeout(() => {
-      scrollToTop(true);
-    }, 50);
-    return () => clearTimeout(timer);
+    animatedScrollToTop(350);
   }, [screen]);
 
   const showToast = (msg) => {
