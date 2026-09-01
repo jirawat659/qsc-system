@@ -165,55 +165,40 @@ export default function MainDashboard({ onLogout }) {
 
   const mainContentRef = useRef(null);
 
-  // 🌟 High-Precision Silky Smooth Scroll Animation with Cubic Easing
-  const animatedScrollToTop = (duration = 420) => {
-    const winY = window.pageYOffset || window.scrollY || 0;
-    const docY = document.documentElement ? document.documentElement.scrollTop : 0;
-    const bodyY = document.body ? document.body.scrollTop : 0;
-    const mainY = mainContentRef.current ? mainContentRef.current.scrollTop : 0;
-
-    const startY = Math.max(winY, docY, bodyY, mainY);
-    if (startY <= 0) return;
-
-    const startTime = performance.now();
-    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
-
-    const step = (currentTime) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const ease = easeOutCubic(progress);
-
-      const targetY = Math.round(startY * (1 - ease));
-
-      window.scrollTo(0, targetY);
-      if (document.documentElement) document.documentElement.scrollTop = targetY;
-      if (document.body) document.body.scrollTop = targetY;
-      if (mainContentRef.current) mainContentRef.current.scrollTop = targetY;
-
-      if (progress < 1) {
-        requestAnimationFrame(step);
+  const scrollToTop = (smooth = true) => {
+    const behavior = smooth ? "smooth" : "instant";
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior });
+      document.documentElement.scrollTo({ top: 0, left: 0, behavior });
+      document.body.scrollTo({ top: 0, left: 0, behavior });
+      if (mainContentRef.current) {
+        mainContentRef.current.scrollTo({ top: 0, left: 0, behavior });
       }
-    };
-
-    requestAnimationFrame(step);
+    } catch (e) {
+      window.scrollTo(0, 0);
+    }
   };
 
   const handleNavClick = (key) => {
     if (screen === key) {
-      // 🌟 เมื่อกดแท็บเดิมซ้ำ ให้เลื่อนขึ้นด้านบนแบบ Smooth Scroll Animation ให้เห็นการเคลื่อนไหวอย่างชัดเจน
-      animatedScrollToTop(420);
+      // 🌟 เมื่อกดแท็บเดิมซ้ำ ให้เลื่อนขึ้นด้านบนแบบ Smooth Scroll ให้เห็นการเคลื่อนไหว
+      scrollToTop(true);
       return;
     }
     if (key === "audit") {
       setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
     }
     setScreen(key);
-    animatedScrollToTop(380);
+    scrollToTop(true);
   };
 
   // Scroll to top automatically whenever screen changes
   useEffect(() => {
-    animatedScrollToTop(350);
+    scrollToTop(true);
+    const timer = setTimeout(() => {
+      scrollToTop(true);
+    }, 50);
+    return () => clearTimeout(timer);
   }, [screen]);
 
   const showToast = (msg) => {
@@ -467,7 +452,7 @@ export default function MainDashboard({ onLogout }) {
             <>
               <button
                 type="button"
-                onClick={() => animatedScrollToTop(420)}
+                onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="flex items-center gap-2 cursor-pointer group text-left shrink-0"
               >
                 <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shadow-xs text-white bg-gradient-to-tr from-[#0F6659] to-[#15806e] group-hover:scale-105 transition-transform">

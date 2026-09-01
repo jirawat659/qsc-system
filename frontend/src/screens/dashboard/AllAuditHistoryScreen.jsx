@@ -674,51 +674,55 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               placeholder="ค้นหาชื่อสาขา, วันที่, ผู้ตรวจ, สถานะ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-xs pl-8 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
-              style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
+              className="w-full text-xs pl-8.5 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400"
             />
             {searchTerm && (
-              <button onClick={() => setSearchTerm("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
+                title="ล้างข้อความค้นหา"
+              >
                 <X size={12} />
               </button>
             )}
           </div>
 
-            <div className="flex items-center gap-2 flex-1 w-full">
-              <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] transition-colors">
-                <Filter size={13} className="text-[#0F6659] shrink-0" />
-                <select
-                  value={filterCategory}
-                  onChange={(e) => setFilterCategory(e.target.value)}
-                  className="bg-transparent text-xs font-bold outline-none cursor-pointer text-slate-700 flex-1 w-full"
-                  style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
-                >
-                  <option value="all">ทุกสาขา</option>
-                  <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
-                  <option value="improve">ต้องปรับปรุง (&lt;85%)</option>
-                  <option value="bkk">เขตกรุงเทพฯ</option>
-                  <option value="north">เขตภาคเหนือ</option>
-                  <option value="east">เขตภาคตะวันออก</option>
-                  <option value="northeast">เขตภาคอีสาน</option>
-                  <option value="south">เขตภาคใต้</option>
-                </select>
-              </div>
-
-              {/* Excel Export Button */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (onExportExcel) onExportExcel();
-                  setShowExportModal(true);
-                }}
-                className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl bg-white border border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
-                title="ส่งออกรายงานเป็น Excel"
+          <div className="flex items-center gap-2 flex-1 w-full">
+            <div className="relative flex items-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] focus-within:border-[#0F6659] focus-within:bg-white transition-colors">
+              <Filter size={13} className="text-[#0F6659] shrink-0 mr-1.5 pointer-events-none" />
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="w-full bg-transparent text-xs font-semibold outline-none cursor-pointer text-slate-700 appearance-none pr-5"
               >
-                <Download size={13} className="text-[#0F6659]" />
-                <span>Excel</span>
-              </button>
+                <option value="all">ทุกสาขา</option>
+                <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
+                <option value="improve">ต้องปรับปรุง (&lt;85%)</option>
+                <option value="bkk">เขตกรุงเทพฯ</option>
+                <option value="north">เขตภาคเหนือ</option>
+                <option value="east">เขตภาคตะวันออก</option>
+                <option value="northeast">เขตภาคอีสาน</option>
+                <option value="south">เขตภาคใต้</option>
+              </select>
+              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             </div>
+
+            {/* Excel Export Button */}
+            <button
+              type="button"
+              onClick={() => {
+                if (onExportExcel) onExportExcel();
+                setShowExportModal(true);
+              }}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
+              title="ส่งออกรายงานเป็น Excel"
+            >
+              <Download size={13} className="text-[#0F6659]" />
+              <span>Excel</span>
+            </button>
           </div>
+        </div>
 
         {/* ── Master History Table ── */}
         <div className="space-y-2">
@@ -959,8 +963,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         e.target.blur();
                       }
                     }}
-                    className="text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    style={{ transform: "scale(0.75)", transformOrigin: "center center", width: "53.33px", height: "37.33px" }}
+                    className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
 
                   <button

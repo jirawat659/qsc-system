@@ -1246,7 +1246,7 @@ export default function LiveAuditScreen({
               <span className={`text-[9px] sm:text-[10px] font-extrabold mt-1.5 ${scoreAnalysis.isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
                 {scoreAnalysis.isPassed ? "ผ่านเกณฑ์มาตรฐาน" : "กำลังประเมิน"}
               </span>
-              <span className="text-[9px] text-slate-400 font-medium">เกณฑ์ ≥{passingScore}%</span>
+              <span className="text-[9px] text-slate-400 font-medium">เกณฑ์ ≥ {passingScore}%</span>
             </div>
           </div>
         </div>
