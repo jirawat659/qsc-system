@@ -773,10 +773,10 @@ export default function MasterManagementScreen({ onBack }) {
       
       {/* Toast alert (Floating Top Screen Edge Banner via Portal) */}
       {toast && typeof document !== 'undefined' && createPortal(
-        <div className={`fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] px-4.5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-bold border animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md pointer-events-none ${
-          toast.isError ? 'bg-rose-900/95 text-white border-rose-500' : 'bg-[#1C2129]/95 text-white border-emerald-500'
+        <div className={`fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] px-4.5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs sm:text-sm font-bold border animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md pointer-events-none ${
+          toast.isError ? 'bg-rose-50/95 text-rose-800 border-rose-200 shadow-rose-100' : 'bg-white/95 text-slate-800 border-slate-200 ring-1 ring-emerald-500/20'
         }`}>
-          {toast.isError ? <AlertCircle size={16} className="text-rose-400 shrink-0" /> : <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />}
+          {toast.isError ? <AlertCircle size={18} className="text-rose-600 shrink-0" /> : <CheckCircle2 size={18} className="text-[#0F6659] shrink-0" />}
           <span>{toast.msg}</span>
         </div>,
         document.body

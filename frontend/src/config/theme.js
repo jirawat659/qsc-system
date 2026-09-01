@@ -1,16 +1,16 @@
 export const c = {
-  bg: "#F6F6F3",
+  bg: "#F8FAFC",
   surface: "#FFFFFF",
-  ink: "#1C2129",
-  muted: "#6B7280",
-  faint: "#9CA3AF",
-  border: "#E5E3DA",
+  ink: "#0F172A",
+  muted: "#64748B",
+  faint: "#94A3B8",
+  border: "#E2E8F0",
   accent: "#0F6659",
-  accentSoft: "#E3F0ED",
-  risk: "#B3452C",
-  riskSoft: "#F6E7E2",
-  warn: "#9A7B0A",
-  warnSoft: "#F5EFDD",
+  accentSoft: "#E6F4F1",
+  risk: "#E11D48",
+  riskSoft: "#FFE4E6",
+  warn: "#D97706",
+  warnSoft: "#FEF3C7",
 };
 
 export const sans = "'Prompt', 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif";
