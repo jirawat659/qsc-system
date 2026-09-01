@@ -16,6 +16,7 @@ import api from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
+import Breadcrumbs from "../../shared/Breadcrumbs";
 import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
@@ -58,8 +59,8 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
   );
 };
 
-// ✍️ Touch & Mouse High-DPI Digital Signature Pad
-function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม..." }) {
+// ✍️ Touch & Mouse High-DPI Digital Signature Pad — เปิดเป็น Modal เต็มจอเวลาเซ็น (ไม่เซ็นในหน้าเดิม)
+function SignaturePadCanvas({ onDone, onCancel }) {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSigned, setHasSigned] = useState(false);
@@ -117,13 +118,7 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
   };
 
   const stopDrawing = () => {
-    if (isDrawing) {
-      setIsDrawing(false);
-      const canvas = canvasRef.current;
-      if (canvas) {
-        onSignChange(canvas.toDataURL('image/png'));
-      }
-    }
+    if (isDrawing) setIsDrawing(false);
   };
 
   const clearCanvas = () => {
@@ -133,8 +128,74 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
     const dpr = window.devicePixelRatio || 1;
     ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
     setHasSigned(false);
-    onSignChange(null);
   };
+
+  const confirmSign = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasSigned) return;
+    onDone(canvas.toDataURL('image/png'));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 flex items-end sm:items-center justify-center animate-in fade-in duration-150">
+      <div className="w-full sm:max-w-lg bg-white rounded-t-3xl sm:rounded-3xl p-4 sm:p-5 space-y-3 animate-in slide-in-from-bottom sm:zoom-in-95 duration-200">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+            <PenTool size={15} className="text-[#0F6659]" />
+            เซ็นชื่อลงในกรอบด้านล่าง
+          </h3>
+          <button type="button" onClick={onCancel} className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center cursor-pointer text-slate-500">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="relative border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden touch-none shadow-2xs">
+          <canvas
+            ref={canvasRef}
+            onMouseDown={startDrawing}
+            onMouseMove={draw}
+            onMouseUp={stopDrawing}
+            onMouseLeave={stopDrawing}
+            onTouchStart={startDrawing}
+            onTouchMove={draw}
+            onTouchEnd={stopDrawing}
+            className="w-full h-56 sm:h-64 cursor-crosshair block"
+          />
+          {!hasSigned && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium gap-1.5 select-none">
+              <Edit3 size={14} />
+              <span>แตะหรือลากเพื่อเซ็นชื่อลงในกรอบนี้</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5 pt-1">
+          <button
+            type="button"
+            onClick={clearCanvas}
+            className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
+          >
+            <RotateCcw size={14} />
+            ล้างลายเซ็น
+          </button>
+          <button
+            type="button"
+            onClick={confirmSign}
+            disabled={!hasSigned}
+            className="flex-1 py-3 rounded-2xl bg-[#0F6659] hover:bg-[#0c5449] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
+          >
+            <CheckCircle2 size={14} />
+            ยืนยันลายเซ็น
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม...", signatureUrl }) {
+  const [showModal, setShowModal] = useState(false);
+  const hasSigned = Boolean(signatureUrl);
 
   return (
     <div className="space-y-1.5 text-left">
@@ -146,7 +207,7 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         {hasSigned && (
           <button
             type="button"
-            onClick={clearCanvas}
+            onClick={() => onSignChange(null)}
             className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1 cursor-pointer"
           >
             <RotateCcw size={11} />
@@ -155,25 +216,20 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         )}
       </div>
 
-      <div className="relative border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden touch-none hover:border-[#0F6659]/50 transition-colors shadow-2xs">
-        <canvas
-          ref={canvasRef}
-          onMouseDown={startDrawing}
-          onMouseMove={draw}
-          onMouseUp={stopDrawing}
-          onMouseLeave={stopDrawing}
-          onTouchStart={startDrawing}
-          onTouchMove={draw}
-          onTouchEnd={stopDrawing}
-          className="w-full h-24 sm:h-28 cursor-crosshair block"
-        />
-        {!hasSigned && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium gap-1.5 select-none">
+      <button
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/50 transition-colors shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer"
+      >
+        {hasSigned ? (
+          <img src={signatureUrl} alt={label} className="max-h-full max-w-full object-contain" />
+        ) : (
+          <div className="flex items-center justify-center text-slate-400 text-xs font-medium gap-1.5 select-none">
             <Edit3 size={14} />
-            <span>แตะหรือลากเพื่อเซ็นชื่อลงในกรอบนี้</span>
+            <span>แตะเพื่อเซ็นชื่อ</span>
           </div>
         )}
-      </div>
+      </button>
 
       {onNameChange && (
         <input
@@ -181,12 +237,23 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
           value={signatoryName || ''}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder={placeholderName}
-          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs"
+          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs ios-zoom-fix-xs"
+        />
+      )}
+
+      {showModal && (
+        <SignaturePadCanvas
+          onCancel={() => setShowModal(false)}
+          onDone={(dataUrl) => {
+            onSignChange(dataUrl);
+            setShowModal(false);
+          }}
         />
       )}
     </div>
   );
 }
+
 
 
 export default function LiveAuditScreen({
@@ -1134,11 +1201,16 @@ export default function LiveAuditScreen({
 
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16">
-        <Header
-          title="ตรวจประเมินหน้างาน (Live Audit)"
-          subtitle="เลือกสาขาเพื่อเริ่มตรวจประเมินคุณภาพ"
-          onBack={onClearPlan}
-        />
+        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+        <div className="space-y-1">
+          <Breadcrumbs
+            items={[
+              { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
+              { label: "เลือกสาขา" },
+            ]}
+          />
+          <p className="text-xs text-slate-500 font-medium px-1">เลือกสาขาเพื่อเริ่มตรวจประเมินคุณภาพ</p>
+        </div>
 
         {/* Search Box */}
         <div className="relative">
@@ -1222,11 +1294,17 @@ export default function LiveAuditScreen({
   if (step === "select-form") {
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto">
-        <Header
-          title="ตรวจประเมินหน้างาน (Live Audit)"
-          subtitle="เลือกฟอร์มเพื่อเริ่มตรวจประเมินคุณภาพ"
-          onBack={() => setStep("select-unit")}
-        />
+        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+        <div className="space-y-1">
+          <Breadcrumbs
+            items={[
+              { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
+              { label: "เลือกสาขา", onClick: () => setStep("select-unit") },
+              { label: "เลือกฟอร์ม" },
+            ]}
+          />
+          <p className="text-xs text-slate-500 font-medium px-1">เลือกฟอร์มเพื่อเริ่มตรวจประเมินคุณภาพ</p>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {formList.map((f) => (
@@ -1307,18 +1385,33 @@ export default function LiveAuditScreen({
 
     return (
       <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20">
+        <Header
+          title={unit?.fullName || unit?.name}
+          subtitle={selectedForm?.title}
+          onBack={() => setStep("select-form")}
+          action={syncStatus !== "idle" ? (
+            syncStatus === "saving" ? (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-bold text-amber-700 shadow-2xs animate-pulse">
+                <Loader2 size={13} className="animate-spin text-amber-600" />
+                <span>Syncing...</span>
+              </div>
+            ) : syncStatus === "error" ? (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 shadow-2xs">
+                <AlertCircle size={13} className="text-rose-600" />
+                <span>Sync Failed</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-bold text-[#0F6659] shadow-2xs">
+                <CheckCircle2 size={13} className="text-[#0F6659]" />
+                <span>Synced</span>
+              </div>
+            )
+          ) : null}
+        />
         {/* Sticky Top Header Card */}
         <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2.5 pb-2 px-3 sm:px-4 shadow-2xs border-b border-slate-200">
           <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
-              <button
-                type="button"
-                onClick={() => setStep("select-form")}
-                className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs border border-slate-200/80 flex items-center justify-center"
-                title="เปลี่ยนแบบฟอร์ม / ย้อนกลับ"
-              >
-                <ChevronLeft size={20} className="text-[#0F6659]" />
-              </button>
               <div className="flex-1 min-w-0">
                 <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
                 <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
@@ -1690,61 +1783,59 @@ export default function LiveAuditScreen({
                                   : "bg-white border-slate-200 shadow-2xs"
                             }`}
                         >
-                          <div className="flex items-start justify-between gap-3 mb-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                                <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
-                                {q.isCritical && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
-                                )}
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                  คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
-                                </span>
-                                {isHighlighted && (
-                                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
-                                )}
-                              </div>
-                              <h4 className={`text-sm sm:text-base font-semibold leading-snug ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
-                                {q.questionText || q.text}
-                              </h4>
-                            </div>
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2 mb-2 flex-wrap">
+                              <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
+                              {q.isCritical && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
+                              )}
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+                                คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
+                              </span>
+                              {isHighlighted && (
+                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
+                              )}
 
-                            <div className="flex items-center gap-1.5 shrink-0 mt-1">
-                              <button
-                                type="button"
-                                onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
-                                className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(comments[q.id] && comments[q.id].trim().length > 0)
-                                    ? 'bg-amber-50 text-amber-700 border-amber-300'
-                                    : isCommentOpen
-                                      ? 'bg-slate-200 text-slate-800 border-slate-300'
-                                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                  }`}
-                              >
-                                <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
-                              </button>
-                              <label
-                                className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                  }`}
-                                title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
-                              >
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    handlePhotoUpload(q.id, e.target.files);
-                                    e.target.value = '';
-                                  }}
-                                />
-                                <Camera size={16} />
-                                {hasPhoto && (
-                                  <span className="text-[11px] font-black font-mono">
-                                    {questionPhotos.length}
-                                  </span>
-                                )}
-                              </label>
+                              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
+                                  className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(comments[q.id] && comments[q.id].trim().length > 0)
+                                      ? 'bg-amber-50 text-amber-700 border-amber-300'
+                                      : isCommentOpen
+                                        ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                  <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
+                                </button>
+                                <label
+                                  className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                  title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
+                                >
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    multiple
+                                    className="hidden"
+                                    onChange={(e) => {
+                                      handlePhotoUpload(q.id, e.target.files);
+                                      e.target.value = '';
+                                    }}
+                                  />
+                                  <Camera size={16} />
+                                  {hasPhoto && (
+                                    <span className="text-[11px] font-black font-mono">
+                                      {questionPhotos.length}
+                                    </span>
+                                  )}
+                                </label>
+                              </div>
                             </div>
+                            <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                              {q.questionText || q.text}
+                            </h4>
                           </div>
 
                           {/* 📸 Horizontal Photo Gallery */}
@@ -1854,12 +1945,14 @@ export default function LiveAuditScreen({
                   signatoryName={auditeeSignName}
                   onNameChange={setAuditeeSignName}
                   onSignChange={setAuditeeSignature}
+                  signatureUrl={auditeeSignature}
                   placeholderName="ระบุชื่อ-นามสกุล..."
                 />
 
                 <SignaturePad
                   label={`2. ผู้ตรวจประเมิน (${auditorName || defaultAuditorName})`}
                   onSignChange={setAuditorSignature}
+                  signatureUrl={auditorSignature}
                 />
               </div>
 

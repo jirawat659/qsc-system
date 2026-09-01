@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   CalendarDays, ChevronDown, CheckCircle2, ClipboardCheck,
   Award, AlertTriangle, Filter, ChevronRight, MapPin, Store,
-  Minimize2, Maximize2, Sparkles, BarChart3, FileSpreadsheet
+  Minimize2, Maximize2, Sparkles, BarChart3, FileSpreadsheet,
+  Info, X
 } from "lucide-react";
 import {
   ResponsiveContainer, XAxis, YAxis, Tooltip,
@@ -29,6 +30,58 @@ import BranchProfile from "./BranchProfile";
 import AllBranchesScreen from "./AllBranchesScreen";
 import AllAuditHistoryScreen from "./AllAuditHistoryScreen";
 import AuditHistoryDetail from "../audit/AuditHistoryDetail";
+
+function InfoPopover({ title, description, align="right" }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const isAlignRight = align === "right";
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="mt-1 text-slate-400 hover:text-slate-600 transition-colors p-0.5 cursor-pointer rounded-md hover:bg-slate-100"
+      >
+        <Info size={16} />
+      </button>
+
+      {open && (
+        <div
+          className={`absolute top-full mt-2 w-56 sm:w-64 p-3 bg-slate-900/95 text-white rounded-xl shadow-2xl z-50 text-xs border border-slate-700 animate-in fade-in zoom-in-95 backdrop-blur-sm ${
+            isAlignRight ? "-right-2 sm:right-0" : "-left-2 sm:left-0"
+          }`}
+        >
+          <div className="flex justify-between items-start mb-1 gap-2">
+            <span className="font-bold text-slate-100">{title}</span>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-slate-400 hover:text-white p-0.5"
+            >
+              <X size={12} />
+            </button>
+          </div>
+          <p className="text-slate-300 font-normal leading-relaxed">{description}</p>
+          <div
+            className={`absolute -top-1 w-2 h-2 bg-slate-900 border-t border-l border-slate-700 rotate-45 ${
+              isAlignRight ? "right-3" : "left-3"
+            }`}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PeriodDropdown({ value, onChange, options, size = "sm" }) {
   const [open, setOpen] = useState(false);
@@ -63,9 +116,7 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
       </button>
 
       {open && (
-        <div
-          className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95"
-        >
+        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95">
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -211,7 +262,7 @@ export default function DashboardScreen({ role, isDesktop }) {
     const activeScored = auditedBranchesInPeriod.length > 0 ? auditedBranchesInPeriod : branchStats;
     const periodAvgScore = activeScored.length > 0 ? Math.round(activeScored.reduce((acc, b) => acc + (b.displayScore || 0), 0) / activeScored.length) : 0;
 
-    const prevPeriodAvgScore = Math.max(0, periodAvgScore - 2.5); // Mock +2.5% trend
+    const prevPeriodAvgScore = Math.max(0, periodAvgScore - 2.5);
     const trendPercent = (((periodAvgScore - prevPeriodAvgScore) / (prevPeriodAvgScore || 1)) * 100).toFixed(1);
 
     const passedInPeriod = activeScored.filter(b => (b.displayScore || 0) >= 85).length;
@@ -264,7 +315,6 @@ export default function DashboardScreen({ role, isDesktop }) {
     const now = new Date();
     const THAI_MONTHS_SHORT = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
     
-    // 1. If backend API trendsData is available, use it!
     if (trendsData && trendsData.length > 0) {
       return trendsData.map(t => ({
         label: t.month,
@@ -272,7 +322,6 @@ export default function DashboardScreen({ role, isDesktop }) {
       }));
     }
 
-    // 2. Otherwise calculate deterministically from auditRecords
     const months = [];
     const rawAudits = auditRecords || [];
 
@@ -364,7 +413,14 @@ export default function DashboardScreen({ role, isDesktop }) {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="text-xs font-semibold text-slate-500 mb-1">คะแนนเฉลี่ยรวม (Overall Score)</div>
+          <div className="flex items-start justify-between">
+            <div className="text-xs font-semibold text-slate-500 mb-1">Overall Score</div>
+            <InfoPopover 
+              align="left"
+              title="Overall Score"
+              description="คะแนนประเมินเฉลี่ยของทุกสาขาที่ได้รับการตรวจในช่วงเวลาที่เลือก"
+            />
+          </div>
           <div className="flex items-end gap-2">
             <div className="text-3xl font-bold text-slate-900 font-mono">{avgScore}%</div>
             <div className={`text-xs font-bold mb-1 ${Number(trendPercent) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
@@ -372,22 +428,44 @@ export default function DashboardScreen({ role, isDesktop }) {
             </div>
           </div>
         </div>
+
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="text-xs font-semibold text-slate-500 mb-1">สาขาที่ตรวจแล้ว (Audits)</div>
+          <div className="flex items-start justify-between">
+            <div className="text-xs font-semibold text-slate-500 mb-1">Audits</div>
+            <InfoPopover 
+              title="Audits"
+              description="จำนวนสาขาที่ได้รับการตรวจประเมินแล้วเทียบกับสาขาทั้งหมด"
+            />
+          </div>
           <div className="flex items-end gap-2">
             <div className="text-3xl font-bold text-slate-900 font-mono">{auditedCount}</div>
             <div className="text-xs font-medium text-slate-400 mb-1">/ {totalBranches} สาขา</div>
           </div>
         </div>
+
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="text-xs font-semibold text-slate-500 mb-1">อัตราผ่านเกณฑ์ (Pass Rate)</div>
+          <div className="flex items-start justify-between">
+            <div className="text-xs font-semibold text-slate-500 mb-1">Pass Rate</div>
+            <InfoPopover 
+              align="left"
+              title="Pass Rate"
+              description="สัดส่วนเปอร์เซ็นต์ของสาขาที่ได้คะแนนผ่านเกณฑ์มาตรฐาน (ตั้งแต่ 85% ขึ้นไป)"
+            />
+          </div>
           <div className="flex items-end gap-2">
             <div className="text-3xl font-bold text-slate-900 font-mono">{passRate}%</div>
             <div className="text-xs font-medium text-emerald-600 mb-1">({passedCount} ผ่าน)</div>
           </div>
         </div>
+
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="text-xs font-semibold text-slate-500 mb-1">งาน CAP ค้างแก้ไข (Pending)</div>
+          <div className="flex items-start justify-between">
+            <div className="text-xs font-semibold text-slate-500 mb-1">Pending</div>
+            <InfoPopover 
+              title="Pending CAP"
+              description="จำนวนรายการแผนปฏิบัติการแก้ไข (CAP) ที่ยังรอดำเนินการหรือยังไม่ได้รับการอนุมัติ"
+            />
+          </div>
           <div className="flex items-end gap-2">
             <div className="text-3xl font-bold text-rose-600 font-mono">{pendingCapCount}</div>
             <div className="text-xs font-medium text-rose-400 mb-1">รายการ</div>
@@ -396,7 +474,6 @@ export default function DashboardScreen({ role, isDesktop }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        
         <div className="md:col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center justify-center relative">
           <h3 className="text-sm font-bold text-slate-700 self-start mb-2">เป้าหมายมาตรฐาน</h3>
           <div className="w-full h-40 relative flex items-center justify-center">
@@ -456,7 +533,6 @@ export default function DashboardScreen({ role, isDesktop }) {
       </div>
 
       <div className={`grid grid-cols-1 ${!isBranchManager ? "lg:grid-cols-2" : ""} gap-5`}>
-        
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <h3 className="text-sm font-bold text-slate-700 mb-4">คะแนนรายหมวดหมู่</h3>
           <div className="space-y-4">
@@ -523,7 +599,6 @@ export default function DashboardScreen({ role, isDesktop }) {
             </div>
           </div>
         )}
-
       </div>
 
       <div>
