@@ -166,37 +166,22 @@ export default function MainDashboard({ onLogout }) {
   const [moreResetKey, setMoreResetKey] = useState(0);
   const mainContentRef = useRef(null);
 
-  // 🌟 High-Precision Silky Smooth Scroll Animation with Cubic Easing
-  const animatedScrollToTop = (duration = 420) => {
-    const winY = window.pageYOffset || window.scrollY || 0;
-    const docY = document.documentElement ? document.documentElement.scrollTop : 0;
-    const bodyY = document.body ? document.body.scrollTop : 0;
-    const mainY = mainContentRef.current ? mainContentRef.current.scrollTop : 0;
-
-    const startY = Math.max(winY, docY, bodyY, mainY);
-    if (startY <= 0) return;
-
-    const startTime = performance.now();
-    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
-
-    const step = (currentTime) => {
-      const elapsed = currentTime - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const ease = easeOutCubic(progress);
-
-      const targetY = Math.round(startY * (1 - ease));
-
-      window.scrollTo(0, targetY);
-      if (document.documentElement) document.documentElement.scrollTop = targetY;
-      if (document.body) document.body.scrollTop = targetY;
-      if (mainContentRef.current) mainContentRef.current.scrollTop = targetY;
-
-      if (progress < 1) {
-        requestAnimationFrame(step);
+  // 🌟 Native GPU-Accelerated Smooth Scroll (Buttery smooth 120Hz/60Hz without JS-CSS fighting)
+  const smoothScrollToTop = () => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      if (document.documentElement && document.documentElement.scrollTop > 0) {
+        document.documentElement.scrollTo({ top: 0, left: 0, behavior: "smooth" });
       }
-    };
-
-    requestAnimationFrame(step);
+      if (document.body && document.body.scrollTop > 0) {
+        document.body.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      }
+      if (mainContentRef.current && mainContentRef.current.scrollTop > 0) {
+        mainContentRef.current.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      }
+    } catch (e) {
+      window.scrollTo(0, 0);
+    }
   };
 
   const handleNavClick = (key) => {
@@ -207,20 +192,20 @@ export default function MainDashboard({ onLogout }) {
       setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
     }
     if (screen === key) {
-      // 🌟 ถ้าอยู่ที่แท็บเดิม เช่น "ระบบ" ให้รีเซ็ตกลับหน้าเมนูหลักของระบบ + เลื่อนขึ้นบน
+      // 🌟 ถ้าอยู่ที่แท็บเดิม เช่น "ระบบ" ให้รีเซ็ตกลับหน้าเมนูหลักของระบบ + เลื่อนขึ้นบนอย่างนุ่มนวล
       if (key === "more") {
         setMoreResetKey(prev => prev + 1);
       }
-      animatedScrollToTop(420);
+      smoothScrollToTop();
       return;
     }
     setScreen(key);
-    animatedScrollToTop(380);
+    smoothScrollToTop();
   };
 
   // Scroll to top automatically whenever screen changes
   useEffect(() => {
-    animatedScrollToTop(350);
+    smoothScrollToTop();
   }, [screen]);
 
   const showToast = (msg) => {

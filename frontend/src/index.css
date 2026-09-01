@@ -6,7 +6,6 @@
 @layer base {
   html {
     font-size: 15px; /* Base scale: 1rem = 15px */
-    scroll-behavior: smooth;
   }
 
   body {
