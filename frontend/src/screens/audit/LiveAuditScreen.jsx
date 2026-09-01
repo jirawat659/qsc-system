@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, Store,
-  MapPin, Navigation, Search, Sparkles, ChevronRight, CheckCircle2,
+  MapPin, Navigation, Search, Sparkles, ChevronRight, ChevronLeft, CheckCircle2,
   XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock,
   ClipboardList, Check, Loader2, Save, ShieldAlert, CheckCheck,
   RefreshCw, AlertTriangle, X
@@ -534,6 +534,26 @@ export default function LiveAuditScreen({
       onSyncStatusChange(step === "audit" ? syncStatus : "idle");
     }
   }, [syncStatus, step, onSyncStatusChange]);
+
+  // 🔝 Always scroll window and container to top when changing steps or tabs
+  const scrollToTop = () => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.querySelector('main')?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.documentElement.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.body.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    scrollToTop();
+    const t1 = setTimeout(scrollToTop, 20);
+    const t2 = setTimeout(scrollToTop, 100);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [step, activeTab]);
 
   // ⚡ Instant Event-driven Auto-Sync to Backend & LocalStorage
   const autoSaveTimerRef = useRef(null);
