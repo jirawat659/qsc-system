@@ -5,7 +5,7 @@ import {
   MapPin, Navigation, Search, Sparkles, ChevronRight, CheckCircle2,
   XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock,
   ClipboardList, Check, Loader2, Save, ShieldAlert, CheckCheck,
-  RefreshCw, AlertTriangle
+  RefreshCw, AlertTriangle, X
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";

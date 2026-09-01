@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
   CalendarDays, List, Plus, Users, ChevronLeft, ChevronRight,
-  Clock, ChevronDown, X, MapPin, Check, AlertCircle, Sparkles
+  Clock, ChevronDown, X, MapPin, Check, AlertCircle, Sparkles, CheckCircle2
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
