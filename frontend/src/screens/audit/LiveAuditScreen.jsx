@@ -882,13 +882,86 @@ export default function LiveAuditScreen({
     }, 3000);
   };
 
-  // 🛑 Final Submit Handler
-  const handleFinalSubmit = async () => {
+  // 🌟 ตรวจสอบความถูกต้องและครบถ้วนของทุกหมวดหมู่ (Tab 1, Tab 2, Tab 3) ก่อนส่งผลตรวจ
+  const validateEntireAuditForm = () => {
+    // 1️⃣ ตรวจสอบ Tab 1: ข้อมูลการตรวจ (Audit Details)
+    for (const field of activeMetadataFields) {
+      if (!field.required) continue;
+
+      if (field.type === "auditor" || field.id === "auditor") {
+        if (!auditorName?.trim()) {
+          setActiveTab(1);
+          alert("⚠️ กรุณาระบุผู้ตรวจประเมินในแท็บ 'ข้อมูลการตรวจ'");
+          scrollToTop();
+          return false;
+        }
+      }
+
+      if (field.id === "audit_type") {
+        if (!auditType?.trim()) {
+          setActiveTab(1);
+          alert("⚠️ กรุณาเลือกประเภทการตรวจในแท็บ 'ข้อมูลการตรวจ'");
+          scrollToTop();
+          return false;
+        }
+      }
+
+      if (field.id === "staff_count") {
+        if (staffCount === "" || staffCount === undefined || staffCount === null) {
+          setActiveTab(1);
+          alert("⚠️ กรุณาระบุจำนวนพนักงานขณะตรวจในแท็บ 'ข้อมูลการตรวจ'");
+          scrollToTop();
+          return false;
+        }
+      }
+
+      if (field.id !== "auditor" && field.id !== "audit_type" && field.id !== "staff_count") {
+        const val = metadataValues[field.id];
+        if (val === undefined || val === null || val === "" || (typeof val === "string" && !val.trim())) {
+          setActiveTab(1);
+          alert(`⚠️ กรุณากรอกข้อมูล "${field.label}" ในแท็บ 'ข้อมูลการตรวจ'`);
+          scrollToTop();
+          return false;
+        }
+      }
+    }
+
+    // 2️⃣ ตรวจสอบ Tab 2: รายการตรวจทุกหมวดหมู่ (Checklist Questions)
     const missing = checkUnansweredQuestions();
     if (missing.length > 0) {
-      setShowConfirmModal(false);
+      setActiveTab(2);
       const firstMissing = missing[0];
       triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
+      alert(`⚠️ กรุณาตอบคำถามให้ครบทุกข้อ (ยังเหลืออีก ${missing.length} ข้อที่ยังไม่ได้ตอบ ในหมวด: "${firstMissing.sectionTitle}")`);
+      return false;
+    }
+
+    // 3️⃣ ตรวจสอบ Tab 3: การลงชื่อรับทราบผลตรวจ (Signatures)
+    if (!auditeeSignName?.trim()) {
+      setActiveTab(3);
+      alert("⚠️ กรุณาระบุชื่อ-นามสกุลของผู้รับการตรวจ / ผจก.สาขา");
+      return false;
+    }
+
+    if (!auditeeSignature) {
+      setActiveTab(3);
+      alert("⚠️ กรุณาลงลายมือชื่อผู้รับการตรวจ / ผจก.สาขา ให้เรียบร้อย");
+      return false;
+    }
+
+    if (!auditorSignature) {
+      setActiveTab(3);
+      alert("⚠️ กรุณาลงลายมือชื่อผู้ตรวจประเมิน ให้เรียบร้อย");
+      return false;
+    }
+
+    return true;
+  };
+
+  // 🛑 Final Submit Handler
+  const handleFinalSubmit = async () => {
+    if (!validateEntireAuditForm()) {
+      setShowConfirmModal(false);
       return;
     }
 
@@ -1227,14 +1300,8 @@ export default function LiveAuditScreen({
       setActiveTab(2);
     };
 
-    const handleFinalSubmitTab3 = async () => {
-      const missing = checkUnansweredQuestions();
-      if (missing.length > 0) {
-        setActiveTab(2);
-        const firstMissing = missing[0];
-        triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
-        return;
-      }
+    const handleFinalSubmitTab3 = () => {
+      if (!validateEntireAuditForm()) return;
       setShowConfirmModal(true);
     };
 
