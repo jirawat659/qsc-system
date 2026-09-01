@@ -25,12 +25,10 @@ export default function Header({ title, onBack, subtitle, action }) {
         if (setSubHeader) setSubHeader(null);
       };
     }
-  }, [title, subtitle, hasBack]);
+  }, [title, subtitle, hasBack, action, setSubHeader]);
 
   if (!title && !onBack) return null;
 
-  // 🌟 DESKTOP & TABLET HEADER (lg:flex):
-  // Renders a sleek top bar with prominent Back button, Title & Subtitle
   return (
     <div className="hidden lg:flex items-center justify-between gap-3 pb-3 pt-1 animate-in fade-in duration-150">
       <div className="flex items-center gap-3.5 min-w-0">

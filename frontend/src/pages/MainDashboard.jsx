@@ -25,7 +25,7 @@ import api from "../config/api";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import ProfileModal from "../modals/ProfileModal";
 
-// 🌟 Lazy-loaded Screens for Code Splitting & Performance Optimization
+// 🌟 Lazy-loaded Screens
 const DashboardScreen = React.lazy(() => import("../screens/dashboard/DashboardScreen"));
 const ScheduleScreen = React.lazy(() => import("../screens/schedule/ScheduleScreen"));
 const LiveAuditScreen = React.lazy(() => import("../screens/audit/LiveAuditScreen"));
@@ -44,7 +44,6 @@ const ScreenLoader = () => (
 );
 
 export default function MainDashboard({ onLogout }) {
-
   const [locations, setLocations] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [forms, setForms] = useState([]);
@@ -115,13 +114,13 @@ export default function MainDashboard({ onLogout }) {
   const [toastText, setToastText] = useState(null);
   const [subHeader, setSubHeader] = useState(null);
   
-  // 🌟 Dynamic 3-slot navigation configuration per role
   const nav = useMemo(() => {
     const userNavConfig = storedUser?.navConfig || storedUser?.navConfigJson;
     return getRoleNavConfig(role, userNavConfig);
   }, [role, storedUser]);
 
   const [screen, setScreen] = useState(() => nav[0]?.key || "dashboard");
+  const [previousScreen, setPreviousScreen] = useState(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
   const [preselectedPlan, setPreselectedPlan] = useState(null);
@@ -158,17 +157,18 @@ export default function MainDashboard({ onLogout }) {
     };
   }, [storedUser, role]);
 
-  const handleRoleChange = (r) => {
-    setRole(r);
-    authStorage.setRole(r);
-    const newNav = getRoleNavConfig(r, storedUser?.navConfig || storedUser?.navConfigJson);
-    setScreen(newNav[0]?.key || "dashboard");
-  };
+  // 🌟 ฟังก์ชันป้องกัน Re-render Loop
+  const handleActiveStateChange = React.useCallback((isActive) => {
+    setIsLiveAuditActive((prev) => (prev !== isActive ? isActive : prev));
+  }, []);
+
+  const handleSyncStatusChange = React.useCallback((status) => {
+    setAuditSyncStatus((prev) => (prev !== status ? status : prev));
+  }, []);
 
   const [moreResetKey, setMoreResetKey] = useState(0);
   const mainContentRef = useRef(null);
 
-  // 🌟 Native GPU-Accelerated Smooth Scroll (Buttery smooth 120Hz/60Hz without JS-CSS fighting)
   const smoothScrollToTop = () => {
     try {
       window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
@@ -191,10 +191,10 @@ export default function MainDashboard({ onLogout }) {
       setMoreResetKey(prev => prev + 1);
     }
     if (key === "audit") {
-      setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
+      setPreselectedPlan(null);
+      setPreviousScreen(null);
     }
     if (screen === key) {
-      // 🌟 ถ้าอยู่ที่แท็บเดิม เช่น "ระบบ" ให้รีเซ็ตกลับหน้าเมนูหลักของระบบ + เลื่อนขึ้นบนอย่างนุ่มนวล
       if (key === "more") {
         setMoreResetKey(prev => prev + 1);
       }
@@ -205,7 +205,6 @@ export default function MainDashboard({ onLogout }) {
     smoothScrollToTop();
   };
 
-  // Scroll to top automatically whenever screen changes
   useEffect(() => {
     smoothScrollToTop();
   }, [screen]);
@@ -215,11 +214,12 @@ export default function MainDashboard({ onLogout }) {
     setTimeout(() => setToastText(null), 3500);
   };
 
-  const handleStartAuditDirect = (scheduleItem) => {
+  const handleStartAuditDirect = (scheduleItem, sourceScreen = "reports") => {
     if (role !== "AUDITOR" && role !== "ADMIN" && role !== "STANDARD") {
       showToast("บทบาทผู้รับการตรวจไม่สามารถบันทึกผลการตรวจประเมินได้");
       return;
     }
+    setPreviousScreen(sourceScreen|| "reports");
     setPreselectedPlan(scheduleItem);
     setScreen("audit");
   };
@@ -227,7 +227,7 @@ export default function MainDashboard({ onLogout }) {
   useEffect(() => {
     const handleCustomStartAudit = (e) => {
       if (e.detail) {
-        handleStartAuditDirect(e.detail);
+        handleStartAuditDirect(e.detail, "reports");
       }
     };
     window.addEventListener('app:start-audit', handleCustomStartAudit);
@@ -243,14 +243,15 @@ export default function MainDashboard({ onLogout }) {
               onBack={undefined}
               currentAuditorName={null}
               title="รายงานผลการตรวจประเมิน"
-              onStartAudit={(plan) => handleStartAuditDirect(plan)}
+              onStartAudit={(plan) => handleStartAuditDirect(plan, "reports")}
               onResumeDraft={(draft) => {
                 setActiveAuditDraft(draft);
-                handleStartAuditDirect({ ...draft, isResume: true });
+                handleStartAuditDirect({ ...draft, isResume: true }, "reports");
               }}
               onStartNewAudit={() => {
                 setPreselectedPlan(null);
                 setActiveAuditDraft(null);
+                setPreviousScreen("reports");
                 setScreen("audit");
               }}
             />
@@ -258,19 +259,28 @@ export default function MainDashboard({ onLogout }) {
           {screen === "audit" && (
             <LiveAuditScreen
               preselectedPlan={preselectedPlan}
+              fromScreen={previousScreen}
               initialDraft={activeAuditDraft}
               currentUser={currentUser}
-              onClearPlan={() => setPreselectedPlan(null)}
+              onClearPlan={() => {
+                setPreselectedPlan(null);
+                setPreviousScreen(null);
+              }}
               onBack={() => {
-                if (preselectedPlan) {
+                if (previousScreen) {
+                  const dest = previousScreen;
+                  setPreviousScreen(null);
+                  setPreselectedPlan(null);
+                  setScreen(dest);
+                } else if (preselectedPlan) {
                   setPreselectedPlan(null);
                 } else {
                   setScreen("dashboard");
                 }
               }}
               defaultAuditorName={currentUser.name || "-"}
-              onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
-              onSyncStatusChange={(status) => setAuditSyncStatus(status)}
+              onActiveStateChange={handleActiveStateChange}
+              onSyncStatusChange={handleSyncStatusChange}
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 if (!draft) {
@@ -297,6 +307,7 @@ export default function MainDashboard({ onLogout }) {
               onCompleteAudit={() => {
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
+                setPreviousScreen(null);
                 refreshData();
                 setScreen("reports");
               }}
@@ -311,7 +322,7 @@ export default function MainDashboard({ onLogout }) {
               role={role}
               currentUser={currentUser}
               onNavigate={handleNavClick}
-              onStartAuditDirect={handleStartAuditDirect}
+              onStartAuditDirect={(plan) => handleStartAuditDirect(plan, "more")}
             />
           )}
           {screen === "schedule" && (
@@ -319,7 +330,7 @@ export default function MainDashboard({ onLogout }) {
               role={role}
               currentUser={currentUser}
               isDesktop={true}
-              onStartAuditDirect={handleStartAuditDirect}
+              onStartAuditDirect={(plan) => handleStartAuditDirect(plan, "schedule")}
               currentAuditorName={role === "AUDITOR" ? currentUser.name : null}
               onBack={role === "STANDARD" || role === "ADMIN" ? () => setScreen("more") : undefined}
             />
@@ -355,7 +366,6 @@ export default function MainDashboard({ onLogout }) {
     <TopBarContext.Provider value={topBarContextValue}>
     <div className="w-full min-h-screen" style={{ background: "#EBEAE5", fontFamily: sans }}>
       
-      {/* ⚠️ API Fetch Warning Banner */}
       {dataFetchError && (
         <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-rose-900/90 text-white px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2 text-xs font-bold animate-in fade-in slide-in-from-top-2 border border-rose-500/50 backdrop-blur-xs">
           <AlertCircle size={15} className="text-rose-300 shrink-0" />
@@ -363,14 +373,13 @@ export default function MainDashboard({ onLogout }) {
           <button
             type="button"
             onClick={() => setDataFetchError(null)}
-            className="ml-2 text-rose-200 hover:text-white p-0.5"
+            className="ml-2 text-rose-200 hover:text-white p-0.5 cursor-pointer"
           >
             <X size={13} />
           </button>
         </div>
       )}
 
-      {/* Toast Notification Banner (Floating Top Screen Edge Banner via Portal) */}
       {toastText && typeof document !== "undefined" && createPortal(
         <div className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] bg-white/95 text-slate-800 px-4.5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-3 border border-slate-200 ring-1 ring-emerald-500/20 backdrop-blur-md pointer-events-none">
           <CheckCircle2 size={18} className="text-[#0F6659] shrink-0" />
@@ -379,13 +388,11 @@ export default function MainDashboard({ onLogout }) {
         document.body
       )}
 
-      {/* UNIFIED FULLY RESPONSIVE APPLICATION LAYOUT */}
       <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: c.bg }}>
         
-        {/* DESKTOP SIDEBAR (Visible on Desktop lg: >= 1024px, Hidden on Mobile) */}
+        {/* DESKTOP SIDEBAR */}
         <aside className="hidden lg:flex w-64 xl:w-72 shrink-0 bg-white border-r flex-col justify-between shadow-2xs h-screen sticky top-0" style={{ borderColor: c.border }}>
           <div className="p-5 space-y-5">
-            {/* Brand Header */}
             <div className="flex items-center gap-3 pb-1">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white flex items-center justify-center font-black text-lg shadow-md shrink-0">
                 Q
@@ -396,9 +403,6 @@ export default function MainDashboard({ onLogout }) {
               </div>
             </div>
 
-            
-
-            {/* Sidebar Navigation */}
             <nav className="space-y-1.5">
               <div className="text-[11px] font-semibold uppercase tracking-wider px-3.5 mb-2 text-slate-400">เมนูการทำงาน</div>
               {nav.map((item) => {
@@ -423,7 +427,6 @@ export default function MainDashboard({ onLogout }) {
             </nav>
           </div>
 
-          {/* User footer profile */}
           <div className="p-4 border-t bg-slate-50/50" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between gap-2.5">
               <div 
@@ -440,7 +443,6 @@ export default function MainDashboard({ onLogout }) {
                 </div>
               </div>
 
-              {/* 🚪 Logout Button */}
               <button
                 type="button"
                 onClick={() => setShowLogoutConfirmModal(true)}
@@ -453,10 +455,9 @@ export default function MainDashboard({ onLogout }) {
           </div>
         </aside>
 
-        {/* 🌟 MOBILE & DESKTOP INTEGRATED TOP HEADER WITH DYNAMIC SUB-HEADER */}
+        {/* MOBILE TOP BAR */}
         <header className="flex lg:hidden shrink-0 px-3.5 pt-3.5 pb-3 items-center justify-between shadow-xs sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b gap-2.5" style={{ borderColor: c.border }}>
           {subHeader ? (
-            /* 🌟 DRILL-DOWN / LIVE AUDIT SUB-HEADER: Back Button + Title + Subtitle */
             <div className="flex items-center justify-between gap-2 min-w-0 flex-1">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {subHeader.onBack && (
@@ -481,7 +482,6 @@ export default function MainDashboard({ onLogout }) {
                 </div>
               </div>
 
-              {/* 🌟 Top-Right Action (Auto-Sync Badge) */}
               {subHeader.action && (
                 <div className="shrink-0 flex items-center">
                   {subHeader.action}
@@ -489,7 +489,6 @@ export default function MainDashboard({ onLogout }) {
               )}
             </div>
           ) : (
-            /* 🌟 ROOT TAB TOP BAR: Brand Logo + Screen Pill + Live Audit Sync Indicator */
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
                 type="button"
@@ -507,7 +506,6 @@ export default function MainDashboard({ onLogout }) {
                 </div>
               </button>
 
-              {/* 🌟 Live Audit Auto-Sync Status Badge in Global TopBar */}
               {screen === "audit" && isLiveAuditActive && auditSyncStatus && auditSyncStatus !== "idle" && (
                 <div className="flex items-center ml-auto mr-1 animate-in fade-in zoom-in-95">
                   {auditSyncStatus === "saving" ? (
@@ -531,7 +529,6 @@ export default function MainDashboard({ onLogout }) {
             </div>
           )}
 
-          {/* Right Side: Clickable Profile Avatar (Opens Profile Modal) */}
           <button
             type="button"
             onClick={() => setShowProfileModal(true)}
@@ -544,19 +541,17 @@ export default function MainDashboard({ onLogout }) {
           </button>
         </header>
 
-        {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
+        {/* MAIN WORKSPACE */}
         <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto min-h-screen pb-16 lg:pb-8">
           <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col">
             {renderCurrentScreen()}
           </div>
         </main>
 
-        {/* MOBILE BOTTOM NAVIGATION: ซ่อนอัตโนมัติระหว่างที่กำลังทำการตรวจหน้างาน (Live Audit) */}
+        {/* MOBILE BOTTOM NAVIGATION */}
         {!isLiveAuditActive && (
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-3 pb-2 pt-0 pointer-events-none flex justify-center animate-in slide-in-from-bottom-2 duration-200">
           <div className="pointer-events-auto w-full max-w-[420px] sm:max-w-md mx-auto relative h-[60px] flex items-center justify-around px-2">
-            
-            {/* 🌟 1. ELEVATED CONTINUOUS SEAMLESS VECTOR PATH (ยอดโค้งสูงขึ้นและสมูท) */}
             <svg
               className="absolute inset-0 w-full h-[86px] pointer-events-none -top-6.5 drop-shadow-[0_-4px_18px_rgba(0,0,0,0.08)]"
               viewBox="0 0 380 86"
@@ -582,7 +577,6 @@ export default function MainDashboard({ onLogout }) {
               />
             </svg>
 
-            {/* 🌟 2. NAVIGATION BUTTONS (3 SLOTS) */}
             {nav.map((item, index) => {
               const Icon = item.icon;
               const active = screen === item.key;
@@ -627,7 +621,6 @@ export default function MainDashboard({ onLogout }) {
         )}
       </div>
 
-      {/* 👤 User Profile Modal */}
       {showProfileModal && (
         <ProfileModal
           user={currentUser}
@@ -636,7 +629,6 @@ export default function MainDashboard({ onLogout }) {
         />
       )}
 
-      {/* 🚪 Custom In-App Logout Confirmation Modal (Desktop & Quick Trigger) */}
       {showLogoutConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 text-center animate-in zoom-in-95 duration-200">
