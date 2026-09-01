@@ -557,9 +557,6 @@ export default function LiveAuditScreen({
 
   // ⚡ Instant Event-driven Auto-Sync to Backend & LocalStorage
   const autoSaveTimerRef = useRef(null);
-  const hasUserAnswers = useMemo(() => {
-    return Object.keys(answers).length > 0 || Object.keys(photos).length > 0 || Object.keys(comments).length > 0;
-  }, [answers, photos, comments]);
 
   const performSaveDraft = async (overrideData = {}) => {
     try {
@@ -570,12 +567,13 @@ export default function LiveAuditScreen({
       const currentSectionIdx = overrideData.sectionIdx !== undefined ? overrideData.sectionIdx : sectionIdx;
       const currentUnit = overrideData.unit || unit;
       const currentForm = overrideData.selectedForm || selectedForm;
-      const currentStaffCount = overrideData.staffCount || staffCount;
-      const currentAuditorName = overrideData.auditorName || auditorName;
-      const currentAuditType = overrideData.auditType || auditType;
-      const currentExtraNote = overrideData.extraNote || extraNote;
+      const currentStaffCount = overrideData.staffCount !== undefined ? overrideData.staffCount : staffCount;
+      const currentAuditorName = overrideData.auditorName !== undefined ? overrideData.auditorName : auditorName;
+      const currentAuditType = overrideData.auditType !== undefined ? overrideData.auditType : auditType;
+      const currentExtraNote = overrideData.extraNote !== undefined ? overrideData.extraNote : extraNote;
+      const currentMetadataValues = overrideData.metadataValues !== undefined ? overrideData.metadataValues : metadataValues;
 
-      if (!currentUnit?.id || !currentForm?.id) {
+      if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
         return;
       }
@@ -591,7 +589,7 @@ export default function LiveAuditScreen({
         auditorName: currentAuditorName,
         auditType: currentAuditType,
         extraNote: currentExtraNote,
-        metadataValues: metadataValues,
+        metadataValues: currentMetadataValues,
         startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
       };
 
@@ -634,7 +632,7 @@ export default function LiveAuditScreen({
         auditorName: currentAuditorName,
         auditType: currentAuditType,
         extraNote: currentExtraNote,
-        metadataValues: metadataValues,
+        metadataValues: currentMetadataValues,
         locationId: currentUnit.id,
         locationName: currentUnit.name,
         locationFullName: currentUnit.fullName,
@@ -652,11 +650,9 @@ export default function LiveAuditScreen({
     }
   };
 
+  // 🔄 Auto-Sync whenever any details, answers, or metadata change
   useEffect(() => {
-    if (!unit || step === "select-unit") return;
-
-    // 🛑 หากยังไม่มีการตอบคำถามข้อใดเลย ให้ซ่อนสถานะและไม่ต้อง Auto-sync
-    if (!hasUserAnswers) {
+    if (!unit?.id || !selectedForm?.id || step !== "audit") {
       setSyncStatus("idle");
       return;
     }
@@ -666,12 +662,26 @@ export default function LiveAuditScreen({
 
     autoSaveTimerRef.current = setTimeout(() => {
       performSaveDraft();
-    }, 600);
+    }, 400);
 
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     };
-  }, [unit, selectedForm, sectionIdx, answers, photos, comments, staffCount, auditorName, auditType, extraNote, metadataValues, step, hasUserAnswers, currentUser]);
+  }, [
+    unit,
+    selectedForm,
+    sectionIdx,
+    answers,
+    photos,
+    comments,
+    staffCount,
+    auditorName,
+    auditType,
+    extraNote,
+    metadataValues,
+    step,
+    currentUser
+  ]);
 
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
@@ -1010,17 +1020,18 @@ export default function LiveAuditScreen({
     } catch (e) {
       console.warn("Discard draft warning:", e);
     }
+
+    // เคลียร์ State ฟอร์ม
     setAnswers({});
     setPhotos({});
     setComments({});
     setSectionIdx(0);
     setSyncStatus("idle");
     setShowDiscardConfirmModal(false);
-    if (onClearPlan) {
-      onClearPlan();
-    } else {
-      setStep("select-unit");
-    }
+
+    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขา (select-unit)
+    if (setUnit) setUnit(null);
+    setStep("select-unit");
   };
 
   const handleDiscardDraft = () => {
@@ -1304,17 +1315,20 @@ export default function LiveAuditScreen({
                       <div className="relative">
                         <select
                           value={auditorName}
-                          onChange={(e) => setAuditorName(e.target.value)}
-                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold text-slate-800 bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
-                          style={{ transform: "scale(0.9)", transformOrigin: "left center", width: "110%" }}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setAuditorName(val);
+                            performSaveDraft({ auditorName: val });
+                          }}
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 rounded-xl border border-slate-200 outline-none font-bold text-slate-800 bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10 cursor-pointer"
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
                             <option key={u.id || u.fullName} value={u.fullName || u.name}>{u.fullName || u.name}</option>
                           ))}
                         </select>
-                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                          <ChevronDown size={18} />
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <ChevronDown size={16} />
                         </div>
                       </div>
                     </div>
@@ -1339,8 +1353,11 @@ export default function LiveAuditScreen({
                             <button
                               key={opt}
                               type="button"
-                              onClick={() => setAuditType(key)}
-                              className={`py-2.5 px-1 rounded-xl text-[12px] sm:text-[12px] font-bold border transition-all cursor-pointer ${isSelected
+                              onClick={() => {
+                                setAuditType(key);
+                                performSaveDraft({ auditType: key });
+                              }}
+                              className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isSelected
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
@@ -1361,22 +1378,19 @@ export default function LiveAuditScreen({
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
                         {field.label} {field.required && <span className="text-rose-500">*</span>}
                       </label>
-
-                      {/* Wrapper คุมความสูงและตำแหน่ง */}
-                      <div className="relative flex items-center w-full h-11 overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-[#0F6659]">
-                        {/* กล่องขยายขนาดแล้ว Scale กลับ */}
-                        <div className="w-[115%] origin-top-left scale-[0.87] h-full flex items-center">
-                          <input
-                            type="number"
-                            min="0"
-                            value={staffCount}
-                            onChange={(e) => setStaffCount(e.target.value)}
-                            className="w-full text-sm p-3 pr-16 outline-none font-bold bg-transparent border-none"
-                            placeholder={field.placeholder || "ระบุจำนวน (คน)"}
-                          />
-                        </div>
-
-                        {/* Badge ด้านขวา */}
+                      <div className="relative flex items-center w-full">
+                        <input
+                          type="number"
+                          min="0"
+                          value={staffCount}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setStaffCount(val);
+                            performSaveDraft({ staffCount: val });
+                          }}
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
+                          placeholder={field.placeholder || "ระบุจำนวน (คน)"}
+                        />
                         <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
                           {field.unit || "คน"}
                         </div>
@@ -1400,12 +1414,16 @@ export default function LiveAuditScreen({
                           min={field.min !== undefined ? field.min : 0}
                           max={field.max !== undefined ? field.max : 999999}
                           value={currentVal ?? ""}
-                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          onChange={(e) => {
+                            const next = { ...metadataValues, [field.id]: e.target.value };
+                            setMetadataValues(next);
+                            performSaveDraft({ metadataValues: next });
+                          }}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
-                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         />
                         {field.unit && (
-                          <div className="absolute right-3 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 select-none">
+                          <div className="absolute right-2.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 select-none">
                             {field.unit}
                           </div>
                         )}
