@@ -1522,6 +1522,18 @@ export default function LiveAuditScreen({
               >
                 ไปที่รายการตรวจทั้งหมด <ChevronRight size={16} />
               </button>
+              {hasUserAnswers && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardDraft}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    ยกเลิกและลบแบบร่างทั้งหมด
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1573,7 +1585,7 @@ export default function LiveAuditScreen({
                               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                                 <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
                                 {q.isCritical && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">🚨 จุดวิกฤต (Critical)</span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
                                 )}
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
                                   คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
@@ -1708,6 +1720,18 @@ export default function LiveAuditScreen({
                   ไปที่การลงชื่อและส่งผล <ChevronRight size={16} />
                 </button>
               </div>
+              {hasUserAnswers && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardDraft}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    ยกเลิกและลบแบบร่างทั้งหมด
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1771,7 +1795,7 @@ export default function LiveAuditScreen({
                     className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
                   >
                     <Trash2 size={14} />
-                    ยกเลิกและล้างแบบร่างทั้งหมด
+                    ยกเลิกและลบแบบร่างทั้งหมด
                   </button>
                 </div>
               )}

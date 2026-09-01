@@ -141,20 +141,50 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       });
     }
 
-    // 2. Drafts
+    // 2. Drafts (ฉบับร่างค้างตรวจ)
     if (activeDrafts && activeDrafts.length > 0) {
       activeDrafts.forEach((d) => {
         const branchName = d.locationName || d.location?.name || "-";
-        const branchFullName = d.locationName || d.location?.fullName || d.location?.name || "-";
-        const rawDate = d.updatedAt || d.createdAt || null;
+        const branchFullName = d.locationFullName || d.locationName || d.location?.fullName || d.location?.name || "-";
+        const rawDate = d.updatedAt || d.createdAt || d.startedAt || null;
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
-        const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher or just normal timestamp
-        const auditorVal = d.auditorName || d.primaryAuditor?.fullName || "-";
+        const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher
+        
         const formId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id;
         const directForm = d.surveyFormTitle || d.formTitle || d.surveyForm?.title || d.formName || d.form?.title || d.form?.name;
         const formVal = resolveFormTitle(formId, directForm);
-        const answeredCount = d.answers ? Object.keys(d.answers).length : 0;
-        const totalCount = d.totalQuestions || 0;
+        
+        let parsedPayload = null;
+        if (d.draftPayloadJson) {
+          try {
+            parsedPayload = typeof d.draftPayloadJson === 'string' ? JSON.parse(d.draftPayloadJson) : d.draftPayloadJson;
+          } catch (e) {}
+        }
+
+        const auditorVal = parsedPayload?.auditorName || d.auditorName || d.primaryAuditor?.fullName || d.auditor?.fullName || "-";
+
+        // Calculate answeredCount accurately
+        let answeredCount = 0;
+        if (parsedPayload?.answers && typeof parsedPayload.answers === 'object') {
+          answeredCount = Object.keys(parsedPayload.answers).length;
+        } else if (d.answers && typeof d.answers === 'object') {
+          answeredCount = Object.keys(d.answers).length;
+        } else if (d.totalAnswered !== undefined && d.totalAnswered !== null) {
+          answeredCount = Number(d.totalAnswered) || 0;
+        } else if (d.TotalAnswered !== undefined && d.TotalAnswered !== null) {
+          answeredCount = Number(d.TotalAnswered) || 0;
+        }
+
+        // Calculate totalCount accurately
+        let totalCount = 0;
+        const matchedForm = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
+        if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+          totalCount = matchedForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
+        } else if (d.surveyForm?.sections && Array.isArray(d.surveyForm.sections) && d.surveyForm.sections.length > 0) {
+          totalCount = d.surveyForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
+        } else if (d.totalQuestions || d.TotalQuestions) {
+          totalCount = Number(d.totalQuestions || d.TotalQuestions) || 0;
+        }
         
         logs.push({
           id: `draft-${d.id}`,
@@ -163,7 +193,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           unitName: branchName,
           unitFullName: branchFullName,
           region: d.locationRegion || d.location?.region || "-",
-          date: "-",
+          date: dateFormatted,
           rawDate: rawDate,
           timestamp: timestamp,
           score: null, // '-'
@@ -172,7 +202,21 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           auditType: (d.auditType === 'unannounced' || d.auditType === 'spot') ? "นอกกำหนดการ" : (d.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
           status: "draft",
           progressText: `ตอบแล้ว ${answeredCount}${totalCount ? `/${totalCount}` : ''} ข้อ`,
-          record: d
+          record: {
+            ...d,
+            id: d.id,
+            locationId: d.locationId,
+            surveyFormId: formId,
+            unit: d.location || { id: d.locationId, name: branchName, fullName: branchFullName },
+            answers: parsedPayload?.answers || d.answers || {},
+            photos: parsedPayload?.photos || d.photos || {},
+            comments: parsedPayload?.comments || d.comments || {},
+            metadataValues: parsedPayload?.metadataValues || d.metadataValues || {},
+            staffCount: parsedPayload?.staffCount || d.staffCount || "",
+            auditorName: auditorVal,
+            auditType: parsedPayload?.auditType || d.auditType || "announced",
+            draftPayloadJson: d.draftPayloadJson
+          }
         });
       });
     }

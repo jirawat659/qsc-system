@@ -271,10 +271,24 @@ export default function MainDashboard({ onLogout }) {
               onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
+                setActiveDrafts(prev => {
+                  const list = prev || [];
+                  const existingIdx = list.findIndex(d => 
+                    (d.id && draft.id && d.id === draft.id) || 
+                    (d.locationId === draft.locationId && (d.surveyFormId === draft.formId || d.formId === draft.formId))
+                  );
+                  if (existingIdx >= 0) {
+                    const next = [...list];
+                    next[existingIdx] = { ...next[existingIdx], ...draft };
+                    return next;
+                  }
+                  return [draft, ...list];
+                });
               }}
               onCompleteAudit={() => {
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
+                refreshData();
                 setScreen("reports");
               }}
             />
