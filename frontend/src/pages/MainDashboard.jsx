@@ -11,7 +11,7 @@ import {
   Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
   Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
   BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, LogOut, History, Shield, Info, HelpCircle, AlertCircle
+  Wrench, Square, Minus, Building2, ArrowUpDown, LogOut, History, Shield, Info, HelpCircle, AlertCircle, Loader2
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../config/theme";

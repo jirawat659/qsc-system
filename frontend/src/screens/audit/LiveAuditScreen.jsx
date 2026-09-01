@@ -231,8 +231,8 @@ export default function LiveAuditScreen({
       const dLocId = d.locationId || d.location?.id || d.unit?.id;
       const dLocName = d.locationName || d.locationFullName || d.unit?.name || d.unit?.fullName;
       const matchLoc = (targetLocationId && dLocId === targetLocationId) ||
-                       (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === preselectedPlan.unit)) ||
-                       (preselectedPlan?.unit && (dLocName === preselectedPlan.unit || (d.locationFullName && d.locationFullName.includes(preselectedPlan.unit))));
+        (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === preselectedPlan.unit)) ||
+        (preselectedPlan?.unit && (dLocName === preselectedPlan.unit || (d.locationFullName && d.locationFullName.includes(preselectedPlan.unit))));
       const matchForm = !targetFormId || d.surveyFormId === targetFormId || d.formId === targetFormId;
       return matchLoc && matchForm;
     });
@@ -249,7 +249,7 @@ export default function LiveAuditScreen({
         return typeof matchedDraftRecord.draftPayloadJson === 'string'
           ? JSON.parse(matchedDraftRecord.draftPayloadJson)
           : matchedDraftRecord.draftPayloadJson;
-      } catch (e) {}
+      } catch (e) { }
     }
     if (matchedDraftRecord.answers && typeof matchedDraftRecord.answers === 'object') {
       return matchedDraftRecord;
@@ -261,7 +261,7 @@ export default function LiveAuditScreen({
         const localKey = `qsc_draft_${targetLocationId}_${targetFormId || 1}`;
         const localStr = localStorage.getItem(localKey);
         if (localStr) return JSON.parse(localStr);
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return null;
@@ -296,8 +296,8 @@ export default function LiveAuditScreen({
     if (isFromAssignedPlan || isResumeDraft) {
       const locId = preselectedPlan?.locationId || targetLocationId;
       const locName = preselectedPlan?.locationName || preselectedPlan?.unit;
-      return locations.find(u => 
-        (locId && u.id === locId) || 
+      return locations.find(u =>
+        (locId && u.id === locId) ||
         (locName && (u.name === locName || u.fullName === locName || (u.fullName && u.fullName.includes(locName))))
       ) || locations[0];
     }
@@ -335,13 +335,13 @@ export default function LiveAuditScreen({
       try {
         const parsed = JSON.parse(selectedForm.metadataConfigJson);
         if (Array.isArray(parsed) && parsed.length > 0) fields = parsed;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (!fields || fields.length === 0) {
       fields = [
         { id: "auditor", label: "ผู้ตรวจประเมิน (Auditor)", type: "auditor", required: true, enabled: true, isSystem: true },
-        { id: "audit_type", label: "ประเภทการตรวจ (Audit Type)", type: "select", options: ["ตามกำหนดการ", "นอกกำหนดการ (Spot)", "ปลอมตัว"], required: true, enabled: true, isSystem: true },
+        { id: "audit_type", label: "ประเภทการตรวจ (Audit Type)", type: "select", options: ["ตามกำหนดการ", "นอกกำหนดการ", "ปลอมตัว"], required: true, enabled: true, isSystem: true },
         { id: "staff_count", label: "จำนวนพนักงานขณะตรวจ", type: "number", unit: "คน", min: 0, required: true, enabled: true, isSystem: true }
       ];
     }
@@ -542,7 +542,7 @@ export default function LiveAuditScreen({
       document.querySelector('main')?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       document.documentElement.scrollTo({ top: 0, left: 0, behavior: 'instant' });
       document.body.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-    } catch (e) {}
+    } catch (e) { }
   };
 
   useEffect(() => {
@@ -605,7 +605,7 @@ export default function LiveAuditScreen({
       // 1. Instant localStorage cache specifically scoped to THIS location & form
       try {
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
-      } catch (e) {}
+      } catch (e) { }
 
       // 2. Persist to SQLite Backend
       await api.put('/audit/draft', {
@@ -954,7 +954,7 @@ export default function LiveAuditScreen({
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (unit?.id) localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
-      } catch (e) {}
+      } catch (e) { }
       if (refreshData) await refreshData();
 
       setShowConfirmModal(false);
@@ -1004,7 +1004,7 @@ export default function LiveAuditScreen({
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (targetLocId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
-      } catch (e) {}
+      } catch (e) { }
       if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
     } catch (e) {
@@ -1092,7 +1092,7 @@ export default function LiveAuditScreen({
 
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
+                      <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
                         {u.fullName || u.name}
                       </h3>
                     </div>
@@ -1140,9 +1140,8 @@ export default function LiveAuditScreen({
               key={f.id || f.title}
               type="button"
               onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
-              className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${
-                selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
-              }`}
+              className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
+                }`}
             >
               <div>
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -1153,7 +1152,7 @@ export default function LiveAuditScreen({
                     {(f.sections || []).length} หมวดการตรวจ
                   </span>
                 </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
+                <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
                   {f.title}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
@@ -1162,7 +1161,7 @@ export default function LiveAuditScreen({
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="text-xs font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
+                <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
                 <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
               </div>
             </button>
@@ -1224,9 +1223,9 @@ export default function LiveAuditScreen({
         <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2.5 pb-2 px-3 sm:px-4 shadow-2xs border-b border-slate-200">
           <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
-              <button 
-                type="button" 
-                onClick={() => setStep("select-form")} 
+              <button
+                type="button"
+                onClick={() => setStep("select-form")}
                 className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs border border-slate-200/80 flex items-center justify-center"
                 title="เปลี่ยนแบบฟอร์ม / ย้อนกลับ"
               >
@@ -1245,7 +1244,7 @@ export default function LiveAuditScreen({
                 </div>
               </div>
             </div>
-            
+
             <div className="shrink-0 flex flex-col items-center justify-center">
               <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
@@ -1276,11 +1275,10 @@ export default function LiveAuditScreen({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-2 text-[11px] sm:text-xs font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition-all ${
-                  activeTab === tab.id
+                className={`flex-1 py-2 text-[11px] sm:text-xs font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition-all ${activeTab === tab.id
                     ? "bg-[#0F6659] text-white shadow-md"
                     : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
-                }`}
+                  }`}
               >
                 {tab.icon}
                 <span className="truncate">{tab.label}</span>
@@ -1294,7 +1292,7 @@ export default function LiveAuditScreen({
           {activeTab === 1 && (
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4 animate-in fade-in duration-200">
               <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>
-              
+
               {activeMetadataFields.map((field) => {
                 // System field: Auditor
                 if (field.id === "auditor" || field.type === "auditor") {
@@ -1307,7 +1305,8 @@ export default function LiveAuditScreen({
                         <select
                           value={auditorName}
                           onChange={(e) => setAuditorName(e.target.value)}
-                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
+                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold text-slate-800 bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
+                          style={{ transform: "scale(0.9)", transformOrigin: "left center", width: "110%" }}
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
@@ -1326,7 +1325,7 @@ export default function LiveAuditScreen({
                 if (field.id === "audit_type") {
                   const opts = Array.isArray(field.options) && field.options.length > 0
                     ? field.options
-                    : ["ตามกำหนดการ", "นอกกำหนดการ (Spot)", "ปลอมตัว"];
+                    : ["ตามกำหนดการ", "นอกกำหนดการ", "ปลอมตัว"];
                   return (
                     <div key={field.id}>
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -1341,11 +1340,10 @@ export default function LiveAuditScreen({
                               key={opt}
                               type="button"
                               onClick={() => setAuditType(key)}
-                              className={`py-2.5 px-1 rounded-xl text-[10px] sm:text-xs font-bold border transition-all cursor-pointer ${
-                                isSelected
+                              className={`py-2.5 px-1 rounded-xl text-[12px] sm:text-[12px] font-bold border transition-all cursor-pointer ${isSelected
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                              }`}
+                                }`}
                             >
                               {opt}
                             </button>
@@ -1359,20 +1357,27 @@ export default function LiveAuditScreen({
                 // System field: Staff Count
                 if (field.id === "staff_count") {
                   return (
-                    <div key={field.id}>
+                    <div key={field.id} className="w-full">
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
                         {field.label} {field.required && <span className="text-rose-500">*</span>}
                       </label>
-                      <div className="relative flex items-center">
-                        <input
-                          type="number"
-                          min="0"
-                          value={staffCount}
-                          onChange={(e) => setStaffCount(e.target.value)}
-                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
-                          placeholder={field.placeholder || "ระบุจำนวน (คน)"}
-                        />
-                        <div className="absolute right-3 px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none">
+
+                      {/* Wrapper คุมความสูงและตำแหน่ง */}
+                      <div className="relative flex items-center w-full h-11 overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-[#0F6659]">
+                        {/* กล่องขยายขนาดแล้ว Scale กลับ */}
+                        <div className="w-[115%] origin-top-left scale-[0.87] h-full flex items-center">
+                          <input
+                            type="number"
+                            min="0"
+                            value={staffCount}
+                            onChange={(e) => setStaffCount(e.target.value)}
+                            className="w-full text-sm p-3 pr-16 outline-none font-bold bg-transparent border-none"
+                            placeholder={field.placeholder || "ระบุจำนวน (คน)"}
+                          />
+                        </div>
+
+                        {/* Badge ด้านขวา */}
+                        <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
                           {field.unit || "คน"}
                         </div>
                       </div>
@@ -1459,11 +1464,10 @@ export default function LiveAuditScreen({
                               key={opt}
                               type="button"
                               onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: opt }))}
-                              className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-                                currentVal === opt
+                              className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${currentVal === opt
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                              }`}
+                                }`}
                             >
                               {opt}
                             </button>
@@ -1499,11 +1503,10 @@ export default function LiveAuditScreen({
                       <button
                         type="button"
                         onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: !isTrue }))}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                          isTrue
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${isTrue
                             ? 'bg-[#0F6659] text-white shadow-2xs'
                             : 'bg-slate-200 text-slate-600'
-                        }`}
+                          }`}
                       >
                         {isTrue ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)"}
                       </button>
@@ -1583,15 +1586,14 @@ export default function LiveAuditScreen({
                         <div
                           key={q.id || idx}
                           id={`question-card-${q.id}`}
-                          className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${
-                            isHighlighted
+                          className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${isHighlighted
                               ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
                               : isNa
-                              ? "bg-slate-50/90 border-slate-300"
-                              : isFailed
-                              ? "bg-red-50/50 border-red-300"
-                              : "bg-white border-slate-200 shadow-2xs"
-                          }`}
+                                ? "bg-slate-50/90 border-slate-300"
+                                : isFailed
+                                  ? "bg-red-50/50 border-red-300"
+                                  : "bg-white border-slate-200 shadow-2xs"
+                            }`}
                         >
                           <div className="flex items-start justify-between gap-3 mb-3">
                             <div className="flex-1">
@@ -1616,20 +1618,18 @@ export default function LiveAuditScreen({
                               <button
                                 type="button"
                                 onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
-                                className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${
-                                  (comments[q.id] && comments[q.id].trim().length > 0)
+                                className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(comments[q.id] && comments[q.id].trim().length > 0)
                                     ? 'bg-amber-50 text-amber-700 border-amber-300'
                                     : isCommentOpen
-                                    ? 'bg-slate-200 text-slate-800 border-slate-300'
-                                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                }`}
+                                      ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                  }`}
                               >
                                 <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
                               </button>
                               <label
-                                className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${
-                                  hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                }`}
+                                className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                                  }`}
                                 title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
                               >
                                 <input
@@ -1753,7 +1753,7 @@ export default function LiveAuditScreen({
             <div className="space-y-4 animate-in fade-in duration-200">
               <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-5">
                 <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2">การลงชื่อรับทราบผลตรวจ (Signatures)</h3>
-                
+
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
