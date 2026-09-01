@@ -274,7 +274,6 @@ export default function MainDashboard({ onLogout }) {
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 if (!draft) {
-                  // Draft was discarded/cleared
                   refreshData();
                   return;
                 }
