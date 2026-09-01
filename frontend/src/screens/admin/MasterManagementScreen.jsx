@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Users, Store, Building2, ShieldCheck, Plus, Search, Edit3, Trash2,
   Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw,
@@ -770,14 +771,15 @@ export default function MasterManagementScreen({ onBack }) {
   return (
     <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
       
-      {/* Toast alert */}
-      {toast && (
-        <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[10000] px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2.5 text-sm font-bold border animate-in fade-in slide-in-from-top-2 ${
-          toast.isError ? 'bg-rose-900 text-white border-rose-500' : 'bg-[#1C2129] text-white border-emerald-500'
+      {/* Toast alert (Floating Top Screen Edge Banner via Portal) */}
+      {toast && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] px-4.5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-bold border animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md pointer-events-none ${
+          toast.isError ? 'bg-rose-900/95 text-white border-rose-500' : 'bg-[#1C2129]/95 text-white border-emerald-500'
         }`}>
-          {toast.isError ? <AlertCircle size={18} className="text-rose-400 shrink-0" /> : <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />}
+          {toast.isError ? <AlertCircle size={16} className="text-rose-400 shrink-0" /> : <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />}
           <span>{toast.msg}</span>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Header */}

@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
   Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
@@ -346,12 +347,13 @@ export default function MainDashboard({ onLogout }) {
         </div>
       )}
 
-      {/* Toast Notification Banner */}
-      {toastText && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1C2129] text-white px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold animate-in fade-in slide-in-from-top-2 border border-emerald-500">
+      {/* Toast Notification Banner (Floating Top Screen Edge Banner via Portal) */}
+      {toastText && typeof document !== "undefined" && createPortal(
+        <div className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] bg-[#1C2129]/95 text-white px-4.5 py-2.5 rounded-2xl shadow-2xl flex items-center gap-2.5 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-3 border border-emerald-500/80 backdrop-blur-md pointer-events-none">
           <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
           <span>{toastText}</span>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* UNIFIED FULLY RESPONSIVE APPLICATION LAYOUT */}

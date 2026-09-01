@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   FileText, Plus, Trash2, Edit3, GripVertical, Check, X,
   AlertTriangle, ShieldAlert, Sparkles, ChevronDown, ChevronUp,
@@ -1452,12 +1453,13 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         </div>
       )}
 
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-[#1C2129] text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-2.5 animate-in slide-in-from-bottom-3 duration-200 border border-slate-700">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+      {/* Toast Notification (Floating Top Screen Edge Banner via Portal) */}
+      {toastMessage && typeof document !== "undefined" && createPortal(
+        <div className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] bg-[#1C2129]/95 text-white text-xs sm:text-sm font-bold px-4.5 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-2.5 animate-in fade-in slide-in-from-top-3 duration-200 border border-emerald-500/80 pointer-events-none">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0"></span>
           <span className="text-emerald-300">{toastMessage}</span>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 🌟 4. BOTTOM ACTION BUTTONS */}
