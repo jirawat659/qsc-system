@@ -60,16 +60,19 @@
   }
 }
 
-/* 📱 ป้องกัน iOS Safari และ Mobile Browser ไม่ให้ Auto-Zoom ขณะแตะพิมพ์ (Focus) ใน Input / Select / Textarea */
+/* 📱 ป้องกัน iOS Safari และ Mobile Browser ไม่ให้ Auto-Zoom ขณะแตะพิมพ์ (Focus) ใน Input / Select / Textarea
+   หมายเหตุ: 16px คือขนาดต่ำสุดที่ iOS บังคับ ลดกว่านี้ไม่ได้ไม่งั้นจะกลับไปซูมเหมือนเดิม
+   จึงใช้ line-height ที่กระชับขึ้นแทน เพื่อให้กล่อง input ดูไม่ใหญ่เทอะทะเกินไป */
 @media screen and (max-width: 768px) {
   input, select, textarea {
     font-size: 16px !important;
+    line-height: 1.35 !important;
   }
 }
 
 /* 🎯 ควบคุมมาตรฐานขนาดตัวหนังสือ (Unified Font Size Scale - ไม่ให้เล็กหรือใหญ่เกินมาตรฐาน) */
-.text-2xs, .text-\[10px\] {
-  font-size: 0.667rem !important; /* ~10px */
+.text-2xs, .text-\[10px\], .text-\[9px\] {
+  font-size: 0.667rem !important; /* ~10px (ขนาดต่ำสุดของระบบ) */
   line-height: 0.95rem;
 }
 

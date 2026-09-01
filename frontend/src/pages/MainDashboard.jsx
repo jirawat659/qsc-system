@@ -164,6 +164,20 @@ export default function MainDashboard({ onLogout }) {
   };
 
   const [navResetKey, setNavResetKey] = useState(0);
+  const mainContentRef = useRef(null);
+
+  const scrollToTop = () => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      document.documentElement.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      document.body.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      if (mainContentRef.current) {
+        mainContentRef.current.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      }
+    } catch (e) {
+      window.scrollTo(0, 0);
+    }
+  };
 
   const handleNavClick = (key) => {
     if (key === "audit") {
@@ -171,7 +185,17 @@ export default function MainDashboard({ onLogout }) {
     }
     setNavResetKey(prev => prev + 1);
     setScreen(key);
+    scrollToTop();
   };
+
+  // Scroll to top automatically whenever screen changes or same nav tab is clicked
+  useEffect(() => {
+    scrollToTop();
+    const timer = requestAnimationFrame(() => {
+      scrollToTop();
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [screen, navResetKey]);
 
   const showToast = (msg) => {
     setToastText(msg);
@@ -454,7 +478,7 @@ export default function MainDashboard({ onLogout }) {
         </header>
 
         {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
-        <main className="flex-1 flex flex-col overflow-y-auto min-h-screen pb-16 lg:pb-8">
+        <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto min-h-screen pb-16 lg:pb-8">
           <div key={`${role}_${screen}_${navResetKey}`} className="page-transition flex-1 flex flex-col">
             {renderCurrentScreen()}
           </div>
