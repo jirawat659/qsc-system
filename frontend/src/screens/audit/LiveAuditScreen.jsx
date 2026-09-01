@@ -1498,36 +1498,18 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // Textarea field
-                if (field.type === "textarea") {
-                  return (
-                    <div key={field.id}>
-                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
-                        {field.label} {field.required && <span className="text-rose-500">*</span>}
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={currentVal || ""}
-                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                        placeholder={field.placeholder || "กรอกรายละเอียด..."}
-                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-none ios-zoom-fix-sm"
-                      />
-                    </div>
-                  );
-                }
-
-                // Text field (default)
+                // Text / Note field (Unified text & multi-line note)
                 return (
                   <div key={field.id}>
                     <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
                       {field.label} {field.required && <span className="text-rose-500">*</span>}
                     </label>
-                    <input
-                      type="text"
+                    <textarea
+                      rows={2}
                       value={currentVal || ""}
                       onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                      placeholder={field.placeholder || "กรอกข้อมูล..."}
-                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs ios-zoom-fix-sm"
+                      placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
+                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px] ios-zoom-fix-sm"
                     />
                   </div>
                 );

@@ -565,8 +565,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       case "date": return "ปฏิทิน (วันที่)";
       case "time": return "เวลา (ชั่วโมง:นาที)";
       case "select": return "ตัวเลือก (Dropdown/Badges)";
-      case "text": return "ข้อความสั้น";
-      case "textarea": return "ข้อความยาว";
+      case "text":
+      case "textarea": return "ข้อความ / หมายเหตุ";
       case "toggle": return "สวิตช์ ใช่/ไม่ใช่";
       case "auditor": return "ผู้ตรวจประเมิน";
       default: return type || "ทั่วไป";
@@ -1499,7 +1499,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   ประเภทข้อมูล (Input Type) <span className="text-rose-500">*</span>
                 </label>
                 <select
-                  value={metaFieldForm.type}
+                  value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
                   disabled={metaFieldForm.isSystem}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
                   className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs ios-zoom-fix-sm"
@@ -1508,8 +1508,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   <option value="date">ปฏิทิน (วันที่ วัน/เดือน/ปี)</option>
                   <option value="time">เวลา (ชั่วโมง:นาที)</option>
                   <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
-                  <option value="text">ข้อความสั้น (Text)</option>
-                  <option value="textarea">ข้อความยาว / หมายเหตุ (Textarea)</option>
+                  <option value="text">ข้อความ / หมายเหตุ (Text)</option>
                   <option value="toggle">สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
                 </select>
               </div>
