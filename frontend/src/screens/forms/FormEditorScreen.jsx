@@ -971,15 +971,12 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold text-sm shrink-0">
-                  🏷️
-                </div>
                 <div>
                   <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
                     ประเภทหมวดคะแนนในแบบฟอร์มนี้ (Scoring Categories)
                   </h3>
                   <p className="text-xs text-slate-500">
-                    กำหนดหมวดคะแนนที่จะให้แต่ละข้อคำถามนำไปใช้คำนวณสถิติและ Dashboard แยกตามหมวด
+                    กำหนดหมวดคะแนน นำไปใช้คำนวณสถิติแยกตามหมวด
                   </p>
                 </div>
               </div>
@@ -1487,11 +1484,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
       {/* ⚙️ POPUP MODAL: ADD / EDIT METADATA FIELD */}
       {metaFieldModal && (
-        <ModalWrapper onClose={() => setMetaFieldModal(false)} maxWidth="max-w-lg">
-          <div className="p-5 sm:p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                <SlidersHorizontal size={18} className="text-[#0F6659]" />
+        <ModalWrapper onClose={() => setMetaFieldModal(false)} maxWidth="max-w-md">
+          <div className="p-4 sm:p-6 space-y-3.5 sm:space-y-4 max-h-[82dvh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
+                <SlidersHorizontal size={17} className="text-[#0F6659]" />
                 <span>{editingMetaIndex !== null ? "แก้ไขฟิลด์ข้อมูลการตรวจ" : "เพิ่มฟิลด์ข้อมูลการตรวจใหม่"}</span>
               </h3>
               <button onClick={() => setMetaFieldModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
@@ -1499,7 +1496,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-3.5">
               {/* Field Label */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
@@ -1517,8 +1514,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     setMetaFieldForm({ ...metaFieldForm, label: e.target.value });
                     if (metaFieldErrors.label) setMetaFieldErrors(prev => ({ ...prev, label: false }));
                   }}
-                  placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน, หมายเหตุเปิดสาขา..."
-                  className={`w-full text-xs sm:text-sm font-medium py-2.5 px-3.5 rounded-xl border outline-none shadow-2xs transition-all ${
+                  placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน..."
+                  className={`w-full text-xs sm:text-sm font-medium py-2 sm:py-2.5 px-3 sm:px-3.5 rounded-xl border outline-none shadow-2xs transition-all ${
                     metaFieldErrors.label
                       ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 animate-shake text-slate-900"
                       : "border-slate-200 focus:border-[#0F6659] bg-white text-slate-800"
@@ -1536,7 +1533,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
                   disabled={metaFieldForm.isSystem}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                  className="w-full text-xs sm:text-sm font-medium py-2.5 px-3.5 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs cursor-pointer"
+                  className="w-full text-xs sm:text-sm font-medium py-2 sm:py-2.5 px-3 sm:px-3.5 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs cursor-pointer"
                 >
                   <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
                   <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
@@ -1549,7 +1546,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
               {/* Specific Config for NUMBER (Unit & Min/Max) */}
               {metaFieldForm.type === "number" && (
-                <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-1.5">
                   <div>
                     <label className="block text-xs font-bold text-emerald-950 mb-1">
                       หน่วยของตัวเลข
@@ -1559,7 +1556,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       value={metaFieldForm.unit}
                       onChange={(e) => setMetaFieldForm({ ...metaFieldForm, unit: e.target.value })}
                       placeholder="ระบุหน่วย เช่น คน หรือ °C"
-                      className="w-full text-xs sm:text-sm font-semibold py-2 px-3 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                      className="w-full text-xs sm:text-sm font-semibold py-1.5 sm:py-2 px-3 rounded-lg border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
                     />
                   </div>
                 </div>
@@ -1567,7 +1564,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
               {/* Specific Config for SELECT (Options Manager) */}
               {metaFieldForm.type === "select" && (
-                <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-200 space-y-3">
+                <div className="p-2.5 sm:p-3 rounded-xl bg-blue-50/60 border border-blue-200 space-y-2">
                   <label className="block text-xs font-bold text-blue-950">
                     รายการตัวเลือก (Options)
                   </label>
@@ -1582,7 +1579,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             next[oIdx] = e.target.value;
                             setMetaFieldForm({ ...metaFieldForm, options: next });
                           }}
-                          className="flex-1 text-xs font-semibold p-2.5 rounded-xl border border-blue-200 bg-white outline-none focus:border-blue-500"
+                          className="flex-1 text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-blue-200 bg-white outline-none focus:border-blue-500"
                         />
                         {metaFieldForm.options.length > 1 && (
                           <button
@@ -1600,7 +1597,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     ))}
                   </div>
 
-                  <div className="flex items-center gap-2 pt-1">
+                  <div className="flex items-center gap-2 pt-0.5">
                     <input
                       type="text"
                       placeholder="พิมพ์ตัวเลือกเพิ่ม..."
@@ -1616,7 +1613,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           });
                         }
                       }}
-                      className="flex-1 text-xs font-semibold p-2.5 rounded-xl border border-blue-200 bg-white outline-none"
+                      className="flex-1 text-xs font-semibold py-1.5 px-2.5 rounded-lg border border-blue-200 bg-white outline-none"
                     />
                     <button
                       type="button"
@@ -1629,7 +1626,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           });
                         }
                       }}
-                      className="px-3.5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-2xs"
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-2xs"
                     >
                       + เพิ่ม
                     </button>
@@ -1638,36 +1635,36 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               )}
 
               {/* Required Toggle */}
-              <label className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none">
+              <label className="flex items-center gap-2.5 sm:gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none">
                 <input
                   type="checkbox"
                   checked={metaFieldForm.required}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, required: e.target.checked })}
-                  className="w-5 h-5 rounded-lg text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] shrink-0 cursor-pointer"
+                  className="w-4 h-4 sm:w-4.5 sm:h-4.5 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] shrink-0 cursor-pointer"
                 />
                 <div className="flex-1 min-w-0">
-                  <span className="text-xs sm:text-sm font-bold text-slate-800 block">
+                  <span className="text-xs sm:text-sm font-bold text-slate-800 block leading-tight">
                     บังคับกรอกข้อมูล (Required)
                   </span>
-                  <span className="text-[11px] text-slate-400 font-normal block">
+                  <span className="text-[10px] sm:text-[11px] text-slate-400 font-normal block mt-0.5">
                     ผู้ตรวจต้องระบุข้อมูลนี้ก่อนจึงจะเริ่มตรวจข้อคำถามได้
                   </span>
                 </div>
               </label>
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setMetaFieldModal(false)}
-                className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleSaveMetaField}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-[#0F6659] text-white hover:bg-emerald-800 cursor-pointer shadow-sm active:scale-95 transition-all"
+                className="px-4.5 py-2 rounded-xl text-xs font-bold bg-[#0F6659] text-white hover:bg-emerald-800 cursor-pointer shadow-sm active:scale-95 transition-all"
               >
                 บันทึกฟิลด์
               </button>
