@@ -86,8 +86,11 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
 }
 
 export default function DashboardScreen({ role, isDesktop }) {
-  const { locations, auditRecords, capTasks } = React.useContext(DataContext);
+  const { locations, auditRecords, capTasks, currentUser } = React.useContext(DataContext);
   const activeLocations = useMemo(() => locations || [], [locations]);
+
+  const userRole = (role || currentUser?.role || currentUser?.roleCode || '').toUpperCase();
+  const isBranchManager = userRole === "AUDITEE" || userRole === "BRANCH_MANAGER" || currentUser?.branchScope === "SPECIFIC";
   
   const [periodFilter, setPeriodFilter] = useState("month");
   const [aiInsightsData, setAiInsightsData] = useState(null);
@@ -452,7 +455,7 @@ export default function DashboardScreen({ role, isDesktop }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className={`grid grid-cols-1 ${!isBranchManager ? "lg:grid-cols-2" : ""} gap-5`}>
         
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <h3 className="text-sm font-bold text-slate-700 mb-4">คะแนนรายหมวดหมู่</h3>
@@ -475,50 +478,51 @@ export default function DashboardScreen({ role, isDesktop }) {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-slate-700">อันดับสาขา (Top 5)</h3>
-            <button onClick={() => setShowAllBranches(true)} className="text-xs font-semibold text-[#0F6659] hover:underline cursor-pointer">ดูทั้งหมด</button>
-          </div>
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100">
-                  <th className="pb-2 text-xs font-semibold text-slate-500 w-12 text-center">อันดับ</th>
-                  <th className="pb-2 text-xs font-semibold text-slate-500">ชื่อสาขา</th>
-                  <th className="pb-2 text-xs font-semibold text-slate-500 text-center">คะแนน</th>
-                  <th className="pb-2 text-xs font-semibold text-slate-500 text-center">สถานะ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rankedBranches.map((b, idx) => (
-                  <tr 
-                    key={idx} 
-                    onClick={() => setViewUnit(b)} 
-                    className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                  >
-                    <td className="py-2.5 text-center">
-                      <div className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${idx === 0 ? "bg-amber-100 text-amber-700" : idx === 1 ? "bg-slate-200 text-slate-700" : idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>
-                        #{idx + 1}
-                      </div>
-                    </td>
-                    <td className="py-2.5 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
-                    <td className="py-2.5 text-center">
-                      <div className="inline-flex items-center justify-center font-mono font-bold text-sm text-slate-900">
-                        {b.displayScore}%
-                      </div>
-                    </td>
-                    <td className="py-2.5 text-center">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${b.displayScore >= 85 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                        {b.displayScore >= 85 ? "ผ่าน" : "ปรับปรุง"}
-                      </span>
-                    </td>
+        {!isBranchManager && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-slate-700">อันดับสาขา (Top 5)</h3>
+            </div>
+            <div className="overflow-x-auto flex-1">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="pb-2 text-xs font-semibold text-slate-500 w-12 text-center">อันดับ</th>
+                    <th className="pb-2 text-xs font-semibold text-slate-500">ชื่อสาขา</th>
+                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center">คะแนน</th>
+                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center">สถานะ</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rankedBranches.map((b, idx) => (
+                    <tr 
+                      key={idx} 
+                      onClick={() => setViewUnit(b)} 
+                      className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                    >
+                      <td className="py-2.5 text-center">
+                        <div className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${idx === 0 ? "bg-amber-100 text-amber-700" : idx === 1 ? "bg-slate-200 text-slate-700" : idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>
+                          #{idx + 1}
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
+                      <td className="py-2.5 text-center">
+                        <div className="inline-flex items-center justify-center font-mono font-bold text-sm text-slate-900">
+                          {b.displayScore}%
+                        </div>
+                      </td>
+                      <td className="py-2.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${b.displayScore >= 85 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                          {b.displayScore >= 85 ? "ผ่าน" : "ปรับปรุง"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
 

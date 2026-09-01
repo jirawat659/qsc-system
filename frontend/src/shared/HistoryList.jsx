@@ -38,13 +38,12 @@ export default function HistoryList({ history, onSelect }) {
               <ScoreRing score={h.score} size={38} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
-                  รอบวันที่ {h.date}
+                  วันที่ {h.date}
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                   <span className="text-xs font-medium text-slate-600">
                     ผู้ตรวจ: {h.auditor || "สมชาย ใจดี"}
                   </span>
-                  <span className="text-slate-300 text-xs">•</span>
                   <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
                     isPassed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'
                   }`}>
