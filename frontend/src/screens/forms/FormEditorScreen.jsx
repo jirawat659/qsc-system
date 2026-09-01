@@ -1518,7 +1518,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     if (metaFieldErrors.label) setMetaFieldErrors(prev => ({ ...prev, label: false }));
                   }}
                   placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน, หมายเหตุเปิดสาขา..."
-                  className={`w-full text-sm font-semibold p-3.5 rounded-2xl border outline-none shadow-2xs transition-all ${
+                  className={`w-full text-xs sm:text-sm font-medium py-2.5 px-3.5 rounded-xl border outline-none shadow-2xs transition-all ${
                     metaFieldErrors.label
                       ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 animate-shake text-slate-900"
                       : "border-slate-200 focus:border-[#0F6659] bg-white text-slate-800"
@@ -1536,7 +1536,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
                   disabled={metaFieldForm.isSystem}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                  className="w-full text-sm font-semibold p-3.5 rounded-2xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs cursor-pointer"
+                  className="w-full text-xs sm:text-sm font-medium py-2.5 px-3.5 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs cursor-pointer"
                 >
                   <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
                   <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
@@ -1549,7 +1549,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
               {/* Specific Config for NUMBER (Unit & Min/Max) */}
               {metaFieldForm.type === "number" && (
-                <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200 space-y-3">
+                <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
                   <div>
                     <label className="block text-xs font-bold text-emerald-950 mb-1">
                       หน่วยของตัวเลข
@@ -1559,7 +1559,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       value={metaFieldForm.unit}
                       onChange={(e) => setMetaFieldForm({ ...metaFieldForm, unit: e.target.value })}
                       placeholder="ระบุหน่วย เช่น คน หรือ °C"
-                      className="w-full text-sm font-bold p-3 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                      className="w-full text-xs sm:text-sm font-semibold py-2 px-3 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
                     />
                   </div>
                 </div>
