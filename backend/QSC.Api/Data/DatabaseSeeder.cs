@@ -146,6 +146,52 @@ namespace QSC.Api.Data
                         alterCmd.ExecuteNonQuery();
                     }
                 }
+
+                // 6. AuditRecords.MetadataValuesJson
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(AuditRecords);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasCol = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "MetadataValuesJson", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasCol = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasCol)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE AuditRecords ADD COLUMN MetadataValuesJson TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                // 7. SurveyForms.MetadataConfigJson
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(SurveyForms);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasCol = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "MetadataConfigJson", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasCol = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasCol)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE SurveyForms ADD COLUMN MetadataConfigJson TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
             }
             catch (Exception ex)
             {
