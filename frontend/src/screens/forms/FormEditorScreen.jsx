@@ -1520,7 +1520,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 animate-shake text-slate-900"
                       : "border-slate-200 focus:border-[#0F6659] bg-white text-slate-800"
                   }`}
-                  autoFocus
                 />
               </div>
 
