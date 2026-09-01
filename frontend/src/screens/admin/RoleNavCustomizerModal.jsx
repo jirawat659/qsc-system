@@ -479,7 +479,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         <select
                           value={slotConfig.left}
                           onChange={(e) => handleSlotChange("left", e.target.value)}
-                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ios-zoom-fix-xs ${
+                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ${
                             validation.errors.left
                               ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
                               : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:bg-white"
@@ -513,7 +513,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         <select
                           value={slotConfig.center}
                           onChange={(e) => handleSlotChange("center", e.target.value)}
-                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-black bg-white outline-none cursor-pointer transition-all ios-zoom-fix-xs ${
+                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-black bg-white outline-none cursor-pointer transition-all ${
                             validation.errors.center
                               ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
                               : "border-emerald-400 text-[#0F6659] focus:border-[#0F6659] focus:ring-1 focus:ring-emerald-500"
@@ -545,7 +545,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         <select
                           value={slotConfig.right}
                           onChange={(e) => handleSlotChange("right", e.target.value)}
-                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ios-zoom-fix-xs ${
+                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ${
                             validation.errors.right
                               ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
                               : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:bg-white"

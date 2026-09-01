@@ -126,7 +126,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
               placeholder="ค้นหาชื่อผู้ตรวจ, บทบาท, หรือทีม..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-8.5 pr-3 py-2 text-xs rounded-xl border outline-none focus:border-emerald-600 font-medium ios-zoom-fix-xs"
+              className="w-full pl-8.5 pr-3 py-2 text-xs rounded-xl border outline-none focus:border-emerald-600 font-medium"
               style={{ borderColor: c.border, background: c.bg }}
             />
           </div>

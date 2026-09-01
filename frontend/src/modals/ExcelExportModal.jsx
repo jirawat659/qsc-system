@@ -136,7 +136,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
               <select
                 value={selectedRound}
                 onChange={(e) => setSelectedRound(e.target.value)}
-                className="w-full text-xs p-3 rounded-xl outline-none font-bold border ios-zoom-fix-xs"
+                className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
                 style={{ background: c.bg, color: c.ink, borderColor: c.border }}
               >
                 {/*<optgroup label="เลือกรอบการตรวจเฉพาะรอบ">
@@ -201,7 +201,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                   <select
                     value={timeRange}
                     onChange={(e) => setTimeRange(e.target.value)}
-                    className="w-full text-xs p-3 rounded-xl outline-none font-bold border ios-zoom-fix-xs"
+                    className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
                     style={{ background: c.bg, color: c.ink, borderColor: c.border }}
                   >
                     <option value="all">ทั้งหมด (ทุกรอบตรวจที่บันทึกไว้)</option>
@@ -217,7 +217,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                   <select
                     value={regionFilter}
                     onChange={(e) => setRegionFilter(e.target.value)}
-                    className="w-full text-xs p-3 rounded-xl outline-none font-bold border ios-zoom-fix-xs"
+                    className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
                     style={{ background: c.bg, color: c.ink, borderColor: c.border }}
                   >
                     <option value="all">ทุกภูมิภาคทั่วประเทศ (100+ สาขา)</option>
@@ -239,7 +239,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                       placeholder="พิมพ์ชื่อสาขา เช่น สยาม, อารีย์, เชียงใหม่..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full text-xs pl-8 pr-8 py-2.5 rounded-xl outline-none font-bold border ios-zoom-fix-xs"
+                      className="w-full text-xs pl-8 pr-8 py-2.5 rounded-xl outline-none font-bold border"
                       style={{ background: c.bg, color: c.ink, borderColor: c.border }}
                     />
                     {searchQuery && (

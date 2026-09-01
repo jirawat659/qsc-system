@@ -825,7 +825,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 if (formErrors.name) setFormErrors(prev => ({ ...prev, name: false }));
               }}
               placeholder="เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Store Audit)..."
-              className={`w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-base ${
+              className={`w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ${
                 formErrors.name
                   ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 text-slate-800 animate-shake"
                   : "bg-white border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659]"
@@ -855,7 +855,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     onBlur={() => {
                       if (!passingScore || passingScore < 1) setPassingScore(85);
                     }}
-                    className="w-10 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ios-zoom-fix-base"
+                    className="w-10 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="85"
                     required
                   />
@@ -897,7 +897,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   const selectedObj = locationTypes.find(lt => lt.id === val);
                   if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
                 }}
-                className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate ios-zoom-fix-base"
+                className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
               >
                 {locationTypes.length > 0 ? (
                   locationTypes.map(lt => (
@@ -926,7 +926,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="ระบุคำอธิบาย หรือข้อแนะนำสำหรับผู้ตรวจ..."
-              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-base"
+              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
             />
           </div>
         </div>
@@ -944,10 +944,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           }`}
         >
           <SlidersHorizontal size={16} />
-          <span>1. ข้อมูลเริ่มต้นการตรวจ (Audit Details)</span>
-          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[11px] font-black font-mono">
-            {metadataConfig.filter(f => f.enabled !== false).length} ฟิลด์
-          </span>
+          <span>1. ข้อมูลรายละเอียดการตรวจ</span>
         </button>
 
         <button
@@ -1029,7 +1026,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   handleAddCategory();
                 }
               }}
-              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all ios-zoom-fix-xs"
+              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
             />
           </div>
           <button
@@ -1081,7 +1078,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       onChange={(e) => updateSectionTitle(secIdx, e.target.value)}
                       onBlur={() => setEditingSecIdx(null)}
                       onKeyDown={(e) => { if (e.key === "Enter") setEditingSecIdx(null); }}
-                      className="text-sm sm:text-base font-bold px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 focus:outline-none flex-1 shadow-2xs ios-zoom-fix-base"
+                      className="text-sm sm:text-base font-bold px-3 py-1.5 rounded-xl border border-[#0F6659] bg-white text-slate-800 focus:outline-none flex-1 shadow-2xs"
                       autoFocus
                     />
                   </div>
@@ -1188,7 +1185,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             value={item.fullScore !== undefined && item.fullScore !== null ? item.fullScore : 10}
                             onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
                             onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
-                            className="w-10 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 ios-zoom-fix-xs"
+                            className="w-10 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
                             title="กำหนดคะแนนเต็มของข้อนี้ (เช่น 5, 10, 20 แต้ม)"
                           />
                           <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
@@ -1237,7 +1234,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               }
                             }}
                             placeholder="ระบุข้อความคำถามสำหรับการตรวจประเมิน..."
-                            className="w-full text-xs sm:text-sm font-medium p-3 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs resize-none leading-relaxed ios-zoom-fix-sm"
+                            className="w-full text-xs sm:text-sm font-medium p-3 rounded-xl border border-[#0F6659] bg-white text-slate-800 outline-none shadow-2xs resize-none leading-relaxed"
                             autoFocus
                           />
                         </div>
@@ -1289,7 +1286,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           <select
                             value={item.category || DEFAULT_CATEGORIES[0]}
                             onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
-                            className="text-xs font-extrabold pl-3 pr-7 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none ios-zoom-fix-xs"
+                            className="text-xs font-extrabold pl-3 pr-7 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
                           >
                             {categories.map((cat, cIdx) => (
                               <option key={cIdx} value={cat}>{cat}</option>

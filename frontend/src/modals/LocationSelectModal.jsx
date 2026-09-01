@@ -153,7 +153,7 @@ export default function LocationSelectModal({
               placeholder="ค้นหาชื่อสาขา, รหัสสาขา หรือที่อยู่..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8.5 pr-8 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-medium placeholder-slate-400 transition-all focus:bg-white focus:ring-1 focus:ring-emerald-500/20 ios-zoom-fix-xs"
+              className="w-full pl-8.5 pr-8 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-medium placeholder-slate-400 transition-all focus:bg-white focus:ring-1 focus:ring-emerald-500/20"
             />
             {searchTerm && (
               <button
@@ -176,7 +176,7 @@ export default function LocationSelectModal({
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate ios-zoom-fix-xs"
+                className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate"
               >
                 <option value="all">ทุกประเภทสาขา ({locations.length})</option>
                 {availableTypes.map(t => {
@@ -202,7 +202,7 @@ export default function LocationSelectModal({
               <select
                 value={selectedRegion}
                 onChange={(e) => setSelectedRegion(e.target.value)}
-                className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate ios-zoom-fix-xs"
+                className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate"
               >
                 <option value="all">ทุกภูมิภาค ({locations.length})</option>
                 {availableRegions.map(reg => {

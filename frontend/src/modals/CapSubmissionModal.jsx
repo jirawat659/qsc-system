@@ -134,7 +134,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
               value={actionText}
               onChange={(e) => setActionText(e.target.value)}
               placeholder="ระบุสิ่งที่สาขาได้ดำเนินการแก้ไข เช่น ได้ทำการขัดล้างทำความสะอาดคราบไขมันหลังเตาปรุงอาหารเรียบร้อยแล้ว และตั้งรอบทำความสะอาด Deep Clean ทุกสัปดาห์..."
-              className="w-full text-xs p-3 rounded-xl border outline-none font-medium text-slate-800 focus:border-emerald-600 ios-zoom-fix-xs"
+              className="w-full text-xs p-3 rounded-xl border outline-none font-medium text-slate-800 focus:border-emerald-600"
               style={{ borderColor: c.border, background: c.bg }}
             />
           </div>
@@ -208,7 +208,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
                 type="text"
                 value={responsibleName}
                 onChange={(e) => setResponsibleName(e.target.value)}
-                className="w-full text-xs px-3 py-2 rounded-xl border outline-none font-medium ios-zoom-fix-xs"
+                className="w-full text-xs px-3 py-2 rounded-xl border outline-none font-medium"
                 style={{ borderColor: c.border, background: c.bg }}
               />
             </div>
@@ -218,7 +218,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
                 type="text"
                 value={dueDate}
                 onChange={(e) => setDueDate(e.target.value)}
-                className="w-full text-xs px-3 py-2 rounded-xl border outline-none font-medium ios-zoom-fix-xs"
+                className="w-full text-xs px-3 py-2 rounded-xl border outline-none font-medium"
                 style={{ borderColor: c.border, background: c.bg }}
               />
             </div>

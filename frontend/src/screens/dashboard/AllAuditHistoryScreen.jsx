@@ -674,8 +674,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               placeholder="ค้นหาชื่อสาขา, วันที่, ผู้ตรวจ, สถานะ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-xs pl-8.5 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400"
-              style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
+              className="w-full text-xs sm:text-sm pl-8.5 pr-7 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400 shadow-2xs"
             />
             {searchTerm && (
               <button
@@ -690,13 +689,12 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           </div>
 
           <div className="flex items-center gap-2 flex-1 w-full">
-            <div className="relative flex items-center bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] focus-within:border-[#0F6659] focus-within:bg-white transition-colors">
+            <div className="relative flex items-center bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] focus-within:border-[#0F6659] focus-within:bg-white transition-colors shadow-2xs">
               <Filter size={13} className="text-[#0F6659] shrink-0 mr-1.5 pointer-events-none" />
               <select
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value)}
-                className="w-full bg-transparent text-xs font-semibold outline-none cursor-pointer text-slate-700 appearance-none pr-5"
-                style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
+                className="w-full bg-transparent text-xs sm:text-sm font-semibold outline-none cursor-pointer text-slate-700 appearance-none pr-5"
               >
                 <option value="all">ทุกสาขา</option>
                 <option value="passed">ผ่านเกณฑ์ (≥85%)</option>

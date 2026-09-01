@@ -400,7 +400,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
               name="scheduledDate"
               value={scheduledDate}
               onChange={(e) => setScheduledDate(e.target.value)}
-              className="w-full text-xs sm:text-sm p-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs ios-zoom-fix-xs"
+              className="w-full text-xs sm:text-sm p-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
               required
             />
           </div>
@@ -446,7 +446,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
             <select
               value={assignedAuditorId || ""}
               onChange={(e) => setAssignedAuditorId(Number(e.target.value))}
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer ios-zoom-fix-xs"
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
             >
               {dbAuditors.length > 0 ? (
                 dbAuditors.map(a => (
@@ -467,7 +467,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
             <select
               value={selectedFormId}
               onChange={(e) => setSelectedFormId(Number(e.target.value) || e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer ios-zoom-fix-xs"
+              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
             >
               {forms.map(f => (
                 <option key={f.id} value={f.id}>{f.title || f.name}</option>
@@ -509,7 +509,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="ระบุจุดที่ต้องเน้นย้ำ หรือข้อความถึงผู้ตรวจ..."
-            className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:border-[#0F6659] ios-zoom-fix-xs"
+            className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:border-[#0F6659]"
           />
         </div>
 

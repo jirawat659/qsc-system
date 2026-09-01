@@ -122,7 +122,7 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านเดิมที่ใช้งานอยู่"
-                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs ios-zoom-fix-xs"
+                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
                   required
                 />
                 <button
@@ -148,7 +148,7 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านใหม่อย่างน้อย 8 ตัวอักษร"
-                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs ios-zoom-fix-xs"
+                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
                   required
                   minLength={8}
                 />
@@ -175,7 +175,7 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านใหม่อีกครั้งให้ตรงกัน"
-                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs ios-zoom-fix-xs"
+                  className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
                   required
                 />
                 <button

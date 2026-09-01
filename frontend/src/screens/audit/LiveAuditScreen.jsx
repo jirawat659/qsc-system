@@ -53,7 +53,7 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
           onChangeRef.current(localValue);
         }
       }}
-      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 outline-none text-slate-800 focus:border-[#0F6659] bg-slate-50/80 ios-zoom-fix-xs"
+      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 outline-none text-slate-800 focus:border-[#0F6659] bg-slate-50/80"
     />
   );
 };
@@ -181,7 +181,7 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
           value={signatoryName || ''}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder={placeholderName}
-          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs ios-zoom-fix-xs"
+          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs"
         />
       )}
     </div>
@@ -1026,7 +1026,7 @@ export default function LiveAuditScreen({
             placeholder="ค้นหาชื่อสาขา, โรงงาน หรือสำนักงาน..."
             value={searchBranch}
             onChange={(e) => setSearchBranch(e.target.value)}
-            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal ios-zoom-fix-sm"
+            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal"
           />
           {searchBranch && (
             <button
@@ -1294,7 +1294,7 @@ export default function LiveAuditScreen({
                         <select
                           value={auditorName}
                           onChange={(e) => setAuditorName(e.target.value)}
-                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10 ios-zoom-fix-sm"
+                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10"
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
@@ -1356,7 +1356,7 @@ export default function LiveAuditScreen({
                           min="0"
                           value={staffCount}
                           onChange={(e) => setStaffCount(e.target.value)}
-                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs ios-zoom-fix-sm"
+                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
                         />
                         <div className="absolute right-3 px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none">
@@ -1384,7 +1384,7 @@ export default function LiveAuditScreen({
                           value={currentVal ?? ""}
                           onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
-                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs ios-zoom-fix-sm"
+                          className="w-full text-sm p-3.5 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         />
                         {field.unit && (
                           <div className="absolute right-3 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 select-none">
@@ -1407,7 +1407,7 @@ export default function LiveAuditScreen({
                         type="date"
                         value={currentVal || ""}
                         onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 ios-zoom-fix-sm"
+                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
                       />
                     </div>
                   );
@@ -1424,7 +1424,7 @@ export default function LiveAuditScreen({
                         type="time"
                         value={currentVal || ""}
                         onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 ios-zoom-fix-sm"
+                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
                       />
                     </div>
                   );
@@ -1460,7 +1460,7 @@ export default function LiveAuditScreen({
                         <select
                           value={currentVal || ""}
                           onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs ios-zoom-fix-sm"
+                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         >
                           <option value="">-- เลือก --</option>
                           {opts.map(opt => (
@@ -1509,7 +1509,7 @@ export default function LiveAuditScreen({
                       value={currentVal || ""}
                       onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                       placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
-                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px] ios-zoom-fix-sm"
+                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
                     />
                   </div>
                 );
@@ -1611,7 +1611,7 @@ export default function LiveAuditScreen({
                                   type="file"
                                   accept="image/*"
                                   multiple
-                                  className="hidden ios-zoom-fix-xs"
+                                  className="hidden"
                                   onChange={(e) => {
                                     handlePhotoUpload(q.id, e.target.files);
                                     e.target.value = '';
@@ -1652,7 +1652,7 @@ export default function LiveAuditScreen({
                                   type="file"
                                   accept="image/*"
                                   multiple
-                                  className="hidden ios-zoom-fix-xs"
+                                  className="hidden"
                                   onChange={(e) => {
                                     handlePhotoUpload(q.id, e.target.files);
                                     e.target.value = '';

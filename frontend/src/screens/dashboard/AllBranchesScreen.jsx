@@ -210,7 +210,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             placeholder="ค้นหาชื่อสาขา, ภูมิภาค หรือชื่อผู้ตรวจ..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors ios-zoom-fix-sm"
+            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
           />
           {searchTerm && (
             <button

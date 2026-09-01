@@ -151,7 +151,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
             placeholder="ค้นหาชื่องานแก้ไข, สาขา หรือข้อคำถาม..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal ios-zoom-fix-sm"
+            className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal"
           />
           {searchTerm && (
             <button
