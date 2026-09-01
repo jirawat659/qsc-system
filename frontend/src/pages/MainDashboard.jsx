@@ -163,33 +163,59 @@ export default function MainDashboard({ onLogout }) {
     setScreen(newNav[0]?.key || "dashboard");
   };
 
+  const [moreResetKey, setMoreResetKey] = useState(0);
   const mainContentRef = useRef(null);
 
-  const scrollToTop = (smooth = true) => {
-    const behavior = smooth ? "smooth" : "instant";
-    try {
-      window.scrollTo({ top: 0, left: 0, behavior });
-      document.documentElement.scrollTo({ top: 0, left: 0, behavior });
-      document.body.scrollTo({ top: 0, left: 0, behavior });
-      if (mainContentRef.current) {
-        mainContentRef.current.scrollTo({ top: 0, left: 0, behavior });
+  // 🌟 High-Precision Silky Smooth Scroll Animation with Cubic Easing
+  const animatedScrollToTop = (duration = 420) => {
+    const winY = window.pageYOffset || window.scrollY || 0;
+    const docY = document.documentElement ? document.documentElement.scrollTop : 0;
+    const bodyY = document.body ? document.body.scrollTop : 0;
+    const mainY = mainContentRef.current ? mainContentRef.current.scrollTop : 0;
+
+    const startY = Math.max(winY, docY, bodyY, mainY);
+    if (startY <= 0) return;
+
+    const startTime = performance.now();
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+    const step = (currentTime) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const ease = easeOutCubic(progress);
+
+      const targetY = Math.round(startY * (1 - ease));
+
+      window.scrollTo(0, targetY);
+      if (document.documentElement) document.documentElement.scrollTop = targetY;
+      if (document.body) document.body.scrollTop = targetY;
+      if (mainContentRef.current) mainContentRef.current.scrollTop = targetY;
+
+      if (progress < 1) {
+        requestAnimationFrame(step);
       }
-    } catch (e) {
-      window.scrollTo(0, 0);
-    }
+    };
+
+    requestAnimationFrame(step);
   };
 
   const handleNavClick = (key) => {
-    if (screen === key) {
-      // 🌟 เมื่อกดแท็บเดิมซ้ำ ให้เลื่อนขึ้นด้านบนแบบ Smooth Scroll ให้เห็นการเคลื่อนไหว
-      scrollToTop(true);
-      return;
+    if (key === "more") {
+      setMoreResetKey(prev => prev + 1);
     }
     if (key === "audit") {
       setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
     }
+    if (screen === key) {
+      // 🌟 ถ้าอยู่ที่แท็บเดิม เช่น "ระบบ" ให้รีเซ็ตกลับหน้าเมนูหลักของระบบ + เลื่อนขึ้นบน
+      if (key === "more") {
+        setMoreResetKey(prev => prev + 1);
+      }
+      animatedScrollToTop(420);
+      return;
+    }
     setScreen(key);
-    scrollToTop(true);
+    animatedScrollToTop(380);
   };
 
   // Scroll to top automatically whenever screen changes
@@ -273,7 +299,16 @@ export default function MainDashboard({ onLogout }) {
           )}
           {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
           {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
-          {screen === "more" && <AdminMoreScreen isDesktop={true} role={role} currentUser={currentUser} onNavigate={handleNavClick} onStartAuditDirect={handleStartAuditDirect} />}
+          {screen === "more" && (
+            <AdminMoreScreen
+              resetKey={moreResetKey}
+              isDesktop={true}
+              role={role}
+              currentUser={currentUser}
+              onNavigate={handleNavClick}
+              onStartAuditDirect={handleStartAuditDirect}
+            />
+          )}
           {screen === "schedule" && (
             <ScheduleScreen
               role={role}

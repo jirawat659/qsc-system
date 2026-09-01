@@ -39,10 +39,14 @@ import MasterManagementScreen from "./MasterManagementScreen";
 import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
-export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect }) {
+export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect, resetKey }) {
   const { locations = [] } = React.useContext(DataContext);
   const [open, setOpen] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
+
+  useEffect(() => {
+    setOpen(null);
+  }, [resetKey]);
 
   const userPerms = useMemo(() => {
     return currentUser?.permissions || [];

@@ -675,6 +675,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full text-xs pl-8.5 pr-7 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400"
+              style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
             />
             {searchTerm && (
               <button
@@ -695,6 +696,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                 value={filterCategory}
                 onChange={(e) => setFilterCategory(e.target.value)}
                 className="w-full bg-transparent text-xs font-semibold outline-none cursor-pointer text-slate-700 appearance-none pr-5"
+                style={{ transform: "scale(0.75)", transformOrigin: "left center", width: "133.333%" }}
               >
                 <option value="all">ทุกสาขา</option>
                 <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
