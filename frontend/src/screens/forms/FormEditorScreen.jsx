@@ -92,6 +92,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     placeholder: ""
   });
   const [editingMetaIndex, setEditingMetaIndex] = useState(null);
+  const [metaFieldErrors, setMetaFieldErrors] = useState({});
+  const [formErrors, setFormErrors] = useState({});
 
   const [description, setDescription] = useState(
     form?.description || "แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และสุขอนามัยประจำสาขา (Q.S.C. Standard)"
@@ -594,6 +596,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   const openAddMetaField = () => {
     setEditingMetaIndex(null);
+    setMetaFieldErrors({});
     setMetaFieldForm({
       id: "meta_" + Date.now().toString(36),
       label: "",
@@ -612,6 +615,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   const openEditMetaField = (field, index) => {
     setEditingMetaIndex(index);
+    setMetaFieldErrors({});
     setMetaFieldForm({
       id: field.id || ("meta_" + index),
       label: field.label || "",
@@ -631,9 +635,10 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   const handleSaveMetaField = () => {
     if (!metaFieldForm.label.trim()) {
-      showToast("กรุณาระบุชื่อฟิลด์ข้อมูล");
+      setMetaFieldErrors({ label: true });
       return;
     }
+    setMetaFieldErrors({});
 
     const fieldObj = {
       id: metaFieldForm.id || ("meta_" + Date.now().toString(36)),
@@ -669,9 +674,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   // Save form
   const handleSave = async () => {
     if (!formName.trim()) {
-      showToast("กรุณาระบุชื่อแบบฟอร์ม");
+      setFormErrors({ name: true });
+      window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    setFormErrors({});
     if (sections.length === 0) {
       showToast("ต้องมีอย่างน้อย 1 หมวดหมู่");
       return;
@@ -802,14 +809,26 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         <div className="space-y-4">
           {/* 1. ชื่อแบบฟอร์ม */}
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1.5">
-              ชื่อแบบฟอร์มการตรวจ (Form Title) <span className="text-rose-500">*</span>
+            <label className="block text-sm font-medium text-slate-600 mb-1.5 flex items-center justify-between">
+              <span>ชื่อแบบฟอร์มการตรวจ (Form Title) <span className="text-rose-500">*</span></span>
+              {formErrors.name && (
+                <span className="text-xs font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
+                  <AlertTriangle size={13} /> กรุณาระบุชื่อแบบฟอร์ม
+                </span>
+              )}
             </label>
             <input
               value={formName}
-              onChange={(e) => setFormName(e.target.value)}
+              onChange={(e) => {
+                setFormName(e.target.value);
+                if (formErrors.name) setFormErrors(prev => ({ ...prev, name: false }));
+              }}
               placeholder="เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Store Audit)..."
-              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-base"
+              className={`w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ios-zoom-fix-base ${
+                formErrors.name
+                  ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 text-slate-800 animate-shake"
+                  : "bg-white border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659]"
+              }`}
               required
             />
           </div>
@@ -1481,15 +1500,28 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             <div className="space-y-4">
               {/* Field Label */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  ชื่อฟิลด์ข้อมูล (Label) <span className="text-rose-500">*</span>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>ชื่อฟิลด์ข้อมูล (Label) <span className="text-rose-500">*</span></span>
+                  {metaFieldErrors.label && (
+                    <span className="text-[11px] font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
+                      <AlertTriangle size={12} /> กรุณาระบุชื่อฟิลด์ข้อมูล
+                    </span>
+                  )}
                 </label>
                 <input
                   type="text"
                   value={metaFieldForm.label}
-                  onChange={(e) => setMetaFieldForm({ ...metaFieldForm, label: e.target.value })}
+                  onChange={(e) => {
+                    setMetaFieldForm({ ...metaFieldForm, label: e.target.value });
+                    if (metaFieldErrors.label) setMetaFieldErrors(prev => ({ ...prev, label: false }));
+                  }}
                   placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน, หมายเหตุเปิดสาขา..."
-                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs ios-zoom-fix-sm"
+                  className={`w-full text-sm font-semibold p-3 rounded-xl border outline-none shadow-2xs ios-zoom-fix-sm transition-all ${
+                    metaFieldErrors.label
+                      ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 animate-shake text-slate-900"
+                      : "border-slate-200 focus:border-[#0F6659] bg-white text-slate-800"
+                  }`}
+                  autoFocus
                 />
               </div>
 
@@ -1504,8 +1536,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
                   className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs ios-zoom-fix-sm"
                 >
-                  <option value="number">ตัวเลข / จำนวน (พร้อมระบุหน่วย)</option>
-                  <option value="date">ปฏิทิน (วันที่ วัน/เดือน/ปี)</option>
+                  <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
+                  <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
                   <option value="time">เวลา (ชั่วโมง:นาที)</option>
                   <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
                   <option value="text">ข้อความ / หมายเหตุ (Text)</option>
