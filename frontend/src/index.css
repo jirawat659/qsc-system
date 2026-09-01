@@ -60,36 +60,13 @@
   }
 }
 
-/* 📱 ป้องกัน iOS Safari และ Mobile Browser ไม่ให้ Auto-Zoom ขณะแตะพิมพ์ (Focus) ใน Input / Select / Textarea
-   หมายเหตุ: 16px คือขนาดต่ำสุดที่ iOS บังคับ ลดกว่านี้ไม่ได้ไม่งั้นจะกลับไปซูมเหมือนเดิม
-   จึงใช้ line-height ที่กระชับขึ้นแทน เพื่อให้กล่อง input ดูไม่ใหญ่เทอะทะเกินไป */
+/* 📱 Mobile Input Standards: 16px font-size on mobile inputs prevents iOS Safari auto-zoom cleanly without distorting layouts */
 @media screen and (max-width: 768px) {
-  input, select, textarea {
-    font-size: 16px !important;
-    line-height: 1.35 !important;
-  }
-
-  /* ตัวช่วยย่อภาพให้ดูเท่าดีไซน์เดิม (font-size จริงยังคง 16px กันซูม แค่ scale ภาพให้เล็กลง)
-     ใช้คู่กับ className เดิมของ input/select (text-xs, text-sm, text-base) เทสผ่านแล้วว่ายังกันซูมได้จริง */
-  .ios-zoom-fix-xs {
-    transform: scale(0.75);
-    transform-origin: left center;
-    width: 133.333% !important;
-  }
-  .ios-zoom-fix-sm {
-    transform: scale(0.82);
-    transform-origin: left center;
-    width: 121.951% !important;
-  }
-  .ios-zoom-fix-base {
-    transform: scale(0.9375);
-    transform-origin: left center;
-    width: 106.667% !important;
-  }
-  .ios-zoom-fix-xs-center {
-    transform: scale(0.75);
-    transform-origin: center center;
-    width: 133.333% !important;
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
+  select,
+  textarea {
+    font-size: 16px;
+    line-height: 1.35;
   }
 }
 

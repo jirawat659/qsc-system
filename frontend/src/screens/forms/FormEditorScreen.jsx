@@ -1488,7 +1488,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       {/* ⚙️ POPUP MODAL: ADD / EDIT METADATA FIELD */}
       {metaFieldModal && (
         <ModalWrapper onClose={() => setMetaFieldModal(false)} maxWidth="max-w-lg">
-          <div className="p-6 space-y-4">
+          <div className="p-5 sm:p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
                 <SlidersHorizontal size={18} className="text-[#0F6659]" />
@@ -1518,7 +1518,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     if (metaFieldErrors.label) setMetaFieldErrors(prev => ({ ...prev, label: false }));
                   }}
                   placeholder="เช่น อุณหภูมิตู้แช่หลัก, กะการทำงาน, หมายเหตุเปิดสาขา..."
-                  className={`w-full text-sm font-semibold p-3 rounded-xl border outline-none shadow-2xs ios-zoom-fix-sm transition-all ${
+                  className={`w-full text-sm font-semibold p-3.5 rounded-2xl border outline-none shadow-2xs transition-all ${
                     metaFieldErrors.label
                       ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 animate-shake text-slate-900"
                       : "border-slate-200 focus:border-[#0F6659] bg-white text-slate-800"
@@ -1536,7 +1536,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
                   disabled={metaFieldForm.isSystem}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                  className="w-full text-sm font-semibold p-3 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs ios-zoom-fix-sm"
+                  className="w-full text-sm font-semibold p-3.5 rounded-2xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs cursor-pointer"
                 >
                   <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
                   <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
@@ -1559,7 +1559,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       value={metaFieldForm.unit}
                       onChange={(e) => setMetaFieldForm({ ...metaFieldForm, unit: e.target.value })}
                       placeholder="ระบุหน่วย เช่น คน หรือ °C"
-                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white ios-zoom-fix-sm"
+                      className="w-full text-sm font-bold p-3 rounded-xl border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
                     />
                   </div>
                 </div>
@@ -1582,7 +1582,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             next[oIdx] = e.target.value;
                             setMetaFieldForm({ ...metaFieldForm, options: next });
                           }}
-                          className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none focus:border-blue-500 ios-zoom-fix-xs"
+                          className="flex-1 text-xs font-semibold p-2.5 rounded-xl border border-blue-200 bg-white outline-none focus:border-blue-500"
                         />
                         {metaFieldForm.options.length > 1 && (
                           <button
@@ -1616,7 +1616,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           });
                         }
                       }}
-                      className="flex-1 text-xs font-semibold p-2 rounded-lg border border-blue-200 bg-white outline-none ios-zoom-fix-xs"
+                      className="flex-1 text-xs font-semibold p-2.5 rounded-xl border border-blue-200 bg-white outline-none"
                     />
                     <button
                       type="button"
@@ -1629,7 +1629,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                           });
                         }
                       }}
-                      className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-2xs"
+                      className="px-3.5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 cursor-pointer shadow-2xs"
                     >
                       + เพิ่ม
                     </button>
@@ -1638,16 +1638,21 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               )}
 
               {/* Required Toggle */}
-              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors">
+              <label className="flex items-center gap-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none">
                 <input
                   type="checkbox"
                   checked={metaFieldForm.required}
                   onChange={(e) => setMetaFieldForm({ ...metaFieldForm, required: e.target.checked })}
-                  className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] ios-zoom-fix-xs"
+                  className="w-5 h-5 rounded-lg text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] shrink-0 cursor-pointer"
                 />
-                <span className="text-xs font-bold text-slate-800">
-                  บังคับกรอกข้อมูล
-                </span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs sm:text-sm font-bold text-slate-800 block">
+                    บังคับกรอกข้อมูล (Required)
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-normal block">
+                    ผู้ตรวจต้องระบุข้อมูลนี้ก่อนจึงจะเริ่มตรวจข้อคำถามได้
+                  </span>
+                </div>
               </label>
             </div>
 
