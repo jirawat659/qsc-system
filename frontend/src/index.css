@@ -60,16 +60,6 @@
   }
 }
 
-/* 📱 Mobile Input Standards: 16px font-size on mobile inputs prevents iOS Safari auto-zoom cleanly without distorting layouts */
-@media screen and (max-width: 768px) {
-  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]):not([type="button"]):not([type="submit"]):not([type="reset"]),
-  select,
-  textarea {
-    font-size: 16px;
-    line-height: 1.35;
-  }
-}
-
 /* 🎯 ควบคุมมาตรฐานขนาดตัวหนังสือ (Unified Font Size Scale - ไม่ให้เล็กหรือใหญ่เกินมาตรฐาน) */
 .text-2xs, .text-\[10px\], .text-\[9px\] {
   font-size: 0.667rem !important; /* ~10px (ขนาดต่ำสุดของระบบ) */
