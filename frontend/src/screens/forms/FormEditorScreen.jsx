@@ -417,6 +417,34 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     }));
   };
 
+  // Update question score
+  const updateItemScore = (secIdx, itemId, newScore) => {
+    const val = newScore === "" ? "" : Number(newScore);
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => {
+          if (i.id === itemId) {
+            return {
+              ...i,
+              fullScore: val,
+              maxScore: val
+            };
+          }
+          return i;
+        })
+      };
+    }));
+  };
+
+  // On blur, if score is empty or 0, fallback to 10
+  const handleItemScoreBlur = (secIdx, itemId, currentVal) => {
+    if (currentVal === "" || isNaN(Number(currentVal)) || Number(currentVal) < 1) {
+      updateItemScore(secIdx, itemId, 10);
+    }
+  };
+
   // Update section title
   const updateSectionTitle = (secIdx, newTitle) => {
     setSections(prev => prev.map((sec, sIdx) => sIdx === secIdx ? { ...sec, title: newTitle } : sec));
@@ -1134,16 +1162,17 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                       {/* Right: Score Input + Critical Toggle + Delete */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         {/* Score Setting Input */}
-                        <div className="flex items-center gap-1 bg-white border border-slate-200/90 rounded-xl px-2.5 py-1 shadow-2xs hover:border-[#0F6659] transition-colors">
+                        <div className="flex items-center gap-1 bg-white border border-slate-200/90 rounded-xl px-2.5 py-1 shadow-2xs hover:border-[#0F6659] focus-within:border-[#0F6659] transition-colors">
                           <span className="text-[11px] font-bold text-slate-400">คะแนน:</span>
                           <input
                             type="number"
                             min="1"
                             max="500"
-                            value={item.fullScore !== undefined ? item.fullScore : 10}
+                            value={item.fullScore !== undefined && item.fullScore !== null ? item.fullScore : 10}
                             onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
-                            className="w-7 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 ios-zoom-fix-xs"
-                            title="กำหนดคะแนนเต็มของข้อนี้"
+                            onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
+                            className="w-10 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 ios-zoom-fix-xs"
+                            title="กำหนดคะแนนเต็มของข้อนี้ (เช่น 5, 10, 20 แต้ม)"
                           />
                           <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
                         </div>
@@ -1157,10 +1186,10 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                               ? 'bg-rose-50 text-rose-600 border border-rose-200'
                               : 'bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50'
                           }`}
-                          title={item.critical ? "ปลดจุดวิกฤต" : "ตั้งเป็นจุดวิกฤต (ตกทันที)"}
+                          title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งความสำคัญ (ตกทันที)"}
                         >
                           <ShieldAlert size={14} />
-                          <span className="text-[11px] font-bold hidden sm:inline">{item.critical ? "จุดวิกฤต" : "ตั้งวิกฤต"}</span>
+                          <span className="text-[11px] font-bold hidden sm:inline">{item.critical ? "สำคัญ" : "สำคัญ"}</span>
                         </button>
 
                         {/* Delete Question Button */}
