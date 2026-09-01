@@ -273,11 +273,19 @@ export default function MainDashboard({ onLogout }) {
               onSyncStatusChange={(status) => setAuditSyncStatus(status)}
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
+                if (!draft) {
+                  // Draft was discarded/cleared
+                  refreshData();
+                  return;
+                }
                 setActiveDrafts(prev => {
-                  const list = prev || [];
+                  const list = (prev || []).filter(Boolean);
                   const existingIdx = list.findIndex(d => 
-                    (d.id && draft.id && d.id === draft.id) || 
-                    (d.locationId === draft.locationId && (d.surveyFormId === draft.formId || d.formId === draft.formId))
+                    d && (
+                      (d.id && draft.id && d.id === draft.id) || 
+                      (d.locationId && draft.locationId && d.locationId === draft.locationId && 
+                        (d.surveyFormId === draft.formId || d.formId === draft.formId || d.surveyFormId === draft.surveyFormId))
+                    )
                   );
                   if (existingIdx >= 0) {
                     const next = [...list];
