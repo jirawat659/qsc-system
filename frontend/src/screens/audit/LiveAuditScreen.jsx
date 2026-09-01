@@ -198,7 +198,8 @@ export default function LiveAuditScreen({
   initialDraft,
   onSaveDraft,
   onCompleteAudit,
-  onActiveStateChange
+  onActiveStateChange,
+  onSyncStatusChange
 }) {
   const { currentUser: ctxUser, locations, forms, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
   const currentUser = propUser || ctxUser;
@@ -526,6 +527,13 @@ export default function LiveAuditScreen({
       if (onActiveStateChange) onActiveStateChange(false);
     };
   }, [step, onActiveStateChange]);
+
+  // 📡 Report real-time sync status to parent TopBar
+  useEffect(() => {
+    if (onSyncStatusChange) {
+      onSyncStatusChange(step === "audit" ? syncStatus : "idle");
+    }
+  }, [syncStatus, step, onSyncStatusChange]);
 
   // ⚡ Instant Event-driven Auto-Sync to Backend & LocalStorage
   const autoSaveTimerRef = useRef(null);
@@ -1193,43 +1201,28 @@ export default function LiveAuditScreen({
     return (
       <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20">
         {/* Sticky Top Header Card */}
-        <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2 pb-3 px-4 shadow-sm border-b border-slate-200">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <button type="button" onClick={() => setStep("select-form")} className="p-1.5 rounded-full hover:bg-slate-200 text-slate-600 transition-colors">
-              <ChevronDown className="rotate-90" size={20} />
-            </button>
-            
-            <div className="flex items-center gap-1.5">
-              {syncStatus === "saving" ? (
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-[11px] font-bold text-amber-700 animate-pulse">
-                  <Loader2 size={12} className="animate-spin" />
-                  <span>Syncing...</span>
+        <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2.5 pb-2 px-3 sm:px-4 shadow-2xs border-b border-slate-200">
+          <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
+            <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+              <button 
+                type="button" 
+                onClick={() => setStep("select-form")} 
+                className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer shrink-0 active:scale-95 shadow-2xs border border-slate-200/80 flex items-center justify-center"
+                title="เปลี่ยนแบบฟอร์ม / ย้อนกลับ"
+              >
+                <ChevronLeft size={20} className="text-[#0F6659]" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
+                <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
+                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                  <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
+                    <PenTool size={11} /> {auditorName || "ระบุผู้ตรวจ"}
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
+                    <Clock size={11} /> เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
-              ) : syncStatus === "error" ? (
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-50 border border-rose-200 text-[11px] font-bold text-rose-700">
-                  <AlertCircle size={12} />
-                  <span>Sync Failed</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-700">
-                  <CheckCircle2 size={12} />
-                  <span>Synced</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-3xl p-4 border border-slate-200 shadow-sm flex items-center justify-between gap-4">
-            <div className="flex-1">
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">{unit?.fullName || unit?.name}</h2>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">{selectedForm?.title}</p>
-              <div className="flex items-center gap-1.5 mt-2.5 flex-wrap">
-                <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
-                  <PenTool size={11} /> {auditorName || "ระบุผู้ตรวจ"}
-                </span>
-                <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
-                  <Clock size={11} /> เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                </span>
               </div>
             </div>
             

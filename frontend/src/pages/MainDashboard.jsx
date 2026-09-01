@@ -127,6 +127,7 @@ export default function MainDashboard({ onLogout }) {
   const [preselectedPlan, setPreselectedPlan] = useState(null);
   const [isLiveAuditActive, setIsLiveAuditActive] = useState(false);
   const [activeAuditDraft, setActiveAuditDraft] = useState(null);
+  const [auditSyncStatus, setAuditSyncStatus] = useState("idle");
 
   const currentUser = useMemo(() => {
     if (storedUser) {
@@ -269,6 +270,7 @@ export default function MainDashboard({ onLogout }) {
               }}
               defaultAuditorName={currentUser.name || "-"}
               onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
+              onSyncStatusChange={(status) => setAuditSyncStatus(status)}
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 setActiveDrafts(prev => {
@@ -480,8 +482,8 @@ export default function MainDashboard({ onLogout }) {
               )}
             </div>
           ) : (
-            /* 🌟 ROOT TAB TOP BAR: Brand Logo + Screen Pill */
-            <>
+            /* 🌟 ROOT TAB TOP BAR: Brand Logo + Screen Pill + Live Audit Sync Indicator */
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
@@ -492,12 +494,34 @@ export default function MainDashboard({ onLogout }) {
                 </div>
                 <div>
                   <div className="text-sm font-extrabold leading-none text-slate-900">Q.S.C.</div>
-                  <div className="text-xs font-medium text-emerald-700 mt-0.5 truncate max-w-[140px]">
+                  <div className="text-xs font-medium text-emerald-700 mt-0.5 truncate max-w-[130px] sm:max-w-[180px]">
                     {currentUser.name}
                   </div>
                 </div>
               </button>
-            </>
+
+              {/* 🌟 Live Audit Auto-Sync Status Badge in Global TopBar */}
+              {screen === "audit" && isLiveAuditActive && auditSyncStatus && auditSyncStatus !== "idle" && (
+                <div className="flex items-center ml-auto mr-1 animate-in fade-in zoom-in-95">
+                  {auditSyncStatus === "saving" ? (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-bold text-amber-700 shadow-2xs animate-pulse">
+                      <Loader2 size={13} className="animate-spin text-amber-600" />
+                      <span>Syncing...</span>
+                    </div>
+                  ) : auditSyncStatus === "error" ? (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 shadow-2xs">
+                      <AlertCircle size={13} className="text-rose-600" />
+                      <span>Sync Failed</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-bold text-[#0F6659] shadow-2xs">
+                      <CheckCircle2 size={13} className="text-[#0F6659]" />
+                      <span>Synced</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Right Side: Clickable Profile Avatar (Opens Profile Modal) */}
