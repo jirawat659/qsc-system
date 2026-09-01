@@ -27,6 +27,18 @@
     font-family: inherit;
     letter-spacing: -0.005em;
   }
+
+  /* ป้องกัน Double-tap to zoom บนหน้าจอสัมผัส และเพิ่มความเร็วในการตอบสนองการกด */
+  button, input, select, textarea, a {
+    touch-action: manipulation;
+  }
+}
+
+/* 📱 ป้องกัน iOS Safari และ Mobile Browser ไม่ให้ Auto-Zoom ขณะแตะพิมพ์ (Focus) ใน Input / Select / Textarea */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ปรับขนาดตัวหนังสือระดับย่อยให้อ่านสบายตาและเป็นมาตรฐาน */
