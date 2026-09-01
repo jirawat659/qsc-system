@@ -751,7 +751,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           <div className="p-4 rounded-3xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-900">📷 1. อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
+                <span className="text-xs font-bold text-slate-900">📷 อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${allInspectionPhotos.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
                   {allInspectionPhotos.length > 0 ? `${allInspectionPhotos.length} รูปภาพที่แนบ` : 'ไม่มีรูปภาพแนบ'}
                 </span>
@@ -813,7 +813,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           <div className="p-4 rounded-3xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-900">🛠️ 2. อัลบั้มรูปหลักฐานการแก้ไข (CAP After-Photos)</span>
+                <span className="text-xs font-bold text-slate-900">🛠️ อัลบั้มรูปหลักฐานการแก้ไข (CAP After-Photos)</span>
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
                   {Object.keys(capSubmissions).length > 0 ? `${Object.keys(capSubmissions).length} รูปส่งแก้ไข` : 'รอส่งมอบหลักฐาน'}
                 </span>

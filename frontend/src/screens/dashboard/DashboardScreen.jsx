@@ -64,19 +64,19 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
 
       {open && (
         <div
-          className="absolute right-0 mt-1.5 rounded-xl border bg-white shadow-lg overflow-hidden z-50"
-          style={{ borderColor: c.border, minWidth: 168 }}
+          className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95"
         >
           {options.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-3 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+              className={`w-full text-left px-3.5 py-2.5 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
                 opt.value === value ? "bg-[#0F6659] text-white" : "text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {opt.label}
+              <span>{opt.label}</span>
+              {opt.value === value && <CheckCircle2 size={13} className="text-white shrink-0" />}
             </button>
           ))}
         </div>
