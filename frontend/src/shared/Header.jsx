@@ -2,7 +2,7 @@ import React from "react";
 import { ChevronLeft } from "lucide-react";
 import { TopBarContext } from "../context/TopBarContext";
 
-export default function Header({ title, onBack, subtitle, action }) {
+export default function Header({ title, onBack, subtitle, action, isAudit = false }) {
   const { setSubHeader } = React.useContext(TopBarContext);
   const onBackRef = React.useRef(onBack);
   onBackRef.current = onBack;
@@ -17,6 +17,7 @@ export default function Header({ title, onBack, subtitle, action }) {
         title,
         subtitle,
         action,
+        isAudit,
         onBack: hasBack ? () => {
           if (onBackRef.current) onBackRef.current();
         } : null
@@ -25,7 +26,7 @@ export default function Header({ title, onBack, subtitle, action }) {
         if (setSubHeader) setSubHeader(null);
       };
     }
-  }, [title, subtitle, hasBack, action, setSubHeader]);
+  }, [title, subtitle, hasBack, action, isAudit, setSubHeader]);
 
   if (!title && !onBack) return null;
 

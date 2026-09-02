@@ -5,7 +5,7 @@ import {
   MapPin, Navigation, Search, Sparkles, ChevronRight, ChevronLeft, CheckCircle2,
   XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock,
   ClipboardList, Check, Loader2, Save, ShieldAlert, CheckCheck,
-  RefreshCw, AlertTriangle, X, Cloud
+  RefreshCw, AlertTriangle, X
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -59,7 +59,7 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
   );
 };
 
-// ✍️ Touch & Mouse High-DPI Digital Signature Pad
+// ✍️ Touch & Mouse High-DPI Digital Signature Pad — เปิดเป็น Modal เต็มจอเวลาเซ็น (ไม่เซ็นในหน้าเดิม)
 function SignaturePadCanvas({ onDone, onCancel }) {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -237,26 +237,28 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
           value={signatoryName || ''}
           onChange={(e) => onNameChange(e.target.value)}
           placeholder={placeholderName}
-          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs"
+          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs ios-zoom-fix-xs"
         />
       )}
 
-      {showModal && (
+      {showModal && typeof document !== "undefined" && createPortal(
         <SignaturePadCanvas
           onCancel={() => setShowModal(false)}
           onDone={(dataUrl) => {
             onSignChange(dataUrl);
             setShowModal(false);
           }}
-        />
+        />,
+        document.body
       )}
     </div>
   );
 }
 
+
+
 export default function LiveAuditScreen({
   preselectedPlan,
-  fromScreen,
   onClearPlan,
   onBack,
   currentUser: propUser,
@@ -274,13 +276,16 @@ export default function LiveAuditScreen({
   const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? locations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
   const targetFormId = preselectedPlan?.surveyFormId;
 
+  // 🎯 Find draft strictly matching THIS branch (locationId) and form
   const matchedDraftRecord = useMemo(() => {
-    if (preselectedPlan?.isNewAudit) return null;
+    if (preselectedPlan?.isNewAudit) return null; // New audit NEVER uses existing draft
 
+    // If preselectedPlan itself is the draft and explicitly requested resume
     if (preselectedPlan?.isResume && (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers)) {
       return preselectedPlan;
     }
 
+    // If this is not a resume request (e.g. user clicked "เริ่มตรวจตามแผนงาน" on a fresh plan), do NOT load draft
     if (preselectedPlan && !preselectedPlan.isResume) {
       return null;
     }
@@ -303,6 +308,7 @@ export default function LiveAuditScreen({
     return found || null;
   }, [preselectedPlan, targetLocationId, targetFormId, activeDrafts, activeDraft, locations]);
 
+  // Parse draft payload ONLY if it matched THIS branch
   const parsedDraftPayload = useMemo(() => {
     if (!matchedDraftRecord) return null;
 
@@ -317,6 +323,7 @@ export default function LiveAuditScreen({
       return matchedDraftRecord;
     }
 
+    // Check localStorage scoped by locationId
     if (targetLocationId) {
       try {
         const localKey = `qsc_draft_${targetLocationId}_${targetFormId || 1}`;
@@ -341,6 +348,8 @@ export default function LiveAuditScreen({
     (preselectedPlan.locationId || preselectedPlan.locationName || preselectedPlan.unit)
   );
 
+  // Step flow: select-unit -> select-form -> audit
+  // 🌟 หากเป็นการเปิดฉบับร่างค้างตรวจ หรือตามแผนงาน ให้ข้ามไปหน้า 'audit' ทันที!
   const [step, setStep] = useState(() => {
     if (isResumeDraft || isFromAssignedPlan) return "audit";
     return "select-unit";
@@ -376,6 +385,7 @@ export default function LiveAuditScreen({
   const [photos, setPhotos] = useState(isResumeDraft ? (parsedDraftPayload?.photos || {}) : {});
   const [comments, setComments] = useState(isResumeDraft ? (parsedDraftPayload?.comments || {}) : {});
   const [openComments, setOpenComments] = useState({});
+  const [openNoteId, setOpenNoteId] = useState(null);
   const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
   const [auditorName, setAuditorName] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
@@ -421,6 +431,7 @@ export default function LiveAuditScreen({
   }, []);
 
   const auditorOptions = useMemo(() => {
+    // กรองเฉพาะผู้ใช้งานที่มีสิทธิ์ตรวจ: AUDITOR, ADMIN, STANDARD
     const allowedRoles = ['AUDITOR', 'ADMIN', 'STANDARD'];
     const filtered = usersList.filter(u => {
       const rCode = (u.roleCode || u.role?.code || u.role || '').toUpperCase();
@@ -446,7 +457,6 @@ export default function LiveAuditScreen({
       setAuditorName(currentUser.fullName || currentUser.name);
     }
   }, [currentUser]);
-
   const [auditType, setAuditType] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditType) {
       const t = parsedDraftPayload.auditType.toLowerCase();
@@ -465,7 +475,10 @@ export default function LiveAuditScreen({
     return "";
   });
   const [extraNote, setExtraNote] = useState(isResumeDraft ? (parsedDraftPayload?.extraNote || "") : "");
-  const [syncStatus, setSyncStatus] = useState("idle");
+  const [detailsErrors, setDetailsErrors] = useState({});
+
+  // Auto-sync status indicator
+  const [syncStatus, setSyncStatus] = useState("idle"); // 'idle' | 'saving' | 'synced' // 'synced' | 'saving'
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
   const [highlightedQuestionId, setHighlightedQuestionId] = useState(null);
@@ -480,6 +493,7 @@ export default function LiveAuditScreen({
     if (unit?.managerName) {
       setAuditeeSignName(unit.managerName);
     }
+    // Update coordinates from unit if available
     if (unit?.latitude && unit?.longitude) {
       setUserCoords({
         latitude: unit.latitude,
@@ -488,6 +502,7 @@ export default function LiveAuditScreen({
     }
   }, [unit]);
 
+  // 📍 Request real device GPS on mount
   useEffect(() => {
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -500,6 +515,7 @@ export default function LiveAuditScreen({
           }
         },
         () => {
+          // Fallback to unit coordinates if GPS not permitted
           if (unit?.latitude && unit?.longitude) {
             setUserCoords({
               latitude: unit.latitude,
@@ -512,23 +528,38 @@ export default function LiveAuditScreen({
     }
   }, []);
 
+  // 📍 Automatic Draft Hydration Effect (Runs ONCE when draft data arrives for this specific branch)
   const hasHydratedDraftRef = useRef(false);
   useEffect(() => {
     if (parsedDraftPayload && !hasHydratedDraftRef.current && isResumeDraft) {
       hasHydratedDraftRef.current = true;
-      if (parsedDraftPayload.answers && Object.keys(parsedDraftPayload.answers).length > 0) setAnswers(parsedDraftPayload.answers);
-      if (parsedDraftPayload.photos && Object.keys(parsedDraftPayload.photos).length > 0) setPhotos(parsedDraftPayload.photos);
-      if (parsedDraftPayload.comments && Object.keys(parsedDraftPayload.comments).length > 0) setComments(parsedDraftPayload.comments);
-      if (parsedDraftPayload.staffCount) setStaffCount(parsedDraftPayload.staffCount);
-      if (parsedDraftPayload.auditorName) setAuditorName(parsedDraftPayload.auditorName);
+      if (parsedDraftPayload.answers && Object.keys(parsedDraftPayload.answers).length > 0) {
+        setAnswers(parsedDraftPayload.answers);
+      }
+      if (parsedDraftPayload.photos && Object.keys(parsedDraftPayload.photos).length > 0) {
+        setPhotos(parsedDraftPayload.photos);
+      }
+      if (parsedDraftPayload.comments && Object.keys(parsedDraftPayload.comments).length > 0) {
+        setComments(parsedDraftPayload.comments);
+      }
+      if (parsedDraftPayload.staffCount) {
+        setStaffCount(parsedDraftPayload.staffCount);
+      }
+      if (parsedDraftPayload.auditorName) {
+        setAuditorName(parsedDraftPayload.auditorName);
+      }
       if (parsedDraftPayload.auditType) {
         const t = parsedDraftPayload.auditType.toLowerCase();
         if (t === "spot" || t === "unannounced") setAuditType("spot");
         else if (t === "undercover") setAuditType("undercover");
         else if (t === "announced") setAuditType("announced");
       }
-      if (parsedDraftPayload.sectionIdx !== undefined) setSectionIdx(parsedDraftPayload.sectionIdx);
-      if (parsedDraftPayload.unit && !unit) setUnit(parsedDraftPayload.unit);
+      if (parsedDraftPayload.sectionIdx !== undefined) {
+        setSectionIdx(parsedDraftPayload.sectionIdx);
+      }
+      if (parsedDraftPayload.unit && !unit) {
+        setUnit(parsedDraftPayload.unit);
+      }
       if (parsedDraftPayload.formId && (!selectedForm || selectedForm.id !== parsedDraftPayload.formId)) {
         const foundForm = formList.find(f => f.id === parsedDraftPayload.formId);
         if (foundForm) setSelectedForm(foundForm);
@@ -538,31 +569,41 @@ export default function LiveAuditScreen({
     }
   }, [parsedDraftPayload, isResumeDraft, unit, selectedForm, formList]);
 
-  // ✅ โค้ดใหม่: เก็บฟังก์ชันไว้ใน Ref เพื่อตัดตัวแปรออกจาก Dependency และหยุดการ Render วนลูป
-  const onActiveStateChangeRef = useRef(onActiveStateChange);
-  const onSyncStatusChangeRef = useRef(onSyncStatusChange);
-
+  // 📍 GPS location tracking on mount
   useEffect(() => {
-    onActiveStateChangeRef.current = onActiveStateChange;
-    onSyncStatusChangeRef.current = onSyncStatusChange;
-  }, [onActiveStateChange, onSyncStatusChange]);
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setUserCoords({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          });
+        },
+        (err) => console.log("Using default BKK coords:", err.message),
+        { enableHighAccuracy: false, timeout: 5000 }
+      );
+    }
+  }, []);
 
+  // Inform parent whether an active live audit is happening
   useEffect(() => {
     const isActivelyAuditing = step === "audit";
-    if (onActiveStateChangeRef.current) {
-      onActiveStateChangeRef.current(isActivelyAuditing);
+    if (onActiveStateChange) {
+      onActiveStateChange(isActivelyAuditing);
     }
     return () => {
-      if (onActiveStateChangeRef.current) onActiveStateChangeRef.current(false);
+      if (onActiveStateChange) onActiveStateChange(false);
     };
-  }, [step]);
+  }, [step, onActiveStateChange]);
 
+  // 📡 Report real-time sync status to parent TopBar
   useEffect(() => {
-    if (onSyncStatusChangeRef.current) {
-      onSyncStatusChangeRef.current(step === "audit" ? syncStatus : "idle");
+    if (onSyncStatusChange) {
+      onSyncStatusChange(step === "audit" ? syncStatus : "idle");
     }
-  }, [syncStatus, step]);
+  }, [syncStatus, step, onSyncStatusChange]);
 
+  // 🔝 Always scroll window and container to top when changing steps or tabs
   const scrollToTop = () => {
     try {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -582,6 +623,7 @@ export default function LiveAuditScreen({
     };
   }, [step, activeTab]);
 
+  // ⚡ Instant Event-driven Auto-Sync to Backend & LocalStorage
   const autoSaveTimerRef = useRef(null);
   const hasUserAnswers = useMemo(() => {
     return (
@@ -590,6 +632,7 @@ export default function LiveAuditScreen({
       Object.keys(comments).length > 0 ||
       Boolean(staffCount) ||
       Boolean(extraNote) ||
+      Boolean(auditType) ||
       Object.keys(metadataValues).length > 0
     );
   }, [answers, photos, comments, staffCount, extraNote, metadataValues]);
@@ -636,10 +679,12 @@ export default function LiveAuditScreen({
 
       const draftPayloadJson = JSON.stringify(payload);
 
+      // 1. Instant localStorage cache specifically scoped to THIS location & form
       try {
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
       } catch (e) { }
 
+      // 2. Persist to SQLite Backend
       await api.put('/audit/draft', {
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
@@ -684,29 +729,43 @@ export default function LiveAuditScreen({
     }
   };
 
-  // ⚡ บันทึกทันที — ใช้ตอนมีการ "ตอบ/เลือก" ที่ชัดเจน (กดคำตอบ, เลือกไฟล์รูป,
-  // เลือก dropdown/ปุ่ม) ไม่ต้องรอ เพราะเป็น action แบบครั้งเดียวจบอยู่แล้ว
-  const saveDraftNow = (overrideData = {}) => {
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
+  // 🔄 Auto-Sync whenever any details, answers, or metadata change
+  useEffect(() => {
+    if (!unit?.id || !selectedForm?.id || step !== "audit") {
+      setSyncStatus("idle");
+      return;
     }
-    performSaveDraft(overrideData);
-  };
 
-  // ⌛ บันทึกแบบหน่วงเวลา — ใช้ตอนพิมพ์ (comment, staff count, ข้อความ ฯลฯ)
-  // รอจนหยุดพิมพ์ ~0.5 วินาทีก่อนค่อยยิงบันทึกจริง กันไม่ให้เซฟถี่เกินไปทุกตัวอักษร
-  const saveDraftDebounced = (overrideData = {}, delay = 500) => {
     setSyncStatus("saving");
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+
     autoSaveTimerRef.current = setTimeout(() => {
-      performSaveDraft(overrideData);
-    }, delay);
-  };
+      performSaveDraft();
+    }, 400);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [
+    unit,
+    selectedForm,
+    sectionIdx,
+    answers,
+    photos,
+    comments,
+    staffCount,
+    auditorName,
+    auditType,
+    extraNote,
+    metadataValues,
+    step,
+    currentUser
+  ]);
 
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
 
+  // 🌟 SORTING HIERARCHY: จัดเรียงตามระยะทาง GPS จากน้อยไปมาก สำหรับการตรวจงานใหม่
   const sortedBranchList = useMemo(() => {
     let list = [...(locations || [])];
 
@@ -724,6 +783,7 @@ export default function LiveAuditScreen({
       );
     }
 
+    // Sort by GPS distance ascending (น้อย ➔ มาก)
     return list.sort((a, b) => {
       const distA = getDistanceInMeters(userCoords.latitude, userCoords.longitude, a.latitude, a.longitude);
       const distB = getDistanceInMeters(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude);
@@ -731,6 +791,7 @@ export default function LiveAuditScreen({
     });
   }, [locations, searchBranch, userCoords, currentUser]);
 
+  // 📸 Handle Photo Upload with Client-side Compression & Multiple Photos Support
   const handlePhotoUpload = async (questionId, files) => {
     if (!files || files.length === 0) return;
     try {
@@ -741,7 +802,7 @@ export default function LiveAuditScreen({
           ? prev[questionId]
           : (prev[questionId] ? [prev[questionId]] : []);
         const next = { ...prev, [questionId]: [...existing, ...compressedUrls] };
-        saveDraftNow({ photos: next });
+        performSaveDraft({ photos: next });
         return next;
       });
     } catch (e) {
@@ -765,11 +826,12 @@ export default function LiveAuditScreen({
       } else {
         delete next[questionId];
       }
-      saveDraftNow({ photos: next });
+      performSaveDraft({ photos: next });
       return next;
     });
   };
 
+  // ⚡ Handle Answer Select with Instant Save
   const handleAnswerSelect = (questionId, val) => {
     if (highlightedQuestionId === questionId) {
       setHighlightedQuestionId(null);
@@ -777,25 +839,28 @@ export default function LiveAuditScreen({
     setAnswers(prev => {
       const next = { ...prev };
       if (next[questionId] === val) {
-        delete next[questionId];
+        delete next[questionId]; // Toggle to unselect
       } else {
         next[questionId] = val;
       }
-      // ตอบปุ๊บ เซฟทันที ไม่ต้องรอ
-      saveDraftNow({ answers: next });
+      performSaveDraft({ answers: next });
       return next;
     });
   };
 
+  // 📝 Handle Comment Change with Debounced Save
   const handleCommentChange = (questionId, val) => {
     setComments(prev => {
       const next = { ...prev, [questionId]: val };
-      // กำลังพิมพ์อยู่ รอ 0.5 วิหลังหยุดพิมพ์ค่อยเซฟ
-      saveDraftDebounced({ comments: next });
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = setTimeout(() => {
+        performSaveDraft({ comments: next });
+      }, 350);
       return next;
     });
   };
 
+  // Calculate live scores & stats (with N/A Fair Scoring & Critical Defect check)
   const scoreAnalysis = useMemo(() => {
     let earnedScore = 0;
     let maxScore = 0;
@@ -807,9 +872,10 @@ export default function LiveAuditScreen({
       (sec.items || []).forEach(q => {
         const ans = answers[q.id];
 
+        // 🌟 1. If question is marked as N/A ("ข้าม"): do not count in maxScore
         if (ans === "na") {
           naCount++;
-          return;
+          return; // Skip adding to maxScore
         }
 
         const fullScore = (q.fullScore || 10);
@@ -841,6 +907,7 @@ export default function LiveAuditScreen({
     return { earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, failedQuestions };
   }, [currentSections, answers, comments, passingScore]);
 
+  // 🌟 ตรวจสอบข้อที่ยังไม่ได้ตอบทั้งหมดในทุกหมวด
   const checkUnansweredQuestions = () => {
     const unanswered = [];
     currentSections.forEach((sec, sIdx) => {
@@ -863,6 +930,7 @@ export default function LiveAuditScreen({
 
   const highlightTimerRef = useRef(null);
 
+  // 🌟 ฟังก์ชันเลื่อนไปยังข้อที่ยังไม่ตอบ พร้อมแสดงขอบแดงและหายไปเองหลัง 3 วินาที
   const triggerHighlightQuestion = (questionId, targetSectionIdx) => {
     if (targetSectionIdx !== undefined && targetSectionIdx !== sectionIdx) {
       setSectionIdx(targetSectionIdx);
@@ -876,13 +944,16 @@ export default function LiveAuditScreen({
       }
     }, 150);
 
+    // 🌟 แสดงขอบแดงชั่วคราว (3 วินาที) แล้วหายไปเองโดยอัตโนมัติ
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = setTimeout(() => {
       setHighlightedQuestionId(null);
     }, 3000);
   };
 
+  // 🌟 ตรวจสอบความถูกต้องและครบถ้วนของทุกหมวดหมู่ (Tab 1, Tab 2, Tab 3) ก่อนส่งผลตรวจ
   const validateEntireAuditForm = () => {
+    // 1️⃣ ตรวจสอบ Tab 1: ข้อมูลการตรวจ (Audit Details)
     for (const field of activeMetadataFields) {
       if (!field.required) continue;
 
@@ -924,6 +995,7 @@ export default function LiveAuditScreen({
       }
     }
 
+    // 2️⃣ ตรวจสอบ Tab 2: รายการตรวจทุกหมวดหมู่ (Checklist Questions)
     const missing = checkUnansweredQuestions();
     if (missing.length > 0) {
       setActiveTab(2);
@@ -933,6 +1005,7 @@ export default function LiveAuditScreen({
       return false;
     }
 
+    // 3️⃣ ตรวจสอบ Tab 3: การลงชื่อรับทราบผลตรวจ (Signatures)
     if (!auditeeSignName?.trim()) {
       setActiveTab(3);
       alert("⚠️ กรุณาระบุชื่อ-นามสกุลของผู้รับการตรวจ / ผจก.สาขา");
@@ -954,6 +1027,7 @@ export default function LiveAuditScreen({
     return true;
   };
 
+  // 🛑 Final Submit Handler
   const handleFinalSubmit = async () => {
     if (!validateEntireAuditForm()) {
       setShowConfirmModal(false);
@@ -963,6 +1037,7 @@ export default function LiveAuditScreen({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
+      // 📍 Capture End GPS Coordinates on Submit
       let endLat = userCoords.latitude;
       let endLng = userCoords.longitude;
 
@@ -971,7 +1046,9 @@ export default function LiveAuditScreen({
           const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
           endLat = pos.coords.latitude;
           endLng = pos.coords.longitude;
-        } catch (e) { }
+        } catch (e) {
+          // fallback to userCoords
+        }
       }
 
       const responses = [];
@@ -1055,7 +1132,26 @@ export default function LiveAuditScreen({
     }
   };
 
-  // 🗑️ Discard Draft & Reset
+  const goNext = () => {
+    // 🌟 หากยังไม่ใช่หมวดสุดท้าย ("หมวดถัดไป") ➔ เปลี่ยนหมวดได้อิสระ ไม่ต้องแสดงขอบแดง
+    if (sectionIdx < currentSections.length - 1) {
+      setSectionIdx(sectionIdx + 1);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    // 🌟 เฉพาะตอนอยู่ที่ปุ่มสุดท้าย ("ตรวจสอบและส่งผลตรวจ") ➔ จึงตรวจสอบว่าตอบครบทุกข้อหรือยัง
+    const missing = checkUnansweredQuestions();
+    if (missing.length > 0) {
+      const firstMissing = missing[0];
+      triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
+      return;
+    }
+
+    setShowConfirmModal(true); // Open Final Review & Confirmation Modal
+  };
+
+  // 🗑️ Discard Draft & Reset (ลบแบบร่างถาวรและกลับหน้าหลัก)
   const confirmDiscardDraft = async () => {
     try {
       const targetLocId = unit?.id || preselectedPlan?.locationId;
@@ -1077,6 +1173,7 @@ export default function LiveAuditScreen({
       console.warn("Discard draft warning:", e);
     }
 
+    // เคลียร์ State ฟอร์ม
     setAnswers({});
     setPhotos({});
     setComments({});
@@ -1084,60 +1181,38 @@ export default function LiveAuditScreen({
     setSyncStatus("idle");
     setShowDiscardConfirmModal(false);
 
-    if (fromScreen && onBack) {
-      onBack();
-    } else {
-      setUnit(null);
-      setStep("select-unit");
-    }
+    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขา (select-unit)
+    if (setUnit) setUnit(null);
+    setStep("select-unit");
   };
 
   const handleDiscardDraft = () => {
     setShowDiscardConfirmModal(true);
   };
 
-  // 🌟 Dynamic Breadcrumbs
-  const breadcrumbItems = useMemo(() => {
-    return [
-      {
-        label: "ตรวจประเมินหน้างาน (Live Audit)",
-        onClick: step !== "select-unit" ? () => {
-          if (fromScreen && onBack) {
-            onBack();
-          } else {
-            setStep("select-unit");
-            setUnit(null);
-          }
-        } : onClearPlan,
-      },
-      ...(unit
-        ? [
-            {
-              label: unit.fullName || unit.name,
-              onClick: step === "audit" ? () => {
-                setStep("select-form");
-              } : undefined,
-            },
-          ]
-        : []),
-      ...(step === "audit" && selectedForm
-        ? [
-            {
-              label: selectedForm.title || "แบบฟอร์ม",
-            },
-          ]
-        : []),
-    ];
-  }, [step, unit, selectedForm, fromScreen, onBack, onClearPlan]);
+  const goPrevSection = () => {
+    setSectionIdx(Math.max(0, sectionIdx - 1));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // ════════════════════════════════════════════════════════════════════════════
-  // STEP 1: SELECT UNIT
+  // STEP 1: SELECT UNIT (IN-PROGRESS FIRST + DISTANCE ASCENDING)
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "select-unit") {
+    const draftCount = activeDraft ? 1 : 0;
+
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16">
-        {/* 1. Breadcrumbs อยู่เหนือช่องค้นหา */}
-        <Breadcrumbs items={breadcrumbItems} />
+        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+        <div className="space-y-1">
+          <Breadcrumbs
+            items={[
+              { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
+              { label: "เลือกสาขา" },
+            ]}
+          />
+          <p className="text-xs text-slate-500 font-medium px-1">เลือกสาขาเพื่อเริ่มตรวจประเมินคุณภาพ</p>
+        </div>
 
         {/* Search Box */}
         <div className="relative">
@@ -1221,7 +1296,17 @@ export default function LiveAuditScreen({
   if (step === "select-form") {
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto">
-        <Breadcrumbs items={breadcrumbItems} />
+        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+        <div className="space-y-1">
+          <Breadcrumbs
+            items={[
+              { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
+              { label: "เลือกสาขา", onClick: () => setStep("select-unit") },
+              { label: "เลือกฟอร์ม" },
+            ]}
+          />
+          <p className="text-xs text-slate-500 font-medium px-1">เลือกฟอร์มเพื่อเริ่มตรวจประเมินคุณภาพ</p>
+        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           {formList.map((f) => (
@@ -1265,6 +1350,7 @@ export default function LiveAuditScreen({
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "audit") {
     const handleProceedToSection = () => {
+      // Validate all required metadata fields
       for (const field of activeMetadataFields) {
         if (!field.required) continue;
 
@@ -1299,62 +1385,40 @@ export default function LiveAuditScreen({
       setShowConfirmModal(true);
     };
 
-    const handleHeaderBack = () => {
-      if (fromScreen && onBack) {
-        onBack();
-      } else {
-        setStep("select-form");
-      }
-    };
-
     return (
       <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20">
         <Header
-          title={unit?.fullName || unit?.name}
-          subtitle={selectedForm?.title}
-          onBack={handleHeaderBack}
-          action={(
-            <div className="flex items-center gap-2">
-              {/* Sync Status Badge */}
-              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-all ${
-                syncStatus === "saving" 
-                  ? "bg-amber-50 text-amber-700 border-amber-200" 
-                  : syncStatus === "error"
-                  ? "bg-rose-50 text-rose-700 border-rose-200"
-                  : "bg-emerald-50 text-[#0F6659] border-emerald-200"
-              }`}>
-                {syncStatus === "saving" ? (
-                  <>
-                    <Loader2 size={12} className="animate-spin text-amber-600 shrink-0" />
-                    <span className="hidden sm:inline">กำลังบันทึก...</span>
-                  </>
-                ) : syncStatus === "error" ? (
-                  <>
-                    <Cloud size={12} className="text-rose-600 shrink-0" />
-                    <span>บันทึกล้มเหลว</span>
-                  </>
-                ) : (
-                  <>
-                    <Check size={12} className="text-[#0F6659] shrink-0 stroke-[2.5]" />
-                    <span className="hidden sm:inline">บันทึกร่างแล้ว</span>
-                  </>
-                )}
+          isAudit
+          title="การตรวจแบบฟอร์ม"//{unit?.fullName || unit?.name}
+          subtitle="การตรวจมาตรฐานคุณภาพขององค์กร"//{selectedForm?.title}
+          onBack={() => {
+            // 🌟 ถ้ามาจากการกด "resume draft / เริ่มตรวจ" ตรงๆ (เช่นจากหน้ารายงานผลการตรวจ)
+            // ผู้ใช้ไม่เคยผ่านหน้า "เลือกฟอร์ม" มาก่อน ไม่ควรพากลับไปหน้านั้น ให้ออกจาก Live Audit กลับไปหน้าที่มาทันที (คลิกเดียว)
+            if (isResumeDraft || isFromAssignedPlan) {
+              if (onBack) onBack(true);
+              return;
+            }
+            setStep("select-form");
+          }}
+          action={syncStatus !== "idle" ? (
+            syncStatus === "saving" ? (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-bold text-amber-700 shadow-2xs animate-pulse">
+                <Loader2 size={13} className="animate-spin text-amber-600" />
+                <span>Syncing...</span>
               </div>
-
-              {/* Discard Draft Button */}
-              <button
-                type="button"
-                onClick={handleDiscardDraft}
-                title="ยกเลิกและล้างข้อมูลฉบับร่าง"
-                className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 border border-slate-200 hover:border-rose-200 transition-colors text-xs font-bold cursor-pointer active:scale-95"
-              >
-                <Trash2 size={13} className="shrink-0" />
-                <span className="hidden sm:inline">ยกเลิกแบบร่าง</span>
-              </button>
-            </div>
-          )}
+            ) : syncStatus === "error" ? (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 shadow-2xs">
+                <AlertCircle size={13} className="text-rose-600" />
+                <span>Sync Failed</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-bold text-[#0F6659] shadow-2xs">
+                <CheckCircle2 size={13} className="text-[#0F6659]" />
+                <span>Synced</span>
+              </div>
+            )
+          ) : null}
         />
-
         {/* Sticky Top Header Card */}
         <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2.5 pb-2 px-3 sm:px-4 shadow-2xs border-b border-slate-200">
           <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
@@ -1403,7 +1467,7 @@ export default function LiveAuditScreen({
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-2 text-[11px] sm:text-xs font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${activeTab === tab.id
+                className={`flex-1 py-2 text-[11px] sm:text-xs font-extrabold rounded-xl flex items-center justify-center gap-1.5 transition-all ${activeTab === tab.id
                     ? "bg-[#0F6659] text-white shadow-md"
                     : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
@@ -1422,6 +1486,7 @@ export default function LiveAuditScreen({
               <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>
 
               {activeMetadataFields.map((field) => {
+                // System field: Auditor
                 if (field.id === "auditor" || field.type === "auditor") {
                   return (
                     <div key={field.id}>
@@ -1434,7 +1499,7 @@ export default function LiveAuditScreen({
                           onChange={(e) => {
                             const val = e.target.value;
                             setAuditorName(val);
-                            saveDraftNow({ auditorName: val });
+                            performSaveDraft({ auditorName: val });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 rounded-xl border border-slate-200 outline-none font-bold text-slate-800 bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10 cursor-pointer"
                         >
@@ -1451,6 +1516,7 @@ export default function LiveAuditScreen({
                   );
                 }
 
+                // System field: Audit Type
                 if (field.id === "audit_type") {
                   const opts = Array.isArray(field.options) && field.options.length > 0
                     ? field.options
@@ -1470,7 +1536,7 @@ export default function LiveAuditScreen({
                               type="button"
                               onClick={() => {
                                 setAuditType(key);
-                                saveDraftNow({ auditType: key });
+                                performSaveDraft({ auditType: key });
                               }}
                               className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isSelected
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
@@ -1486,6 +1552,7 @@ export default function LiveAuditScreen({
                   );
                 }
 
+                // System field: Staff Count
                 if (field.id === "staff_count") {
                   return (
                     <div key={field.id} className="w-full">
@@ -1500,7 +1567,7 @@ export default function LiveAuditScreen({
                           onChange={(e) => {
                             const val = e.target.value;
                             setStaffCount(val);
-                            saveDraftDebounced({ staffCount: val });
+                            performSaveDraft({ staffCount: val });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
@@ -1515,6 +1582,7 @@ export default function LiveAuditScreen({
 
                 const currentVal = metadataValues[field.id];
 
+                // Number field with custom unit
                 if (field.type === "number") {
                   return (
                     <div key={field.id}>
@@ -1530,7 +1598,7 @@ export default function LiveAuditScreen({
                           onChange={(e) => {
                             const next = { ...metadataValues, [field.id]: e.target.value };
                             setMetadataValues(next);
-                            saveDraftDebounced({ metadataValues: next });
+                            performSaveDraft({ metadataValues: next });
                           }}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
@@ -1545,6 +1613,7 @@ export default function LiveAuditScreen({
                   );
                 }
 
+                // Date Picker field
                 if (field.type === "date") {
                   return (
                     <div key={field.id}>
@@ -1554,17 +1623,14 @@ export default function LiveAuditScreen({
                       <input
                         type="date"
                         value={currentVal || ""}
-                        onChange={(e) => {
-                          const next = { ...metadataValues, [field.id]: e.target.value };
-                          setMetadataValues(next);
-                          saveDraftNow({ metadataValues: next });
-                        }}
+                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                         className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
                       />
                     </div>
                   );
                 }
 
+                // Time Picker field
                 if (field.type === "time") {
                   return (
                     <div key={field.id}>
@@ -1574,17 +1640,14 @@ export default function LiveAuditScreen({
                       <input
                         type="time"
                         value={currentVal || ""}
-                        onChange={(e) => {
-                          const next = { ...metadataValues, [field.id]: e.target.value };
-                          setMetadataValues(next);
-                          saveDraftNow({ metadataValues: next });
-                        }}
+                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                         className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
                       />
                     </div>
                   );
                 }
 
+                // Select / Choice Badges field
                 if (field.type === "select") {
                   const opts = Array.isArray(field.options) ? field.options : [];
                   const isSmall = opts.length <= 4;
@@ -1599,11 +1662,7 @@ export default function LiveAuditScreen({
                             <button
                               key={opt}
                               type="button"
-                              onClick={() => {
-                                const next = { ...metadataValues, [field.id]: opt };
-                                setMetadataValues(next);
-                                saveDraftNow({ metadataValues: next });
-                              }}
+                              onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: opt }))}
                               className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${currentVal === opt
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -1616,11 +1675,7 @@ export default function LiveAuditScreen({
                       ) : (
                         <select
                           value={currentVal || ""}
-                          onChange={(e) => {
-                            const next = { ...metadataValues, [field.id]: e.target.value };
-                            setMetadataValues(next);
-                            saveDraftNow({ metadataValues: next });
-                          }}
+                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                           className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         >
                           <option value="">-- เลือก --</option>
@@ -1633,6 +1688,7 @@ export default function LiveAuditScreen({
                   );
                 }
 
+                // Toggle Switch field
                 if (field.type === "toggle") {
                   const isTrue = Boolean(currentVal);
                   return (
@@ -1645,11 +1701,7 @@ export default function LiveAuditScreen({
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          const next = { ...metadataValues, [field.id]: !isTrue };
-                          setMetadataValues(next);
-                          saveDraftNow({ metadataValues: next });
-                        }}
+                        onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: !isTrue }))}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${isTrue
                             ? 'bg-[#0F6659] text-white shadow-2xs'
                             : 'bg-slate-200 text-slate-600'
@@ -1661,6 +1713,7 @@ export default function LiveAuditScreen({
                   );
                 }
 
+                // Text / Note field (Unified text & multi-line note)
                 return (
                   <div key={field.id}>
                     <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -1669,11 +1722,7 @@ export default function LiveAuditScreen({
                     <textarea
                       rows={2}
                       value={currentVal || ""}
-                      onChange={(e) => {
-                        const next = { ...metadataValues, [field.id]: e.target.value };
-                        setMetadataValues(next);
-                        saveDraftDebounced({ metadataValues: next });
-                      }}
+                      onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                       placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
                       className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
                     />
@@ -1688,6 +1737,18 @@ export default function LiveAuditScreen({
               >
                 ไปที่รายการตรวจทั้งหมด <ChevronRight size={16} />
               </button>
+              {hasUserAnswers && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardDraft}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    ยกเลิกและลบแบบร่างทั้งหมด
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1762,7 +1823,7 @@ export default function LiveAuditScreen({
                                 <label
                                   className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                     }`}
-                                  title="แนบรูปถ่าย"
+                                  title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
                                 >
                                   <input
                                     type="file"
@@ -1788,6 +1849,7 @@ export default function LiveAuditScreen({
                             </h4>
                           </div>
 
+                          {/* 📸 Horizontal Photo Gallery */}
                           {hasPhoto && (
                             <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
                               {questionPhotos.map((imgUrl, imgIdx) => (
@@ -1806,6 +1868,7 @@ export default function LiveAuditScreen({
                                   </span>
                                 </div>
                               ))}
+                              {/* Add More Photos Quick Button inside gallery */}
                               <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
                                 <input
                                   type="file"
@@ -1863,10 +1926,22 @@ export default function LiveAuditScreen({
               ))}
 
               <div className="pt-4">
-                <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2 cursor-pointer">
+                <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2">
                   ไปที่การลงชื่อและส่งผล <ChevronRight size={16} />
                 </button>
               </div>
+              {hasUserAnswers && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardDraft}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    ยกเลิกและลบแบบร่างทั้งหมด
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1879,10 +1954,10 @@ export default function LiveAuditScreen({
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
-                  onNameChange={setAuditeeSignName}
+                  //onNameChange={setAuditeeSignName}
                   onSignChange={setAuditeeSignature}
                   signatureUrl={auditeeSignature}
-                  placeholderName="ระบุชื่อ-นามสกุล..."
+                  //placeholderName="ระบุชื่อ-นามสกุล..."
                 />
 
                 <SignaturePad
@@ -1918,11 +1993,24 @@ export default function LiveAuditScreen({
               <button
                 type="button"
                 onClick={handleFinalSubmitTab3}
-                className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95 flex items-center justify-center gap-2 transition-all"
               >
                 <CheckCircle2 size={18} />
                 บันทึกและส่งผลตรวจประเมิน
               </button>
+
+              {hasUserAnswers && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={handleDiscardDraft}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-400 hover:text-red-600 transition-colors py-2 px-4 rounded-xl hover:bg-red-50"
+                  >
+                    <Trash2 size={14} />
+                    ยกเลิกและลบแบบร่างทั้งหมด
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1980,8 +2068,8 @@ export default function LiveAuditScreen({
                 <p className="text-xs text-slate-500 font-medium mt-1 px-2">ข้อมูลที่ตรวจค้างไว้ของสาขานี้จะถูกลบทั้งหมด</p>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-2">
-                <button onClick={() => setShowDiscardConfirmModal(false)} className="py-3 px-4 rounded-2xl bg-slate-100 text-slate-700 font-bold text-xs cursor-pointer">ย้อนกลับ</button>
-                <button onClick={confirmDiscardDraft} className="py-3 px-4 rounded-2xl bg-rose-600 text-white font-bold text-xs shadow-md cursor-pointer">ยืนยันลบ</button>
+                <button onClick={() => setShowDiscardConfirmModal(false)} className="py-3 px-4 rounded-2xl bg-slate-100 text-slate-700 font-bold text-xs">ย้อนกลับ</button>
+                <button onClick={confirmDiscardDraft} className="py-3 px-4 rounded-2xl bg-rose-600 text-white font-bold text-xs shadow-md">ยืนยันลบ</button>
               </div>
             </div>
           </div>,

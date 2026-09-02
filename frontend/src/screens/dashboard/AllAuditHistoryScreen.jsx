@@ -525,36 +525,24 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
   };
 
-  const handleTriggerAudit = (record) => {
-    if (onStartAudit) {
-      onStartAudit(record);
-    } else {
-      setActiveDirectPlan(record);
-      window.dispatchEvent(new CustomEvent('app:start-audit', { detail: record }));
-    }
-  };
-
   const handleTriggerResume = (record) => {
-    if (onResumeDraft) {
-      onResumeDraft(record);
-    } else if (onStartAudit) {
-      onStartAudit({ ...record, isResume: true });
-    } else {
-      setActiveDirectPlan({ ...record, isResume: true });
-      window.dispatchEvent(new CustomEvent('app:start-audit', { detail: { ...record, isResume: true } }));
-    }
-  };
+  setActiveDirectPlan({ ...record, isResume: true });
+};
+
+const handleTriggerAudit = (record) => {
+  setActiveDirectPlan(record);
+};
 
   if (activeDirectPlan) {
-    return (
-      <LiveAuditScreen
-        preselectedPlan={activeDirectPlan}
-        onClearPlan={() => setActiveDirectPlan(null)}
-        onBack={() => setActiveDirectPlan(null)}
-        onCompleteAudit={() => setActiveDirectPlan(null)}
-      />
-    );
-  }
+  return (
+    <LiveAuditScreen
+      preselectedPlan={activeDirectPlan}
+      onClearPlan={() => setActiveDirectPlan(null)}
+      onBack={() => setActiveDirectPlan(null)} // 👈 เมื่อกดย้อนกลับ จะสั่งเคลียร์ค่าและกลับมาที่ตารางรายงานผลตรวจทันที 100%
+      onCompleteAudit={() => setActiveDirectPlan(null)}
+    />
+  );
+}
 
   if (selectedBranch) {
     return (
@@ -577,28 +565,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
   return (
     <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12" style={{ fontFamily: sans }}>
-      
-      {/* ── Top Header ── */}
-      {onBack && (
-        <Header
-          title={title}
-          subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจ ${baseLogs.length} รอบตรวจ`}
-          onBack={onBack}
-          action={
-            onStartNewAudit && (
-              <button
-                type="button"
-                onClick={onStartNewAudit}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
-              >
-                <Plus size={14} />
-                <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
-                <span className="sm:hidden">นอกแผน</span>
-              </button>
-            )
-          }
-        />
-      )}
 
       {!onBack && (
         <div className="flex items-center justify-between pb-1 px-1">
