@@ -221,6 +221,9 @@ namespace QSC.Api.Data
                 Console.WriteLine($"[DatabaseSeeder] Role NavConfig backfill warning: {ex.Message}");
             }
 
+            // Ensure Brand, LocationBrand, and UserBrand data is always synchronized
+            EnsureBrandAndUserBrandData(context);
+
             // Check if already seeded (never wipe existing data if database is already initialized)
             if (!forceRecreate && context.Roles.Any())
             {
@@ -348,28 +351,28 @@ namespace QSC.Api.Data
             // ==========================================
             var defaultPasswordHash = BCrypt.Net.BCrypt.HashPassword("1234");
 
-            var adminUser = new User { Username = "admin", PasswordHash = defaultPasswordHash, FullName = "ผู้ดูแลระบบสูงสุด (System Admin)", RoleId = adminRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorSomchai = new User { Username = "somchai", PasswordHash = defaultPasswordHash, FullName = "คุณสมชาย ใจดี (Lead Auditor)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorSarah = new User { Username = "sarah", PasswordHash = defaultPasswordHash, FullName = "Sarah Wong (Lead QA Auditor)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorJohn = new User { Username = "john", PasswordHash = defaultPasswordHash, FullName = "John Doe (Senior QA Auditor)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorKrit = new User { Username = "krit", PasswordHash = defaultPasswordHash, FullName = "นายกฤษณ์ พร้อมใจ (Regional QA)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorMike = new User { Username = "miketan", PasswordHash = defaultPasswordHash, FullName = "Mike Tan (Field QA Auditor)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorAnan = new User { Username = "anan", PasswordHash = defaultPasswordHash, FullName = "นายอนันต์ รักษ์ดี (Southern QA)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var auditorSomchaiK = new User { Username = "somchaik", PasswordHash = defaultPasswordHash, FullName = "นายสมชาย ขจรเกียรติ (Eastern QA)", RoleId = auditorRole.Id, BranchScope = "ALL", MustChangePassword = false };
+            var adminUser = new User { Username = "admin", PasswordHash = defaultPasswordHash, FullName = "ผู้ดูแลระบบสูงสุด (System Admin - ทุกแบรนด์)", RoleId = adminRole.Id, BranchScope = "ALL", BrandScope = "ALL", MustChangePassword = false };
+            var auditorSomchai = new User { Username = "somchai", PasswordHash = defaultPasswordHash, FullName = "คุณสมชาย ใจดี (Lead QA - Urban Burger)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditorSarah = new User { Username = "sarah", PasswordHash = defaultPasswordHash, FullName = "Sarah Wong (Lead QA - Cafe Luna)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditorJohn = new User { Username = "john", PasswordHash = defaultPasswordHash, FullName = "John Doe (Senior QA - Artisan Bakery)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditorKrit = new User { Username = "krit", PasswordHash = defaultPasswordHash, FullName = "นายกฤษณ์ พร้อมใจ (Regional QA - ทุกแบรนด์)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "ALL", MustChangePassword = false };
+            var auditorMike = new User { Username = "miketan", PasswordHash = defaultPasswordHash, FullName = "Mike Tan (Field QA - Urban Burger)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditorAnan = new User { Username = "anan", PasswordHash = defaultPasswordHash, FullName = "นายอนันต์ รักษ์ดี (Southern QA - Urban Burger)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditorSomchaiK = new User { Username = "somchaik", PasswordHash = defaultPasswordHash, FullName = "นายสมชาย ขจรเกียรติ (Eastern QA - Artisan Bakery)", RoleId = auditorRole.Id, BranchScope = "ALL", BrandScope = "SPECIFIC", MustChangePassword = false };
             
-            var standardKanda = new User { Username = "kanda", PasswordHash = defaultPasswordHash, FullName = "นางกานดา มาตรฐานดี (QA Director)", RoleId = standardRole.Id, BranchScope = "ALL", MustChangePassword = false };
-            var execDavid = new User { Username = "david", PasswordHash = defaultPasswordHash, FullName = "Mr. David Chen (Chief Operating Officer)", RoleId = execRole.Id, BranchScope = "ALL", MustChangePassword = false };
+            var standardKanda = new User { Username = "kanda", PasswordHash = defaultPasswordHash, FullName = "นางกานดา มาตรฐานดี (QA Director - ทุกแบรนด์)", RoleId = standardRole.Id, BranchScope = "ALL", BrandScope = "ALL", MustChangePassword = false };
+            var execDavid = new User { Username = "david", PasswordHash = defaultPasswordHash, FullName = "Mr. David Chen (Chief Operating Officer - ทุกแบรนด์)", RoleId = execRole.Id, BranchScope = "ALL", BrandScope = "ALL", MustChangePassword = false };
 
             // Store Managers
-            var auditeeSiam = new User { Username = "auditee_siam", PasswordHash = defaultPasswordHash, FullName = "นายสมชาย ธนากร (ผจก. สาขาสยามพารากอน)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeeAri = new User { Username = "auditee_ari", PasswordHash = defaultPasswordHash, FullName = "นายเคน วรพจน์ (ผจก. สาขาอารีย์)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeeSukhumvit = new User { Username = "auditee_sukhumvit", PasswordHash = defaultPasswordHash, FullName = "นายวิชัย รัตนะ (ผจก. สาขาสุขุมวิท 24)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeeBangna = new User { Username = "auditee_bangna", PasswordHash = defaultPasswordHash, FullName = "น.ส.ณัฐพร สุขเกษม (ผจก. สาขาเมกาบางนา)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeeLadprao = new User { Username = "auditee_ladprao", PasswordHash = defaultPasswordHash, FullName = "น.ส.นิภา เกษมสุข (ผจก. สาขาเซ็นทรัลลาดพร้าว)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeeChiangmai = new User { Username = "auditee_chiangmai", PasswordHash = defaultPasswordHash, FullName = "นายพงษ์พันธ์ จันทร์ดี (ผจก. สาขาเซ็นทรัลเชียงใหม่)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeePhuket = new User { Username = "auditee_phuket", PasswordHash = defaultPasswordHash, FullName = "นายชูศักดิ์ บุญเรือง (ผจก. สาขาเซ็นทรัลภูเก็ต)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeePattaya = new User { Username = "auditee_pattaya", PasswordHash = defaultPasswordHash, FullName = "นางสายใจ บุญช่วย (ผจก. สาขาเซ็นทรัลพัทยา)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
-            var auditeeRayong = new User { Username = "auditee_rayong", PasswordHash = defaultPasswordHash, FullName = "นายธนาคาร มงคล (ผจก. สาขาระยอง)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeSiam = new User { Username = "auditee_siam", PasswordHash = defaultPasswordHash, FullName = "นายสมชาย ธนากร (ผจก. Urban Burger - สยามพารากอน)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeAri = new User { Username = "auditee_ari", PasswordHash = defaultPasswordHash, FullName = "นายเคน วรพจน์ (ผจก. Cafe Luna - อารีย์)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeSukhumvit = new User { Username = "auditee_sukhumvit", PasswordHash = defaultPasswordHash, FullName = "นายวิชัย รัตนะ (ผจก. Urban Burger - สุขุมวิท 24)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeBangna = new User { Username = "auditee_bangna", PasswordHash = defaultPasswordHash, FullName = "น.ส.ณัฐพร สุขเกษม (ผจก. Urban Burger - เมกาบางนา)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeLadprao = new User { Username = "auditee_ladprao", PasswordHash = defaultPasswordHash, FullName = "น.ส.นิภา เกษมสุข (ผจก. Urban Burger - เซ็นทรัลลาดพร้าว)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeChiangmai = new User { Username = "auditee_chiangmai", PasswordHash = defaultPasswordHash, FullName = "นายพงษ์พันธ์ จันทร์ดี (ผจก. Urban Burger - เซ็นทรัลเชียงใหม่)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeePhuket = new User { Username = "auditee_phuket", PasswordHash = defaultPasswordHash, FullName = "นายชูศักดิ์ บุญเรือง (ผจก. Urban Burger - เซ็นทรัลภูเก็ต)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeePattaya = new User { Username = "auditee_pattaya", PasswordHash = defaultPasswordHash, FullName = "นางสายใจ บุญช่วย (ผจก. Artisan Bakery - เซ็นทรัลพัทยา)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
+            var auditeeRayong = new User { Username = "auditee_rayong", PasswordHash = defaultPasswordHash, FullName = "นายธนาคาร มงคล (ผจก. Artisan Bakery - ระยอง)", RoleId = auditeeRole.Id, BranchScope = "SPECIFIC", BrandScope = "SPECIFIC", MustChangePassword = false };
 
             context.Users.AddRange(
                 adminUser, auditorSomchai, auditorSarah, auditorJohn, auditorKrit, auditorMike, auditorAnan, auditorSomchaiK,
@@ -501,6 +504,26 @@ namespace QSC.Api.Data
                 new UserLocation { UserId = auditeeAri.Id, LocationId = locations[11].Id },
                 new UserLocation { UserId = auditeePattaya.Id, LocationId = locations[19].Id },
                 new UserLocation { UserId = auditeeRayong.Id, LocationId = locations[20].Id }
+            );
+            context.SaveChanges();
+
+            // Link User Brands (Auditors & Store Managers mapped to specific brands)
+            context.UserBrands.AddRange(
+                new UserBrand { UserId = auditorSomchai.Id, BrandId = brandDefs[0].Id },  // Urban Burger
+                new UserBrand { UserId = auditorMike.Id, BrandId = brandDefs[0].Id },     // Urban Burger
+                new UserBrand { UserId = auditorAnan.Id, BrandId = brandDefs[0].Id },     // Urban Burger
+                new UserBrand { UserId = auditorSarah.Id, BrandId = brandDefs[1].Id },    // Cafe Luna
+                new UserBrand { UserId = auditorJohn.Id, BrandId = brandDefs[2].Id },     // Artisan Bakery
+                new UserBrand { UserId = auditorSomchaiK.Id, BrandId = brandDefs[2].Id }, // Artisan Bakery
+                new UserBrand { UserId = auditeeSiam.Id, BrandId = brandDefs[0].Id },
+                new UserBrand { UserId = auditeeSukhumvit.Id, BrandId = brandDefs[0].Id },
+                new UserBrand { UserId = auditeeBangna.Id, BrandId = brandDefs[0].Id },
+                new UserBrand { UserId = auditeeLadprao.Id, BrandId = brandDefs[0].Id },
+                new UserBrand { UserId = auditeeChiangmai.Id, BrandId = brandDefs[0].Id },
+                new UserBrand { UserId = auditeePhuket.Id, BrandId = brandDefs[0].Id },
+                new UserBrand { UserId = auditeeAri.Id, BrandId = brandDefs[1].Id },
+                new UserBrand { UserId = auditeePattaya.Id, BrandId = brandDefs[2].Id },
+                new UserBrand { UserId = auditeeRayong.Id, BrandId = brandDefs[2].Id }
             );
             context.SaveChanges();
 
@@ -783,6 +806,166 @@ namespace QSC.Api.Data
                 new CapTaskComment { CapTaskId = cap7.Id, SenderId = auditorJohn.Id, SenderRole = "QA", Message = "ตรวจเช็คหน้างานรอบย่อยเรียบร้อย อนุมัติปิดงาน CAP ครับ", CreatedAt = now.AddDays(-5) }
             );
             context.SaveChanges();
+        }
+
+        /// <summary>
+        /// ซิงค์ข้อมูล Brand, LocationBrand, และ UserBrand ให้สมบูรณ์เสมอ แม้ฐานข้อมูลจะมีข้อมูลอยู่เดิมแล้ว
+        /// ช่วยให้ Admin/Auditor ทดสอบการแยกข้อมูลตามแบรนด์ (Brand Scope & Filtering) ได้ทันที
+        /// </summary>
+        public static void EnsureBrandAndUserBrandData(AppDbContext context)
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+
+                // 1. Ensure Brands exist
+                var existingBrands = context.Brands.ToList();
+                var brandDefs = new[]
+                {
+                    new Brand { Code = "UB", Name = "Urban Burger", Description = "เบอร์เกอร์และอาหารฟาสต์ฟู้ดพรีเมียม", CreatedAt = now },
+                    new Brand { Code = "CL", Name = "Cafe Luna", Description = "คาเฟ่เครื่องดื่ม ขนมหวาน และกาแฟ Specialty", CreatedAt = now },
+                    new Brand { Code = "AB", Name = "Artisan Bakery", Description = "เบเกอรี่ ขนมปังอบสด และครัวซองต์ฝรั่งเศส", CreatedAt = now },
+                    new Brand { Code = "CS", Name = "Central Supply", Description = "โรงงานผลิต ครัวกลาง และศูนย์กระจายสินค้า", CreatedAt = now },
+                    new Brand { Code = "QSCH", Name = "QSC Holding", Description = "สำนักงานใหญ่และศูนย์สนับสนุนองค์กร", CreatedAt = now }
+                };
+
+                bool brandsAdded = false;
+                foreach (var def in brandDefs)
+                {
+                    if (!existingBrands.Any(b => b.Code == def.Code || b.Name == def.Name))
+                    {
+                        context.Brands.Add(def);
+                        brandsAdded = true;
+                    }
+                }
+                if (brandsAdded) context.SaveChanges();
+
+                var allBrands = context.Brands.ToList();
+                var ubBrand = allBrands.FirstOrDefault(b => b.Code == "UB");
+                var clBrand = allBrands.FirstOrDefault(b => b.Code == "CL");
+                var abBrand = allBrands.FirstOrDefault(b => b.Code == "AB");
+
+                if (ubBrand == null || clBrand == null || abBrand == null) return;
+
+                // 2. Ensure LocationBrands exist for all active locations
+                var existingLocBrands = context.LocationBrands.ToList();
+                var locations = context.Locations.ToList();
+                bool locBrandsAdded = false;
+
+                foreach (var loc in locations)
+                {
+                    if (string.Equals(loc.Code, "HQ-01", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    if (loc.Code.StartsWith("PLANT") || loc.Code.StartsWith("CK"))
+                    {
+                        var sharedBrands = new[] { ubBrand, clBrand, abBrand };
+                        foreach (var b in sharedBrands)
+                        {
+                            if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == b.Id))
+                            {
+                                context.LocationBrands.Add(new LocationBrand
+                                {
+                                    LocationId = loc.Id,
+                                    BrandId = b.Id,
+                                    IsPrimary = (b.Id == ubBrand.Id)
+                                });
+                                locBrandsAdded = true;
+                            }
+                        }
+                    }
+                    else if (loc.Code.StartsWith("UB") || (loc.BrandName != null && loc.BrandName.Contains("Urban")))
+                    {
+                        if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == ubBrand.Id))
+                        {
+                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = ubBrand.Id, IsPrimary = true });
+                            locBrandsAdded = true;
+                        }
+                    }
+                    else if (loc.Code.StartsWith("CL") || (loc.BrandName != null && loc.BrandName.Contains("Luna")))
+                    {
+                        if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == clBrand.Id))
+                        {
+                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = clBrand.Id, IsPrimary = true });
+                            locBrandsAdded = true;
+                        }
+                    }
+                    else if (loc.Code.StartsWith("AB") || (loc.BrandName != null && loc.BrandName.Contains("Artisan")))
+                    {
+                        if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == abBrand.Id))
+                        {
+                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = abBrand.Id, IsPrimary = true });
+                            locBrandsAdded = true;
+                        }
+                    }
+                }
+                if (locBrandsAdded) context.SaveChanges();
+
+                // 3. Ensure UserBrand assignments and BrandScope for testing
+                var users = context.Users.ToList();
+                var existingUserBrands = context.UserBrands.ToList();
+                bool usersUpdated = false;
+
+                void MapUserToBrand(string username, int brandId, string newTitle)
+                {
+                    var u = users.FirstOrDefault(x => x.Username == username);
+                    if (u != null)
+                    {
+                        if (u.BrandScope != "SPECIFIC") { u.BrandScope = "SPECIFIC"; usersUpdated = true; }
+                        if (u.FullName != newTitle) { u.FullName = newTitle; usersUpdated = true; }
+                        if (!existingUserBrands.Any(ub => ub.UserId == u.Id && ub.BrandId == brandId))
+                        {
+                            context.UserBrands.Add(new UserBrand { UserId = u.Id, BrandId = brandId });
+                            usersUpdated = true;
+                        }
+                    }
+                }
+
+                void SetUserAllBrands(string username, string newTitle)
+                {
+                    var u = users.FirstOrDefault(x => x.Username == username);
+                    if (u != null)
+                    {
+                        if (u.BrandScope != "ALL") { u.BrandScope = "ALL"; usersUpdated = true; }
+                        if (u.FullName != newTitle) { u.FullName = newTitle; usersUpdated = true; }
+                    }
+                }
+
+                // Auditors with specific brands
+                MapUserToBrand("somchai", ubBrand.Id, "คุณสมชาย ใจดี (Lead QA - Urban Burger)");
+                MapUserToBrand("sarah", clBrand.Id, "Sarah Wong (Lead QA - Cafe Luna)");
+                MapUserToBrand("john", abBrand.Id, "John Doe (Senior QA - Artisan Bakery)");
+                MapUserToBrand("miketan", ubBrand.Id, "Mike Tan (Field QA - Urban Burger)");
+                MapUserToBrand("anan", ubBrand.Id, "นายอนันต์ รักษ์ดี (Southern QA - Urban Burger)");
+                MapUserToBrand("somchaik", abBrand.Id, "นายสมชาย ขจรเกียรติ (Eastern QA - Artisan Bakery)");
+
+                // Auditors / Admins with ALL brands
+                SetUserAllBrands("admin", "ผู้ดูแลระบบสูงสุด (System Admin - ทุกแบรนด์)");
+                SetUserAllBrands("krit", "นายกฤษณ์ พร้อมใจ (Regional QA - ทุกแบรนด์)");
+                SetUserAllBrands("kanda", "นางกานดา มาตรฐานดี (QA Director - ทุกแบรนด์)");
+                SetUserAllBrands("david", "Mr. David Chen (COO - ทุกแบรนด์)");
+
+                // Auditees / Store Managers
+                MapUserToBrand("auditee_siam", ubBrand.Id, "นายสมชาย ธนากร (ผจก. Urban Burger - สยามพารากอน)");
+                MapUserToBrand("auditee_sukhumvit", ubBrand.Id, "นายวิชัย รัตนะ (ผจก. Urban Burger - สุขุมวิท 24)");
+                MapUserToBrand("auditee_bangna", ubBrand.Id, "น.ส.ณัฐพร สุขเกษม (ผจก. Urban Burger - เมกาบางนา)");
+                MapUserToBrand("auditee_ladprao", ubBrand.Id, "น.ส.นิภา เกษมสุข (ผจก. Urban Burger - เซ็นทรัลลาดพร้าว)");
+                MapUserToBrand("auditee_chiangmai", ubBrand.Id, "นายพงษ์พันธ์ จันทร์ดี (ผจก. Urban Burger - เซ็นทรัลเชียงใหม่)");
+                MapUserToBrand("auditee_phuket", ubBrand.Id, "นายชูศักดิ์ บุญเรือง (ผจก. Urban Burger - เซ็นทรัลภูเก็ต)");
+                MapUserToBrand("auditee_ari", clBrand.Id, "นายเคน วรพจน์ (ผจก. Cafe Luna - อารีย์)");
+                MapUserToBrand("auditee_pattaya", abBrand.Id, "นางสายใจ บุญช่วย (ผจก. Artisan Bakery - เซ็นทรัลพัทยา)");
+                MapUserToBrand("auditee_rayong", abBrand.Id, "นายธนาคาร มงคล (ผจก. Artisan Bakery - ระยอง)");
+
+                if (usersUpdated)
+                {
+                    context.SaveChanges();
+                }
+
+                Console.WriteLine("[DatabaseSeeder] EnsureBrandAndUserBrandData: Brand scope and mappings verified successfully!");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] Brand backfill warning: {ex.Message}");
+            }
         }
     }
 }

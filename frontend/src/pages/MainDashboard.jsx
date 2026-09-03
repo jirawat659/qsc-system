@@ -61,6 +61,25 @@ export default function MainDashboard({ onLogout }) {
     if (!selectedBrandId) return locations;
     return locations.filter(l => l.locationBrands?.some(lb => lb.brandId === selectedBrandId));
   }, [locations, selectedBrandId]);
+
+  const visibleLocationIds = useMemo(() => {
+    return new Set(visibleLocations.map(l => l.id));
+  }, [visibleLocations]);
+
+  const visibleAuditRecords = useMemo(() => {
+    if (!selectedBrandId) return auditRecords;
+    return auditRecords.filter(r => visibleLocationIds.has(r.locationId));
+  }, [auditRecords, selectedBrandId, visibleLocationIds]);
+
+  const visibleSchedules = useMemo(() => {
+    if (!selectedBrandId) return schedules;
+    return schedules.filter(s => visibleLocationIds.has(s.locationId));
+  }, [schedules, selectedBrandId, visibleLocationIds]);
+
+  const visibleCapTasks = useMemo(() => {
+    if (!selectedBrandId) return capTasks;
+    return capTasks.filter(c => visibleLocationIds.has(c.locationId));
+  }, [capTasks, selectedBrandId, visibleLocationIds]);
   
   const [schedules, setSchedules] = useState([]);
   const [forms, setForms] = useState([]);
@@ -363,15 +382,23 @@ export default function MainDashboard({ onLogout }) {
 
   const dataContextValue = React.useMemo(() => ({
     currentUser,
-    locations, setLocations,
+    allLocations: locations,
+    locations: visibleLocations,
     visibleLocations,
     brands, selectedBrandId, setSelectedBrandId,
-    schedules, setSchedules,
+    allSchedules: schedules,
+    schedules: visibleSchedules,
+    visibleSchedules,
     forms, setForms,
     activeDraft, setActiveDraft,
     activeDrafts, setActiveDrafts,
-    capTasks, setCapTasks,
-    auditRecords, setAuditRecords,
+    allCapTasks: capTasks,
+    capTasks: visibleCapTasks,
+    visibleCapTasks,
+    allAuditRecords: auditRecords,
+    auditRecords: visibleAuditRecords,
+    visibleAuditRecords,
+    setLocations, setSchedules, setCapTasks, setAuditRecords,
     refreshData,
     isLoadingData,
     dataFetchError
@@ -379,7 +406,8 @@ export default function MainDashboard({ onLogout }) {
     currentUser, locations, schedules, forms,
     activeDraft, activeDrafts, capTasks, auditRecords,
     refreshData, isLoadingData, dataFetchError,
-    visibleLocations, brands, selectedBrandId
+    visibleLocations, visibleAuditRecords, visibleSchedules, visibleCapTasks,
+    brands, selectedBrandId
   ]);
 
   return (
@@ -560,6 +588,22 @@ export default function MainDashboard({ onLogout }) {
                     </div>
                   </div>
                 </button>
+
+                {brands.length > 1 && (
+                  <div className="flex items-center min-w-0 max-w-[130px] sm:max-w-[170px] shrink">
+                    <select
+                      value={selectedBrandId || ''}
+                      onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
+                      className="w-full px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 focus:border-[#0F6659] outline-none cursor-pointer truncate shadow-2xs"
+                      title="เลือกแบรนด์ที่ต้องการแสดง"
+                    >
+                      <option value="">ทุกแบรนด์</option>
+                      {brands.filter(b => b.isActive).map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <button
                   type="button"
