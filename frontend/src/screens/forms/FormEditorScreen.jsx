@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import {
   FileText, Plus, Trash2, Edit3, GripVertical, Check, X,
   AlertTriangle, ShieldAlert, Sparkles, ChevronDown, ChevronUp,
-  Layers, CheckCircle2, ArrowUpDown, Info, Tag, SlidersHorizontal, Loader2
+  Layers, CheckCircle2, ArrowUpDown, Info, Tag, SlidersHorizontal, Loader2, Store
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
