@@ -179,7 +179,41 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!reason.trim()) {
-      setError("กรุณาระบุเหตุผลในการแก้ไขบันทึกผลตรวจ");
+      setError("กรุณาระบุเหตุผลภาพรวมในการแก้ไขผลตรวจ");
+      return;
+    }
+
+    // 🌟 ตรวจสอบว่าข้อที่มีการแก้ไข ถูกระบุคอมเมนต์ครบทุกข้อหรือไม่
+    const invalidEditedItems = (record?.responses || []).filter((res) => {
+      const itemId = res.surveyItemId || res.surveyItem?.id;
+      if (!itemId) return false;
+      if (!isQuestionEdited(itemId)) return false;
+      const note = answersState[itemId]?.notes?.trim();
+      return !note;
+    });
+
+    if (invalidEditedItems.length > 0) {
+      // บังคับเปิดแถบคอมเมนต์ของทุกข้อที่ยังไม่ได้ระบุ
+      setExpandedNotes((prev) => {
+        const next = { ...prev };
+        invalidEditedItems.forEach((res) => {
+          const itemId = res.surveyItemId || res.surveyItem?.id;
+          next[itemId] = true;
+        });
+        return next;
+      });
+
+      setError(`กรุณาระบุคอมเมนต์สำหรับทุกข้อที่มีการแก้ไข (${invalidEditedItems.length} ข้อที่ยังไม่ได้ระบุ) ก่อนบันทึก`);
+
+      // เลื่อนจอไปโฟกัสข้อแรกที่ยังไม่ระบุคอมเมนต์
+      const firstInvalidId = invalidEditedItems[0].surveyItemId || invalidEditedItems[0].surveyItem?.id;
+      setTimeout(() => {
+        const el = document.getElementById(`note-input-${firstInvalidId}`);
+        if (el) {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 50);
       return;
     }
 
@@ -243,9 +277,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 <span className="opacity-70 line-through text-[11px]">{originalScore}%</span>
                 <ArrowRight size={12} className="text-emerald-300 shrink-0" />
                 <span className="text-emerald-200 text-xs sm:text-sm font-black">{liveScoring.percent}%</span>
-                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded font-bold ${liveScoring.isPassed ? 'bg-emerald-400/30 text-emerald-100' : 'bg-rose-400/30 text-rose-100'}`}>
-                  {liveScoring.isPassed ? "✓ ผ่าน" : "ปรับปรุง"}
-                </span>
                 {liveScoring.hasCritFail && (
                   <span className="text-[10px] px-1 py-0.5 rounded bg-rose-500 text-white font-extrabold">
                     Critical ตก
@@ -285,7 +316,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
             <label className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
               <MessageSquare size={13} className="text-amber-700" />
-              <span>เหตุผลในการแก้ไขผลตรวจ <span className="text-rose-600 font-bold">* (จำเป็นต้องระบุ)</span></span>
+              <span>เหตุผลในการแก้ไขผลตรวจ <span className="text-rose-600 font-bold">*</span></span>
             </label>
             <textarea
               required
@@ -344,13 +375,16 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 const isCrit = res.isCritical !== undefined ? res.isCritical : res.surveyItem?.isCritical;
 
                 const isEdited = isQuestionEdited(itemId);
+                const isNoteMissing = isEdited && (!state.notes || !state.notes.trim());
                 const shouldShowNote = isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim());
 
                 return (
                   <div 
                     key={itemId || idx}
                     className={`p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs space-y-3 ${
-                      isEdited 
+                      isNoteMissing
+                        ? 'border-rose-300 bg-rose-50/15 ring-1 ring-rose-400/20'
+                        : isEdited 
                         ? 'border-[#0F6659]/60 bg-emerald-50/25 ring-1 ring-[#0F6659]/20' 
                         : 'border-slate-200/80 bg-white hover:border-slate-300'
                     }`}
@@ -367,8 +401,12 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                           </span>
                         )}
                         {isEdited && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                            มีการแก้ไข
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                            isNoteMissing 
+                              ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                              : 'bg-amber-50 text-amber-800 border-amber-200'
+                          }`}>
+                            {isNoteMissing ? "แก้ไขแล้ว (รอใส่เหตุผล)" : "มีการแก้ไข"}
                           </span>
                         )}
                       </div>
@@ -378,14 +416,18 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                         type="button"
                         onClick={() => toggleExpandNote(itemId)}
                         className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
-                          shouldShowNote
+                          isNoteMissing
+                            ? 'bg-rose-50 text-rose-700 border-rose-300'
+                            : shouldShowNote
                             ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                             : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
                         }`}
                         title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
                       >
                         <MessageSquare size={13} />
-                        <span>{shouldShowNote ? "ปิดคอมเมนต์" : (state.notes ? "ดูคอมเมนต์" : "คอมเมนต์")}</span>
+                        <span>
+                          {isNoteMissing ? "ต้องใส่เหตุผล *" : (shouldShowNote ? "ปิดคอมเมนต์" : (state.notes ? "ดูคอมเมนต์" : "คอมเมนต์"))}
+                        </span>
                         {state.notes && (
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                         )}
@@ -461,19 +503,34 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                       )}
                     </div>
 
-                    {/* 🌟 4. ถ้ามีกดปุ่มคอมเม้นจะแสดงแถบล่างมาให้ใส่คอมเม้นเพิ่ม */}
+                    {/* 🌟 4. ถ้ามีกดปุ่มคอมเม้นจะแสดงแถบล่างมาให้ใส่คอมเม้นเพิ่ม (เด้งขึ้นมาอัตโนมัติเมื่อแก้) */}
                     {shouldShowNote && (
-                      <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 mb-1.5">
-                          <MessageSquare size={12} className="text-[#0F6659]" />
-                          <span>{isEdited ? "ระบุเหตุผล / หมายเหตุในการแก้ไขข้อนี้:" : "คอมเมนต์ / หมายเหตุสำหรับข้อนี้:"}</span>
+                      <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                            <MessageSquare size={12} className={isEdited ? "text-amber-600" : "text-[#0F6659]"} />
+                            <span>{isEdited ? "ระบุเหตุผล / หมายเหตุในการแก้ไขข้อนี้:" : "คอมเมนต์ / หมายเหตุสำหรับข้อนี้:"}</span>
+                            {isEdited && (
+                              <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็น)</span>
+                            )}
+                          </div>
+                          {isNoteMissing && (
+                            <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
+                              บังคับระบุก่อนบันทึก
+                            </span>
+                          )}
                         </div>
                         <input
+                          id={`note-input-${itemId}`}
                           type="text"
                           value={state.notes || ""}
                           onChange={(e) => handleNoteChange(itemId, e.target.value)}
-                          placeholder="พิมพ์หมายเหตุเพิ่มเติมสำหรับข้อนี้..."
-                          className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder:text-slate-400 shadow-2xs font-sans"
+                          placeholder={isEdited ? "พิมพ์เหตุผลที่แก้ไขข้อนี้ (จำเป็นต้องระบุ)..." : "พิมพ์หมายเหตุเพิ่มเติมสำหรับข้อนี้..."}
+                          className={`w-full text-xs px-3.5 py-2.5 rounded-xl border font-sans outline-none transition-all shadow-2xs ${
+                            isNoteMissing
+                              ? 'border-rose-400 bg-rose-50/20 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-slate-800 placeholder:text-rose-400'
+                              : 'border-emerald-300 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20 text-slate-800 placeholder:text-slate-400'
+                          }`}
                           autoFocus={isEdited}
                         />
                       </div>
