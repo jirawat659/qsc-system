@@ -681,6 +681,14 @@ export default function LiveAuditScreen({
         return;
       }
 
+      const totalAnswered = Object.keys(currentAnswers).length;
+
+      // 🎯 Only persist draft when the auditor has answered at least 1 question
+      if (totalAnswered === 0) {
+        setSyncStatus("idle");
+        return;
+      }
+
       const payload = {
         unit: currentUnit,
         formId: currentForm.id,
@@ -696,7 +704,6 @@ export default function LiveAuditScreen({
         startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
       };
 
-      const totalAnswered = Object.keys(currentAnswers).length;
       const totalQuestions = (currentForm?.sections || []).reduce(
         (acc, sec) => acc + (sec.items?.length || 0), 0
       );
@@ -756,6 +763,12 @@ export default function LiveAuditScreen({
   // 🔄 Auto-Sync whenever any details, answers, or metadata change
   useEffect(() => {
     if (!unit?.id || !selectedForm?.id || step !== "audit") {
+      setSyncStatus("idle");
+      return;
+    }
+
+    const totalAnswered = Object.keys(answers || {}).length;
+    if (totalAnswered === 0) {
       setSyncStatus("idle");
       return;
     }

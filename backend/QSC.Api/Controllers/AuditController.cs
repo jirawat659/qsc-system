@@ -172,6 +172,12 @@ namespace QSC.Api.Controllers
                 (allowedBrandIds == null || location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))));
             if (!canAccessLocation) return Forbid();
 
+            // 🎯 Do not save draft if no questions have been answered
+            if (dto.TotalAnswered <= 0)
+            {
+                return Ok(new { message = "No answers yet, draft skipped", totalAnswered = 0 });
+            }
+
             int effectiveAuditorId = dto.AuditorId > 0 ? dto.AuditorId : currentUserId;
 
             var draft = await _context.AuditDrafts
