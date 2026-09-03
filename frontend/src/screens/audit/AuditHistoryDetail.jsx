@@ -339,6 +339,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         title={`ผลการตรวจ: ${locationTitle}`} 
         subtitle={`รอบตรวจวันที่ ${dateStr} · ผู้ตรวจ: ${auditorName}`} 
         onBack={onBack}
+        isAudit={true}
         action={
           <div className="flex items-center gap-2">
             {canEditAudit && (

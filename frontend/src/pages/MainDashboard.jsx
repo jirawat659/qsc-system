@@ -529,8 +529,8 @@ export default function MainDashboard({ onLogout }) {
         
         {/* 🌟 MOBILE HEADER */}
         <header className="flex lg:hidden flex-col shrink-0 px-3.5 pt-3.5 pb-3 shadow-xs sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b gap-2" style={{ borderColor: c.border }}>
-          {/* กรณี Live Audit หรือเปิดจากรายการตรวจ: ใช้แถบหัวข้อเดียวกันแทนแถบโลโก้ */}
-          {((screen === "audit" && (isLiveAuditActive || isAuditFromReportList)) || subHeader?.isAudit) ? (
+          {/* กรณี Live Audit หรือเปิดหน้ารายละเอียด/ผลตรวจที่มีปุ่มย้อนกลับ: ใช้แถบเดี่ยวที่มีปุ่มย้อนกลับแทนแถบโลโก้ */}
+          {((screen === "audit" && (isLiveAuditActive || isAuditFromReportList)) || subHeader?.isAudit || subHeader?.onBack || subHeader?.hasBack) ? (
             <div className="flex items-center justify-between gap-2 min-w-0">
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 {subHeader?.onBack && (
