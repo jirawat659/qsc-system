@@ -187,6 +187,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const [toastMessage, setToastMessage] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'section' | 'item', secIdx, itemId?, title?, text?, itemIdx? }
   const [warningModal, setWarningModal] = useState({ isOpen: false, title: '', message: '' });
+  const [saveSuccessModal, setSaveSuccessModal] = useState(false);
   const toastTimerRef = useRef(null);
 
   // Drag-to-reorder state and refs
@@ -778,11 +779,15 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       updatedAt: "วันนี้"
     };
 
-    if (onSave) {
-      onSave(savedForm);
-    }
+    setSaveSuccessModal(true);
     setIsSaving(false);
-    onBack();
+
+    setTimeout(() => {
+      if (onSave) {
+        onSave(savedForm);
+      }
+      onBack();
+    }, 2000);
   };
 
   return (
@@ -1816,6 +1821,41 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             </button>
           </div>
         </ModalWrapper>
+      )}
+
+      {/* 🌟 7. SAVE SUCCESS POPUP MODAL (แสดงกลางจอ 2 วินาที) */}
+      {saveSuccessModal && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-slate-100 flex flex-col items-center text-center space-y-4 animate-in zoom-in-95 duration-200">
+            {/* Animated Pulsing Success Icon */}
+            <div className="relative">
+              <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center text-[#0F6659] shadow-sm animate-bounce">
+                <CheckCircle2 size={36} strokeWidth={2.5} />
+              </div>
+              <div className="absolute -inset-1.5 rounded-full border-2 border-emerald-400/40 animate-ping" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-lg font-extrabold text-slate-800">บันทึกข้อมูลเสร็จแล้ว</h3>
+              <p className="text-xs sm:text-sm font-medium text-slate-500 leading-relaxed">
+                ระบบได้บันทึกการเปลี่ยนแปลงของแบบฟอร์มลงฐานข้อมูลเรียบร้อยแล้ว
+              </p>
+            </div>
+
+            {/* Progress timer bar (2s) */}
+            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden mt-1">
+              <div className="bg-[#0F6659] h-full rounded-full w-full animate-pulse" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 8. TOP FLOATING TOAST */}
+      {toastMessage && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-slate-900/90 backdrop-blur-md text-white shadow-xl border border-slate-700/50 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200">
+          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
       )}
     </div>
   );
