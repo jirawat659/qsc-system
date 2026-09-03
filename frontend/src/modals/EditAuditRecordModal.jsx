@@ -426,3 +426,4 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
   return typeof document !== "undefined" ? createPortal(modalContent, document.body) : null;
 }
+

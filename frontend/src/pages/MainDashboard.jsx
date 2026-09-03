@@ -75,7 +75,7 @@ export default function MainDashboard({ onLogout }) {
     setIsLoadingData(true);
     setDataFetchError(null);
     try {
-      const [locRes, schedRes, formRes, draftsRes, capRes, auditRes] = await Promise.allSettled([
+      const [locRes, schedRes, formRes, draftsRes, capRes, auditRes, brandRes] = await Promise.allSettled([
         api.get('/location'),
         api.get('/schedule'),
         api.get('/form'),
@@ -85,7 +85,7 @@ export default function MainDashboard({ onLogout }) {
         api.get('/brand')
       ]);
 
-      const rejectedCount = [locRes, schedRes, formRes, capRes, auditRes].filter(r => r.status === 'rejected').length;
+      const rejectedCount = [locRes, schedRes, formRes, capRes, auditRes, brandRes].filter(r => r.status === 'rejected').length;
       if (rejectedCount > 0) {
         setDataFetchError(`ไม่สามารถเชื่อมต่อดึงข้อมูลบางส่วนได้ (${rejectedCount} รายการ)`);
       }

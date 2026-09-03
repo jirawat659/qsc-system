@@ -204,3 +204,4 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
 
   return typeof document !== "undefined" ? createPortal(modalContent, document.body) : null;
 }
+
