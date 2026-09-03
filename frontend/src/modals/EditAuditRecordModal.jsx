@@ -38,7 +38,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [expandedNotes, setExpandedNotes] = useState({});
 
   const toggleExpandNote = (itemId) => {
-    setExpandedNotes(prev => ({ ...prev, [itemId]: !prev[itemId] }));
+    setExpandedNotes((prev) => {
+      const isCurrentlyOpen = prev[itemId] !== undefined
+        ? prev[itemId]
+        : (isQuestionEdited(itemId) || !!(answersState[itemId]?.notes && answersState[itemId].notes.trim()));
+      return {
+        ...prev,
+        [itemId]: !isCurrentlyOpen
+      };
+    });
   };
 
   const isQuestionEdited = (itemId) => {
@@ -140,6 +148,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         [itemId]: { ...current, isNa: false, isPassed: false, scoreGiven: 0 }
       };
     });
+    setExpandedNotes(prev => ({ ...prev, [itemId]: true }));
   };
 
   const handleSetScale = (itemId, val) => {
@@ -157,6 +166,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         }
       };
     });
+    setExpandedNotes(prev => ({ ...prev, [itemId]: true }));
   };
 
   const handleNoteChange = (itemId, val) => {
@@ -216,8 +226,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       >
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/90 shrink-0 space-y-1">
-          {/* Top Row: Icon + Title + Close Button */}
-          <div className="flex items-center justify-between gap-3">
+          {/* Top Row: Icon + Title + Score Preview (เก่า / ใหม่) + Close Button */}
+          <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-emerald-100/80 border border-emerald-300/70 flex items-center justify-center text-[#0F6659] shadow-2xs shrink-0">
                 <Edit3 size={16} />
@@ -227,14 +237,31 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
               </h3>
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors border border-slate-200/60 shadow-2xs active:scale-95 shrink-0"
-              title="ปิดหน้าต่าง"
-            >
-              <X size={15} />
-            </button>
+            {/* 🌟 คะแนนเก่า / ใหม่ แสดงบนแถบบนขวา */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#0F6659] text-white shadow-2xs text-xs font-bold" style={{ fontFamily: mono }}>
+                <span className="opacity-70 line-through text-[11px]">{originalScore}%</span>
+                <ArrowRight size={12} className="text-emerald-300 shrink-0" />
+                <span className="text-emerald-200 text-xs sm:text-sm font-black">{liveScoring.percent}%</span>
+                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded font-bold ${liveScoring.isPassed ? 'bg-emerald-400/30 text-emerald-100' : 'bg-rose-400/30 text-rose-100'}`}>
+                  {liveScoring.isPassed ? "✓ ผ่าน" : "ปรับปรุง"}
+                </span>
+                {liveScoring.hasCritFail && (
+                  <span className="text-[10px] px-1 py-0.5 rounded bg-rose-500 text-white font-extrabold">
+                    Critical ตก
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors border border-slate-200/60 shadow-2xs active:scale-95 shrink-0"
+                title="ปิดหน้าต่าง"
+              >
+                <X size={15} />
+              </button>
+            </div>
           </div>
 
           {/* Sub Row: Details (Branch Name + Record ID) */}
@@ -242,28 +269,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             <p className="text-xs text-slate-500 font-medium truncate">
               {record?.location?.name || record?.locationName || "สาขา"} · ID: #{record.id}
             </p>
-          </div>
-        </div>
-
-        {/* Live Score Sticky Bar */}
-        <div className="px-5 py-3 bg-[#0F6659] text-white flex items-center justify-between gap-3 shrink-0 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-semibold">
-            <span className="opacity-80">คะแนนจำลอง (Live Preview):</span>
-            <div className="flex items-center gap-1.5 font-bold" style={{ fontFamily: mono }}>
-              <span className="opacity-60 line-through text-xs">{originalScore}%</span>
-              <ArrowRight size={13} className="opacity-70" />
-              <span className="text-sm sm:text-base font-black text-emerald-200">{liveScoring.percent}%</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className={`px-2 py-0.5 rounded-md text-[11px] font-bold ${liveScoring.isPassed ? 'bg-emerald-400/20 text-emerald-100 border border-emerald-400/40' : 'bg-rose-400/20 text-rose-100 border border-rose-400/40'}`}>
-              {liveScoring.isPassed ? "✓ ผ่านเกณฑ์" : "⚠️ ปรับปรุง"}
-            </span>
-            {liveScoring.hasCritFail && (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-500 text-white animate-pulse">
-                Critical ตก
-              </span>
-            )}
           </div>
         </div>
 
@@ -344,127 +349,131 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 return (
                   <div 
                     key={itemId || idx}
-                    className={`p-3.5 rounded-2xl border transition-all shadow-2xs space-y-2.5 ${
+                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs space-y-3 ${
                       isEdited 
                         ? 'border-[#0F6659]/60 bg-emerald-50/25 ring-1 ring-[#0F6659]/20' 
                         : 'border-slate-200/80 bg-white hover:border-slate-300'
                     }`}
                   >
-                    {/* 🌟 เอารวมเป็นแถบเดียวกัน: เลขข้อ + คำถาม + ปุ่มตัวเลือก */}
-                    <div className="flex items-start sm:items-center justify-between gap-3">
-                      <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                        <span className="shrink-0 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono text-xs font-bold mt-0.5 sm:mt-0">
+                    {/* 🌟 1. แถวบนสุด: เลขข้อทางซ้าย / ปุ่มเปิดปิดคอมเม้นทางขวา */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-mono text-xs font-bold border border-slate-200/60 shadow-2xs">
                           #{idx + 1}
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <span className="text-xs sm:text-sm font-bold text-slate-800 leading-snug">
-                            {qText}
+                        {isCrit && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
+                            Critical
                           </span>
-                          {isCrit && (
-                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200 align-middle">
-                              Critical
-                            </span>
-                          )}
-                          {isEdited && (
-                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 align-middle">
-                              มีการแก้ไข
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Pill Toggles */}
-                      <div className="flex items-center gap-1 shrink-0">
-                        {state.type === "scale" ? (
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map((num) => (
-                              <button
-                                key={num}
-                                type="button"
-                                onClick={() => handleSetScale(itemId, num)}
-                                className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                  state.scaleScore === num
-                                    ? 'bg-[#0F6659] text-white shadow-2xs'
-                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                                }`}
-                              >
-                                {num}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleYesNo(itemId, "yes")}
-                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
-                                !state.isNa && state.isPassed
-                                  ? 'bg-emerald-600 text-white shadow-2xs'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                              }`}
-                            >
-                              <CheckCircle2 size={13} />
-                              <span>ผ่าน</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleToggleYesNo(itemId, "no")}
-                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
-                                !state.isNa && !state.isPassed
-                                  ? 'bg-rose-600 text-white shadow-2xs'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-                              }`}
-                            >
-                              <XCircle size={13} />
-                              <span>ตก</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleToggleYesNo(itemId, "na")}
-                              className={`px-2 py-1.5 rounded-xl text-xs font-bold flex items-center gap-0.5 cursor-pointer transition-all active:scale-95 ${
-                                state.isNa
-                                  ? 'bg-slate-700 text-white shadow-2xs'
-                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-400'
-                              }`}
-                              title="ไม่ประเมิน / ยกเว้นข้อนี้"
-                            >
-                              <MinusCircle size={13} />
-                              <span>N/A</span>
-                            </button>
-                          </>
                         )}
-
-                        {/* Optional button to add note manually if not edited */}
-                        {!isEdited && !shouldShowNote && (
-                          <button
-                            type="button"
-                            onClick={() => toggleExpandNote(itemId)}
-                            className="w-7 h-7 rounded-lg text-slate-400 hover:text-[#0F6659] hover:bg-emerald-50 flex items-center justify-center transition-colors cursor-pointer"
-                            title="เพิ่มหมายเหตุสำหรับข้อนี้"
-                          >
-                            <MessageSquare size={13} />
-                          </button>
+                        {isEdited && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            มีการแก้ไข
+                          </span>
                         )}
                       </div>
+
+                      {/* ปุ่มเปิดปิดคอมเมนต์ทางขวา */}
+                      <button
+                        type="button"
+                        onClick={() => toggleExpandNote(itemId)}
+                        className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
+                          shouldShowNote
+                            ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                            : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
+                        }`}
+                        title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
+                      >
+                        <MessageSquare size={13} />
+                        <span>{shouldShowNote ? "ปิดคอมเมนต์" : (state.notes ? "ดูคอมเมนต์" : "คอมเมนต์")}</span>
+                        {state.notes && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                        )}
+                      </button>
                     </div>
 
-                    {/* 🌟 ถ้ามีการแก้ จะขึ้นช่องมาให้คอมเม้นอัตโนมัติ */}
+                    {/* 🌟 2. ต่อมา: คำถามของข้อจะเรียงยาวจากซ้ายไปขวา */}
+                    <div className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed">
+                      {qText}
+                    </div>
+
+                    {/* 🌟 3. ลงมาล่างอีก: คำตอบเอาไว้สำหรับแก้ */}
+                    <div>
+                      {state.type === "scale" ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {[1, 2, 3, 4, 5].map((num) => (
+                            <button
+                              key={num}
+                              type="button"
+                              onClick={() => handleSetScale(itemId, num)}
+                              className={`flex-1 min-w-[42px] py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                state.scaleScore === num
+                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              {num}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleYesNo(itemId, "yes")}
+                            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
+                              !state.isNa && state.isPassed
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs ring-2 ring-emerald-600/20'
+                                : 'bg-slate-50 hover:bg-emerald-50 text-slate-700 border-slate-200 hover:border-emerald-200'
+                            }`}
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>ผ่าน</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleYesNo(itemId, "no")}
+                            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
+                              !state.isNa && !state.isPassed
+                                ? 'bg-rose-600 text-white border-rose-600 shadow-2xs ring-2 ring-rose-600/20'
+                                : 'bg-slate-50 hover:bg-rose-50 text-slate-700 border-slate-200 hover:border-rose-200'
+                            }`}
+                          >
+                            <XCircle size={14} />
+                            <span>ตก</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleToggleYesNo(itemId, "na")}
+                            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
+                              state.isNa
+                                ? 'bg-slate-700 text-white border-slate-700 shadow-2xs ring-2 ring-slate-700/20'
+                                : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200'
+                            }`}
+                            title="ไม่ประเมิน / ยกเว้นข้อนี้"
+                          >
+                            <MinusCircle size={14} />
+                            <span>N/A</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 🌟 4. ถ้ามีกดปุ่มคอมเม้นจะแสดงแถบล่างมาให้ใส่คอมเม้นเพิ่ม */}
                     {shouldShowNote && (
-                      <div className="pt-1 animate-in fade-in slide-in-from-top-1 duration-150">
-                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 mb-1">
+                      <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 mb-1.5">
                           <MessageSquare size={12} className="text-[#0F6659]" />
-                          <span>
-                            {isEdited ? "ระบุเหตุผล/หมายเหตุในการแก้ไขข้อนี้:" : "หมายเหตุสำหรับข้อนี้:"}
-                          </span>
+                          <span>{isEdited ? "ระบุเหตุผล / หมายเหตุในการแก้ไขข้อนี้:" : "คอมเมนต์ / หมายเหตุสำหรับข้อนี้:"}</span>
                         </div>
                         <input
                           type="text"
                           value={state.notes || ""}
                           onChange={(e) => handleNoteChange(itemId, e.target.value)}
-                          placeholder="พิมพ์หมายเหตุเพิ่มเติมสำหรับข้อนี้ (ถ้ามี)..."
-                          className="w-full text-xs px-3.5 py-2 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder:text-slate-400 shadow-2xs font-sans"
+                          placeholder="พิมพ์หมายเหตุเพิ่มเติมสำหรับข้อนี้..."
+                          className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder:text-slate-400 shadow-2xs font-sans"
                           autoFocus={isEdited}
                         />
                       </div>
