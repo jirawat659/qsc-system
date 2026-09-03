@@ -24,7 +24,7 @@ import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAN
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
-import { getFullImageUrl } from "../../config/api";
+import api, { getFullImageUrl } from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -34,10 +34,12 @@ import HistoryList from "../../shared/HistoryList";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import CapSubmissionModal from "../../modals/CapSubmissionModal";
 import ViewCapEvidenceModal from "../../modals/ViewCapEvidenceModal";
+import AuditEditLogsModal from "../../modals/AuditEditLogsModal";
+import EditAuditRecordModal from "../../modals/EditAuditRecordModal";
 
 
 export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
-  const { locations, forms = [] } = React.useContext(DataContext);
+  const { locations: allLocations, forms = [], currentUser, refreshData } = React.useContext(DataContext);
   const [activeTab, setActiveTab] = useState("responses"); // 'responses' | 'overview' | 'photos' | 'sign'
   const [capSubmissions, setCapSubmissions] = useState({});
   const [disputeSubmitted, setDisputeSubmitted] = useState(record.status === "Disputed");
@@ -45,42 +47,84 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const [viewingCap, setViewingCap] = useState(null);
   const [previewPhoto, setPreviewPhoto] = useState(null);
 
+  // 🌟 Local Record State for Immediate UI Updates on Edit
+  const [currentRecord, setCurrentRecord] = useState(record);
+  useEffect(() => {
+    setCurrentRecord(record);
+  }, [record]);
+
+  // 🛡️ Permissions & Edit Logs State
+  const canEditAudit = currentUser?.role === "ADMIN" || currentUser?.roleCode === "ADMIN" || (currentUser?.permissions || []).includes("audit.edit");
+  const [editLogsCount, setEditLogsCount] = useState(0);
+  const [showEditLogsModal, setShowEditLogsModal] = useState(false);
+  const [showEditFormModal, setShowEditFormModal] = useState(false);
+
+  const fetchEditLogs = () => {
+    if (!currentRecord?.id) return;
+    api.get(`/audit/${currentRecord.id}/edit-logs`)
+      .then(res => {
+        if (Array.isArray(res.data)) {
+          setEditLogsCount(res.data.length);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchEditLogs();
+  }, [currentRecord?.id]);
+
+  const handleSaveSuccess = async () => {
+    if (refreshData) refreshData();
+    fetchEditLogs();
+    if (currentRecord?.id) {
+      try {
+        const res = await api.get(`/audit/${currentRecord.id}`);
+        if (res.data) {
+          setCurrentRecord(res.data);
+        }
+      } catch (err) {
+        console.warn("Failed to reload audit detail:", err);
+      }
+    }
+  };
+
   // Normalized audit record attributes
-  const score = typeof record.score === "number" ? record.score : typeof record.percentageScore === "number" ? Math.round(record.percentageScore) : 0;
-  const dateStr = record.date || (record.auditDate ? new Date(record.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
-  const auditorName = record.auditor || record.auditorName || record.primaryAuditor?.fullName || "-";
-  const formTitle = record.form || record.formName || record.surveyFormTitle || record.surveyForm?.title || "-";
-  const passed = record.isPassed !== undefined ? record.isPassed : (score >= 85 && !record.hasCriticalDefect);
-  const hasCritical = record.hasCriticalDefect || (record.responses && record.responses.some(r => r.isCritical && !r.isPassed));
-  const locationTitle = unitName || record.unitFullName || record.locationName || record.location?.name || "-";
-  const managerName = record.auditeeName || record.auditeeUser?.fullName || "-";
-  const staffCount = record.staffCount || 0;
-  const auditType = (record.auditType === "unannounced" || record.auditType === "spot") 
+  const score = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
+  const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
+  const auditorName = currentRecord.auditor || currentRecord.auditorName || currentRecord.primaryAuditor?.fullName || "-";
+  const formTitle = currentRecord.form || currentRecord.formName || currentRecord.surveyFormTitle || currentRecord.surveyForm?.title || "-";
+  const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= 85 && !currentRecord.hasCriticalDefect);
+  const hasCritical = currentRecord.hasCriticalDefect || (currentRecord.responses && currentRecord.responses.some(r => r.isCritical && !r.isPassed));
+  const locationTitle = unitName || currentRecord.unitFullName || currentRecord.locationName || currentRecord.location?.name || "-";
+  const managerName = currentRecord.auditeeName || currentRecord.auditeeUser?.fullName || "-";
+  const staffCount = currentRecord.staffCount || 0;
+  const auditType = (currentRecord.auditType === "unannounced" || currentRecord.auditType === "spot") 
     ? "นอกกำหนดการ" 
-    : (record.auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ");
+    : (currentRecord.auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ");
 
   const parsedMetadataValues = useMemo(() => {
-    if (record?.metadataValues && typeof record.metadataValues === "object") {
-      return record.metadataValues;
+    if (currentRecord?.metadataValues && typeof currentRecord.metadataValues === "object") {
+      return currentRecord.metadataValues;
     }
-    if (record?.metadataValuesJson) {
+    if (currentRecord?.metadataValuesJson) {
       try {
-        return JSON.parse(record.metadataValuesJson);
+        return JSON.parse(currentRecord.metadataValuesJson);
       } catch (e) {}
     }
     return {};
-  }, [record]);
+  }, [currentRecord]);
 
   // Location and GPS Metadata
   const matchedLocation = useMemo(() => {
-    return locations.find(l => (record.locationId && l.id === record.locationId) || l.name === locationTitle || l.fullName === locationTitle);
-  }, [locations, record.locationId, locationTitle]);
+    return allLocations.find(l => (currentRecord.locationId && l.id === currentRecord.locationId) || l.name === locationTitle || l.fullName === locationTitle);
+  }, [allLocations, currentRecord.locationId, locationTitle]);
 
-  const branchAddress = record.location?.address || matchedLocation?.address || "-";
-  const startLat = record.startLatitude || matchedLocation?.latitude;
-  const startLng = record.startLongitude || matchedLocation?.longitude;
-  const endLat = record.endLatitude || matchedLocation?.latitude;
-  const endLng = record.endLongitude || matchedLocation?.longitude;
+  const branchAddress = currentRecord.location?.address || matchedLocation?.address || "-";
+  const startLat = currentRecord.startLatitude || matchedLocation?.latitude;
+  const startLng = currentRecord.startLongitude || matchedLocation?.longitude;
+  const endLat = currentRecord.endLatitude || matchedLocation?.latitude;
+  const endLng = currentRecord.endLongitude || matchedLocation?.longitude;
   const formatTimeWithSeconds = (d, fallback) => {
     if (!d) return fallback;
     let s = String(d).trim();
@@ -92,18 +136,18 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Bangkok' }) + ' น.';
   };
 
-  const startedTimeStr = formatTimeWithSeconds(record.startedAt, "-");
-  const submittedTimeStr = formatTimeWithSeconds(record.submittedAt, "-");
+  const startedTimeStr = formatTimeWithSeconds(currentRecord.startedAt, "-");
+  const submittedTimeStr = formatTimeWithSeconds(currentRecord.submittedAt, "-");
 
   // Dynamic Form Question Breakdown
   const formBreakdown = useMemo(() => {
     // If real responses exist from DB API
-    if (record.responses && Array.isArray(record.responses) && record.responses.length > 0) {
+    if (currentRecord.responses && Array.isArray(currentRecord.responses) && currentRecord.responses.length > 0) {
       // 1. Check if we have the matching Form schema in DataContext
       const matchedForm = (forms || []).find(f => 
-        (record.surveyFormId && f.id === record.surveyFormId) ||
-        (record.formId && f.id === record.formId) ||
-        (f.title && (f.title === record.surveyFormTitle || f.title === record.formName || f.title === record.form))
+        (currentRecord.surveyFormId && f.id === currentRecord.surveyFormId) ||
+        (currentRecord.formId && f.id === currentRecord.formId) ||
+        (f.title && (f.title === currentRecord.surveyFormTitle || f.title === currentRecord.formName || f.title === currentRecord.form))
       );
 
       if (matchedForm && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
@@ -291,7 +335,26 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
-      <Header title={`ผลการตรวจ: ${locationTitle}`} subtitle={`รอบตรวจวันที่ ${dateStr} · ผู้ตรวจ: ${auditorName}`} onBack={onBack} />
+      <Header 
+        title={`ผลการตรวจ: ${locationTitle}`} 
+        subtitle={`รอบตรวจวันที่ ${dateStr} · ผู้ตรวจ: ${auditorName}`} 
+        onBack={onBack}
+        action={
+          <div className="flex items-center gap-2">
+            {canEditAudit && (
+              <button
+                type="button"
+                onClick={() => setShowEditFormModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-slate-700 hover:text-[#0F6659] border border-slate-200 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer group"
+                title="แก้ไขผลการตรวจ (ต้องระบุเหตุผล)"
+              >
+                <Edit3 size={13} className="text-[#0F6659] group-hover:scale-110 transition-transform" />
+                <span>แก้ไขผลตรวจ</span>
+              </button>
+            )}
+          </div>
+        }
+      />
       
       {/* 🌟 1. ALL-IN-ONE SLEEK HERO SUMMARY CARD */}
       <div className="rounded-3xl p-4 sm:p-5 bg-white border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
@@ -306,6 +369,17 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <span className={`text-xs font-bold px-2.5 py-0.5 rounded-lg ${passed ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200'}`}>
                 {passed ? "✓ ผ่านเกณฑ์มาตรฐาน" : hasCritical ? "🚨 ตกเกณฑ์วิกฤต (Critical)" : "⚠️ ต้องส่งงานแก้ไข (CAP)"}
               </span>
+              {editLogsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowEditLogsModal(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 transition-all cursor-pointer active:scale-95 shadow-2xs group"
+                  title="คลิกเพื่อดูประวัติการแก้ไขย้อนหลัง"
+                >
+                  <History size={11} className="text-amber-600 group-hover:rotate-[-25deg] transition-transform" />
+                  <span>แก้ไขแล้ว ({editLogsCount})</span>
+                </button>
+              )}
             </div>
             <div className="text-xs text-slate-500 font-medium mt-0.5 space-y-0.5">
               <div>เกณฑ์ผ่าน ≥85%</div>
@@ -1054,6 +1128,21 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           </div>
         </div>
       )}
+
+      {/* 🌟 AUDIT EDIT LOGS MODAL (ประวัติการแก้ไข) */}
+      <AuditEditLogsModal
+        isOpen={showEditLogsModal}
+        onClose={() => setShowEditLogsModal(false)}
+        auditRecordId={currentRecord?.id}
+      />
+
+      {/* 🌟 EDIT AUDIT RECORD MODAL (ฟอร์มแก้ไขผลการตรวจ) */}
+      <EditAuditRecordModal
+        isOpen={showEditFormModal}
+        onClose={() => setShowEditFormModal(false)}
+        record={currentRecord}
+        onSaveSuccess={handleSaveSuccess}
+      />
     </div>
   );
 }

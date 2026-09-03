@@ -81,11 +81,13 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetDraft([FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
             int targetAuditorId = auditorId.HasValue && auditorId.Value > 0 ? auditorId.Value : currentUserId;
 
             var query = _context.AuditDrafts
                 .AsNoTracking()
                 .Include(d => d.Location)
+                    .ThenInclude(l => l!.LocationBrands)
                 .Include(d => d.SurveyForm)
                 .Where(d => d.AuditorId == targetAuditorId);
 
@@ -97,6 +99,12 @@ namespace QSC.Api.Controllers
             else if (allowedLocationIds != null)
             {
                 query = query.Where(d => allowedLocationIds.Contains(d.LocationId));
+            }
+
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(d => d.Location != null &&
+                    d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             if (surveyFormId.HasValue && surveyFormId.Value > 0)
@@ -111,17 +119,25 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetAuditorDrafts([FromQuery] int? auditorId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
             int targetAuditorId = auditorId.HasValue && auditorId.Value > 0 ? auditorId.Value : currentUserId;
 
             var query = _context.AuditDrafts
                 .AsNoTracking()
                 .Include(d => d.Location)
+                    .ThenInclude(l => l!.LocationBrands)
                 .Include(d => d.SurveyForm)
                 .Where(d => d.AuditorId == targetAuditorId || d.AuditorId == currentUserId);
 
             if (allowedLocationIds != null)
             {
                 query = query.Where(d => allowedLocationIds.Contains(d.LocationId));
+            }
+
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(d => d.Location != null &&
+                    d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             var drafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
@@ -148,6 +164,14 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> SaveDraft([FromBody] DraftSaveDto dto)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            var canAccessLocation = await _context.Locations.AnyAsync(location =>
+                location.Id == dto.LocationId &&
+                (allowedLocationIds == null || allowedLocationIds.Contains(location.Id)) &&
+                (allowedBrandIds == null || location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))));
+            if (!canAccessLocation) return Forbid();
+
             int effectiveAuditorId = dto.AuditorId > 0 ? dto.AuditorId : currentUserId;
 
             var draft = await _context.AuditDrafts
@@ -195,6 +219,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> DiscardDraft([FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
             int targetAuditorId = auditorId.HasValue && auditorId.Value > 0 ? auditorId.Value : currentUserId;
 
             var query = _context.AuditDrafts.AsQueryable();
@@ -204,6 +229,13 @@ namespace QSC.Api.Controllers
 
             if (surveyFormId.HasValue && surveyFormId.Value > 0)
                 query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
+
+            if (allowedLocationIds != null)
+                query = query.Where(d => allowedLocationIds.Contains(d.LocationId));
+
+            if (allowedBrandIds != null)
+                query = query.Where(d => d.Location != null &&
+                    d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
             if (role != "ADMIN")
             {
@@ -352,25 +384,10 @@ namespace QSC.Api.Controllers
             public List<string> ImageUrls { get; set; } = new();
         }
 
-        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
-        [HttpPost]
-        public async Task<IActionResult> SubmitAudit([FromBody] SubmitAuditDto dto)
+        // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
+        private (double TotalScore, double MaxScore, bool HasCriticalDefect, List<ComputedItemResponse> Responses, Dictionary<int, SurveyItem> AllItems) ComputeScoring(
+            SurveyForm form, List<ResponseSubmitDto> responses)
         {
-            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-
-            if (allowedLocationIds != null && !allowedLocationIds.Contains(dto.LocationId))
-            {
-                return Forbid();
-            }
-
-            var form = await _context.SurveyForms
-                .Include(f => f.Sections)
-                    .ThenInclude(s => s.Items)
-                .FirstOrDefaultAsync(f => f.Id == dto.SurveyFormId);
-
-            if (form == null) return NotFound(new { message = "ไม่พบแบบฟอร์มการตรวจ" });
-
-            // Map all items by Id for server-side scoring verification
             var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
 
             double totalScore = 0.0;
@@ -378,8 +395,7 @@ namespace QSC.Api.Controllers
             bool hasCriticalDefect = false;
             var processedResponses = new List<ComputedItemResponse>();
 
-            // 🌟 1. STRICT SERVER-SIDE SCORING COMPUTATION
-            foreach (var respDto in dto.Responses)
+            foreach (var respDto in responses)
             {
                 if (!allItems.TryGetValue(respDto.SurveyItemId, out var item)) continue;
 
@@ -390,14 +406,12 @@ namespace QSC.Api.Controllers
 
                 if (isNa)
                 {
-                    // N/A: excluded from maxScore
                     isNa = true;
                     scoreGiven = 0.0;
                     isPassed = true;
                 }
                 else if (item.QuestionType?.ToLower() == "scale")
                 {
-                    // 1..5 scale question
                     double scaleVal = 0.0;
                     if (double.TryParse(raw, out double parsedVal)) scaleVal = parsedVal;
                     else if (respDto.ScaleScore.HasValue) scaleVal = respDto.ScaleScore.Value;
@@ -418,7 +432,6 @@ namespace QSC.Api.Controllers
                 }
                 else
                 {
-                    // Yes/No question
                     bool isYes = raw == "yes" || raw == "true" || raw == "1" || respDto.IsPassed;
                     scoreGiven = isYes ? item.FullScore : 0.0;
                     isPassed = isYes;
@@ -442,6 +455,31 @@ namespace QSC.Api.Controllers
                     ImageUrls = respDto.ImageUrls ?? new List<string>()
                 });
             }
+
+            return (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems);
+        }
+
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
+        [HttpPost]
+        public async Task<IActionResult> SubmitAudit([FromBody] SubmitAuditDto dto)
+        {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            var canAccessLocation = await _context.Locations.AnyAsync(location =>
+                location.Id == dto.LocationId &&
+                (allowedLocationIds == null || allowedLocationIds.Contains(location.Id)) &&
+                (allowedBrandIds == null || location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))));
+            if (!canAccessLocation) return Forbid();
+
+            var form = await _context.SurveyForms
+                .Include(f => f.Sections)
+                    .ThenInclude(s => s.Items)
+                .FirstOrDefaultAsync(f => f.Id == dto.SurveyFormId);
+
+            if (form == null) return NotFound(new { message = "ไม่พบแบบฟอร์มการตรวจ" });
+
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
 
             double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 1) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
@@ -481,13 +519,11 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            // 🛡️ Ensure valid LocationId (Foreign Key Validation)
-            var location = await _context.Locations.FindAsync(dto.LocationId);
+            // 🛡️ Ensure valid LocationId (สิทธิ์ถูกตรวจแล้วด้านบน ห้าม fallback ไปสถานที่อื่น)
+            var location = await _context.Locations.FirstOrDefaultAsync(l => l.Id == dto.LocationId);
             if (location == null)
             {
-                location = await _context.Locations.FirstOrDefaultAsync();
-                if (location == null) return BadRequest(new { message = "ไม่พบข้อมูลสาขาในระบบ" });
-                dto.LocationId = location.Id;
+                return BadRequest(new { message = "ไม่พบข้อมูลสาขาในระบบ" });
             }
 
             // 🌟 2. ATOMIC DATABASE TRANSACTION
@@ -651,13 +687,20 @@ namespace QSC.Api.Controllers
         // ==========================================
         [HttpGet("records")]
         [HttpGet]
-        public async Task<IActionResult> GetAuditRecords([FromQuery] int? locationId, [FromQuery] int? auditorId, [FromQuery] int? limit)
+        public async Task<IActionResult> GetAuditRecords(
+            [FromQuery] int? locationId,
+            [FromQuery] int? auditorId,
+            [FromQuery] int? limit,
+            [FromQuery] int? brandId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var query = _context.AuditRecords
                 .AsNoTracking()
                 .Include(r => r.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                        .ThenInclude(lb => lb.Brand)
                 .Include(r => r.SurveyForm)
                 .Include(r => r.PrimaryAuditor)
                 .Include(r => r.AuditeeUser)
@@ -684,13 +727,36 @@ namespace QSC.Api.Controllers
                 query = query.Where(r => allowedLocationIds.Contains(r.LocationId));
             }
 
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(r => r.Location != null &&
+                    r.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
+
             if (locationId.HasValue)
             {
                 if (allowedLocationIds != null && !allowedLocationIds.Contains(locationId.Value))
                 {
                     return Ok(new List<object>());
                 }
+                if (allowedBrandIds != null)
+                {
+                    var canAccessRequestedLocation = await _context.Locations.AnyAsync(location =>
+                        location.Id == locationId.Value &&
+                        location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                    if (!canAccessRequestedLocation) return Ok(new List<object>());
+                }
                 query = query.Where(r => r.LocationId == locationId.Value);
+            }
+
+            if (brandId.HasValue)
+            {
+                if (allowedBrandIds != null && !allowedBrandIds.Contains(brandId.Value))
+                {
+                    return Ok(new List<object>());
+                }
+                query = query.Where(r => r.Location != null &&
+                    r.Location.LocationBrands.Any(lb => lb.BrandId == brandId.Value));
             }
 
             if (auditorId.HasValue) query = query.Where(r => r.PrimaryAuditorId == auditorId.Value);
@@ -708,7 +774,20 @@ namespace QSC.Api.Controllers
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,
                 locationRegion = r.Location?.Region,
-                locationBrand = r.Location?.BrandName,
+                locationBrand = r.Location?.LocationBrands
+                    .Where(lb => lb.IsPrimary)
+                    .Select(lb => lb.Brand.Name)
+                    .FirstOrDefault() ?? r.Location?.BrandName,
+                locationBrands = r.Location?.LocationBrands
+                    .OrderByDescending(lb => lb.IsPrimary)
+                    .ThenBy(lb => lb.Brand.Name)
+                    .Select(lb => new
+                    {
+                        id = lb.BrandId,
+                        name = lb.Brand.Name,
+                        isPrimary = lb.IsPrimary
+                    })
+                    .ToList(),
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 primaryAuditorId = r.PrimaryAuditorId,
@@ -766,10 +845,13 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetAuditDetail(int id)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var record = await _context.AuditRecords
                 .AsNoTracking()
                 .Include(r => r.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                        .ThenInclude(lb => lb.Brand)
                 .Include(r => r.SurveyForm)
                 .Include(r => r.PrimaryAuditor)
                 .Include(r => r.AuditeeUser)
@@ -787,8 +869,250 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
+            if (allowedBrandIds != null &&
+                (record.Location == null ||
+                 !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
+            {
+                return Forbid();
+            }
+
             return Ok(record);
+        }
+
+        // ==========================================
+        // 5. EDIT AUDIT RECORD (ต้องมีสิทธิ์ audit.edit + ระบุเหตุผลเสมอ ไม่จำกัดเวลา)
+        // ==========================================
+        public class UpdateAuditRecordDto
+        {
+            // เหตุผลการแก้ไข — บังคับกรอกทุกครั้ง ไม่งั้นแก้ไม่ได้
+            public string Reason { get; set; } = string.Empty;
+
+            public int? AuditeeUserId { get; set; }
+            public string? AuditeeNameText { get; set; }
+            public int StaffCount { get; set; } = 0;
+            public string AuditType { get; set; } = "announced";
+            public string? Notes { get; set; }
+            public string? MetadataValuesJson { get; set; }
+
+            // แก้คำตอบทั้งชุดใหม่ (คะแนนคำนวณฝั่ง server ใหม่ทั้งหมดเหมือนตอนส่งครั้งแรก)
+            public List<ResponseSubmitDto> Responses { get; set; } = new();
+        }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateAuditRecord(int id, [FromBody] UpdateAuditRecordDto dto)
+        {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            // 1) สิทธิ์ audit.edit ต้องผูกกับ role แบบ dynamic ผ่านตาราง RolePermission
+            //    (ไม่ hardcode [Authorize(Roles=...)] เพื่อให้ Admin ไปเปิด/ปิดให้ role ไหนก็ได้จากหน้า "บทบาทและสิทธิ์")
+            var hasEditPermission = await _context.RolePermissions
+                .Include(rp => rp.Role)
+                .Include(rp => rp.Permission)
+                .AnyAsync(rp => rp.Role!.Code == role && rp.Permission!.Code == "audit.edit");
+            if (!hasEditPermission) return Forbid();
+
+            // 2) บังคับกรอกเหตุผลเสมอ — ไม่มีเหตุผล = แก้ไม่ได้ (ไม่จำกัดเวลาที่แก้ไขได้)
+            if (string.IsNullOrWhiteSpace(dto.Reason))
+            {
+                return BadRequest(new { message = "กรุณาระบุเหตุผลในการแก้ไขบันทึกทุกครั้ง" });
+            }
+
+            var record = await _context.AuditRecords
+                .Include(r => r.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                .Include(r => r.SurveyForm)
+                .Include(r => r.Responses)
+                    .ThenInclude(res => res.Images)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (record == null) return NotFound();
+
+            // 3) เช็ค location/brand scope ตาม pattern เดียวกับ endpoint อื่นในระบบ
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId))
+            {
+                return Forbid();
+            }
+
+            if (allowedBrandIds != null &&
+                (record.Location == null ||
+                 !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
+            {
+                return Forbid();
+            }
+
+            var form = await _context.SurveyForms
+                .Include(f => f.Sections)
+                    .ThenInclude(s => s.Items)
+                .FirstOrDefaultAsync(f => f.Id == record.SurveyFormId);
+
+            if (form == null) return NotFound(new { message = "ไม่พบแบบฟอร์มการตรวจที่ผูกกับบันทึกนี้" });
+
+            // 4) คำนวณคะแนนใหม่ทั้งชุดฝั่ง server (ใช้ helper เดียวกับตอนส่งครั้งแรก — ห้ามเชื่อคะแนนจาก client)
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
+            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 1) : 100.0;
+            bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
+
+            // เก็บค่าก่อนแก้ไว้ทำ diff summary ลง log
+            var before = new
+            {
+                record.TotalScore,
+                record.MaxScore,
+                record.PercentageScore,
+                record.IsPassed,
+                record.HasCriticalDefect,
+                record.StaffCount,
+                record.AuditType,
+                record.Notes
+            };
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                // 🛡️ Validate AuditeeUserId ถ้าส่งมา
+                int? validAuditeeUserId = null;
+                if (dto.AuditeeUserId.HasValue && dto.AuditeeUserId.Value > 0 &&
+                    await _context.Users.AnyAsync(u => u.Id == dto.AuditeeUserId.Value))
+                {
+                    validAuditeeUserId = dto.AuditeeUserId.Value;
+                }
+
+                // อัปเดตค่าหลักของ record (LocationId / SurveyFormId / ลายเซ็น / GPS ไม่ให้แก้ผ่านช่องทางนี้
+                // เพราะเป็นหลักฐานเวลา/สถานที่จริงตอนลงพื้นที่ — ถ้าต้องการแก้ ให้แจ้งเพิ่มทีหลังได้)
+                record.AuditeeUserId = validAuditeeUserId;
+                record.AuditeeNameText = dto.AuditeeNameText;
+                record.StaffCount = dto.StaffCount;
+                record.AuditType = dto.AuditType;
+                record.Notes = dto.Notes;
+                record.MetadataValuesJson = dto.MetadataValuesJson;
+                record.TotalScore = totalScore;
+                record.MaxScore = maxScore;
+                record.PercentageScore = percentageScore;
+                record.IsPassed = isOverallPassed;
+                record.HasCriticalDefect = hasCriticalDefect;
+
+                // ลบคำตอบเดิมทั้งหมดแล้วสร้างใหม่ตามชุดที่แก้ (ง่ายและชัวร์กว่าการไล่ diff ทีละข้อ)
+                _context.AuditResponses.RemoveRange(record.Responses);
+                record.Responses.Clear();
+
+                foreach (var computedResp in processedResponses)
+                {
+                    var response = new AuditResponse
+                    {
+                        SurveyItemId = computedResp.SurveyItemId,
+                        ScoreGiven = computedResp.ScoreGiven,
+                        IsPassed = computedResp.IsPassed,
+                        IsNa = computedResp.IsNa,
+                        Notes = computedResp.Notes
+                    };
+
+                    if (computedResp.ImageUrls != null && computedResp.ImageUrls.Any())
+                    {
+                        foreach (var imgUrl in computedResp.ImageUrls)
+                        {
+                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit");
+                            response.Images.Add(new AuditResponseImage
+                            {
+                                ImageUrl = savedImgUrl,
+                                UploadedBy = currentUserId,
+                                UploadedAt = DateTime.UtcNow
+                            });
+                        }
+                    }
+
+                    record.Responses.Add(response);
+                }
+
+                // Sync แคชคะแนนล่าสุดของสาขา ถ้าบันทึกนี้เป็นบันทึกล่าสุดของสาขานั้น
+                if (record.Location != null && record.Location.LastAuditDate == record.AuditDate)
+                {
+                    record.Location.LastScore = percentageScore;
+                }
+
+                // บันทึกประวัติการแก้ไข — เก็บเหตุผลไว้เสมอ ห้ามข้าม
+                _context.AuditRecordEditLogs.Add(new AuditRecordEditLog
+                {
+                    AuditRecordId = record.Id,
+                    EditedByUserId = currentUserId,
+                    EditedAt = DateTime.UtcNow,
+                    Reason = dto.Reason.Trim(),
+                    ChangesSummaryJson = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        before,
+                        after = new
+                        {
+                            record.TotalScore,
+                            record.MaxScore,
+                            record.PercentageScore,
+                            record.IsPassed,
+                            record.HasCriticalDefect,
+                            record.StaffCount,
+                            record.AuditType,
+                            record.Notes
+                        }
+                    })
+                });
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    auditRecordId = record.Id,
+                    totalScore,
+                    maxScore,
+                    percentageScore,
+                    isPassed = isOverallPassed,
+                    hasCriticalDefect,
+                    message = "แก้ไขบันทึกการตรวจสำเร็จ บันทึกเหตุผลไว้ในประวัติแล้ว"
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                var innerMsg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                return StatusCode(500, new { message = $"เกิดข้อผิดพลาดในการแก้ไขบันทึกการตรวจ: {innerMsg}" });
+            }
+        }
+
+        // ดูประวัติการแก้ไขทั้งหมดของบันทึกตรวจ 1 รายการ (เรียงล่าสุดก่อน)
+        [HttpGet("{id:int}/edit-logs")]
+        public async Task<IActionResult> GetAuditEditLogs(int id)
+        {
+            var (_, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            var record = await _context.AuditRecords
+                .AsNoTracking()
+                .Include(r => r.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (record == null) return NotFound();
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId)) return Forbid();
+            if (allowedBrandIds != null &&
+                (record.Location == null || !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
+            {
+                return Forbid();
+            }
+
+            var logs = await _context.AuditRecordEditLogs
+                .AsNoTracking()
+                .Include(l => l.EditedByUser)
+                .Where(l => l.AuditRecordId == id)
+                .OrderByDescending(l => l.EditedAt)
+                .Select(l => new
+                {
+                    l.Id,
+                    l.EditedAt,
+                    l.Reason,
+                    editedByName = l.EditedByUser != null ? l.EditedByUser.FullName : "ผู้ใช้งาน",
+                    l.ChangesSummaryJson
+                })
+                .ToListAsync();
+
+            return Ok(logs);
         }
     }
 }
-

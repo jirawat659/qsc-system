@@ -94,6 +94,16 @@ namespace QSC.Api.Controllers
                     .ToListAsync();
             }
 
+            // Load assigned brands for specific brand scope
+            var allowedBrandIds = new List<int>();
+            if (user.BrandScope == "SPECIFIC")
+            {
+                allowedBrandIds = await _context.UserBrands
+                    .Where(ub => ub.UserId == user.Id)
+                    .Select(ub => ub.BrandId)
+                    .ToListAsync();
+            }
+
             // Generate JWT Token
             var jwtKey = _config["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!");
             var jwtIssuer = _config["Jwt:Issuer"] ?? "QscApi";
@@ -138,6 +148,8 @@ namespace QSC.Api.Controllers
                     navConfig = navConfig,
                     branchScope = user.BranchScope,
                     allowedLocationIds = allowedLocationIds,
+                    brandScope = user.BrandScope,
+                    allowedBrandIds = allowedBrandIds,
                     mustChangePassword = user.MustChangePassword,
                     permissions = permissions
                 }
@@ -226,4 +238,3 @@ namespace QSC.Api.Controllers
         }
     }
 }
-

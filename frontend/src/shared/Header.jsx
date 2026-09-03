@@ -10,23 +10,41 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
   actionRef.current = action;
   const hasBack = Boolean(onBack);
 
-  // Sync with mobile TopBarContext
+  // Sync with mobile TopBarContext without triggering infinite re-render loops
   React.useEffect(() => {
-    if (title && setSubHeader) {
-      setSubHeader({
+    if (!title || !setSubHeader) return;
+
+    const ActionComponent = () => actionRef.current;
+
+    setSubHeader(prev => {
+      if (
+        prev &&
+        prev.title === title &&
+        prev.subtitle === subtitle &&
+        prev.isAudit === isAudit &&
+        prev.hasBack === hasBack
+      ) {
+        return prev;
+      }
+
+      return {
         title,
         subtitle,
-        action,
+        action: <ActionComponent />,
         isAudit,
+        hasBack,
         onBack: hasBack ? () => {
           if (onBackRef.current) onBackRef.current();
         } : null
-      });
-      return () => {
-        if (setSubHeader) setSubHeader(null);
       };
-    }
-  }, [title, subtitle, hasBack, action, isAudit, setSubHeader]);
+    });
+
+    return () => {
+      if (setSubHeader) {
+        setSubHeader(prev => (prev?.title === title ? null : prev));
+      }
+    };
+  }, [title, subtitle, hasBack, isAudit, setSubHeader]);
 
   if (!title && !onBack) return null;
 

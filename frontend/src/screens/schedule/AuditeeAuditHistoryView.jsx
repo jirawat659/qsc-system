@@ -37,11 +37,11 @@ import ViewCapEvidenceModal from "../../modals/ViewCapEvidenceModal";
 
 
 export default function AuditeeAuditHistoryView() {
-  const { locations, auditRecords } = React.useContext(DataContext);
+  const { locations: allLocations, auditRecords } = React.useContext(DataContext);
   const [selectedAuditLog, setSelectedAuditLog] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
-  const myUnit = locations[0] || {}; // สาขาของ Auditee
+  const myUnit = allLocations[0] || {}; // สาขาของ Auditee
 
   const branchHistory = useMemo(() => {
     if (!myUnit || !myUnit.id) return [];

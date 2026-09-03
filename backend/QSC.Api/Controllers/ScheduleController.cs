@@ -37,6 +37,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetSchedules([FromQuery] int? auditorId, [FromQuery] int? locationId)
         {
             var (userId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var query = _context.AuditSchedules
                 .AsNoTracking()
@@ -88,6 +89,11 @@ namespace QSC.Api.Controllers
                     return Ok(new List<object>());
                 }
                 query = query.Where(s => s.LocationId == locationId.Value);
+            }
+            
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(s => s.Location != null && s.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             var schedules = await query.OrderByDescending(s => s.ScheduledDate).ToListAsync();

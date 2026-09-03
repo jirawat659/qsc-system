@@ -269,11 +269,11 @@ export default function LiveAuditScreen({
   onActiveStateChange,
   onSyncStatusChange
 }) {
-  const { currentUser: ctxUser, locations, forms, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
+  const { currentUser: ctxUser, locations: allLocations, visibleLocations, forms, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
   const currentUser = propUser || ctxUser;
   const formList = forms || [];
 
-  const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? locations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
+  const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
   const targetFormId = preselectedPlan?.surveyFormId;
 
   // 🎯 Find draft strictly matching THIS branch (locationId) and form
@@ -306,7 +306,7 @@ export default function LiveAuditScreen({
     });
 
     return found || null;
-  }, [preselectedPlan, targetLocationId, targetFormId, activeDrafts, activeDraft, locations]);
+  }, [preselectedPlan, targetLocationId, targetFormId, activeDrafts, activeDraft, allLocations]);
 
   // Parse draft payload ONLY if it matched THIS branch
   const parsedDraftPayload = useMemo(() => {
@@ -359,15 +359,39 @@ export default function LiveAuditScreen({
   const [searchBranch, setSearchBranch] = useState("");
   const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
 
+  const [branchPage, setBranchPage] = useState(1);
+  const branchPageSize = 10;
+
+  const [branchPageInput, setBranchPageInput] = useState("1");
+
+  useEffect(() => {
+    setBranchPage(1);
+  }, [searchBranch]);
+
+  useEffect(() => {
+    setBranchPageInput(String(branchPage));
+  }, [branchPage]);
+
+  const handleBranchPageSubmit = () => {
+    const val = parseInt(branchPageInput, 10);
+    if (!isNaN(val)) {
+      const target = Math.max(1, Math.min(totalBranchPages, val));
+      setBranchPage(target);
+      setBranchPageInput(String(target));
+    } else {
+      setBranchPageInput(String(branchPage));
+    }
+  };
+
   const [unit, setUnit] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.unit) return parsedDraftPayload.unit;
     if (isFromAssignedPlan || isResumeDraft) {
       const locId = preselectedPlan?.locationId || targetLocationId;
       const locName = preselectedPlan?.locationName || preselectedPlan?.unit;
-      return locations.find(u =>
+      return allLocations.find(u =>
         (locId && u.id === locId) ||
         (locName && (u.name === locName || u.fullName === locName || (u.fullName && u.fullName.includes(locName))))
-      ) || locations[0];
+      ) || allLocations[0];
     }
     return null;
   });
@@ -767,7 +791,7 @@ export default function LiveAuditScreen({
 
   // 🌟 SORTING HIERARCHY: จัดเรียงตามระยะทาง GPS จากน้อยไปมาก สำหรับการตรวจงานใหม่
   const sortedBranchList = useMemo(() => {
-    let list = [...(locations || [])];
+    let list = [...(visibleLocations || [])];
 
     if (currentUser?.branchScope === "SPECIFIC" && Array.isArray(currentUser.allowedLocationIds) && currentUser.allowedLocationIds.length > 0) {
       list = list.filter(u => currentUser.allowedLocationIds.includes(u.id));
@@ -789,7 +813,13 @@ export default function LiveAuditScreen({
       const distB = getDistanceInMeters(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude);
       return distA - distB;
     });
-  }, [locations, searchBranch, userCoords, currentUser]);
+  }, [visibleLocations, searchBranch, userCoords, currentUser]);
+
+  const totalBranchPages = Math.ceil(sortedBranchList.length / branchPageSize) || 1;
+  const paginatedBranchList = useMemo(() => {
+    const start = (branchPage - 1) * branchPageSize;
+    return sortedBranchList.slice(start, start + branchPageSize);
+  }, [sortedBranchList, branchPage]);
 
   // 📸 Handle Photo Upload with Client-side Compression & Multiple Photos Support
   const handlePhotoUpload = async (questionId, files) => {
@@ -1238,7 +1268,7 @@ export default function LiveAuditScreen({
 
         {/* Branch Cards List */}
         <div className="flex flex-col gap-3">
-          {sortedBranchList.map((u) => {
+          {paginatedBranchList.map((u) => {
             const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
             const distLabel = formatDistance(distMeters);
             const isPassed = u.lastScore >= 85;
@@ -1285,6 +1315,47 @@ export default function LiveAuditScreen({
               </button>
             );
           })}
+          {totalBranchPages > 1 && (
+            <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-200 text-xs font-semibold text-slate-600 mt-2 shadow-2xs">
+              <span>หน้า {branchPage} จาก {totalBranchPages} ({sortedBranchList.length} สาขา)</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBranchPage(p => Math.max(1, p - 1))}
+                  disabled={branchPage === 1}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 cursor-pointer transition-all"
+                >
+                  ก่อนหน้า
+                </button>
+
+                {/* 🌟 กล่องกรอกตัวเลขหน้า */}
+                <input
+                  type="number"
+                  min="1"
+                  max={totalBranchPages}
+                  value={branchPageInput}
+                  onChange={(e) => setBranchPageInput(e.target.value)}
+                  onBlur={handleBranchPageSubmit}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleBranchPageSubmit();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setBranchPage(p => Math.min(totalBranchPages, p + 1))}
+                  disabled={branchPage === totalBranchPages}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 cursor-pointer transition-all"
+                >
+                  ถัดไป
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1483,7 +1554,7 @@ export default function LiveAuditScreen({
           {/* TAB 1: INFO */}
           {activeTab === 1 && (
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4 animate-in fade-in duration-200">
-              <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>
+              {/*<h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>*/}
 
               {activeMetadataFields.map((field) => {
                 // System field: Auditor
@@ -1949,7 +2020,7 @@ export default function LiveAuditScreen({
           {activeTab === 3 && (
             <div className="space-y-4 animate-in fade-in duration-200">
               <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-5">
-                <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2">การลงชื่อรับทราบผลตรวจ (Signatures)</h3>
+                {/*<h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2">การลงชื่อรับทราบผลตรวจ (Signatures)</h3>*/}
 
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}

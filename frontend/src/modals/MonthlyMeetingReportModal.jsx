@@ -11,7 +11,7 @@ import { DataContext } from "../context/DataContext";
 import ModalWrapper from "../shared/ModalWrapper";
 
 export default function MonthlyMeetingReportModal({ onClose }) {
-  const { locations = [], auditRecords = [], capTasks = [] } = React.useContext(DataContext);
+  const { visibleLocations = [], auditRecords = [], capTasks = [] } = React.useContext(DataContext);
 
   // ── ชื่อเดือนปัจจุบัน (ภาษาไทย + พ.ศ.) ──────────────────────────────────
   const now = new Date();
@@ -33,7 +33,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   );
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
-  const totalLocations = locations.length;
+  const totalLocations = visibleLocations.length;
   const avgScore = monthRecords.length > 0
     ? Math.round(monthRecords.reduce((sum, r) => sum + (r.percentageScore || r.score || 0), 0) / monthRecords.length)
     : 0;

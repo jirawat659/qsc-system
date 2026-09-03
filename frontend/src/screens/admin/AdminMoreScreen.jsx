@@ -40,7 +40,7 @@ import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
 export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect, resetKey }) {
-  const { locations = [] } = React.useContext(DataContext);
+  const { locations: allLocations = [] } = React.useContext(DataContext);
   const [open, setOpen] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
 
@@ -223,8 +223,8 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
   }
 
   if (open === "branch_info") {
-    const branchName = currentUser?.locationName || (locations && locations.length > 0 ? locations[0].name : "ทุกสาขา");
-    const matchedLoc = locations && locations.find(l => l.name === branchName || l.fullName === branchName);
+    const branchName = currentUser?.locationName || (allLocations && allLocations.length > 0 ? allLocations[0].name : "ทุกสาขา");
+    const matchedLoc = allLocations && allLocations.find(l => l.name === branchName || l.fullName === branchName);
     const branchAddress = matchedLoc?.address || "-";
     return (
       <AdminSubScreen title="ข้อมูลสาขาและคู่มือ SOP" onBack={() => setOpen(null)}>

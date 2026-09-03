@@ -9,16 +9,19 @@ namespace QSC.Api.Data
         {
         }
 
-        // Domain 1: Users & RBAC (5)
+        // Domain 1: Users & RBAC (6)
         public DbSet<User> Users => Set<User>();
         public DbSet<UserLocation> UserLocations => Set<UserLocation>();
+        public DbSet<UserBrand> UserBrands => Set<UserBrand>();
         public DbSet<Role> Roles => Set<Role>();
         public DbSet<Permission> Permissions => Set<Permission>();
         public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
 
-        // Domain 2: Locations (2)
+        // Domain 2: Locations & Brands (4)
         public DbSet<LocationType> LocationTypes => Set<LocationType>();
         public DbSet<Location> Locations => Set<Location>();
+        public DbSet<Brand> Brands => Set<Brand>();
+        public DbSet<LocationBrand> LocationBrands => Set<LocationBrand>();
 
         // Domain 3: Survey Forms (4)
         public DbSet<SurveyForm> SurveyForms => Set<SurveyForm>();
@@ -35,6 +38,7 @@ namespace QSC.Api.Data
         public DbSet<AuditRecord> AuditRecords => Set<AuditRecord>();
         public DbSet<AuditResponse> AuditResponses => Set<AuditResponse>();
         public DbSet<AuditResponseImage> AuditResponseImages => Set<AuditResponseImage>();
+        public DbSet<AuditRecordEditLog> AuditRecordEditLogs => Set<AuditRecordEditLog>();
 
         // Domain 6: CAP Remediation & Chat (3)
         public DbSet<CapTask> CapTasks => Set<CapTask>();
@@ -54,6 +58,28 @@ namespace QSC.Api.Data
 
             modelBuilder.Entity<UserLocation>()
                 .HasIndex(ul => ul.UserId);
+
+            modelBuilder.Entity<UserLocation>()
+                .HasIndex(ul => new { ul.UserId, ul.LocationId })
+                .IsUnique();
+
+            modelBuilder.Entity<UserBrand>()
+                .HasIndex(ub => ub.UserId);
+
+            modelBuilder.Entity<UserBrand>()
+                .HasIndex(ub => new { ub.UserId, ub.BrandId })
+                .IsUnique();
+
+            // 🌟 กันผูก Location-Brand ซ้ำคู่เดิม + query .Any() เร็วขึ้นด้วย index เดี่ยว
+            modelBuilder.Entity<LocationBrand>()
+                .HasIndex(lb => new { lb.LocationId, lb.BrandId })
+                .IsUnique();
+
+            modelBuilder.Entity<LocationBrand>()
+                .HasIndex(lb => lb.LocationId);
+
+            modelBuilder.Entity<LocationBrand>()
+                .HasIndex(lb => lb.BrandId);
 
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(ar => new { ar.LocationId, ar.AuditDate });
@@ -81,6 +107,9 @@ namespace QSC.Api.Data
 
             modelBuilder.Entity<CapTaskComment>()
                 .HasIndex(ctc => ctc.CapTaskId);
+
+            modelBuilder.Entity<AuditRecordEditLog>()
+                .HasIndex(l => l.AuditRecordId);
 
             // ==========================================
             // RELATIONSHIPS & CONSTRAINTS
@@ -149,6 +178,61 @@ namespace QSC.Api.Data
                 .HasOne(c => c.CapTask)
                 .WithMany(t => t.Comments)
                 .HasForeignKey(c => c.CapTaskId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // 🌟 ลบ AuditRecord ทิ้ง -> ประวัติแก้ไขของมันหายตามได้ (Cascade)
+            // ห้ามลบ User ที่เคยแก้ไขบันทึกไว้ ถ้ายังมี log อ้างอิงอยู่ (Restrict กันข้อมูล audit trail หาย)
+            modelBuilder.Entity<AuditRecordEditLog>()
+                .HasOne(l => l.AuditRecord)
+                .WithMany()
+                .HasForeignKey(l => l.AuditRecordId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<AuditRecordEditLog>()
+                .HasOne(l => l.EditedByUser)
+                .WithMany()
+                .HasForeignKey(l => l.EditedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // 🌟 Location <-> Brand (M2M ผ่าน LocationBrand)
+            // ลบ Location ทิ้ง -> join row หายตามได้เลย (Cascade)
+            modelBuilder.Entity<LocationBrand>()
+                .HasOne(lb => lb.Location)
+                .WithMany(l => l.LocationBrands)
+                .HasForeignKey(lb => lb.LocationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // ลบ Brand หรือ Location แล้วลบแถว join ที่เกี่ยวข้องตาม (Cascade)
+            modelBuilder.Entity<LocationBrand>()
+                .HasOne(lb => lb.Brand)
+                .WithMany(b => b.LocationBrands)
+                .HasForeignKey(lb => lb.BrandId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // 🌟 User <-> Location / Brand (สิทธิ์การเข้าถึงแบบ SPECIFIC)
+            // ลบ User หรือ Location/Brand ทิ้ง -> ผูกสิทธิ์เก่าไม่มีความหมายแล้ว ลบตามได้เลย (Cascade)
+            modelBuilder.Entity<UserLocation>()
+                .HasOne(ul => ul.User)
+                .WithMany()
+                .HasForeignKey(ul => ul.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserLocation>()
+                .HasOne(ul => ul.Location)
+                .WithMany()
+                .HasForeignKey(ul => ul.LocationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserBrand>()
+                .HasOne(ub => ub.User)
+                .WithMany()
+                .HasForeignKey(ub => ub.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<UserBrand>()
+                .HasOne(ub => ub.Brand)
+                .WithMany()
+                .HasForeignKey(ub => ub.BrandId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }

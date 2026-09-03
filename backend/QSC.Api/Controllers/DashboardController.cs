@@ -23,12 +23,18 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetOverviewStats()
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive).AsQueryable();
 
             if (allowedLocationIds != null)
             {
                 locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            }
+
+            if (allowedBrandIds != null)
+            {
+                locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             var locations = await locQuery.Select(l => new { l.Id, l.LastScore }).ToListAsync();
@@ -74,12 +80,18 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetRankings()
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive).AsQueryable();
 
             if (allowedLocationIds != null)
             {
                 locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            }
+
+            if (allowedBrandIds != null)
+            {
+                locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             var topBranches = await locQuery
@@ -105,6 +117,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetTrends()
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var now = DateTime.UtcNow;
             var startOf6Months = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-5);
@@ -117,6 +130,11 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null)
             {
                 auditQuery = auditQuery.Where(a => allowedLocationIds.Contains(a.LocationId));
+            }
+
+            if (allowedBrandIds != null)
+            {
+                auditQuery = auditQuery.Where(a => a.Location != null && a.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             var periodAudits = await auditQuery
@@ -153,6 +171,10 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null)
             {
                 locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            }
+            if (allowedBrandIds != null)
+            {
+                locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             var regionalScores = await locQuery

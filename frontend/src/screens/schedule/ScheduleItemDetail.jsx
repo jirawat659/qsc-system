@@ -24,7 +24,7 @@ import HistoryList from "../../shared/HistoryList";
 import api from "../../config/api";
 
 export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, onEdit }) {
-  const { locations, auditRecords, refreshData } = React.useContext(DataContext);
+  const { locations: visibleLocations, auditRecords, refreshData } = React.useContext(DataContext);
   const [selectedAudit, setSelectedAudit] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -35,7 +35,7 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
   const isCompleted = item.status === "done" || item.status === "completed";
   const isPending = !isCompleted;
 
-  const unit = locations?.find((u) => (
+  const unit = visibleLocations?.find((u) => (
     u.name === item.unit ||
     u.fullName === item.unit ||
     u.id === item.locationId ||

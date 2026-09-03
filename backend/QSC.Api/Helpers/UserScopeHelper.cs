@@ -1,6 +1,8 @@
+using System.Formats.Asn1;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
+using QSC.Api.Models;
 
 namespace QSC.Api.Helpers
 {
@@ -40,6 +42,64 @@ namespace QSC.Api.Helpers
                 .ToListAsync();
 
             return (user.Id, role, allowedIds);
+        }
+
+        public static async Task<(int UserId, String Role, List<int>? AllowedBrandIds)> GetUserBrandScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
+        {
+            var userIdStr = userPrincipal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(userIdStr, out int userId))
+            {
+                return (0, string.Empty, new List<int>());
+            }
+
+            var user = await context.Users
+                .AsNoTracking()
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+            if (user == null || !user.IsActive)
+            {
+                return (0, string.Empty, new List<int>());
+            }
+
+            var role = user.Role?.Code ?? string.Empty;
+
+            // ADMIN, STANDARD, and EXEC have global organization visibility (unless STANDARD has SPECIFIC brand scope)
+            if (role == "ADMIN" || role == "EXEC" || (role == "STANDARD" && user.BrandScope != "SPECIFIC") || user.BrandScope == "ALL")
+            {
+                return (user.Id, role, null); // null means access to ALL brandes
+            }
+
+            // AUDITEE and SPECIFIC scope -> strictly restricted to assigned brandes
+            var allowedBrandIds = await context.UserBrands
+                .AsNoTracking()
+                .Where(ul => ul.UserId == user.Id)
+                .Select(ul => ul.BrandId)
+                .ToListAsync();
+
+            return (user.Id, role, allowedBrandIds);
+        }
+
+        // ใช้ร่วมกันในทุก controller ที่คืนรายการ Location
+        // ถ้า AllowedBrandIds เป็น null หมายถึงเห็นได้ทุกแบรนด์ รวมถึง Location แบบ org-wide เช่น HQ
+        // ถ้าเป็นรายการ หมายถึงต้องมี LocationBrand ที่ตรงกันเท่านั้น (Location ที่ไม่มีแบรนด์จะไม่ผ่าน)
+        public static IQueryable<Location> ApplyLocationAccessFilter(
+            IQueryable<Location> query,
+            List<int>? allowedLocationIds,
+            List<int>? allowedBrandIds)
+        {
+            if (allowedLocationIds != null)
+            {
+                query = query.Where(location => allowedLocationIds.Contains(location.Id));
+            }
+
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(location =>
+                    location.LocationBrands.Any(link => allowedBrandIds.Contains(link.BrandId)));
+            }
+
+            return query;
         }
     }
 }

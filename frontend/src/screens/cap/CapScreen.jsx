@@ -37,7 +37,7 @@ import api from "../../config/api";
 import signalrService from "../../services/signalrService";
 
 export default function CapScreen({ isDesktop, onBack, role = "STANDARD", currentUser }) {
-  const { capTasks, locations, refreshData } = React.useContext(DataContext);
+  const { capTasks, locations: visibleLocations, refreshData } = React.useContext(DataContext);
   const [selected, setSelected] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -244,7 +244,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
 
       {showNewModal && (
         <NewRemediationModal
-          locations={locations}
+          locations={visibleLocations}
           currentUser={currentUser}
           onClose={() => setShowNewModal(false)}
           onSubmit={async (createdData) => {

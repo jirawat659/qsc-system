@@ -1,5 +1,6 @@
 import React from 'react';
 import { Search, Plus, Store, MapPin, UserCheck, ChevronRight, Edit3, Phone } from 'lucide-react';
+import BrandChipSelector from '../../../shared/BrandChipSelector';
 
 export default function LocationManagementTab({
   searchTerm, setSearchTerm,
@@ -7,7 +8,8 @@ export default function LocationManagementTab({
   locations, locationStatusFilter, setLocationStatusFilter,
   loading, filteredLocations, paginatedLocations,
   handleOpenEditLocation,
-  pageSize, locationPage, setLocationPage, totalLocationPages
+  pageSize, locationPage, setLocationPage, totalLocationPages,
+  brandsList = [], brandFilter = [], setBrandFilter = () => {}
 }) {
   return (
 <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
@@ -53,6 +55,29 @@ export default function LocationManagementTab({
               </button>
             ))}
           </div>
+
+          {/* Brand Filter Chips */}
+          {brandsList.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pb-1">
+              <span className="text-xs font-bold text-slate-400 shrink-0">แบรนด์:</span>
+              <BrandChipSelector
+                brands={brandsList}
+                value={brandFilter}
+                onChange={setBrandFilter}
+                mode="multi"
+                size="sm"
+              />
+              {brandFilter.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setBrandFilter([])}
+                  className="text-xs font-bold text-slate-400 hover:text-slate-700 underline cursor-pointer"
+                >
+                  ล้างตัวกรองแบรนด์
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Loading Skeleton */}
           {loading && locations.length === 0 ? (
@@ -106,7 +131,9 @@ export default function LocationManagementTab({
                             <div>
                               <span className="text-xs font-mono font-bold text-slate-400">{loc.code}</span>
                               <div className="font-bold text-slate-800">{loc.name}</div>
-                              <div className="text-xs text-slate-400">{loc.brandName || "Urban Burger"}</div>
+                              <div className="text-xs text-slate-400">
+                                {loc.locationBrands?.length ? loc.locationBrands.map(lb => lb.brand?.name).join(', ') : (loc.brandName || '-')
+                              }</div>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-slate-600 text-xs font-medium">

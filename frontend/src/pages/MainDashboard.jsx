@@ -47,6 +47,21 @@ const ScreenLoader = () => (
 export default function MainDashboard({ onLogout }) {
 
   const [locations, setLocations] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [selectedBrandId, setSelectedBrandIdState] = useState(() => {
+    const saved = localStorage.getItem('qsc_selected_brand_id');
+    return saved ? Number(saved) : null;
+  });
+  const setSelectedBrandId = (id) => {
+    setSelectedBrandIdState(id);
+    if (id) localStorage.setItem('qsc_selected_brand_id', String(id));
+    else localStorage.removeItem('qsc_selected_brand_id');
+  };
+  const visibleLocations = useMemo(() => {
+    if (!selectedBrandId) return locations;
+    return locations.filter(l => l.locationBrands?.some(lb => lb.brandId === selectedBrandId));
+  }, [locations, selectedBrandId]);
+  
   const [schedules, setSchedules] = useState([]);
   const [forms, setForms] = useState([]);
   const [activeDraft, setActiveDraft] = useState(null);
@@ -66,7 +81,8 @@ export default function MainDashboard({ onLogout }) {
         api.get('/form'),
         api.get('/audit/drafts'),
         api.get('/cap'),
-        api.get('/audit/records')
+        api.get('/audit/records'),
+        api.get('/brand')
       ]);
 
       const rejectedCount = [locRes, schedRes, formRes, capRes, auditRes].filter(r => r.status === 'rejected').length;
@@ -87,6 +103,7 @@ export default function MainDashboard({ onLogout }) {
       }
       if (capRes.status === 'fulfilled' && capRes.value.data) setCapTasks(capRes.value.data);
       if (auditRes.status === 'fulfilled' && auditRes.value.data) setAuditRecords(auditRes.value.data);
+      if (brandRes.status === 'fulfilled' && brandRes.value.data) setBrands(brandRes.value.data);
     } catch (err) {
       console.warn("Error refreshing backend data:", err);
       setDataFetchError("เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
@@ -347,6 +364,8 @@ export default function MainDashboard({ onLogout }) {
   const dataContextValue = React.useMemo(() => ({
     currentUser,
     locations, setLocations,
+    visibleLocations,
+    brands, selectedBrandId, setSelectedBrandId,
     schedules, setSchedules,
     forms, setForms,
     activeDraft, setActiveDraft,
@@ -359,7 +378,8 @@ export default function MainDashboard({ onLogout }) {
   }), [
     currentUser, locations, schedules, forms,
     activeDraft, activeDrafts, capTasks, auditRecords,
-    refreshData, isLoadingData, dataFetchError
+    refreshData, isLoadingData, dataFetchError,
+    visibleLocations, brands, selectedBrandId
   ]);
 
   return (
@@ -408,7 +428,21 @@ export default function MainDashboard({ onLogout }) {
               </div>
             </div>
 
-            
+            {brands.length > 1 && (
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1 px-1">แบรนด์ที่แสดง</label>
+                <select
+                  value={selectedBrandId || ''}
+                  onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-700 focus:border-[#0F6659] outline-none cursor-pointer"
+                >
+                  <option value="">ทุกแบรนด์</option>
+                  {brands.filter(b => b.isActive).map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Sidebar Navigation */}
             <nav className="space-y-1.5">

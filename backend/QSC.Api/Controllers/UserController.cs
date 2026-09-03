@@ -27,6 +27,8 @@ namespace QSC.Api.Controllers
             public int RoleId { get; set; }
             public string BranchScope { get; set; } = "ALL";
             public List<int> LocationIds { get; set; } = new();
+            public string BrandScope { get; set; } = "ALL";
+            public List<int> BrandIds { get; set; } = new();
         }
 
         public class UpdateUserDto
@@ -36,6 +38,8 @@ namespace QSC.Api.Controllers
             public string BranchScope { get; set; } = "ALL";
             public bool IsActive { get; set; } = true;
             public List<int> LocationIds { get; set; } = new();
+            public string BrandScope { get; set; } = "ALL";
+            public List<int> BrandIds { get; set; } = new();
         }
 
         [HttpGet]
@@ -57,6 +61,7 @@ namespace QSC.Api.Controllers
                 .ToListAsync();
 
             var userLocations = await _context.UserLocations.AsNoTracking().ToListAsync();
+            var userBrands = await _context.UserBrands.AsNoTracking().ToListAsync();
 
             var result = users.Select(u => new
             {
@@ -70,7 +75,9 @@ namespace QSC.Api.Controllers
                 mustChangePassword = u.MustChangePassword,
                 isActive = u.IsActive,
                 createdAt = u.CreatedAt,
-                locationIds = userLocations.Where(ul => ul.UserId == u.Id).Select(ul => ul.LocationId).ToList()
+                locationIds = userLocations.Where(ul => ul.UserId == u.Id).Select(ul => ul.LocationId).ToList(),
+                brandScope = u.BrandScope,
+                brandIds = userBrands.Where(ub => ub.UserId == u.Id).Select(ub => ub.BrandId).ToList()
             });
 
             return Ok(result);
@@ -92,6 +99,12 @@ namespace QSC.Api.Controllers
                 .Select(ul => ul.LocationId)
                 .ToListAsync();
 
+            var brandIds = await _context.UserBrands
+                .AsNoTracking()
+                .Where(ub => ub.UserId == user.Id)
+                .Select(ub => ub.BrandId)
+                .ToListAsync();
+
             return Ok(new
             {
                 id = user.Id,
@@ -104,7 +117,9 @@ namespace QSC.Api.Controllers
                 mustChangePassword = user.MustChangePassword,
                 isActive = user.IsActive,
                 createdAt = user.CreatedAt,
-                locationIds = locationIds
+                locationIds = locationIds,
+                brandScope = user.BrandScope,
+                brandIds = brandIds
             });
         }
 
@@ -134,6 +149,7 @@ namespace QSC.Api.Controllers
                 FullName = dto.FullName,
                 RoleId = dto.RoleId,
                 BranchScope = dto.BranchScope,
+                BrandScope = dto.BrandScope,
                 MustChangePassword = true,
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
@@ -152,6 +168,16 @@ namespace QSC.Api.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            if (dto.BrandScope == "SPECIFIC" && dto.BrandIds.Any())
+            {
+                var distinctBrandIds = dto.BrandIds.Distinct().ToList();
+                foreach (var brandId in distinctBrandIds)
+                {
+                    _context.UserBrands.Add(new UserBrand { UserId = user.Id, BrandId = brandId });
+                }
+                await _context.SaveChangesAsync();
+            }
+
             return CreatedAtAction(nameof(GetUser), new { id = user.Id }, user);
         }
 
@@ -166,6 +192,7 @@ namespace QSC.Api.Controllers
             user.RoleId = dto.RoleId;
             user.BranchScope = dto.BranchScope;
             user.IsActive = dto.IsActive;
+            user.BrandScope = dto.BrandScope;
 
             // Sync UserLocations
             var existingLocs = await _context.UserLocations.Where(ul => ul.UserId == id).ToListAsync();
@@ -177,6 +204,19 @@ namespace QSC.Api.Controllers
                 foreach (var locId in distinctLocIds)
                 {
                     _context.UserLocations.Add(new UserLocation { UserId = id, LocationId = locId });
+                }
+            }
+
+            // Sync UserBrands
+            var existingBrands = await _context.UserBrands.Where(ub => ub.UserId == id).ToListAsync();
+            _context.UserBrands.RemoveRange(existingBrands);
+
+            if (dto.BrandScope == "SPECIFIC" && dto.BrandIds.Any())
+            {
+                var distinctBrandIds = dto.BrandIds.Distinct().ToList();
+                foreach (var brandId in distinctBrandIds)
+                {
+                    _context.UserBrands.Add(new UserBrand { UserId = id, BrandId = brandId });
                 }
             }
 
@@ -376,4 +416,3 @@ namespace QSC.Api.Controllers
         }
     }
 }
-

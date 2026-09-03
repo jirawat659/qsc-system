@@ -1,16 +1,21 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QSC.Api.Data;
 using QSC.Api.Hubs;
+using System.Security.Claims;
 using System.Text;
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ตั้งค่า SQLite
+// 1. Database Configuration
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// 2. CORS Setup
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
     ?? new[] { "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000" };
 
@@ -39,7 +44,7 @@ builder.Services.AddCors(options =>
         .AllowCredentials());
 });
 
-// ตั้งค่า JWT Authentication & SignalR WebSocket Token Support
+// 3. JWT Authentication & SignalR Query-String Access Token
 var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!");
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "QscApi";
 var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "QscFrontend";
@@ -55,10 +60,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtIssuer,
             ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+            ClockSkew = TimeSpan.Zero // ลดการหน่วงเวลาหมดอายุ Token
         };
 
-        // 🌟 Handle JWT Token from SignalR WebSocket Query String (?access_token=...)
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = context =>
@@ -74,54 +79,69 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
+builder.Services.AddAuthorization();
+
+// 4. SignalR & Real-time Services
 builder.Services.AddSignalR(options =>
 {
-    options.EnableDetailedErrors = true;
-    options.MaximumReceiveMessageSize = 15 * 1024 * 1024;
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+    options.MaximumReceiveMessageSize = 15 * 1024 * 1024; // 15MB
 });
+
+// 5. Application Services
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
 
-// 🛡️ Rate Limiting for AI Endpoints (10 requests/minute per user)
+// 6. Rate Limiting for AI Endpoints
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
-        await context.HttpContext.Response.WriteAsync("{\"message\": \"คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่\", \"status\": 429}", token);
+        await context.HttpContext.Response.WriteAsync(
+            "{\"message\": \"คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่\", \"status\": 429}", 
+            token);
     };
 
     options.AddPolicy("AiRateLimit", httpContext =>
     {
-        var userId = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
             ?? httpContext.Connection.RemoteIpAddress?.ToString()
             ?? "anonymous";
 
-        return System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+        return RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: userId,
-            factory: partition => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
                 Window = TimeSpan.FromMinutes(1),
-                QueueProcessingOrder = System.Threading.RateLimiting.QueueProcessingOrder.OldestFirst,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
     });
 });
 
+// 7. Controllers & OpenAPI Setup
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     });
 
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+// 8. Pipeline Middlewares
+// รองรับ Reverse Proxy (เช่น Nginx / Cloudflare)
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
 app.UseCors("AllowReact");
-app.UseStaticFiles(); // 🌟 Serve /uploads/ directory
+app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -136,10 +156,11 @@ if (app.Environment.IsDevelopment())
     });
 }
 
+// 9. Endpoint Mappings
 app.MapControllers();
 app.MapHub<CapChatHub>("/hubs/cap-chat");
 
-// 🌟 Run Database Seeder on Startup (only seed if database is new or empty)
+// 10. Database Seeder / Migration
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

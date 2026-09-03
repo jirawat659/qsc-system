@@ -244,8 +244,12 @@ namespace QSC.Api.Data
                 context.SurveySections.RemoveRange(context.SurveySections);
                 context.SurveyFormTargetLocations.RemoveRange(context.SurveyFormTargetLocations);
                 context.SurveyForms.RemoveRange(context.SurveyForms);
+                // ล้างตาราง join ก่อนลบ entity หลักเพื่อรองรับทั้ง SQLite และฐานข้อมูลที่ใช้ FK จริง
+                context.UserBrands.RemoveRange(context.UserBrands);
+                context.LocationBrands.RemoveRange(context.LocationBrands);
                 context.UserLocations.RemoveRange(context.UserLocations);
                 context.Locations.RemoveRange(context.Locations);
+                context.Brands.RemoveRange(context.Brands);
                 context.LocationTypes.RemoveRange(context.LocationTypes);
                 context.RolePermissions.RemoveRange(context.RolePermissions);
                 context.Permissions.RemoveRange(context.Permissions);
@@ -287,7 +291,8 @@ namespace QSC.Api.Data
                 new Permission { Code = "menu.admin", Name = "เข้าเมนูจัดการระบบ (Admin Panel)", Module = "System" },
                 new Permission { Code = "users.manage", Name = "จัดการบัญชีผู้ใช้และรีเซ็ตรหัสผ่าน", Module = "System" },
                 new Permission { Code = "roles.manage", Name = "จัดการบทบาทและสิทธิ์การใช้งาน", Module = "System" },
-                new Permission { Code = "locations.manage", Name = "จัดการข้อมูลสาขาและประเภทสถานที่", Module = "System" }
+                new Permission { Code = "locations.manage", Name = "จัดการข้อมูลสาขาและประเภทสถานที่", Module = "System" },
+                new Permission { Code = "audit.edit", Name = "แก้ไขการตรวจบันทึกที่ส่งแล้ว พร้อมระบุเหตุผล", Module = "Audit"}
             };
 
             context.Permissions.AddRange(permissions);
@@ -373,11 +378,26 @@ namespace QSC.Api.Data
             );
             context.SaveChanges();
 
+            var now = DateTime.UtcNow;
+
+            // ==========================================
+            // 4b. SEED BRANDS (normalized — mirrors the free-text BrandName values used below)
+            // ==========================================
+            var brandDefs = new[]
+            {
+                new Brand { Code = "UB", Name = "Urban Burger", CreatedAt = now },
+                new Brand { Code = "CL", Name = "Cafe Luna", CreatedAt = now },
+                new Brand { Code = "AB", Name = "Artisan Bakery", CreatedAt = now },
+                new Brand { Code = "CS", Name = "Central Supply", CreatedAt = now },
+                new Brand { Code = "QSCH", Name = "QSC Holding", CreatedAt = now },
+            };
+            context.Brands.AddRange(brandDefs);
+            context.SaveChanges();
+            var brandIdByName = brandDefs.ToDictionary(b => b.Name, b => b.Id);
+
             // ==========================================
             // 5. SEED LOCATIONS (25+ Enterprise Branches across Brands & Regions)
             // ==========================================
-            var now = DateTime.UtcNow;
-
             var locations = new List<Location>
             {
                 // --- Urban Burger ---
@@ -416,6 +436,58 @@ namespace QSC.Api.Data
             };
 
             context.Locations.AddRange(locations);
+            context.SaveChanges();
+
+            // Backfill ความสัมพันธ์ Location-Brand จาก BrandName เดิม
+            // ร้านค้าทั่วไป: 1 Location -> 1 Brand และแบรนด์เดิมเป็น Primary
+            // Plant/Cloud Kitchen: ใช้ร่วมกัน 3 แบรนด์ โดย Urban Burger เป็น Primary ตามแผน
+            var sharedFacilityCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "PLANT-01",
+                "PLANT-02",
+                "CK-01"
+            };
+            var sharedBrandNames = new[] { "Urban Burger", "Cafe Luna", "Artisan Bakery" };
+            var locationBrandLinks = new List<LocationBrand>();
+
+            foreach (var loc in locations)
+            {
+                if (string.Equals(loc.Code, "HQ-01", StringComparison.OrdinalIgnoreCase))
+                {
+                    // HQ-01 เป็น org-wide: ตั้งใจไม่สร้าง LocationBrand
+                    continue;
+                }
+
+                if (sharedFacilityCodes.Contains(loc.Code))
+                {
+                    foreach (var brandName in sharedBrandNames)
+                    {
+                        if (brandIdByName.TryGetValue(brandName, out var brandId))
+                        {
+                            locationBrandLinks.Add(new LocationBrand
+                            {
+                                LocationId = loc.Id,
+                                BrandId = brandId,
+                                IsPrimary = string.Equals(brandName, "Urban Burger", StringComparison.OrdinalIgnoreCase)
+                            });
+                        }
+                    }
+
+                    continue;
+                }
+
+                if (brandIdByName.TryGetValue(loc.BrandName ?? string.Empty, out var legacyBrandId))
+                {
+                    locationBrandLinks.Add(new LocationBrand
+                    {
+                        LocationId = loc.Id,
+                        BrandId = legacyBrandId,
+                        IsPrimary = true
+                    });
+                }
+            }
+
+            context.LocationBrands.AddRange(locationBrandLinks);
             context.SaveChanges();
 
             // Link User Locations
@@ -714,4 +786,3 @@ namespace QSC.Api.Data
         }
     }
 }
-

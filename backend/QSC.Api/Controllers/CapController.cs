@@ -74,6 +74,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetCapTasks([FromQuery] int? locationId, [FromQuery] int? assignedTo, [FromQuery] string? status)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var query = _context.CapTasks
                 .AsNoTracking()
@@ -109,6 +110,10 @@ namespace QSC.Api.Controllers
             }
             if (assignedTo.HasValue) query = query.Where(t => t.AssignedTo == assignedTo.Value);
             if (!string.IsNullOrEmpty(status)) query = query.Where(t => t.Status == status);
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(t => t.Location != null && t.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
 
             var tasks = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
 
@@ -140,6 +145,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetCapTaskDetail(int id)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks
                 .AsNoTracking()
@@ -159,6 +165,15 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
             {
                 return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk && task.AssignedTo != currentUserId)
+                {
+                    return Forbid();
+                }
             }
 
             // Fetch BEFORE images directly from AuditResponseImage
@@ -228,6 +243,23 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateManualCap([FromBody] CreateManualCapDto dto)
         {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(dto.LocationId))
+            {
+                return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == dto.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk)
+                {
+                    return Forbid();
+                }
+            }
+
             var task = new CapTask
             {
                 LocationId = dto.LocationId,
@@ -257,6 +289,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> SubmitRemediation(int id, [FromBody] SubmitRemediationDto dto)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
@@ -264,6 +297,15 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
             {
                 return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk && task.AssignedTo != currentUserId)
+                {
+                    return Forbid();
+                }
             }
 
             if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
@@ -359,6 +401,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> CloseCap(int id, [FromBody] CloseCapDto dto)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
@@ -366,6 +409,15 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId))
             {
                 return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk)
+                {
+                    return Forbid();
+                }
             }
 
             var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
@@ -431,6 +483,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> RejectCap(int id, [FromBody] RejectCapDto dto)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
@@ -438,6 +491,15 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId))
             {
                 return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk)
+                {
+                    return Forbid();
+                }
             }
 
             if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
@@ -499,6 +561,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
@@ -506,6 +569,15 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId))
             {
                 return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk)
+                {
+                    return Forbid();
+                }
             }
 
             var now = DateTime.UtcNow;
@@ -569,6 +641,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> PostComment(int id, [FromBody] PostCommentDto dto)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks.FindAsync(id);
             if (task == null) return NotFound();
@@ -576,6 +649,15 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
             {
                 return Forbid();
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool brandOk = await _context.LocationBrands.AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk && task.AssignedTo != currentUserId)
+                {
+                    return Forbid();
+                }
             }
 
             if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))

@@ -8,7 +8,7 @@ import { DataContext } from "../../context/DataContext";
 import { getDistanceInMeters, formatDistance, DEFAULT_USER_COORDS } from "../../utils/geo";
 
 export default function AssignedAuditPlanScreen({ auditorName, onStart, activeDraft: propDraft, onResumeDraft }) {
-  const { schedules, locations, activeDraft: ctxDraft, activeDrafts, refreshData } = React.useContext(DataContext);
+  const { schedules, locations: allLocations, activeDraft: ctxDraft, activeDrafts, refreshData } = React.useContext(DataContext);
   const activeDraft = propDraft || ctxDraft;
   const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
 
@@ -66,7 +66,7 @@ export default function AssignedAuditPlanScreen({ auditorName, onStart, activeDr
 
     // 2. Attach location & distance to each plan, and check specific matching draft per plan
     const withDistance = filtered.map(plan => {
-      const loc = locations.find(l => 
+      const loc = allLocations.find(l => 
         l.id === plan.locationId || 
         l.name === plan.locationName || 
         l.name === plan.unit || 
@@ -101,7 +101,7 @@ export default function AssignedAuditPlanScreen({ auditorName, onStart, activeDr
       if (aDraft !== bDraft) return aDraft - bDraft;
       return a.distanceMeters - b.distanceMeters;
     });
-  }, [schedules, auditorName, locations, userCoords, activeDrafts, activeDraft]);
+  }, [schedules, auditorName, allLocations, userCoords, activeDrafts, activeDraft]);
 
   const getAuditTypeMeta = (type) => {
     const t = (type || "").toLowerCase();

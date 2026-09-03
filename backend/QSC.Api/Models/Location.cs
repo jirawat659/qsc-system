@@ -21,5 +21,7 @@ namespace QSC.Api.Models
         public DateTime? LastAuditDate { get; set; } // Cache
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<LocationBrand> LocationBrands { get; set; } = new List<LocationBrand>();
     }
 }

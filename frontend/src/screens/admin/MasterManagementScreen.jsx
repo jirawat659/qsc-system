@@ -5,7 +5,7 @@ import {
   Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw,
   MapPin, Phone, Shield, ArrowUpDown, UserCheck, Layers, ExternalLink,
   SlidersHorizontal, CheckSquare, Square, Globe, Lock, ArrowLeft,
-  ChevronDown, ChevronUp, Smartphone
+  ChevronDown, ChevronUp, Smartphone, Tag
 } from 'lucide-react';
 import api from '../../config/api';
 import Header from '../../shared/Header';
@@ -17,6 +17,8 @@ import { DataContext } from '../../context/DataContext';
 import UserManagementTab from './components/UserManagementTab';
 import LocationManagementTab from './components/LocationManagementTab';
 import LocationGpsSection from './components/LocationGpsSection';
+import BrandChipSelector from '../../shared/BrandChipSelector';
+import BrandManagementTab from './components/BrandManagementTab';
 
 export default function MasterManagementScreen({ onBack }) {
   const { refreshData } = React.useContext(DataContext);
@@ -27,6 +29,7 @@ export default function MasterManagementScreen({ onBack }) {
   // Data states
   const [users, setUsers] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [brands, setBrands] = useState([]); // [{id, code, name, description, isActive}]
   const [locationTypes, setLocationTypes] = useState([]);
   const [roles, setRoles] = useState([]);
   const [availablePermissions, setAvailablePermissions] = useState([]);
@@ -35,6 +38,7 @@ export default function MasterManagementScreen({ onBack }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState('ALL'); // 'ALL' | roleId / roleCode
   const [locationStatusFilter, setLocationStatusFilter] = useState('ALL'); // 'ALL' | 'ACTIVE' | 'INACTIVE'
+  const [locationBrandFilter, setLocationBrandFilter] = useState([]); // string[] ว่าง = ทุกแบรนด์
   const [userPage, setUserPage] = useState(1);
   const [locationPage, setLocationPage] = useState(1);
   const [loadError, setLoadError] = useState(false);
@@ -48,6 +52,8 @@ export default function MasterManagementScreen({ onBack }) {
     fullName: '',
     roleId: 2,
     branchScope: 'ALL',
+    brandScope: 'ALL',
+    allowedBrandIds: [],
     isActive: true,
     locationIds: [],
     newPassword: ''
@@ -65,22 +71,8 @@ export default function MasterManagementScreen({ onBack }) {
   // 2. Location Modals
   const [showAddLocationModal, setShowAddLocationModal] = useState(false);
   const [editLocation, setEditLocation] = useState(null);
-  const [isCustomBrandAdd, setIsCustomBrandAdd] = useState(false);
   const [isCustomRegionAdd, setIsCustomRegionAdd] = useState(false);
-  const [isCustomBrandEdit, setIsCustomBrandEdit] = useState(false);
   const [isCustomRegionEdit, setIsCustomRegionEdit] = useState(false);
-
-  const existingBrands = useMemo(() => {
-    const set = new Set();
-    locations.forEach(l => {
-      if (l.brandName && l.brandName.trim()) set.add(l.brandName.trim());
-    });
-    if (set.size === 0) {
-      set.add('After You');
-      set.add('Mikazuki');
-    }
-    return Array.from(set).sort();
-  }, [locations]);
 
   const existingRegions = useMemo(() => {
     const set = new Set();
@@ -102,6 +94,8 @@ export default function MasterManagementScreen({ onBack }) {
     code: '',
     name: '',
     brandName: '',
+    boundBrandIds: [],
+    primaryBrandId: null,
     locationTypeId: 1,
     region: '',
     address: '',
@@ -160,6 +154,8 @@ export default function MasterManagementScreen({ onBack }) {
     password: '1234',
     roleId: 2,
     branchScope: 'ALL',
+    brandScope: 'ALL',
+    allowedBrandIds: [],
     allowedLocationIds: []
   });
 
@@ -167,6 +163,8 @@ export default function MasterManagementScreen({ onBack }) {
     code: '',
     name: '',
     brandName: '',
+    boundBrandIds: [],
+    primaryBrandId: null,
     locationTypeId: 1,
     region: 'กรุงเทพฯ และปริมณฑล',
     address: '',
@@ -198,12 +196,13 @@ export default function MasterManagementScreen({ onBack }) {
     setLoading(true);
     setLoadError(false);
     try {
-      const [uRes, lRes, ltRes, rRes, pRes] = await Promise.allSettled([
+      const [uRes, lRes, ltRes, rRes, pRes, bRes] = await Promise.allSettled([
         api.get('/user'),
         api.get('/location'),
         api.get('/location-type'),
         api.get('/role'),
-        api.get('/role/permissions')
+        api.get('/role/permissions'),
+        api.get('/brand')
       ]);
 
       const anySuccess = [uRes, lRes, ltRes, rRes, pRes].some(r => r.status === 'fulfilled');
@@ -211,8 +210,12 @@ export default function MasterManagementScreen({ onBack }) {
         setLoadError(true);
       }
 
+      const brandRes = await api.get('/brand');
+      setBrands(brandRes.data);
+
       if (uRes.status === 'fulfilled' && uRes.value.data) setUsers(uRes.value.data);
       if (lRes.status === 'fulfilled' && lRes.value.data) setLocations(lRes.value.data);
+      if (bRes.status === 'fulfilled' && bRes.value.data) setBrands(bRes.value.data);
       if (ltRes.status === 'fulfilled' && ltRes.value.data) {
         setLocationTypes(ltRes.value.data);
         if (ltRes.value.data.length > 0) {
@@ -255,6 +258,8 @@ export default function MasterManagementScreen({ onBack }) {
       fullName: u.fullName || '',
       roleId: u.roleId || (u.role?.id) || 2,
       branchScope: u.branchScope || 'ALL',
+      brandScope: u.brandScope || 'ALL',
+      allowedBrandIds: u.allowedBrandIds || u.brandIds || [],
       isActive: u.isActive !== undefined ? u.isActive : true,
       locationIds: u.locationIds || [],
       newPassword: ''
@@ -274,6 +279,8 @@ export default function MasterManagementScreen({ onBack }) {
         fullName: editUserForm.fullName,
         roleId: editUserForm.roleId,
         branchScope: editUserForm.branchScope,
+        brandScope: editUserForm.brandScope,
+        brandIds: editUserForm.brandScope === 'SPECIFIC' ? editUserForm.allowedBrandIds : [],
         isActive: editUserForm.isActive,
         locationIds: editUserForm.branchScope === 'SPECIFIC' ? editUserForm.locationIds : []
       });
@@ -301,7 +308,7 @@ export default function MasterManagementScreen({ onBack }) {
     }
 
     try {
-      await api.post('/user', userForm);
+      await api.post('/user', {...userForm, brandIds: userForm.brandScope === 'SPECIFIC' ? userForm.allowedBrandIds : []});
       showToast(`✓ สร้างบัญชีผู้ใช้ "${userForm.fullName}" สำเร็จ`);
       setShowAddUserModal(false);
       setUserForm({
@@ -321,12 +328,14 @@ export default function MasterManagementScreen({ onBack }) {
   // ── 🏬 LOCATION HANDLERS ──
   const handleOpenEditLocation = (loc) => {
     setEditLocation(loc);
-    setIsCustomBrandEdit(false);
     setIsCustomRegionEdit(false);
+    const lbs = loc.locationBrands || [];
     setEditLocationForm({
       code: loc.code || '',
       name: loc.name || '',
       brandName: loc.brandName || '',
+      boundBrandIds: lbs.map(lb => lb.brandId),
+      primaryBrandId: lbs.find(lb => lb.isPrimary)?.brandId ?? (lbs[0]?.brandId ?? null),
       locationTypeId: loc.locationTypeId || 1,
       region: loc.region || 'กรุงเทพฯ และปริมณฑล',
       address: loc.address || '',
@@ -343,10 +352,35 @@ export default function MasterManagementScreen({ onBack }) {
     if (!editLocation || !editLocationForm.name.trim()) return;
 
     try {
+      const { boundBrandIds, primaryBrandId, ...basicFields } = editLocationForm;
       await api.put(`/location/${editLocation.id}`, {
         id: editLocation.id,
-        ...editLocationForm
+        ...basicFields
       });
+
+      // 🌟 Sync การผูกแบรนด์ (LocationBrands) ให้ตรงกับที่เลือกไว้ในฟอร์ม
+      const originalIds = (editLocation.locationBrands || []).map(lb => lb.brandId);
+      const toBind = boundBrandIds.filter(id => !originalIds.includes(id));
+      const toUnbind = originalIds.filter(id => !boundBrandIds.includes(id));
+
+      await Promise.allSettled([
+        ...toBind.map(brandId =>
+          api.post(`/location/${editLocation.id}/brands`, { brandId, isPrimary: brandId === primaryBrandId })
+        ),
+        ...toUnbind.map(brandId =>
+          api.delete(`/location/${editLocation.id}/brands/${brandId}`)
+        ),
+      ]);
+
+      // ตั้งแบรนด์หลัก ถ้ายังไม่ตรงกับที่เลือก (เฉพาะแบรนด์ที่ยังผูกอยู่เดิม ไม่ใช่ตัวที่เพิ่งผูกใหม่ที่ส่ง isPrimary ไปแล้ว)
+      const alreadyPrimaryHandled = toBind.includes(primaryBrandId);
+      if (primaryBrandId && !alreadyPrimaryHandled && originalIds.includes(primaryBrandId)) {
+        const wasAlreadyPrimary = (editLocation.locationBrands || []).find(lb => lb.brandId === primaryBrandId)?.isPrimary;
+        if (!wasAlreadyPrimary) {
+          await api.put(`/location/${editLocation.id}/brands/${primaryBrandId}/primary`);
+        }
+      }
+
       showToast(`✓ บันทึกสถานที่ "${editLocationForm.name}" สำเร็จ`);
       setEditLocation(null);
       loadAllData();
@@ -363,13 +397,27 @@ export default function MasterManagementScreen({ onBack }) {
     }
 
     try {
-      await api.post('/location', locationForm);
+      const { boundBrandIds, primaryBrandId, ...basicFields } = locationForm;
+      const created = await api.post('/location', basicFields);
+      const newLocationId = created.data?.id;
+
+      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้าง (ทีละตัว ให้ตัวที่เป็น primary ผูกด้วยธง isPrimary)
+      if (newLocationId && boundBrandIds.length > 0) {
+        await Promise.allSettled(
+          boundBrandIds.map(brandId =>
+            api.post(`/location/${newLocationId}/brands`, { brandId, isPrimary: brandId === primaryBrandId })
+          )
+        );
+      }
+
       showToast(`✓ เพิ่มสถานที่/สาขา "${locationForm.name}" สำเร็จ`);
       setShowAddLocationModal(false);
       setLocationForm({
         code: '',
         name: '',
         brandName: '',
+        boundBrandIds: [],
+        primaryBrandId: null,
         locationTypeId: locationTypes[0]?.id || 1,
         region: 'กรุงเทพฯ และปริมณฑล',
         address: '',
@@ -716,6 +764,9 @@ export default function MasterManagementScreen({ onBack }) {
     let list = locations;
     if (locationStatusFilter === 'ACTIVE') list = list.filter(l => l.isActive);
     if (locationStatusFilter === 'INACTIVE') list = list.filter(l => !l.isActive);
+    if (locationBrandFilter.length > 0) {
+      list = list.filter(l => l.locationBrands?.some(lb => locationBrandFilter.includes(lb.brandId)));
+    }
 
     if (!searchTerm.trim()) return list;
     const q = searchTerm.toLowerCase();
@@ -725,7 +776,7 @@ export default function MasterManagementScreen({ onBack }) {
       l.region?.toLowerCase().includes(q) ||
       l.locationType?.name?.toLowerCase().includes(q)
     );
-  }, [locations, searchTerm, locationStatusFilter]);
+  }, [locations, searchTerm, locationStatusFilter, locationBrandFilter]);
 
   const filteredTypes = useMemo(() => {
     if (!searchTerm.trim()) return locationTypes;
@@ -766,7 +817,7 @@ export default function MasterManagementScreen({ onBack }) {
 
   useEffect(() => {
     setLocationPage(1);
-  }, [searchTerm, locationStatusFilter]);
+  }, [searchTerm, locationStatusFilter, locationBrandFilter]);
 
   return (
     <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
@@ -813,12 +864,13 @@ export default function MasterManagementScreen({ onBack }) {
       )}
 
       {/* ── 🌟 4 CATEGORY TABS ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
         {[
           { key: 'users', label: 'ผู้ใช้งาน (Users)', count: users.length, icon: Users },
           { key: 'locations', label: 'สถานที่/สาขา (Locations)', count: locations.length, icon: Store },
           { key: 'location_types', label: 'ประเภทสถานที่ (Types)', count: locationTypes.length, icon: Building2 },
           { key: 'roles', label: 'บทบาทและสิทธิ์ (Roles)', count: roles.length, icon: ShieldCheck },
+          { key: 'brands', label: 'แบรนด์ (Brands)', count: brands.length, icon: Tag},
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -878,8 +930,21 @@ export default function MasterManagementScreen({ onBack }) {
           loading={loading} filteredLocations={filteredLocations} paginatedLocations={paginatedLocations}
           handleOpenEditLocation={handleOpenEditLocation}
           pageSize={pageSize} locationPage={locationPage} setLocationPage={setLocationPage} totalLocationPages={totalLocationPages}
+          brandsList={brands} brandFilter={locationBrandFilter} setBrandFilter={setLocationBrandFilter}
         />
       )}
+
+      {/* ── Brand ── */}
+      {
+        activeTab === 'brands' && (
+          <BrandManagementTab 
+            brands={brands} 
+            loading={loading} 
+            onRefresh={loadAllData} 
+            showToast={showToast}
+          />
+        )
+      }
 
       {/* ── 🏷️ TAB 3: LOCATION TYPES MANAGEMENT ── */}
       {activeTab === 'location_types' && (
@@ -1149,6 +1214,28 @@ export default function MasterManagementScreen({ onBack }) {
               </div>
 
               <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">ขอบเขตแบรนด์</label>
+                <select
+                  value={editUserForm.brandScope}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, brandScope: e.target.value })}
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                >
+                  <option value="ALL">ทุกแบรนด์ (ALL)</option>
+                  <option value="SPECIFIC">เฉพาะแบรนด์ที่กำหนด (SPECIFIC)</option>
+                </select>
+              </div>
+              {editUserForm.brandScope === 'SPECIFIC' && (
+                <div className="space-y-2 pt-1 animate-in fade-in">
+                  <label className="block text-sm font-medium text-slate-600">เลือกแบรนด์ที่ได้รับอนุญาต:</label>
+                  <BrandChipSelector
+                    brands={brands}
+                    selectedIds={editUserForm.allowedBrandIds || []}
+                    onChange={(ids) => setEditUserForm({ ...editUserForm, allowedBrandIds: ids })}
+                  />
+                </div>
+              )}
+
+              <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   ขอบเขตการเข้าถึง
                 </label>
@@ -1361,6 +1448,28 @@ export default function MasterManagementScreen({ onBack }) {
                   )}
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">ขอบเขตแบรนด์</label>
+                <select
+                  value={userForm.brandScope}
+                  onChange={(e) => setUserForm({ ...userForm, brandScope: e.target.value })}
+                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
+                >
+                  <option value="ALL">ทุกแบรนด์ (ALL)</option>
+                  <option value="SPECIFIC">เฉพาะแบรนด์ที่กำหนด (SPECIFIC)</option>
+                </select>
+              </div>
+              {userForm.brandScope === 'SPECIFIC' && (
+                <div className="space-y-2 pt-1 animate-in fade-in">
+                  <label className="block text-sm font-medium text-slate-600">เลือกแบรนด์ที่ได้รับอนุญาต:</label>
+                  <BrandChipSelector
+                    brands={brands}
+                    selectedIds={userForm.allowedBrandIds || []}
+                    onChange={(ids) => setUserForm({ ...userForm, allowedBrandIds: ids })}
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
@@ -1689,63 +1798,28 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              {/* Brand Selection / Custom Input */}
+              {/* Brand Selection (chip, multi + primary) */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-slate-600">แบรนด์ (Brand Name)</label>
-                  {!isCustomBrandEdit ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCustomBrandEdit(true);
-                        setEditLocationForm(prev => ({ ...prev, brandName: '' }));
-                      }}
-                      className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
-                    >
-                      + พิมพ์แบรนด์ใหม่
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCustomBrandEdit(false);
-                        setEditLocationForm(prev => ({ ...prev, brandName: existingBrands[0] || '' }));
-                      }}
-                      className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors"
-                    >
-                      ← เลือกจากรายการ
-                    </button>
-                  )}
-                </div>
-
-                {!isCustomBrandEdit ? (
-                  <select
-                    value={editLocationForm.brandName || ''}
-                    onChange={(e) => {
-                      if (e.target.value === '__NEW__') {
-                        setIsCustomBrandEdit(true);
-                        setEditLocationForm(prev => ({ ...prev, brandName: '' }));
-                      } else {
-                        setEditLocationForm(prev => ({ ...prev, brandName: e.target.value }));
-                      }
-                    }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    <option value="">-- เลือกแบรนด์ --</option>
-                    {existingBrands.map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={editLocationForm.brandName}
-                    onChange={(e) => setEditLocationForm(prev => ({ ...prev, brandName: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
-                    placeholder="พิมพ์ชื่อแบรนด์ใหม่ เช่น After You, Mikazuki"
-                    autoFocus
-                  />
-                )}
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                  แบรนด์ที่ผูกกับสถานที่นี้ <span className="font-normal text-slate-400">(กด ★ เพื่อตั้งแบรนด์หลัก)</span>
+                </label>
+                <BrandChipSelector
+                  brands={brands}
+                  value={editLocationForm.boundBrandIds}
+                  onChange={(ids) => setEditLocationForm(prev => ({
+                    ...prev,
+                    boundBrandIds: ids,
+                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null),
+                    brandName: brands.find(b => b.id === (ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : ids[0]))?.name || ''
+                  }))}
+                  mode="multi"
+                  primaryId={editLocationForm.primaryBrandId}
+                  onSetPrimary={(id) => setEditLocationForm(prev => ({
+                    ...prev,
+                    primaryBrandId: id,
+                    brandName: brands.find(b => b.id === id)?.name || prev.brandName
+                  }))}
+                />
               </div>
 
               {/* Region Selection / Custom Input */}
@@ -1948,63 +2022,28 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              {/* Brand Selection / Custom Input */}
+              {/* Brand Selection (chip, multi + primary) */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-slate-600">ชื่อแบรนด์ (Brand Name)</label>
-                  {!isCustomBrandAdd ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCustomBrandAdd(true);
-                        setLocationForm(prev => ({ ...prev, brandName: '' }));
-                      }}
-                      className="text-xs text-[#0F6659] hover:text-emerald-800 font-bold cursor-pointer transition-colors"
-                    >
-                      + เพิ่มแบรนด์ใหม่
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCustomBrandAdd(false);
-                        setLocationForm(prev => ({ ...prev, brandName: existingBrands[0] || '' }));
-                      }}
-                      className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer transition-colors"
-                    >
-                      ← เลือกจากรายการ
-                    </button>
-                  )}
-                </div>
-
-                {!isCustomBrandAdd ? (
-                  <select
-                    value={locationForm.brandName || ''}
-                    onChange={(e) => {
-                      if (e.target.value === '__NEW__') {
-                        setIsCustomBrandAdd(true);
-                        setLocationForm(prev => ({ ...prev, brandName: '' }));
-                      } else {
-                        setLocationForm(prev => ({ ...prev, brandName: e.target.value }));
-                      }
-                    }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    <option value="">-- เลือกแบรนด์ --</option>
-                    {existingBrands.map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={locationForm.brandName}
-                    onChange={(e) => setLocationForm(prev => ({ ...prev, brandName: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
-                    placeholder="พิมพ์ชื่อแบรนด์ใหม่ เช่น After You, Mikazuki"
-                    autoFocus
-                  />
-                )}
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                  แบรนด์ที่ผูกกับสถานที่นี้ <span className="font-normal text-slate-400">(กด ★ เพื่อตั้งแบรนด์หลัก)</span>
+                </label>
+                <BrandChipSelector
+                  brands={brands}
+                  value={locationForm.boundBrandIds}
+                  onChange={(ids) => setLocationForm(prev => ({
+                    ...prev,
+                    boundBrandIds: ids,
+                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null),
+                    brandName: brands.find(b => b.id === (ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : ids[0]))?.name || ''
+                  }))}
+                  mode="multi"
+                  primaryId={locationForm.primaryBrandId}
+                  onSetPrimary={(id) => setLocationForm(prev => ({
+                    ...prev,
+                    primaryBrandId: id,
+                    brandName: brands.find(b => b.id === id)?.name || prev.brandName
+                  }))}
+                />
               </div>
 
               {/* Region Selection / Custom Input */}

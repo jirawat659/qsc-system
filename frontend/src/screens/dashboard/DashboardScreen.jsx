@@ -137,8 +137,8 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
 }
 
 export default function DashboardScreen({ role, isDesktop }) {
-  const { locations, auditRecords, capTasks, currentUser } = React.useContext(DataContext);
-  const activeLocations = useMemo(() => locations || [], [locations]);
+  const { locations: visibleLocations, auditRecords, capTasks, currentUser } = React.useContext(DataContext);
+  const activeLocations = useMemo(() => visibleLocations || [], [visibleLocations]);
 
   const userRole = (role || currentUser?.role || currentUser?.roleCode || '').toUpperCase();
   const isBranchManager = userRole === "AUDITEE" || userRole === "BRANCH_MANAGER" || currentUser?.branchScope === "SPECIFIC";

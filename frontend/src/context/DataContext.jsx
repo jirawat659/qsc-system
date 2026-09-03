@@ -2,8 +2,12 @@ import React from "react";
 
 export const DataContext = React.createContext({
   currentUser: null,
-  locations: [],
+  locations: [], // สาขาทั่วไปไม่กรอก Brand
   setLocations: () => {},
+  visibleLocations: [], // สาขาหลังกรองตาม selectedBrandId
+  brands: [],
+  selectedBrandId: null,  // null = แสดงทุกแบรนด์
+  setSelectedBrandId: () => {},
   schedules: [],
   setSchedules: () => {},
   forms: [],

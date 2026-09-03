@@ -34,8 +34,8 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import ExcelExportModal from "../../modals/ExcelExportModal";
 
 export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel }) {
-  const { locations } = React.useContext(DataContext);
-  const activeLocations = locations || [];
+  const { locations: visibleLocations } = React.useContext(DataContext);
+  const activeLocations = visibleLocations || [];
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [sortBy, setSortBy] = useState("score-desc"); // 'score-desc' | 'score-asc' | 'name' | 'date'

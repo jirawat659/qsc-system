@@ -17,6 +17,57 @@ namespace QSC.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
 
+            modelBuilder.Entity("QSC.Api.Models.AuditDraft", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AuditorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CurrentSectionIdx")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DraftPayloadJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("LocationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double?>("StartLatitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("StartLongitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SurveyFormId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalAnswered")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TotalQuestions")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditorId");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("SurveyFormId");
+
+                    b.ToTable("AuditDrafts");
+                });
+
             modelBuilder.Entity("QSC.Api.Models.AuditRecord", b =>
                 {
                     b.Property<int>("Id")
@@ -26,26 +77,36 @@ namespace QSC.Api.Migrations
                     b.Property<DateTime>("AuditDate")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuditeeName")
+                    b.Property<int?>("AuditScheduleId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuditType")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuditeeSignature")
+                    b.Property<string>("AuditeeNameText")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuditorName")
-                        .IsRequired()
+                    b.Property<string>("AuditeeSignatureUrl")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuditorRole")
-                        .IsRequired()
+                    b.Property<int?>("AuditeeUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuditorSignatureUrl")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuditorSignature")
-                        .HasColumnType("TEXT");
+                    b.Property<double?>("EndLatitude")
+                        .HasColumnType("REAL");
 
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<double?>("EndLongitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool>("HasCriticalDefect")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsPassed")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("LocationId")
                         .HasColumnType("INTEGER");
@@ -53,19 +114,35 @@ namespace QSC.Api.Migrations
                     b.Property<double>("MaxScore")
                         .HasColumnType("REAL");
 
+                    b.Property<string>("MetadataValuesJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Notes")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<double>("PercentageScore")
                         .HasColumnType("REAL");
 
-                    b.Property<string>("ResultStatus")
-                        .IsRequired()
+                    b.Property<int>("PrimaryAuditorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("SignedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("ScheduleId")
+                    b.Property<int>("StaffCount")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double?>("StartLatitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<double?>("StartLongitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<int>("SurveyFormId")
                         .HasColumnType("INTEGER");
@@ -75,11 +152,50 @@ namespace QSC.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("LocationId");
+                    b.HasIndex("AuditDate");
+
+                    b.HasIndex("AuditScheduleId");
+
+                    b.HasIndex("AuditeeUserId");
+
+                    b.HasIndex("PrimaryAuditorId");
 
                     b.HasIndex("SurveyFormId");
 
+                    b.HasIndex("LocationId", "AuditDate");
+
                     b.ToTable("AuditRecords");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditRecordEditLog", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AuditRecordId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ChangesSummaryJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("EditedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("EditedByUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditRecordId");
+
+                    b.HasIndex("EditedByUserId");
+
+                    b.ToTable("AuditRecordEditLogs");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.AuditResponse", b =>
@@ -88,55 +204,65 @@ namespace QSC.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("AnswerValue")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("AuditRecordId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime?>("CapDeadline")
+                    b.Property<string>("CategoryName")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("CapRequired")
+                    b.Property<bool>("IsNa")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsPassed")
                         .HasColumnType("INTEGER");
 
-                    b.Property<double>("MaxScore")
-                        .HasColumnType("REAL");
-
                     b.Property<string>("Notes")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PhotoUrl")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("QuestionText")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("QuestionType")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<double>("ScoreGiven")
                         .HasColumnType("REAL");
 
-                    b.Property<string>("SectionTitle")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("SurveyItemId")
+                    b.Property<int>("SurveyItemId")
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
                     b.HasIndex("AuditRecordId");
 
+                    b.HasIndex("SurveyItemId", "IsPassed");
+
                     b.ToTable("AuditResponses");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditResponseImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AuditResponseId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("UploadedBy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UploaderId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditResponseId");
+
+                    b.HasIndex("UploaderId");
+
+                    b.ToTable("AuditResponseImages");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.AuditSchedule", b =>
@@ -149,18 +275,19 @@ namespace QSC.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("AuditorName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
+
+                    b.Property<int>("CreatedBy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("CreatorId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("LocationId")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("Notes")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("ScheduledDate")
@@ -170,10 +297,15 @@ namespace QSC.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<int?>("SurveyFormId")
+                    b.Property<int>("SurveyFormId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Time")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("CreatorId");
 
                     b.HasIndex("LocationId");
 
@@ -182,17 +314,69 @@ namespace QSC.Api.Migrations
                     b.ToTable("AuditSchedules");
                 });
 
+            modelBuilder.Entity("QSC.Api.Models.AuditScheduleAuditor", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AuditScheduleId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AuditorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsLead")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuditScheduleId");
+
+                    b.HasIndex("AuditorId");
+
+                    b.ToTable("AuditScheduleAuditors");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.Brand", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Brands");
+                });
+
             modelBuilder.Entity("QSC.Api.Models.CapTask", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTime?>("ApprovedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<int?>("AssignedTo")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<string>("ApprovedBy")
-                        .HasColumnType("TEXT");
+                    b.Property<int?>("AssigneeId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("AuditRecordId")
                         .HasColumnType("INTEGER");
@@ -200,55 +384,124 @@ namespace QSC.Api.Migrations
                     b.Property<int?>("AuditResponseId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("AuditorFeedback")
+                    b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("CorrectionAction")
-                        .IsRequired()
+                    b.Property<DateTime?>("CompletedAt")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("Deadline")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("EvidencePhotoUrl")
+                    b.Property<string>("IssueItem")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("LocationId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("RootCause")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Severity")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime?>("SubmittedAt")
+                    b.Property<DateTime>("SubmissionDeadline")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Title")
+                    b.Property<int?>("VerifiedBy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("VerifierId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AssigneeId");
+
+                    b.HasIndex("AuditRecordId");
+
+                    b.HasIndex("AuditResponseId");
+
+                    b.HasIndex("VerifierId");
+
+                    b.HasIndex("AssignedTo", "Status");
+
+                    b.HasIndex("LocationId", "Status");
+
+                    b.ToTable("CapTasks");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.CapTaskComment", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CapTaskId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SenderId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SenderRole")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AuditRecordId");
+                    b.HasIndex("CapTaskId");
 
-                    b.HasIndex("LocationId");
+                    b.HasIndex("SenderId");
 
-                    b.ToTable("CapTasks");
+                    b.ToTable("CapTaskComments");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.CapTaskImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CapTaskId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ImageUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Phase")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UploadedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UploadedBy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("UploaderId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CapTaskId");
+
+                    b.HasIndex("UploaderId");
+
+                    b.ToTable("CapTaskImages");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.Location", b =>
@@ -261,6 +514,10 @@ namespace QSC.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("BrandName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -268,16 +525,26 @@ namespace QSC.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("FullName")
-                        .IsRequired()
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastAuditDate")
                         .HasColumnType("TEXT");
 
                     b.Property<double>("LastScore")
                         .HasColumnType("REAL");
 
-                    b.Property<string>("ManagerName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<double>("Latitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("LocationTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("Longitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<int?>("ManagerUserId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -293,7 +560,138 @@ namespace QSC.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("LocationTypeId");
+
+                    b.HasIndex("ManagerUserId");
+
                     b.ToTable("Locations");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.LocationBrand", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BrandId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsPrimary")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LocationId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BrandId");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("LocationId", "BrandId")
+                        .IsUnique();
+
+                    b.ToTable("LocationBrands");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.LocationType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("LocationTypes");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.Permission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Permissions");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.Role", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NavConfigJson")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Roles");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.RolePermission", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PermissionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PermissionId");
+
+                    b.HasIndex("RoleId");
+
+                    b.ToTable("RolePermissions");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.SurveyForm", b =>
@@ -302,32 +700,34 @@ namespace QSC.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("AssignedAuditorsJson")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<int?>("CreatedBy")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<string>("FormType")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<int?>("CreatorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("FormGroupId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsLatest")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LocationTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MetadataConfigJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<double>("PassingScore")
                         .HasColumnType("REAL");
 
-                    b.Property<string>("TargetMode")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TargetUnitsJson")
+                    b.Property<string>("TargetingMode")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -335,12 +735,40 @@ namespace QSC.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("UpdatedAt")
+                    b.Property<string>("Version")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CreatorId");
+
+                    b.HasIndex("FormGroupId");
+
+                    b.HasIndex("LocationTypeId");
+
                     b.ToTable("SurveyForms");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.SurveyFormTargetLocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LocationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SurveyFormId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("SurveyFormId");
+
+                    b.ToTable("SurveyFormTargetLocations");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.SurveyItem", b =>
@@ -349,7 +777,16 @@ namespace QSC.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<int>("FullScore")
+                    b.Property<string>("CategoryCode")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CategoryName")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("FullScore")
+                        .HasColumnType("REAL");
+
+                    b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsCritical")
@@ -363,10 +800,6 @@ namespace QSC.Api.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("QuestionType")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SopRef")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -386,6 +819,9 @@ namespace QSC.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("OrderIndex")
                         .HasColumnType("INTEGER");
 
@@ -395,6 +831,9 @@ namespace QSC.Api.Migrations
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<double>("WeightPercent")
+                        .HasColumnType("REAL");
 
                     b.HasKey("Id");
 
@@ -409,13 +848,33 @@ namespace QSC.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("BranchScope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BrandScope")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FullName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Role")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
+                    b.Property<int>("RoleId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -423,11 +882,70 @@ namespace QSC.Api.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("Username")
+                        .IsUnique();
+
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("QSC.Api.Models.AuditRecord", b =>
+            modelBuilder.Entity("QSC.Api.Models.UserBrand", b =>
                 {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("BrandId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BrandId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "BrandId")
+                        .IsUnique();
+
+                    b.ToTable("UserBrands");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.UserLocation", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LocationId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LocationId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "LocationId")
+                        .IsUnique();
+
+                    b.ToTable("UserLocations");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditDraft", b =>
+                {
+                    b.HasOne("QSC.Api.Models.User", "Auditor")
+                        .WithMany()
+                        .HasForeignKey("AuditorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("QSC.Api.Models.Location", "Location")
                         .WithMany()
                         .HasForeignKey("LocationId")
@@ -440,38 +958,54 @@ namespace QSC.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("Auditor");
+
                     b.Navigation("Location");
 
                     b.Navigation("SurveyForm");
                 });
 
-            modelBuilder.Entity("QSC.Api.Models.AuditResponse", b =>
+            modelBuilder.Entity("QSC.Api.Models.AuditRecord", b =>
                 {
-                    b.HasOne("QSC.Api.Models.AuditRecord", null)
-                        .WithMany("Responses")
-                        .HasForeignKey("AuditRecordId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
+                    b.HasOne("QSC.Api.Models.AuditSchedule", "AuditSchedule")
+                        .WithMany()
+                        .HasForeignKey("AuditScheduleId");
 
-            modelBuilder.Entity("QSC.Api.Models.AuditSchedule", b =>
-                {
+                    b.HasOne("QSC.Api.Models.User", "AuditeeUser")
+                        .WithMany()
+                        .HasForeignKey("AuditeeUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("QSC.Api.Models.Location", "Location")
                         .WithMany()
                         .HasForeignKey("LocationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("QSC.Api.Models.User", "PrimaryAuditor")
+                        .WithMany()
+                        .HasForeignKey("PrimaryAuditorId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.HasOne("QSC.Api.Models.SurveyForm", "SurveyForm")
                         .WithMany()
-                        .HasForeignKey("SurveyFormId");
+                        .HasForeignKey("SurveyFormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AuditSchedule");
+
+                    b.Navigation("AuditeeUser");
 
                     b.Navigation("Location");
+
+                    b.Navigation("PrimaryAuditor");
 
                     b.Navigation("SurveyForm");
                 });
 
-            modelBuilder.Entity("QSC.Api.Models.CapTask", b =>
+            modelBuilder.Entity("QSC.Api.Models.AuditRecordEditLog", b =>
                 {
                     b.HasOne("QSC.Api.Models.AuditRecord", "AuditRecord")
                         .WithMany()
@@ -479,38 +1013,368 @@ namespace QSC.Api.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("QSC.Api.Models.User", "EditedByUser")
+                        .WithMany()
+                        .HasForeignKey("EditedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("AuditRecord");
+
+                    b.Navigation("EditedByUser");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditResponse", b =>
+                {
+                    b.HasOne("QSC.Api.Models.AuditRecord", "AuditRecord")
+                        .WithMany("Responses")
+                        .HasForeignKey("AuditRecordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.SurveyItem", "SurveyItem")
+                        .WithMany()
+                        .HasForeignKey("SurveyItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AuditRecord");
+
+                    b.Navigation("SurveyItem");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditResponseImage", b =>
+                {
+                    b.HasOne("QSC.Api.Models.AuditResponse", "AuditResponse")
+                        .WithMany("Images")
+                        .HasForeignKey("AuditResponseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "Uploader")
+                        .WithMany()
+                        .HasForeignKey("UploaderId");
+
+                    b.Navigation("AuditResponse");
+
+                    b.Navigation("Uploader");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditSchedule", b =>
+                {
+                    b.HasOne("QSC.Api.Models.User", "Creator")
+                        .WithMany()
+                        .HasForeignKey("CreatorId");
+
                     b.HasOne("QSC.Api.Models.Location", "Location")
                         .WithMany()
                         .HasForeignKey("LocationId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("QSC.Api.Models.SurveyForm", "SurveyForm")
+                        .WithMany()
+                        .HasForeignKey("SurveyFormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Creator");
+
+                    b.Navigation("Location");
+
+                    b.Navigation("SurveyForm");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditScheduleAuditor", b =>
+                {
+                    b.HasOne("QSC.Api.Models.AuditSchedule", "AuditSchedule")
+                        .WithMany("Auditors")
+                        .HasForeignKey("AuditScheduleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "Auditor")
+                        .WithMany()
+                        .HasForeignKey("AuditorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AuditSchedule");
+
+                    b.Navigation("Auditor");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.CapTask", b =>
+                {
+                    b.HasOne("QSC.Api.Models.User", "Assignee")
+                        .WithMany()
+                        .HasForeignKey("AssigneeId");
+
+                    b.HasOne("QSC.Api.Models.AuditRecord", "AuditRecord")
+                        .WithMany()
+                        .HasForeignKey("AuditRecordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.AuditResponse", "AuditResponse")
+                        .WithMany()
+                        .HasForeignKey("AuditResponseId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("QSC.Api.Models.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "Verifier")
+                        .WithMany()
+                        .HasForeignKey("VerifierId");
+
+                    b.Navigation("Assignee");
+
                     b.Navigation("AuditRecord");
+
+                    b.Navigation("AuditResponse");
+
+                    b.Navigation("Location");
+
+                    b.Navigation("Verifier");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.CapTaskComment", b =>
+                {
+                    b.HasOne("QSC.Api.Models.CapTask", "CapTask")
+                        .WithMany("Comments")
+                        .HasForeignKey("CapTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "Sender")
+                        .WithMany()
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CapTask");
+
+                    b.Navigation("Sender");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.CapTaskImage", b =>
+                {
+                    b.HasOne("QSC.Api.Models.CapTask", "CapTask")
+                        .WithMany("Images")
+                        .HasForeignKey("CapTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "Uploader")
+                        .WithMany()
+                        .HasForeignKey("UploaderId");
+
+                    b.Navigation("CapTask");
+
+                    b.Navigation("Uploader");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.Location", b =>
+                {
+                    b.HasOne("QSC.Api.Models.LocationType", "LocationType")
+                        .WithMany()
+                        .HasForeignKey("LocationTypeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "ManagerUser")
+                        .WithMany()
+                        .HasForeignKey("ManagerUserId");
+
+                    b.Navigation("LocationType");
+
+                    b.Navigation("ManagerUser");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.LocationBrand", b =>
+                {
+                    b.HasOne("QSC.Api.Models.Brand", "Brand")
+                        .WithMany("LocationBrands")
+                        .HasForeignKey("BrandId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.Location", "Location")
+                        .WithMany("LocationBrands")
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Brand");
 
                     b.Navigation("Location");
                 });
 
+            modelBuilder.Entity("QSC.Api.Models.RolePermission", b =>
+                {
+                    b.HasOne("QSC.Api.Models.Permission", "Permission")
+                        .WithMany()
+                        .HasForeignKey("PermissionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Permission");
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.SurveyForm", b =>
+                {
+                    b.HasOne("QSC.Api.Models.User", "Creator")
+                        .WithMany()
+                        .HasForeignKey("CreatorId");
+
+                    b.HasOne("QSC.Api.Models.SurveyForm", "FormGroup")
+                        .WithMany()
+                        .HasForeignKey("FormGroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QSC.Api.Models.LocationType", "LocationType")
+                        .WithMany()
+                        .HasForeignKey("LocationTypeId");
+
+                    b.Navigation("Creator");
+
+                    b.Navigation("FormGroup");
+
+                    b.Navigation("LocationType");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.SurveyFormTargetLocation", b =>
+                {
+                    b.HasOne("QSC.Api.Models.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.SurveyForm", "SurveyForm")
+                        .WithMany()
+                        .HasForeignKey("SurveyFormId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Location");
+
+                    b.Navigation("SurveyForm");
+                });
+
             modelBuilder.Entity("QSC.Api.Models.SurveyItem", b =>
                 {
-                    b.HasOne("QSC.Api.Models.SurveySection", null)
+                    b.HasOne("QSC.Api.Models.SurveySection", "SurveySection")
                         .WithMany("Items")
                         .HasForeignKey("SurveySectionId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("SurveySection");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.SurveySection", b =>
                 {
-                    b.HasOne("QSC.Api.Models.SurveyForm", null)
+                    b.HasOne("QSC.Api.Models.SurveyForm", "SurveyForm")
                         .WithMany("Sections")
                         .HasForeignKey("SurveyFormId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("SurveyForm");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.User", b =>
+                {
+                    b.HasOne("QSC.Api.Models.Role", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Role");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.UserBrand", b =>
+                {
+                    b.HasOne("QSC.Api.Models.Brand", "Brand")
+                        .WithMany()
+                        .HasForeignKey("BrandId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Brand");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.UserLocation", b =>
+                {
+                    b.HasOne("QSC.Api.Models.Location", "Location")
+                        .WithMany()
+                        .HasForeignKey("LocationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QSC.Api.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Location");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.AuditRecord", b =>
                 {
                     b.Navigation("Responses");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditResponse", b =>
+                {
+                    b.Navigation("Images");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.AuditSchedule", b =>
+                {
+                    b.Navigation("Auditors");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.Brand", b =>
+                {
+                    b.Navigation("LocationBrands");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.CapTask", b =>
+                {
+                    b.Navigation("Comments");
+
+                    b.Navigation("Images");
+                });
+
+            modelBuilder.Entity("QSC.Api.Models.Location", b =>
+                {
+                    b.Navigation("LocationBrands");
                 });
 
             modelBuilder.Entity("QSC.Api.Models.SurveyForm", b =>

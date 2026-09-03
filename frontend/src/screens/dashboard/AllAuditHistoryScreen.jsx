@@ -22,8 +22,8 @@ import api from "../../config/api";
 import { parseAuditTimestamp } from "../../utils/formatters";
 
 export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
-  const { locations, auditRecords, capTasks, schedules, activeDrafts, forms } = React.useContext(DataContext);
-  const activeLocations = locations || [];
+  const { locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms } = React.useContext(DataContext);
+  const activeLocations = visibleLocations || [];
   const [trendsData, setTrendsData] = useState([]);
 
   useEffect(() => {
