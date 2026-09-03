@@ -48,6 +48,15 @@ export default function MainDashboard({ onLogout }) {
 
   const [locations, setLocations] = useState([]);
   const [brands, setBrands] = useState([]);
+  const [schedules, setSchedules] = useState([]);
+  const [forms, setForms] = useState([]);
+  const [activeDraft, setActiveDraft] = useState(null);
+  const [activeDrafts, setActiveDrafts] = useState([]);
+  const [capTasks, setCapTasks] = useState([]);
+  const [auditRecords, setAuditRecords] = useState([]);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [dataFetchError, setDataFetchError] = useState(null);
+
   const [selectedBrandId, setSelectedBrandIdState] = useState(() => {
     const saved = localStorage.getItem('qsc_selected_brand_id');
     return saved ? Number(saved) : null;
@@ -57,6 +66,7 @@ export default function MainDashboard({ onLogout }) {
     if (id) localStorage.setItem('qsc_selected_brand_id', String(id));
     else localStorage.removeItem('qsc_selected_brand_id');
   };
+
   const visibleLocations = useMemo(() => {
     if (!selectedBrandId) return locations;
     return locations.filter(l => l.locationBrands?.some(lb => lb.brandId === selectedBrandId));
@@ -80,15 +90,6 @@ export default function MainDashboard({ onLogout }) {
     if (!selectedBrandId) return capTasks;
     return capTasks.filter(c => visibleLocationIds.has(c.locationId));
   }, [capTasks, selectedBrandId, visibleLocationIds]);
-  
-  const [schedules, setSchedules] = useState([]);
-  const [forms, setForms] = useState([]);
-  const [activeDraft, setActiveDraft] = useState(null);
-  const [activeDrafts, setActiveDrafts] = useState([]);
-  const [capTasks, setCapTasks] = useState([]);
-  const [auditRecords, setAuditRecords] = useState([]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
-  const [dataFetchError, setDataFetchError] = useState(null);
 
   const refreshData = async () => {
     setIsLoadingData(true);
