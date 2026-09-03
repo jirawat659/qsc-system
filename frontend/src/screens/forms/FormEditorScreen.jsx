@@ -1818,11 +1818,13 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         </ModalWrapper>
       )}
 
-      {/* 🌟 8. TOP FLOATING TOAST (Fixed on viewport screen via Portal) */}
+      {/* 🌟 8. TOP FLOATING TOAST (Fresh Mint & Pure Emerald - Option 1) */}
       {toastMessage && createPortal(
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-slate-900/95 backdrop-blur-md text-white shadow-2xl border border-slate-700/50 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200">
-          <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
-          <span>{toastMessage}</span>
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none flex items-center gap-3 px-5 py-3 rounded-2xl bg-emerald-50/95 backdrop-blur-md text-emerald-950 shadow-xl shadow-emerald-600/15 border border-emerald-300 ring-1 ring-emerald-400/20 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200">
+          <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+            <CheckCircle2 size={16} strokeWidth={2.5} />
+          </div>
+          <span className="tracking-tight">{toastMessage}</span>
         </div>,
         document.body
       )}
