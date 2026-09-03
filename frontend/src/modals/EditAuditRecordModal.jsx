@@ -92,28 +92,164 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
   };
 
-  // Store initial answers state to detect changes per question
-  const initialAnswers = useMemo(() => {
-    const map = {};
-    (record?.responses || []).forEach((res) => {
-      const itemId = res.surveyItemId || res.surveyItem?.id;
-      if (!itemId) return;
+  // Match form schema from DataContext or record
+  const matchedForm = useMemo(() => {
+    return (forms || []).find(f => 
+      (record?.surveyFormId && (f.id === record.surveyFormId || String(f.id) === String(record.surveyFormId))) ||
+      (record?.formId && (f.id === record.formId || String(f.id) === String(record.formId))) ||
+      (f.title && (f.title === record?.surveyFormTitle || f.title === record?.formName || f.title === record?.form))
+    );
+  }, [forms, record]);
 
-      const isNa = !!(res.isNa || res.rawAnswer === "na");
-      const isPass = isNa ? false : (res.isPassed !== undefined ? res.isPassed : (res.scoreGiven > 0));
-      const qType = (res.surveyItem?.questionType || "yesno").toLowerCase();
+  // Build complete questions list matching responses
+  const checklistQuestions = useMemo(() => {
+    if (!record) return [];
 
-      map[itemId] = {
-        isNa,
-        isPassed: isPass,
-        scaleScore: res.scaleScore || (qType === "scale" ? 5 : null),
-        notes: res.notes || ""
+    const resList = record.responses || [];
+
+    // 1. If form schema has sections & items, match questions through form
+    if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+      const itemsList = [];
+      let runningNum = 1;
+
+      matchedForm.sections.forEach((sec) => {
+        (sec.items || []).forEach((item) => {
+          const res = resList.find(r => 
+            (r.surveyItemId && (r.surveyItemId === item.id || String(r.surveyItemId) === String(item.id))) ||
+            (r.id && (r.id === item.id || String(r.id) === String(item.id))) ||
+            (r.questionText && item.questionText && r.questionText.trim() === item.questionText.trim()) ||
+            (r.questionText && item.text && r.questionText.trim() === item.text.trim())
+          ) || {};
+
+          const itemId = item.id || res.surveyItemId || res.id || `item_${runningNum}`;
+          const qText = item.questionText || item.text || res.questionText || `ข้อตรวจที่ ${runningNum}`;
+          const qType = (res.questionType || item.questionType || item.type || res.surveyItem?.questionType || "yesno").toLowerCase();
+          const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (item.fullScore || res.surveyItem?.fullScore || 10));
+          const isCrit = res.isCritical !== undefined ? res.isCritical : (item.isCritical || res.surveyItem?.isCritical || false);
+
+          itemsList.push({
+            runningNum: runningNum++,
+            surveyItemId: itemId,
+            questionText: qText,
+            questionType: qType,
+            fullScore: fullScore,
+            isCritical: isCrit,
+            originalRes: res
+          });
+        });
+      });
+
+      if (itemsList.length > 0) return itemsList;
+    }
+
+    // 2. Otherwise map responses directly from record
+    return resList.map((res, idx) => {
+      const itemId = res.surveyItemId || res.id || `item_${idx + 1}`;
+      const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
+      const qType = (res.questionType || res.surveyItem?.questionType || "yesno").toLowerCase();
+      const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
+      const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
+
+      return {
+        runningNum: idx + 1,
+        surveyItemId: itemId,
+        questionText: qText,
+        questionType: qType,
+        fullScore: fullScore,
+        isCritical: isCrit,
+        originalRes: res
       };
     });
-    return map;
-  }, [record]);
+  }, [record, matchedForm]);
 
+  // Helper to parse answer status accurately from response
+  const parseResponseAnswer = (q) => {
+    const res = q.originalRes || {};
+    const qType = q.questionType;
+    const fullScore = q.fullScore;
+
+    // Is N/A
+    const isNa = res.isNa === true || res.isNa === 1 || res.isNa === "true" || res.rawAnswer === "na" || res.answerValue === "na";
+
+    // Is Passed
+    let isPassed = true;
+    if (isNa) {
+      isPassed = false;
+    } else if (res.isPassed !== undefined && res.isPassed !== null) {
+      isPassed = res.isPassed === true || res.isPassed === 1 || res.isPassed === "true" || res.isPassed === "yes";
+    } else if (res.rawAnswer !== undefined && res.rawAnswer !== null) {
+      isPassed = res.rawAnswer === "yes" || res.rawAnswer === true || res.rawAnswer === 1 || res.rawAnswer === "1";
+    } else if (res.scoreGiven !== undefined && res.scoreGiven !== null) {
+      isPassed = Number(res.scoreGiven) > 0;
+    } else if (qType === "scale") {
+      isPassed = true;
+    }
+
+    // Scale Score (1 to 5)
+    let scaleScore = null;
+    if (qType === "scale") {
+      if (res.scaleScore !== undefined && res.scaleScore !== null) {
+        scaleScore = Number(res.scaleScore);
+      } else if (res.rawAnswer && !isNaN(Number(res.rawAnswer))) {
+        scaleScore = Math.max(1, Math.min(5, Number(res.rawAnswer)));
+      } else if (res.scoreGiven !== undefined && res.scoreGiven !== null) {
+        scaleScore = Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullScore) * 5)));
+      } else {
+        scaleScore = isPassed ? 5 : 2;
+      }
+    }
+
+    // Score Given
+    let scoreGiven = 0;
+    if (isNa) {
+      scoreGiven = 0;
+    } else if (qType === "scale") {
+      scoreGiven = ((scaleScore || 5) / 5) * fullScore;
+    } else {
+      scoreGiven = isPassed ? fullScore : 0;
+    }
+
+    return {
+      surveyItemId: q.surveyItemId,
+      isNa,
+      isPassed,
+      scoreGiven,
+      fullScore,
+      type: qType,
+      scaleScore,
+      notes: res.notes || "",
+      imageUrls: (res.images || []).map(img => img.imageUrl || img)
+    };
+  };
+
+  const buildInitialState = () => {
+    const map = {};
+    checklistQuestions.forEach(q => {
+      map[q.surveyItemId] = parseResponseAnswer(q);
+    });
+    return map;
+  };
+
+  // State
+  const [answersState, setAnswersState] = useState(buildInitialState);
+  const [initialAnswers, setInitialAnswers] = useState(buildInitialState);
   const [expandedNotes, setExpandedNotes] = useState({});
+
+  // 🔄 Sync state whenever modal opens or record changes
+  useEffect(() => {
+    if (!isOpen || !record) return;
+    const initialMap = {};
+    checklistQuestions.forEach(q => {
+      initialMap[q.surveyItemId] = parseResponseAnswer(q);
+    });
+    setAnswersState(initialMap);
+    setInitialAnswers(initialMap);
+    setReason("");
+    setGeneralNotes(record?.notes || "");
+    setStaffCount(record?.staffCount || 0);
+    setExpandedNotes({});
+    setError(null);
+  }, [isOpen, record?.id, checklistQuestions]);
 
   const toggleExpandNote = (itemId) => {
     setExpandedNotes((prev) => {
@@ -139,41 +275,14 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return false;
   };
 
-  // Initialize editable answers mapped by surveyItemId
-  const [answersState, setAnswersState] = useState(() => {
-    const map = {};
-    (record?.responses || []).forEach((res) => {
-      const itemId = res.surveyItemId || res.surveyItem?.id;
-      if (!itemId) return;
-
-      const isNa = !!(res.isNa || res.rawAnswer === "na");
-      const isPass = isNa ? false : (res.isPassed !== undefined ? res.isPassed : (res.scoreGiven > 0));
-      const qType = (res.surveyItem?.questionType || "yesno").toLowerCase();
-
-      map[itemId] = {
-        surveyItemId: itemId,
-        isNa: isNa,
-        isPassed: isPass,
-        scoreGiven: res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? (res.surveyItem?.fullScore || 10) : 0),
-        fullScore: res.surveyItem?.fullScore || 10,
-        type: qType,
-        scaleScore: res.scaleScore || (qType === "scale" ? 5 : null),
-        notes: res.notes || "",
-        imageUrls: (res.images || []).map(img => img.imageUrl)
-      };
-    });
-    return map;
-  });
-
   // Calculate live preview score
   const liveScoring = useMemo(() => {
     let earned = 0;
     let max = 0;
     let hasCritFail = false;
 
-    (record?.responses || []).forEach((res) => {
-      const itemId = res.surveyItemId || res.surveyItem?.id;
-      const state = answersState[itemId];
+    checklistQuestions.forEach((q) => {
+      const state = answersState[q.surveyItemId];
       if (!state) return;
 
       const full = state.fullScore || 10;
@@ -184,13 +293,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
       max += full;
       if (state.type === "scale") {
-        const sc = (state.scaleScore / 5) * full;
+        const sc = ((state.scaleScore || 5) / 5) * full;
         earned += sc;
       } else {
         if (state.isPassed) earned += full;
       }
 
-      if (res.surveyItem?.isCritical && !state.isPassed && !state.isNa) {
+      if (q.isCritical && !state.isPassed && !state.isNa) {
         hasCritFail = true;
       }
     });
@@ -199,7 +308,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const isPassed = percent >= (record?.surveyForm?.passingScore || 85) && !hasCritFail;
 
     return { earned, max, percent, isPassed, hasCritFail };
-  }, [answersState, record]);
+  }, [answersState, checklistQuestions, record]);
 
   if (!isOpen || !record) return null;
 
@@ -262,9 +371,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
 
     // 🌟 ตรวจสอบว่าข้อที่มีการแก้ไข ถูกระบุคอมเมนต์ครบทุกข้อหรือไม่
-    const invalidEditedItems = (record?.responses || []).filter((res) => {
-      const itemId = res.surveyItemId || res.surveyItem?.id;
-      if (!itemId) return false;
+    const invalidEditedItems = checklistQuestions.filter((q) => {
+      const itemId = q.surveyItemId;
       if (!isQuestionEdited(itemId)) return false;
       const note = answersState[itemId]?.notes?.trim();
       return !note;
@@ -274,9 +382,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       // บังคับเปิดแถบคอมเมนต์ของทุกข้อที่ยังไม่ได้ระบุ
       setExpandedNotes((prev) => {
         const next = { ...prev };
-        invalidEditedItems.forEach((res) => {
-          const itemId = res.surveyItemId || res.surveyItem?.id;
-          next[itemId] = true;
+        invalidEditedItems.forEach((q) => {
+          next[q.surveyItemId] = true;
         });
         return next;
       });
@@ -284,7 +391,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       setError(`กรุณาระบุคอมเมนต์สำหรับทุกข้อที่มีการแก้ไข (${invalidEditedItems.length} ข้อที่ยังไม่ได้ระบุ) ก่อนบันทึก`);
 
       // เลื่อนจอไปโฟกัสข้อแรกที่ยังไม่ระบุคอมเมนต์
-      const firstInvalidId = invalidEditedItems[0].surveyItemId || invalidEditedItems[0].surveyItem?.id;
+      const firstInvalidId = invalidEditedItems[0].surveyItemId;
       setTimeout(() => {
         const el = document.getElementById(`note-input-${firstInvalidId}`);
         if (el) {
@@ -299,15 +406,18 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setError(null);
 
     try {
-      const payloadResponses = Object.values(answersState).map((s) => ({
-        surveyItemId: s.surveyItemId,
-        scoreGiven: s.scoreGiven,
-        isPassed: s.isPassed,
-        isNa: s.isNa,
-        rawAnswer: s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no")),
-        notes: s.notes || null,
-        imageUrls: s.imageUrls || []
-      }));
+      const payloadResponses = checklistQuestions.map((q) => {
+        const s = answersState[q.surveyItemId] || parseResponseAnswer(q);
+        return {
+          surveyItemId: Number(q.surveyItemId) || q.originalRes?.surveyItemId || 0,
+          scoreGiven: s.scoreGiven,
+          isPassed: s.isPassed,
+          isNa: s.isNa,
+          rawAnswer: s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no")),
+          notes: s.notes || null,
+          imageUrls: s.imageUrls || []
+        };
+      });
 
       const payload = {
         reason: reason.trim(),
@@ -590,13 +700,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
 
             <div className="space-y-3">
-              {(record?.responses || []).map((res, idx) => {
-                const itemId = res.surveyItemId || res.surveyItem?.id;
-                const state = answersState[itemId];
-                if (!state) return null;
-
-                const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
-                const isCrit = res.isCritical !== undefined ? res.isCritical : res.surveyItem?.isCritical;
+              {checklistQuestions.map((q, idx) => {
+                const itemId = q.surveyItemId;
+                const state = answersState[itemId] || parseResponseAnswer(q);
+                const qText = q.questionText;
+                const isCrit = q.isCritical;
 
                 const isEdited = isQuestionEdited(itemId);
                 const isNoteMissing = isEdited && (!state.notes || !state.notes.trim());

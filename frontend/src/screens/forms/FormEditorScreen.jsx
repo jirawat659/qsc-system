@@ -944,7 +944,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           }`}
         >
           <SlidersHorizontal size={16} />
-          <span>1. ข้อมูลรายละเอียดการตรวจ</span>
+          <span>รายละเอียดการตรวจ</span>
         </button>
 
         <button
@@ -957,7 +957,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           }`}
         >
           <CheckCircle2 size={16} />
-          <span>2. รายการตรวจ & หมวดหมู่ ({totalQuestions} ข้อ)</span>
+          <span>หมวดหมู่ รายการข้อ ({totalQuestions} ข้อ)</span>
         </button>
       </div>
 
@@ -1380,11 +1380,6 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         {field.required && (
                           <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
                             * บังคับกรอก
-                          </span>
-                        )}
-                        {field.enabled === false && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">
-                            ปิดใช้งาน
                           </span>
                         )}
                       </div>
