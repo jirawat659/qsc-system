@@ -1,18 +1,96 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useContext, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { 
   X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, 
-  Save, Loader2, ArrowRight, MessageSquare, Users, FileText
+  Save, Loader2, ArrowRight, MessageSquare, Users, FileText,
+  Thermometer, Calendar, Clock, Hash, SlidersHorizontal
 } from "lucide-react";
 import api from "../config/api";
 import { mono } from "../config/theme";
+import { DataContext } from "../context/DataContext";
 
 export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSuccess }) {
+  const { forms = [] } = useContext(DataContext) || {};
+  const [fetchedFormConfig, setFetchedFormConfig] = useState(null);
   const [reason, setReason] = useState("");
   const [staffCount, setStaffCount] = useState(record?.staffCount || 0);
   const [generalNotes, setGeneralNotes] = useState(record?.notes || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+
+  // Load and resolve form metadataConfig
+  useEffect(() => {
+    if (record?.surveyForm?.metadataConfig || record?.surveyForm?.metadataConfigJson) return;
+    const matched = forms.find(f => f.id === record?.surveyFormId);
+    if (matched?.metadataConfig || matched?.metadataConfigJson) return;
+
+    if (record?.surveyFormId) {
+      api.get(`/form/${record.surveyFormId}`)
+        .then(res => {
+          if (res.data?.metadataConfig) {
+            setFetchedFormConfig(res.data.metadataConfig);
+          } else if (res.data?.metadataConfigJson) {
+            try {
+              setFetchedFormConfig(JSON.parse(res.data.metadataConfigJson));
+            } catch (e) {}
+          }
+        })
+        .catch(() => {});
+    }
+  }, [record?.surveyFormId, record?.surveyForm, forms]);
+
+  const formMetaFields = useMemo(() => {
+    const direct = record?.surveyForm?.metadataConfig;
+    if (Array.isArray(direct) && direct.length > 0) return direct;
+
+    if (record?.surveyForm?.metadataConfigJson) {
+      try {
+        const parsed = JSON.parse(record.surveyForm.metadataConfigJson);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+
+    const fromContext = forms.find(f => f.id === record?.surveyFormId);
+    if (Array.isArray(fromContext?.metadataConfig) && fromContext.metadataConfig.length > 0) {
+      return fromContext.metadataConfig;
+    }
+    if (fromContext?.metadataConfigJson) {
+      try {
+        const parsed = JSON.parse(fromContext.metadataConfigJson);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+
+    if (Array.isArray(fetchedFormConfig) && fetchedFormConfig.length > 0) {
+      return fetchedFormConfig;
+    }
+
+    return null;
+  }, [record, forms, fetchedFormConfig]);
+
+  const [metadataValues, setMetadataValues] = useState(() => {
+    let initial = {};
+    if (record?.metadataValues && typeof record.metadataValues === "object") {
+      initial = { ...record.metadataValues };
+    } else if (record?.metadataValuesJson) {
+      try {
+        const parsed = JSON.parse(record.metadataValuesJson);
+        if (parsed && typeof parsed === "object") initial = { ...parsed };
+      } catch (e) {}
+    }
+
+    if (initial.staff_count === undefined && record?.staffCount) {
+      initial.staff_count = record.staffCount;
+    }
+    return initial;
+  });
+
+  const handleMetaValueChange = (fieldId, val) => {
+    setMetadataValues(prev => ({ ...prev, [fieldId]: val }));
+    if (fieldId === "staff_count" || fieldId === "staffCount") {
+      setStaffCount(Number(val) || 0);
+    }
+  };
 
   // Store initial answers state to detect changes per question
   const initialAnswers = useMemo(() => {
@@ -235,10 +313,10 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         reason: reason.trim(),
         auditeeUserId: record.auditeeUserId || null,
         auditeeNameText: record.auditeeNameText || record.auditeeName || null,
-        staffCount: Number(staffCount) || 0,
-        auditType: record.auditType || "announced",
+        staffCount: Number(metadataValues.staff_count ?? staffCount) || 0,
+        auditType: metadataValues.audit_type || record.auditType || "announced",
         notes: generalNotes || null,
-        metadataValuesJson: record.metadataValuesJson || null,
+        metadataValuesJson: JSON.stringify(metadataValues),
         responses: payloadResponses
       };
 
@@ -271,14 +349,32 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
               </h3>
             </div>
 
-            {/* 🌟 คะแนนเก่า / ใหม่ แสดงบนแถบบนขวา */}
+            {/* 🌟 คะแนนเก่า / ใหม่ แสดงบนแถบบนขวา (เปลี่ยนเป็นสีเหลืองถ้าตก) */}
             <div className="flex items-center gap-2 shrink-0">
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#0F6659] text-white shadow-2xs text-xs font-bold" style={{ fontFamily: mono }}>
-                <span className="opacity-70 line-through text-[11px]">{originalScore}%</span>
-                <ArrowRight size={12} className="text-emerald-300 shrink-0" />
-                <span className="text-emerald-200 text-xs sm:text-sm font-black">{liveScoring.percent}%</span>
+              <div 
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl shadow-2xs text-xs font-bold transition-all border ${
+                  liveScoring.isPassed
+                    ? 'bg-[#0F6659] text-white border-emerald-700/50'
+                    : 'bg-amber-500 text-amber-950 border-amber-600/40 shadow-amber-500/20'
+                }`}
+                style={{ fontFamily: mono }}
+              >
+                <span className={`line-through text-[11px] ${liveScoring.isPassed ? 'opacity-70 text-emerald-100' : 'opacity-75 text-amber-900'}`}>
+                  {originalScore}%
+                </span>
+                <ArrowRight size={12} className={liveScoring.isPassed ? "text-emerald-300 shrink-0" : "text-amber-900 shrink-0"} />
+                <span className={`text-xs sm:text-sm font-black ${liveScoring.isPassed ? 'text-emerald-200' : 'text-slate-900'}`}>
+                  {liveScoring.percent}%
+                </span>
+                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                  liveScoring.isPassed 
+                    ? 'bg-emerald-400/30 text-emerald-100' 
+                    : 'bg-amber-600/30 text-amber-950 border border-amber-600/30'
+                }`}>
+                  {liveScoring.isPassed ? "✓ ผ่าน" : "⚠️ ตกเกณฑ์"}
+                </span>
                 {liveScoring.hasCritFail && (
-                  <span className="text-[10px] px-1 py-0.5 rounded bg-rose-500 text-white font-extrabold">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-600 text-white font-extrabold shadow-2xs">
                     Critical ตก
                   </span>
                 )}
@@ -328,33 +424,161 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             />
           </div>
 
-          {/* Quick Meta Fields */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                <Users size={12} className="text-slate-400" />
-                <span>จำนวนพนักงานขณะตรวจ (คน)</span>
-              </label>
-              <input
-                type="number"
-                min={0}
-                value={staffCount}
-                onChange={(e) => setStaffCount(e.target.value)}
-                className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
-              />
+          {/* 🌟 Form Metadata Details Fields (ดึงมาจากแบบฟอร์ม: ตัวเลข, อุณหภูมิ, ปฏิทิน, คำอธิบาย ฯลฯ) */}
+          <div className="space-y-2">
+            <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
+              <span className="flex items-center gap-1.5">
+                <SlidersHorizontal size={13} className="text-[#0F6659]" />
+                <span>ข้อมูลและรายละเอียดการตรวจ (Audit Form Details)</span>
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium">ตามที่กำหนดในแบบฟอร์ม</span>
             </div>
-            <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-              <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                <FileText size={12} className="text-slate-400" />
-                <span>หมายเหตุภาพรวมการตรวจ</span>
-              </label>
-              <input
-                type="text"
-                value={generalNotes}
-                onChange={(e) => setGeneralNotes(e.target.value)}
-                placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
-                className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] text-slate-800"
-              />
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {formMetaFields && formMetaFields.filter(f => f.enabled !== false && f.type !== 'auditor').length > 0 ? (
+                formMetaFields
+                  .filter(f => f.enabled !== false && f.type !== 'auditor')
+                  .map((field) => {
+                    const val = metadataValues[field.id] ?? (field.id === 'staff_count' ? staffCount : '');
+                    const isTemp = field.unit?.includes('°') || field.label?.includes('อุณหภูมิ');
+
+                    if (field.type === 'number') {
+                      return (
+                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            {isTemp ? <Thermometer size={13} className="text-amber-500" /> : <Users size={13} className="text-slate-500" />}
+                            <span>{field.label} {field.unit ? `(${field.unit})` : ''}</span>
+                            {field.required && <span className="text-rose-500">*</span>}
+                          </label>
+                          <div className="relative flex items-center">
+                            <input
+                              type="number"
+                              min={field.min !== undefined ? field.min : -50}
+                              max={field.max !== undefined ? field.max : 999999}
+                              value={val}
+                              onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                              placeholder={field.placeholder || `ระบุ${field.label}`}
+                              className="w-full text-xs p-2 pr-12 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
+                            />
+                            {field.unit && (
+                              <span className="absolute right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 select-none border border-slate-200">
+                                {field.unit}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (field.type === 'date') {
+                      return (
+                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <Calendar size={13} className="text-emerald-600" />
+                            <span>{field.label}</span>
+                            {field.required && <span className="text-rose-500">*</span>}
+                          </label>
+                          <input
+                            type="date"
+                            value={val}
+                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                            className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (field.type === 'time') {
+                      return (
+                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <Clock size={13} className="text-blue-500" />
+                            <span>{field.label}</span>
+                            {field.required && <span className="text-rose-500">*</span>}
+                          </label>
+                          <input
+                            type="time"
+                            value={val}
+                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                            className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
+                          />
+                        </div>
+                      );
+                    }
+
+                    if (field.type === 'select') {
+                      return (
+                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                            <SlidersHorizontal size={13} className="text-slate-500" />
+                            <span>{field.label}</span>
+                            {field.required && <span className="text-rose-500">*</span>}
+                          </label>
+                          <select
+                            value={val}
+                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                            className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800 cursor-pointer"
+                          >
+                            <option value="">-- เลือก --</option>
+                            {(field.options || []).map((opt, i) => (
+                              <option key={i} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </div>
+                      );
+                    }
+
+                    // Default text / textarea
+                    return (
+                      <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                          <FileText size={13} className="text-slate-400" />
+                          <span>{field.label}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <input
+                          type="text"
+                          value={val}
+                          onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                          placeholder={field.placeholder || `ระบุ${field.label}`}
+                          className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] text-slate-800 font-medium"
+                        />
+                      </div>
+                    );
+                  })
+              ) : (
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                    <Users size={12} className="text-slate-400" />
+                    <span>จำนวนพนักงานขณะตรวจ (คน)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={staffCount}
+                    onChange={(e) => {
+                      setStaffCount(e.target.value);
+                      handleMetaValueChange('staff_count', e.target.value);
+                    }}
+                    className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
+                  />
+                </div>
+              )}
+
+              {/* หมายเหตุภาพรวมการตรวจ */}
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1 sm:col-span-2">
+                <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                  <FileText size={12} className="text-slate-400" />
+                  <span>หมายเหตุภาพรวมการตรวจ</span>
+                </label>
+                <input
+                  type="text"
+                  value={generalNotes}
+                  onChange={(e) => setGeneralNotes(e.target.value)}
+                  placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
+                  className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] text-slate-800"
+                />
+              </div>
             </div>
           </div>
 
@@ -400,15 +624,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                             Critical
                           </span>
                         )}
-                        {isEdited && (
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                            isNoteMissing 
-                              ? 'bg-rose-50 text-rose-700 border-rose-200' 
-                              : 'bg-amber-50 text-amber-800 border-amber-200'
-                          }`}>
-                            {isNoteMissing ? "แก้ไขแล้ว (รอใส่เหตุผล)" : "มีการแก้ไข"}
-                          </span>
-                        )}
                       </div>
 
                       {/* ปุ่มเปิดปิดคอมเมนต์ทางขวา */}
@@ -425,9 +640,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                         title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
                       >
                         <MessageSquare size={13} />
-                        <span>
-                          {isNoteMissing ? "ต้องใส่เหตุผล *" : (shouldShowNote ? "ปิดคอมเมนต์" : (state.notes ? "ดูคอมเมนต์" : "คอมเมนต์"))}
-                        </span>
                         {state.notes && (
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                         )}
@@ -509,16 +721,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
                             <MessageSquare size={12} className={isEdited ? "text-amber-600" : "text-[#0F6659]"} />
-                            <span>{isEdited ? "ระบุเหตุผล / หมายเหตุในการแก้ไขข้อนี้:" : "คอมเมนต์ / หมายเหตุสำหรับข้อนี้:"}</span>
+                            <span>{isEdited ? "เหตุผล " : "คอมเมนต์ "}</span>
                             {isEdited && (
                               <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็น)</span>
                             )}
                           </div>
-                          {isNoteMissing && (
-                            <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200 animate-pulse">
-                              บังคับระบุก่อนบันทึก
-                            </span>
-                          )}
                         </div>
                         <input
                           id={`note-input-${itemId}`}
