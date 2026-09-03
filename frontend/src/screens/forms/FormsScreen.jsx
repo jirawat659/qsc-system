@@ -416,12 +416,13 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         </ModalWrapper>
       )}
 
-      {/* 🌟 Top Floating Toast on FormsScreen */}
-      {successToast && (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[99999] flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-emerald-900/90 backdrop-blur-md text-white shadow-xl border border-emerald-700/50 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200">
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+      {/* 🌟 Top Floating Toast on FormsScreen (Fixed on viewport screen via Portal) */}
+      {successToast && createPortal(
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none flex items-center gap-2.5 px-5 py-3 rounded-2xl bg-emerald-900/95 backdrop-blur-md text-white shadow-2xl border border-emerald-500/30 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200">
+          <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
           <span>{successToast}</span>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
