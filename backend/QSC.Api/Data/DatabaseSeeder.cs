@@ -124,6 +124,29 @@ namespace QSC.Api.Data
                     }
                 }
 
+                // 5. SurveyForms.BrandId
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(SurveyForms);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasBrandId = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "BrandId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasBrandId = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasBrandId)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE SurveyForms ADD COLUMN BrandId INTEGER;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
                 // 5. AuditResponses.CategoryName
                 using (var cmd = conn.CreateCommand())
                 {
@@ -535,6 +558,7 @@ namespace QSC.Api.Data
             {
                 Title = "แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Checklist 2026)",
                 LocationTypeId = storeType.Id,
+                BrandId = brandDefs[0].Id,
                 PassingScore = 85.0,
                 TargetingMode = "ALL_LOCATIONS",
                 Version = "v3.4",
@@ -549,6 +573,7 @@ namespace QSC.Api.Data
             {
                 Title = "แบบฟอร์มตรวจสอบมาตรฐานโรงงานและคลังสินค้า (GMP & HACCP Plant Audit)",
                 LocationTypeId = plantType.Id,
+                BrandId = brandDefs[0].Id,
                 PassingScore = 90.0,
                 TargetingMode = "ALL_LOCATIONS",
                 Version = "v2.1",
@@ -563,6 +588,7 @@ namespace QSC.Api.Data
             {
                 Title = "แบบฟอร์มตรวจประเมินครัวกลางและการจัดส่ง (Cloud Kitchen & Delivery SOP)",
                 LocationTypeId = cloudKitchenType.Id,
+                BrandId = brandDefs[1].Id,
                 PassingScore = 85.0,
                 TargetingMode = "ALL_LOCATIONS",
                 Version = "v1.5",

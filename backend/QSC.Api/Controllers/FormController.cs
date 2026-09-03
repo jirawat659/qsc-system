@@ -19,11 +19,12 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetForms([FromQuery] bool onlyLatest = true)
+        public async Task<IActionResult> GetForms([FromQuery] bool onlyLatest = true, [FromQuery] int? brandId = null)
         {
             var query = _context.SurveyForms
                 .AsNoTracking()
                 .Include(f => f.LocationType)
+                .Include(f => f.Brand)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
                 .Where(f => f.IsActive);
@@ -31,6 +32,11 @@ namespace QSC.Api.Controllers
             if (onlyLatest)
             {
                 query = query.Where(f => f.IsLatest);
+            }
+
+            if (brandId.HasValue && brandId.Value > 0)
+            {
+                query = query.Where(f => f.BrandId == brandId.Value || f.BrandId == null);
             }
 
             var forms = await query.OrderBy(f => f.Id).ToListAsync();
@@ -56,6 +62,8 @@ namespace QSC.Api.Controllers
                 title = f.Title,
                 locationTypeId = f.LocationTypeId,
                 locationTypeName = f.LocationType?.Name,
+                brandId = f.BrandId,
+                brandName = f.Brand?.Name,
                 passingScore = f.PassingScore,
                 targetingMode = f.TargetingMode,
                 version = f.Version,
@@ -104,6 +112,7 @@ namespace QSC.Api.Controllers
             var f = await _context.SurveyForms
                 .AsNoTracking()
                 .Include(f => f.LocationType)
+                .Include(f => f.Brand)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
                 .FirstOrDefaultAsync(f => f.Id == id);
@@ -126,6 +135,8 @@ namespace QSC.Api.Controllers
                 title = f.Title,
                 locationTypeId = f.LocationTypeId,
                 locationTypeName = f.LocationType?.Name,
+                brandId = f.BrandId,
+                brandName = f.Brand?.Name,
                 passingScore = f.PassingScore,
                 targetingMode = f.TargetingMode,
                 version = f.Version,
@@ -170,6 +181,7 @@ namespace QSC.Api.Controllers
         {
             public string Title { get; set; } = string.Empty;
             public int? LocationTypeId { get; set; }
+            public int? BrandId { get; set; }
             public double PassingScore { get; set; } = 85.0;
             public string TargetingMode { get; set; } = "ALL_LOCATIONS";
             public string Version { get; set; } = "v1.0";
@@ -211,6 +223,7 @@ namespace QSC.Api.Controllers
                 {
                     Title = dto.Title,
                     LocationTypeId = dto.LocationTypeId,
+                    BrandId = dto.BrandId,
                     PassingScore = dto.PassingScore,
                     TargetingMode = dto.TargetingMode,
                     Version = dto.Version,
@@ -332,6 +345,7 @@ namespace QSC.Api.Controllers
                     // Case A: Form has never been used -> In-place UPDATE
                     form.Title = dto.Title;
                     form.LocationTypeId = dto.LocationTypeId;
+                    form.BrandId = dto.BrandId;
                     form.PassingScore = dto.PassingScore;
                     form.TargetingMode = dto.TargetingMode;
                     form.Version = dto.Version;
@@ -429,6 +443,7 @@ namespace QSC.Api.Controllers
                         FormGroupId = form.FormGroupId ?? form.Id,
                         Title = dto.Title,
                         LocationTypeId = dto.LocationTypeId,
+                        BrandId = dto.BrandId,
                         PassingScore = dto.PassingScore,
                         TargetingMode = dto.TargetingMode,
                         Version = dto.Version,

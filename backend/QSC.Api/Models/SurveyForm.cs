@@ -11,6 +11,8 @@ namespace QSC.Api.Models
         public string Title { get; set; } = string.Empty;
         public int? LocationTypeId { get; set; }
         public LocationType? LocationType { get; set; }
+        public int? BrandId { get; set; }
+        public Brand? Brand { get; set; }
         public double PassingScore { get; set; } = 85.0;
         public string TargetingMode { get; set; } = "ALL_LOCATIONS"; // ALL_LOCATIONS or SPECIFIC_LOCATIONS
         public string Version { get; set; } = "v1.0";

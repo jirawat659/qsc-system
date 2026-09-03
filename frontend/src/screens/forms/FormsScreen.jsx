@@ -37,6 +37,7 @@ import FormEditorScreen from "./FormEditorScreen";
 
 export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   const { forms, refreshData, currentUser } = React.useContext(DataContext);
+  const { selectedBrand } = React.useContext(TopBarContext);
   const [editing, setEditing] = useState(undefined);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
@@ -91,6 +92,8 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         author: f.createdBy?.fullName || "-",
         type: f.locationTypeName || f.locationType?.name || f.locationType?.code || "-",
         locationTypeId: f.locationTypeId,
+        brandId: f.brandId,
+        brandName: f.brandName || f.brand?.name || null,
         status: f.isActive ? "active" : "draft",
         usedCount: f.usedCount !== undefined ? f.usedCount : (f.auditRecords?.length || 0),
         scheduledCount: f.scheduledCount || 0,
@@ -156,6 +159,10 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   }
 
   const filteredForms = formsList.filter(f => {
+    if (selectedBrand && selectedBrand !== "all") {
+      const bMatch = !f.brandId || String(f.brandId) === String(selectedBrand) || (f.brandName && f.brandName.toLowerCase() === selectedBrand.toLowerCase());
+      if (!bMatch) return false;
+    }
     let matchType = filterType === "all";
     if (!matchType) {
       const selectedTab = categoryTabs.find(t => t.key === filterType);
@@ -173,7 +180,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
       }
     }
     const q = searchTerm.toLowerCase();
-    const matchSearch = !searchTerm.trim() || f.name.toLowerCase().includes(q) || f.type?.toLowerCase().includes(q) || f.version?.toLowerCase().includes(q);
+    const matchSearch = !searchTerm.trim() || f.name.toLowerCase().includes(q) || f.type?.toLowerCase().includes(q) || f.brandName?.toLowerCase().includes(q) || f.version?.toLowerCase().includes(q);
     return matchType && matchSearch;
   });
 
@@ -256,6 +263,12 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                   {f.name}
                 </h3>
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {f.brandName && (
+                    <span className="text-[11px] sm:text-xs font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+                      <Store size={11} className="text-purple-500" />
+                      <span>{f.brandName}</span>
+                    </span>
+                  )}
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
                     {f.type}
                   </span>

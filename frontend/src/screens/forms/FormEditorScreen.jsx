@@ -63,7 +63,34 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
   const [locationTypes, setLocationTypes] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [brandId, setBrandId] = useState(form?.brandId ? Number(form.brandId) : null);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/location-type')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setLocationTypes(res.data);
+        }
+      })
+      .catch(err => {
+        console.warn("Could not load location types from API:", err);
+      });
+
+    api.get('/brand')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setBrands(res.data);
+        }
+      })
+      .catch(err => {
+        console.warn("Could not load brands from API:", err);
+      });
+
+    return () => { isMounted = false; };
+  }, []);
   const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
@@ -689,6 +716,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     const dto = {
       title: formName.trim(),
       locationTypeId: locationTypeId || 1,
+      brandId: brandId ? Number(brandId) : null,
       passingScore: Number(passingScore) || 85,
       targetingMode: "ALL_LOCATIONS",
       version: form?.version || "v1.0",
@@ -732,12 +760,15 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       return;
     }
 
+    const savedBrandObj = brands.find(b => b.id === Number(brandId));
     const savedForm = {
       id: backendId || form?.id || "f_" + Date.now(),
       name: formName.trim(),
       title: formName.trim(),
       type: formType,
       locationTypeId: locationTypeId || 1,
+      brandId: brandId ? Number(brandId) : null,
+      brandName: savedBrandObj ? savedBrandObj.name : null,
       description: description.trim(),
       passingScore: Number(passingScore) || 85,
       metadataConfig: metadataConfig,
@@ -834,14 +865,14 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             />
           </div>
 
-          {/* 2. แถวเดียวกัน: เกณฑ์คะแนนผ่าน (ย่อสั้น) + ประเภทฟอร์ม */}
-          <div className="flex gap-3 items-start">
+          {/* 2. แถวกลาง: เกณฑ์คะแนน + ประเภทฟอร์ม + แบรนด์ */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
             {/* เกณฑ์คะแนนผ่าน (%) */}
-            <div className="w-36 sm:w-40 shrink-0">
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
                 เกณฑ์ผ่าน (%) <span className="text-rose-500">*</span>
               </label>
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1.5">
+              <div className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1.5">
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                   <input
                     type="number"
@@ -855,7 +886,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     onBlur={() => {
                       if (!passingScore || passingScore < 1) setPassingScore(85);
                     }}
-                    className="w-10 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-12 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="85"
                     required
                   />
@@ -863,29 +894,11 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     % ขึ้นไป
                   </span>
                 </div>
-                <div className="flex flex-col items-center justify-center shrink-0 -my-1">
-                  <button
-                    type="button"
-                    onClick={() => setPassingScore(prev => Math.min(100, (Number(prev) || 0) + 1))}
-                    className="p-0.5 text-slate-400 hover:text-[#0F6659] hover:bg-slate-100 rounded cursor-pointer active:scale-90 transition-all leading-none"
-                    title="เพิ่มคะแนน"
-                  >
-                    <ChevronUp size={13} strokeWidth={2.5} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPassingScore(prev => Math.max(1, (Number(prev) || 0) - 1))}
-                    className="p-0.5 text-slate-400 hover:text-[#0F6659] hover:bg-slate-100 rounded cursor-pointer active:scale-90 transition-all leading-none"
-                    title="ลดคะแนน"
-                  >
-                    <ChevronDown size={13} strokeWidth={2.5} />
-                  </button>
-                </div>
               </div>
             </div>
 
             {/* ประเภทฟอร์ม */}
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0">
               <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
                 ประเภทฟอร์ม (Category)
               </label>
@@ -897,7 +910,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                   const selectedObj = locationTypes.find(lt => lt.id === val);
                   if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
                 }}
-                className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
+                className="w-full text-sm sm:text-base font-normal px-3.5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
               >
                 {locationTypes.length > 0 ? (
                   locationTypes.map(lt => (
@@ -912,6 +925,26 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     <option value={5}>ตรวจความปลอดภัยอาหาร (Food Safety)</option>
                   </>
                 )}
+              </select>
+            </div>
+
+            {/* แบรนด์ (Brand) */}
+            <div className="min-w-0">
+              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
+                แบรนด์ (Brand)
+              </label>
+              <select
+                value={brandId || ""}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : null;
+                  setBrandId(val);
+                }}
+                className="w-full text-sm sm:text-base font-normal px-3.5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
+              >
+                <option value="">ทุกแบรนด์ (All Brands)</option>
+                {brands.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -1017,7 +1050,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="พิมพ์ชื่อหมวดคะแนนใหม่ (เช่น ความปลอดภัย, สุขาภิบาล)..."
+              placeholder="เพิ่มชื่อหมวดคะแนนใหม่ (เช่น ความปลอดภัย, สุขาภิบาล)..."
               value={newCategoryInput}
               onChange={(e) => setNewCategoryInput(e.target.value)}
               onKeyDown={(e) => {
@@ -1053,7 +1086,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             className="px-3.5 py-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] font-extrabold text-xs sm:text-sm border border-emerald-200 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all active:scale-95"
           >
             <Plus size={16} />
-            <span>เพิ่มหมวดหมู่ใหม่</span>
+            <span>เพิ่มหมวดหมู่</span>
           </button>
         </div>
 
@@ -1324,7 +1357,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
                   <SlidersHorizontal size={18} className="text-[#0F6659]" />
-                  <span>ฟิลด์ข้อมูลการตรวจหน้าแรก (Audit Details Fields)</span>
+                  <span>ข้อมูลการตรวจ</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-1">
                   กำหนดรายการข้อมูลที่ต้องระบุก่อนเริ่มตรวจ เช่น ผู้ตรวจ, ประเภทการตรวจ, จำนวนพนักงาน, วันที่, เวลา, กะ หรืออุณหภูมิห้อง
