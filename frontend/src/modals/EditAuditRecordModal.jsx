@@ -14,6 +14,45 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Store initial answers state to detect changes per question
+  const initialAnswers = useMemo(() => {
+    const map = {};
+    (record?.responses || []).forEach((res) => {
+      const itemId = res.surveyItemId || res.surveyItem?.id;
+      if (!itemId) return;
+
+      const isNa = !!(res.isNa || res.rawAnswer === "na");
+      const isPass = isNa ? false : (res.isPassed !== undefined ? res.isPassed : (res.scoreGiven > 0));
+      const qType = (res.surveyItem?.questionType || "yesno").toLowerCase();
+
+      map[itemId] = {
+        isNa,
+        isPassed: isPass,
+        scaleScore: res.scaleScore || (qType === "scale" ? 5 : null),
+        notes: res.notes || ""
+      };
+    });
+    return map;
+  }, [record]);
+
+  const [expandedNotes, setExpandedNotes] = useState({});
+
+  const toggleExpandNote = (itemId) => {
+    setExpandedNotes(prev => ({ ...prev, [itemId]: !prev[itemId] }));
+  };
+
+  const isQuestionEdited = (itemId) => {
+    const orig = initialAnswers[itemId];
+    const curr = answersState[itemId];
+    if (!orig || !curr) return false;
+
+    if (orig.isNa !== curr.isNa) return true;
+    if (orig.isPassed !== curr.isPassed) return true;
+    if (curr.type === "scale" && orig.scaleScore !== curr.scaleScore) return true;
+
+    return false;
+  };
+
   // Initialize editable answers mapped by surveyItemId
   const [answersState, setAnswersState] = useState(() => {
     const map = {};
@@ -176,27 +215,34 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200/60 flex items-center justify-center text-[#0F6659] shadow-2xs">
-              <Edit3 size={16} />
-            </div>
-            <div>
-              <h3 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight">
+        <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/90 shrink-0 space-y-1">
+          {/* Top Row: Icon + Title + Close Button */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100/80 border border-emerald-300/70 flex items-center justify-center text-[#0F6659] shadow-2xs shrink-0">
+                <Edit3 size={16} />
+              </div>
+              <h3 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight truncate">
                 แก้ไขบันทึกผลการตรวจ
               </h3>
-              <p className="text-[11px] text-slate-400 font-medium">
-                {record?.location?.name || record?.locationName || "สาขา"} · ID: #{record.id}
-              </p>
             </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors border border-slate-200/60 shadow-2xs active:scale-95 shrink-0"
+              title="ปิดหน้าต่าง"
+            >
+              <X size={15} />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors border border-slate-200/60 shadow-2xs active:scale-95"
-          >
-            <X size={15} />
-          </button>
+
+          {/* Sub Row: Details (Branch Name + Record ID) */}
+          <div className="pl-10.5">
+            <p className="text-xs text-slate-500 font-medium truncate">
+              {record?.location?.name || record?.locationName || "สาขา"} · ID: #{record.id}
+            </p>
+          </div>
         </div>
 
         {/* Live Score Sticky Bar */}
@@ -292,19 +338,36 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
                 const isCrit = res.isCritical !== undefined ? res.isCritical : res.surveyItem?.isCritical;
 
+                const isEdited = isQuestionEdited(itemId);
+                const shouldShowNote = isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim());
+
                 return (
                   <div 
                     key={itemId || idx}
-                    className="p-3.5 rounded-2xl border border-slate-200/80 bg-white hover:border-slate-300 transition-all space-y-2.5 shadow-2xs"
+                    className={`p-3.5 rounded-2xl border transition-all shadow-2xs space-y-2.5 ${
+                      isEdited 
+                        ? 'border-[#0F6659]/60 bg-emerald-50/25 ring-1 ring-[#0F6659]/20' 
+                        : 'border-slate-200/80 bg-white hover:border-slate-300'
+                    }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="space-y-0.5 flex-1 min-w-0">
-                        <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
-                          <span className="text-slate-400 font-mono text-[11px]">#{idx + 1}</span>
-                          <span>{qText}</span>
+                    {/* 🌟 เอารวมเป็นแถบเดียวกัน: เลขข้อ + คำถาม + ปุ่มตัวเลือก */}
+                    <div className="flex items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-2.5 flex-1 min-w-0">
+                        <span className="shrink-0 px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono text-xs font-bold mt-0.5 sm:mt-0">
+                          #{idx + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="text-xs sm:text-sm font-bold text-slate-800 leading-snug">
+                            {qText}
+                          </span>
                           {isCrit && (
-                            <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
+                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200 align-middle">
                               Critical
+                            </span>
+                          )}
+                          {isEdited && (
+                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 align-middle">
+                              มีการแก้ไข
                             </span>
                           )}
                         </div>
@@ -334,55 +397,78 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                             <button
                               type="button"
                               onClick={() => handleToggleYesNo(itemId, "yes")}
-                              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
                                 !state.isNa && state.isPassed
                                   ? 'bg-emerald-600 text-white shadow-2xs'
                                   : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                               }`}
                             >
-                              <CheckCircle2 size={12} />
+                              <CheckCircle2 size={13} />
                               <span>ผ่าน</span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => handleToggleYesNo(itemId, "no")}
-                              className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 ${
                                 !state.isNa && !state.isPassed
                                   ? 'bg-rose-600 text-white shadow-2xs'
                                   : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
                               }`}
                             >
-                              <XCircle size={12} />
+                              <XCircle size={13} />
                               <span>ตก</span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => handleToggleYesNo(itemId, "na")}
-                              className={`px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-0.5 cursor-pointer transition-all active:scale-95 ${
+                              className={`px-2 py-1.5 rounded-xl text-xs font-bold flex items-center gap-0.5 cursor-pointer transition-all active:scale-95 ${
                                 state.isNa
                                   ? 'bg-slate-700 text-white shadow-2xs'
                                   : 'bg-slate-100 hover:bg-slate-200 text-slate-400'
                               }`}
                               title="ไม่ประเมิน / ยกเว้นข้อนี้"
                             >
-                              <MinusCircle size={12} />
+                              <MinusCircle size={13} />
                               <span>N/A</span>
                             </button>
                           </>
                         )}
+
+                        {/* Optional button to add note manually if not edited */}
+                        {!isEdited && !shouldShowNote && (
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandNote(itemId)}
+                            className="w-7 h-7 rounded-lg text-slate-400 hover:text-[#0F6659] hover:bg-emerald-50 flex items-center justify-center transition-colors cursor-pointer"
+                            title="เพิ่มหมายเหตุสำหรับข้อนี้"
+                          >
+                            <MessageSquare size={13} />
+                          </button>
+                        )}
                       </div>
                     </div>
 
-                    {/* Question Specific Note */}
-                    <input
-                      type="text"
-                      value={state.notes || ""}
-                      onChange={(e) => handleNoteChange(itemId, e.target.value)}
-                      placeholder="บันทึกหมายเหตุสำหรับข้อนี้ (ถ้ามี)..."
-                      className="w-full text-[11px] p-2 rounded-lg bg-slate-50 border border-slate-200 focus:outline-none focus:bg-white focus:ring-1 focus:ring-[#0F6659] text-slate-700 placeholder-slate-400 transition-all"
-                    />
+                    {/* 🌟 ถ้ามีการแก้ จะขึ้นช่องมาให้คอมเม้นอัตโนมัติ */}
+                    {shouldShowNote && (
+                      <div className="pt-1 animate-in fade-in slide-in-from-top-1 duration-150">
+                        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-800 mb-1">
+                          <MessageSquare size={12} className="text-[#0F6659]" />
+                          <span>
+                            {isEdited ? "ระบุเหตุผล/หมายเหตุในการแก้ไขข้อนี้:" : "หมายเหตุสำหรับข้อนี้:"}
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          value={state.notes || ""}
+                          onChange={(e) => handleNoteChange(itemId, e.target.value)}
+                          placeholder="พิมพ์หมายเหตุเพิ่มเติมสำหรับข้อนี้ (ถ้ามี)..."
+                          className="w-full text-xs px-3.5 py-2 rounded-xl border border-emerald-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder:text-slate-400 shadow-2xs font-sans"
+                          autoFocus={isEdited}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
