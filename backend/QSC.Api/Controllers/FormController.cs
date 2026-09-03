@@ -25,6 +25,8 @@ namespace QSC.Api.Controllers
                 .AsNoTracking()
                 .Include(f => f.LocationType)
                 .Include(f => f.Brand)
+                .Include(f => f.FormBrands)
+                    .ThenInclude(fb => fb.Brand)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
                 .Where(f => f.IsActive);
@@ -36,7 +38,9 @@ namespace QSC.Api.Controllers
 
             if (brandId.HasValue && brandId.Value > 0)
             {
-                query = query.Where(f => f.BrandId == brandId.Value || f.BrandId == null);
+                query = query.Where(f => (!f.FormBrands.Any() && f.BrandId == null)
+                                      || f.FormBrands.Any(fb => fb.BrandId == brandId.Value)
+                                      || f.BrandId == brandId.Value);
             }
 
             var forms = await query.OrderBy(f => f.Id).ToListAsync();
@@ -55,52 +59,62 @@ namespace QSC.Api.Controllers
                 .Select(g => new { FormId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.FormId, x => x.Count);
 
-            var result = forms.Select(f => new
-            {
-                id = f.Id,
-                formGroupId = f.FormGroupId,
-                title = f.Title,
-                locationTypeId = f.LocationTypeId,
-                locationTypeName = f.LocationType?.Name,
-                brandId = f.BrandId,
-                brandName = f.Brand?.Name,
-                passingScore = f.PassingScore,
-                targetingMode = f.TargetingMode,
-                version = f.Version,
-                isLatest = f.IsLatest,
-                isActive = f.IsActive,
-                metadataConfigJson = f.MetadataConfigJson,
-                createdAt = f.CreatedAt,
-                usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
-                scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
-                isInUse = auditCounts.GetValueOrDefault(f.Id, 0) > 0 || scheduleCounts.GetValueOrDefault(f.Id, 0) > 0,
-                targetLocationIds = formTargetLocations.Where(t => t.SurveyFormId == f.Id).Select(t => t.LocationId).ToList(),
-                sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
+            var result = forms.Select(f => {
+                var bIds = f.FormBrands.Select(fb => fb.BrandId).ToList();
+                if (bIds.Count == 0 && f.BrandId.HasValue) bIds.Add(f.BrandId.Value);
+
+                var bNames = f.FormBrands.Where(fb => fb.Brand != null).Select(fb => fb.Brand!.Name).ToList();
+                if (bNames.Count == 0 && !string.IsNullOrEmpty(f.Brand?.Name)) bNames.Add(f.Brand.Name);
+
+                return new
                 {
-                    id = s.Id,
-                    title = s.Title,
-                    orderIndex = s.OrderIndex,
-                    weightPercent = s.WeightPercent,
-                    items = s.Items.OrderBy(i => i.OrderIndex).Select(i => new
+                    id = f.Id,
+                    formGroupId = f.FormGroupId,
+                    title = f.Title,
+                    locationTypeId = f.LocationTypeId,
+                    locationTypeName = f.LocationType?.Name,
+                    brandId = f.BrandId,
+                    brandName = f.Brand?.Name,
+                    brandIds = bIds,
+                    brandNames = bNames,
+                    passingScore = f.PassingScore,
+                    targetingMode = f.TargetingMode,
+                    version = f.Version,
+                    isLatest = f.IsLatest,
+                    isActive = f.IsActive,
+                    metadataConfigJson = f.MetadataConfigJson,
+                    createdAt = f.CreatedAt,
+                    usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
+                    scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
+                    isInUse = auditCounts.GetValueOrDefault(f.Id, 0) > 0 || scheduleCounts.GetValueOrDefault(f.Id, 0) > 0,
+                    targetLocationIds = formTargetLocations.Where(t => t.SurveyFormId == f.Id).Select(t => t.LocationId).ToList(),
+                    sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
                     {
-                        id = i.Id,
-                        questionText = i.QuestionText,
-                        questionType = i.QuestionType,
-                        fullScore = i.FullScore,
-                        isCritical = i.IsCritical,
-                        categoryCode = i.CategoryCode ?? "GEN",
-                        categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
+                        id = s.Id,
+                        title = s.Title,
+                        orderIndex = s.OrderIndex,
+                        weightPercent = s.WeightPercent,
+                        items = s.Items.OrderBy(i => i.OrderIndex).Select(i => new
                         {
-                            "CLN" => "ความสะอาด",
-                            "DOC" => "เอกสาร",
-                            "OPS" => "กระบวนการทำงาน",
-                            "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
-                            "SVC" => "การบริการ",
-                            _ => "ความสะอาด"
-                        }),
-                        orderIndex = i.OrderIndex
+                            id = i.Id,
+                            questionText = i.QuestionText,
+                            questionType = i.QuestionType,
+                            fullScore = i.FullScore,
+                            isCritical = i.IsCritical,
+                            categoryCode = i.CategoryCode ?? "GEN",
+                            categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
+                            {
+                                "CLN" => "ความสะอาด",
+                                "DOC" => "เอกสาร",
+                                "OPS" => "กระบวนการทำงาน",
+                                "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                                "SVC" => "การบริการ",
+                                _ => "ความสะอาด"
+                            }),
+                            orderIndex = i.OrderIndex
+                        }).ToList()
                     }).ToList()
-                }).ToList()
+                };
             });
 
             return Ok(result);
@@ -113,6 +127,8 @@ namespace QSC.Api.Controllers
                 .AsNoTracking()
                 .Include(f => f.LocationType)
                 .Include(f => f.Brand)
+                .Include(f => f.FormBrands)
+                    .ThenInclude(fb => fb.Brand)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
                 .FirstOrDefaultAsync(f => f.Id == id);
@@ -128,6 +144,12 @@ namespace QSC.Api.Controllers
                 .Select(t => t.LocationId)
                 .ToListAsync();
 
+            var bIds = f.FormBrands.Select(fb => fb.BrandId).ToList();
+            if (bIds.Count == 0 && f.BrandId.HasValue) bIds.Add(f.BrandId.Value);
+
+            var bNames = f.FormBrands.Where(fb => fb.Brand != null).Select(fb => fb.Brand!.Name).ToList();
+            if (bNames.Count == 0 && !string.IsNullOrEmpty(f.Brand?.Name)) bNames.Add(f.Brand.Name);
+
             return Ok(new
             {
                 id = f.Id,
@@ -137,6 +159,8 @@ namespace QSC.Api.Controllers
                 locationTypeName = f.LocationType?.Name,
                 brandId = f.BrandId,
                 brandName = f.Brand?.Name,
+                brandIds = bIds,
+                brandNames = bNames,
                 passingScore = f.PassingScore,
                 targetingMode = f.TargetingMode,
                 version = f.Version,
@@ -182,6 +206,7 @@ namespace QSC.Api.Controllers
             public string Title { get; set; } = string.Empty;
             public int? LocationTypeId { get; set; }
             public int? BrandId { get; set; }
+            public List<int> BrandIds { get; set; } = new();
             public double PassingScore { get; set; } = 85.0;
             public string TargetingMode { get; set; } = "ALL_LOCATIONS";
             public string Version { get; set; } = "v1.0";
@@ -219,11 +244,13 @@ namespace QSC.Api.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
+                var effectiveBrandId = dto.BrandId ?? (dto.BrandIds != null && dto.BrandIds.Count > 0 ? dto.BrandIds.First() : null);
+
                 var form = new SurveyForm
                 {
                     Title = dto.Title,
                     LocationTypeId = dto.LocationTypeId,
-                    BrandId = dto.BrandId,
+                    BrandId = effectiveBrandId,
                     PassingScore = dto.PassingScore,
                     TargetingMode = dto.TargetingMode,
                     Version = dto.Version,
@@ -240,6 +267,19 @@ namespace QSC.Api.Controllers
                 // Set FormGroupId to self if initial version
                 form.FormGroupId = form.Id;
                 await _context.SaveChangesAsync();
+
+                // Save Brands (SurveyFormBrands)
+                if (dto.BrandIds != null && dto.BrandIds.Any())
+                {
+                    foreach (var bId in dto.BrandIds.Distinct())
+                    {
+                        _context.SurveyFormBrands.Add(new SurveyFormBrand { SurveyFormId = form.Id, BrandId = bId });
+                    }
+                }
+                else if (effectiveBrandId.HasValue)
+                {
+                    _context.SurveyFormBrands.Add(new SurveyFormBrand { SurveyFormId = form.Id, BrandId = effectiveBrandId.Value });
+                }
 
                 // Save Target Locations
                 if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())
@@ -340,16 +380,34 @@ namespace QSC.Api.Controllers
                 // Check if form has ever been used in audit records
                 bool hasBeenUsed = await _context.AuditRecords.AnyAsync(r => r.SurveyFormId == id);
 
+                var effectiveBrandId = dto.BrandId ?? (dto.BrandIds != null && dto.BrandIds.Count > 0 ? dto.BrandIds.First() : null);
+
                 if (!hasBeenUsed)
                 {
                     // Case A: Form has never been used -> In-place UPDATE
                     form.Title = dto.Title;
                     form.LocationTypeId = dto.LocationTypeId;
-                    form.BrandId = dto.BrandId;
+                    form.BrandId = effectiveBrandId;
                     form.PassingScore = dto.PassingScore;
                     form.TargetingMode = dto.TargetingMode;
                     form.Version = dto.Version;
                     form.MetadataConfigJson = dto.MetadataConfigJson;
+
+                    // Sync Brands (SurveyFormBrands)
+                    var existingBrands = await _context.SurveyFormBrands.Where(b => b.SurveyFormId == id).ToListAsync();
+                    _context.SurveyFormBrands.RemoveRange(existingBrands);
+
+                    if (dto.BrandIds != null && dto.BrandIds.Any())
+                    {
+                        foreach (var bId in dto.BrandIds.Distinct())
+                        {
+                            _context.SurveyFormBrands.Add(new SurveyFormBrand { SurveyFormId = id, BrandId = bId });
+                        }
+                    }
+                    else if (effectiveBrandId.HasValue)
+                    {
+                        _context.SurveyFormBrands.Add(new SurveyFormBrand { SurveyFormId = id, BrandId = effectiveBrandId.Value });
+                    }
 
                     // Sync Target Locations
                     var existingTargets = await _context.SurveyFormTargetLocations.Where(t => t.SurveyFormId == id).ToListAsync();
@@ -443,7 +501,7 @@ namespace QSC.Api.Controllers
                         FormGroupId = form.FormGroupId ?? form.Id,
                         Title = dto.Title,
                         LocationTypeId = dto.LocationTypeId,
-                        BrandId = dto.BrandId,
+                        BrandId = effectiveBrandId,
                         PassingScore = dto.PassingScore,
                         TargetingMode = dto.TargetingMode,
                         Version = dto.Version,
@@ -456,6 +514,19 @@ namespace QSC.Api.Controllers
 
                     _context.SurveyForms.Add(newVersionForm);
                     await _context.SaveChangesAsync();
+
+                    // Clone Brands (SurveyFormBrands)
+                    if (dto.BrandIds != null && dto.BrandIds.Any())
+                    {
+                        foreach (var bId in dto.BrandIds.Distinct())
+                        {
+                            _context.SurveyFormBrands.Add(new SurveyFormBrand { SurveyFormId = newVersionForm.Id, BrandId = bId });
+                        }
+                    }
+                    else if (effectiveBrandId.HasValue)
+                    {
+                        _context.SurveyFormBrands.Add(new SurveyFormBrand { SurveyFormId = newVersionForm.Id, BrandId = effectiveBrandId.Value });
+                    }
 
                     // Clone target locations
                     if (dto.TargetingMode == "SPECIFIC_LOCATIONS" && dto.TargetLocationIds.Any())

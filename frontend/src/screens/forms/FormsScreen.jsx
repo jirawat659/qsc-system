@@ -101,7 +101,9 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         type: f.locationTypeName || f.locationType?.name || f.locationType?.code || "-",
         locationTypeId: f.locationTypeId,
         brandId: f.brandId,
+        brandIds: f.brandIds || (f.brandId ? [f.brandId] : []),
         brandName: f.brandName || f.brand?.name || null,
+        brandNames: f.brandNames || (f.brandName ? [f.brandName] : (f.brand?.name ? [f.brand.name] : [])),
         status: f.isActive ? "active" : "draft",
         usedCount: f.usedCount !== undefined ? f.usedCount : (f.auditRecords?.length || 0),
         scheduledCount: f.scheduledCount || 0,
@@ -169,7 +171,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
 
   const filteredForms = formsList.filter(f => {
     if (selectedBrand && selectedBrand !== "all") {
-      const bMatch = !f.brandId || String(f.brandId) === String(selectedBrand) || (f.brandName && f.brandName.toLowerCase() === selectedBrand.toLowerCase());
+      const bMatch = !f.brandIds || f.brandIds.length === 0 || f.brandIds.map(String).includes(String(selectedBrand)) || (f.brandNames && f.brandNames.some(bn => bn.toLowerCase() === selectedBrand.toLowerCase()));
       if (!bMatch) return false;
     }
     let matchType = filterType === "all";
@@ -189,7 +191,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
       }
     }
     const q = searchTerm.toLowerCase();
-    const matchSearch = !searchTerm.trim() || f.name.toLowerCase().includes(q) || f.type?.toLowerCase().includes(q) || f.brandName?.toLowerCase().includes(q) || f.version?.toLowerCase().includes(q);
+    const matchSearch = !searchTerm.trim() || f.name.toLowerCase().includes(q) || f.type?.toLowerCase().includes(q) || (f.brandNames && f.brandNames.some(bn => bn.toLowerCase().includes(q))) || f.brandName?.toLowerCase().includes(q) || f.version?.toLowerCase().includes(q);
     return matchType && matchSearch;
   });
 
@@ -272,10 +274,22 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
                   {f.name}
                 </h3>
                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                  {f.brandName && (
+                  {f.brandNames && f.brandNames.length > 0 ? (
+                    f.brandNames.map(bn => (
+                      <span key={bn} className="text-[11px] sm:text-xs font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
+                        <Store size={11} className="text-purple-500" />
+                        <span>{bn}</span>
+                      </span>
+                    ))
+                  ) : f.brandName ? (
                     <span className="text-[11px] sm:text-xs font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 border border-purple-200 flex items-center gap-1">
                       <Store size={11} className="text-purple-500" />
                       <span>{f.brandName}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[11px] sm:text-xs font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-500 border border-slate-200 flex items-center gap-1">
+                      <Store size={11} className="text-slate-400" />
+                      <span>ทุกแบรนด์</span>
                     </span>
                   )}
                   <span className="text-[11px] sm:text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">

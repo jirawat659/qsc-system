@@ -64,7 +64,13 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
   const [locationTypes, setLocationTypes] = useState([]);
   const [brands, setBrands] = useState([]);
-  const [brandId, setBrandId] = useState(form?.brandId ? Number(form.brandId) : null);
+  const [brandIds, setBrandIds] = useState(() => {
+    if (form?.brandIds && Array.isArray(form.brandIds)) return form.brandIds.map(Number);
+    if (form?.brandId) return [Number(form.brandId)];
+    return [];
+  });
+  const [isBrandDropdownOpen, setIsBrandDropdownOpen] = useState(false);
+  const brandDropdownRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -89,7 +95,17 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         console.warn("Could not load brands from API:", err);
       });
 
-    return () => { isMounted = false; };
+    const handleClickOutside = (e) => {
+      if (brandDropdownRef.current && !brandDropdownRef.current.contains(e.target)) {
+        setIsBrandDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => {
+      isMounted = false;
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, []);
   const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
   const [metadataConfig, setMetadataConfig] = useState(() => {
@@ -716,7 +732,8 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
     const dto = {
       title: formName.trim(),
       locationTypeId: locationTypeId || 1,
-      brandId: brandId ? Number(brandId) : null,
+      brandId: brandIds.length > 0 ? brandIds[0] : null,
+      brandIds: brandIds.map(Number),
       passingScore: Number(passingScore) || 85,
       targetingMode: "ALL_LOCATIONS",
       version: form?.version || "v1.0",
@@ -760,15 +777,17 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
       return;
     }
 
-    const savedBrandObj = brands.find(b => b.id === Number(brandId));
+    const selectedBrandObjects = brands.filter(b => brandIds.includes(b.id));
     const savedForm = {
       id: backendId || form?.id || "f_" + Date.now(),
       name: formName.trim(),
       title: formName.trim(),
       type: formType,
       locationTypeId: locationTypeId || 1,
-      brandId: brandId ? Number(brandId) : null,
-      brandName: savedBrandObj ? savedBrandObj.name : null,
+      brandId: brandIds.length > 0 ? brandIds[0] : null,
+      brandIds: brandIds.map(Number),
+      brandName: selectedBrandObjects.length > 0 ? selectedBrandObjects[0].name : null,
+      brandNames: selectedBrandObjects.map(b => b.name),
       description: description.trim(),
       passingScore: Number(passingScore) || 85,
       metadataConfig: metadataConfig,
@@ -928,24 +947,104 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               </select>
             </div>
 
-            {/* แบรนด์ (Brand) */}
-            <div className="min-w-0">
-              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
-                แบรนด์ (Brand)
+            {/* แบรนด์ (Brand) - Multi-Select */}
+            <div className="min-w-0 relative">
+              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate flex items-center justify-between">
+                <span>แบรนด์ (Brand)</span>
+                <span className="text-[11px] font-medium text-slate-400">เลือกได้หลายแบรนด์</span>
               </label>
-              <select
-                value={brandId || ""}
-                onChange={(e) => {
-                  const val = e.target.value ? Number(e.target.value) : null;
-                  setBrandId(val);
-                }}
-                className="w-full text-sm sm:text-base font-normal px-3.5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
+              <div 
+                ref={brandDropdownRef}
+                onClick={() => setIsBrandDropdownOpen(prev => !prev)}
+                className={`w-full min-h-[50px] px-3.5 py-2 rounded-2xl bg-white border transition-all shadow-xs cursor-pointer flex items-center justify-between gap-2 ${
+                  isBrandDropdownOpen ? 'border-[#0F6659] ring-2 ring-[#0F6659]/10' : 'border-slate-200 hover:border-slate-300'
+                }`}
               >
-                <option value="">ทุกแบรนด์ (All Brands)</option>
-                {brands.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
+                <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1 py-0.5">
+                  {brandIds.length === 0 ? (
+                    <span className="text-sm font-normal text-slate-500 flex items-center gap-1.5">
+                      <Store size={14} className="text-slate-400" />
+                      <span>ทุกแบรนด์ (All Brands / Global)</span>
+                    </span>
+                  ) : (
+                    brandIds.map(bid => {
+                      const bObj = brands.find(b => b.id === bid);
+                      return (
+                        <span 
+                          key={bid}
+                          className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shrink-0 select-none animate-in fade-in zoom-in-95 duration-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBrandIds(prev => prev.filter(id => id !== bid));
+                          }}
+                          title="คลิกเพื่อลบแบรนด์นี้ออก"
+                        >
+                          <Store size={11} className="text-emerald-600" />
+                          <span>{bObj?.name || `Brand #${bid}`}</span>
+                          <X size={12} className="text-emerald-700 hover:text-rose-600 cursor-pointer ml-0.5" />
+                        </span>
+                      );
+                    })
+                  )}
+                </div>
+                <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform duration-200 ${isBrandDropdownOpen ? 'rotate-180 text-[#0F6659]' : ''}`} />
+              </div>
+
+              {/* Multi-Brand Popover Menu */}
+              {isBrandDropdownOpen && (
+                <div 
+                  className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150 max-h-56 overflow-y-auto"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* All Brands Option */}
+                  <label 
+                    onClick={() => setBrandIds([])}
+                    className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-bold ${
+                      brandIds.length === 0 ? 'bg-emerald-50 text-[#0F6659]' : 'text-slate-800 hover:bg-slate-50'
+                    }`}
+                  >
+                    <input 
+                      type="checkbox"
+                      checked={brandIds.length === 0}
+                      onChange={() => setBrandIds([])}
+                      className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer"
+                    />
+                    <span className="flex-1">ทุกแบรนด์ (All Brands / Global)</span>
+                  </label>
+                  
+                  <div className="border-t border-slate-100 my-1" />
+
+                  {/* Individual Brands */}
+                  {brands.map(b => {
+                    const isChecked = brandIds.includes(b.id);
+                    return (
+                      <label 
+                        key={b.id}
+                        onClick={() => {
+                          setBrandIds(prev => {
+                            if (prev.includes(b.id)) {
+                              return prev.filter(id => id !== b.id);
+                            } else {
+                              return [...prev, b.id];
+                            }
+                          });
+                        }}
+                        className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-medium ${
+                          isChecked ? 'bg-emerald-50 text-[#0F6659] font-bold' : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <input 
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => {}}
+                          className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer"
+                        />
+                        <span className="flex-1">{b.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 

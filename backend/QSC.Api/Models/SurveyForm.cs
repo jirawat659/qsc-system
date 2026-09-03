@@ -24,5 +24,6 @@ namespace QSC.Api.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public List<SurveySection> Sections { get; set; } = new();
+        public List<SurveyFormBrand> FormBrands { get; set; } = new();
     }
 }

@@ -215,6 +215,23 @@ namespace QSC.Api.Data
                         alterCmd.ExecuteNonQuery();
                     }
                 }
+
+                // 8. Ensure SurveyFormBrands table exists
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS SurveyFormBrands (
+                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            SurveyFormId INTEGER NOT NULL,
+                            BrandId INTEGER NOT NULL,
+                            FOREIGN KEY (SurveyFormId) REFERENCES SurveyForms (Id) ON DELETE CASCADE,
+                            FOREIGN KEY (BrandId) REFERENCES Brands (Id) ON DELETE CASCADE
+                        );
+                        CREATE INDEX IF NOT EXISTS IX_SurveyFormBrands_SurveyFormId ON SurveyFormBrands (SurveyFormId);
+                        CREATE INDEX IF NOT EXISTS IX_SurveyFormBrands_BrandId ON SurveyFormBrands (BrandId);
+                    ";
+                    cmd.ExecuteNonQuery();
+                }
             }
             catch (Exception ex)
             {

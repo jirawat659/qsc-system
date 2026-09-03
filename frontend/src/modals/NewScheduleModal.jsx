@@ -220,7 +220,42 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
   }, [scheduleToEdit]);
 
   const selectedUnit = locations.find(u => u.name === selectedUnitName || u.fullName === selectedUnitName) || locations[0];
-  const selectedForm = forms.find(f => f.id === selectedFormId) || forms[0];
+
+  // Smart Form Filtering based on selected unit's brand(s)
+  const availableForms = useMemo(() => {
+    if (!forms || forms.length === 0) return [];
+    if (!selectedUnit) return forms;
+
+    const locBrandId = selectedUnit.brandId;
+    const locBrandIds = selectedUnit.brandIds || (locBrandId ? [locBrandId] : []);
+    const locBrandName = selectedUnit.brandName || selectedUnit.brand?.name;
+
+    const matched = forms.filter(f => {
+      const formBrandIds = f.brandIds || (f.brandId ? [f.brandId] : []);
+      const formBrandNames = f.brandNames || (f.brandName ? [f.brandName] : (f.brand?.name ? [f.brand.name] : []));
+
+      // Global form (no brand restrictions) -> always available
+      if (formBrandIds.length === 0 && formBrandNames.length === 0) return true;
+
+      // Check ID match
+      if (locBrandIds.length > 0 && formBrandIds.some(bid => locBrandIds.includes(bid))) return true;
+
+      // Check Name match
+      if (locBrandName && formBrandNames.some(bn => bn.toLowerCase() === locBrandName.toLowerCase())) return true;
+
+      return false;
+    });
+
+    return matched.length > 0 ? matched : forms;
+  }, [forms, selectedUnit]);
+
+  useEffect(() => {
+    if (availableForms.length > 0 && !availableForms.some(f => f.id === selectedFormId)) {
+      setSelectedFormId(availableForms[0].id);
+    }
+  }, [availableForms, selectedFormId]);
+
+  const selectedForm = availableForms.find(f => f.id === selectedFormId) || forms.find(f => f.id === selectedFormId) || forms[0];
 
   const [saveError, setSaveError] = useState(null);
 
@@ -469,9 +504,12 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
               onChange={(e) => setSelectedFormId(Number(e.target.value) || e.target.value)}
               className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
             >
-              {forms.map(f => (
-                <option key={f.id} value={f.id}>{f.title || f.name}</option>
-              ))}
+              {availableForms.map(f => {
+                const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
+                return (
+                  <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
+                );
+              })}
             </select>
           </div>
         </div>

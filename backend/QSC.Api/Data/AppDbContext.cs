@@ -23,9 +23,10 @@ namespace QSC.Api.Data
         public DbSet<Brand> Brands => Set<Brand>();
         public DbSet<LocationBrand> LocationBrands => Set<LocationBrand>();
 
-        // Domain 3: Survey Forms (4)
+        // Domain 3: Survey Forms (5)
         public DbSet<SurveyForm> SurveyForms => Set<SurveyForm>();
         public DbSet<SurveyFormTargetLocation> SurveyFormTargetLocations => Set<SurveyFormTargetLocation>();
+        public DbSet<SurveyFormBrand> SurveyFormBrands => Set<SurveyFormBrand>();
         public DbSet<SurveySection> SurveySections => Set<SurveySection>();
         public DbSet<SurveyItem> SurveyItems => Set<SurveyItem>();
 
@@ -111,9 +112,24 @@ namespace QSC.Api.Data
             modelBuilder.Entity<AuditRecordEditLog>()
                 .HasIndex(l => l.AuditRecordId);
 
+            modelBuilder.Entity<SurveyFormBrand>()
+                .HasIndex(sfb => new { sfb.SurveyFormId, sfb.BrandId });
+
             // ==========================================
             // RELATIONSHIPS & CONSTRAINTS
             // ==========================================
+            modelBuilder.Entity<SurveyFormBrand>()
+                .HasOne(sfb => sfb.SurveyForm)
+                .WithMany(f => f.FormBrands)
+                .HasForeignKey(sfb => sfb.SurveyFormId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<SurveyFormBrand>()
+                .HasOne(sfb => sfb.Brand)
+                .WithMany()
+                .HasForeignKey(sfb => sfb.BrandId)
+                .OnDelete(DeleteBehavior.Cascade);
+
             modelBuilder.Entity<SurveyForm>()
                 .HasOne(f => f.FormGroup)
                 .WithMany()
