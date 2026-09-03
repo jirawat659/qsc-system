@@ -596,18 +596,56 @@ export default function MasterManagementScreen({ onBack }) {
   const inactiveUsers = useMemo(() => filteredUsers.filter(u => u.isActive === false), [filteredUsers]);
 
   // ── Specific Branch Selection Helpers (จัดการสาขาที่ได้รับอนุญาต) ──
+  const isLocationInBrands = (loc, allowedBrandIds) => {
+    if (!allowedBrandIds || allowedBrandIds.length === 0) return false;
+    const brandSet = new Set(allowedBrandIds.map(Number));
+    if (loc.locationBrands && loc.locationBrands.length > 0) {
+      if (loc.locationBrands.some(lb => brandSet.has(Number(lb.brandId)))) return true;
+    }
+    if (loc.brandId && brandSet.has(Number(loc.brandId))) return true;
+    return false;
+  };
+
+  const selectableLocationsForEdit = useMemo(() => {
+    if (editUserForm.brandScope !== 'SPECIFIC' || !editUserForm.allowedBrandIds || editUserForm.allowedBrandIds.length === 0) {
+      return locations;
+    }
+    return locations.filter(loc => isLocationInBrands(loc, editUserForm.allowedBrandIds));
+  }, [locations, editUserForm.brandScope, editUserForm.allowedBrandIds]);
+
+  const selectableLocationsForCreate = useMemo(() => {
+    if (userForm.brandScope !== 'SPECIFIC' || !userForm.allowedBrandIds || userForm.allowedBrandIds.length === 0) {
+      return locations;
+    }
+    return locations.filter(loc => isLocationInBrands(loc, userForm.allowedBrandIds));
+  }, [locations, userForm.brandScope, userForm.allowedBrandIds]);
+
+  const currentScopedLocations = useMemo(() => {
+    return branchSelectorTarget === 'edit'
+      ? selectableLocationsForEdit
+      : selectableLocationsForCreate;
+  }, [branchSelectorTarget, selectableLocationsForEdit, selectableLocationsForCreate]);
+
+  const currentScopedBrandNames = useMemo(() => {
+    const allowedIds = branchSelectorTarget === 'edit'
+      ? (editUserForm.brandScope === 'SPECIFIC' ? editUserForm.allowedBrandIds : [])
+      : (userForm.brandScope === 'SPECIFIC' ? userForm.allowedBrandIds : []);
+    if (!allowedIds || allowedIds.length === 0) return null;
+    return brands.filter(b => allowedIds.includes(b.id)).map(b => b.name).join(', ');
+  }, [branchSelectorTarget, editUserForm.brandScope, editUserForm.allowedBrandIds, userForm.brandScope, userForm.allowedBrandIds, brands]);
+
   const uniqueRegions = useMemo(() => {
     const set = new Set();
-    locations.forEach(loc => {
+    currentScopedLocations.forEach(loc => {
       if (loc.region && loc.region.trim()) {
         set.add(loc.region.trim());
       }
     });
     return Array.from(set);
-  }, [locations]);
+  }, [currentScopedLocations]);
 
   const filteredBranchLocations = useMemo(() => {
-    let list = locations;
+    let list = currentScopedLocations;
 
     // 1. Region filter
     if (branchRegionFilter !== 'ALL') {
@@ -630,7 +668,7 @@ export default function MasterManagementScreen({ onBack }) {
     }
 
     return list;
-  }, [locations, branchRegionFilter, branchShowSelectedOnly, branchSearchTerm, tempBranchLocationIds]);
+  }, [currentScopedLocations, branchRegionFilter, branchShowSelectedOnly, branchSearchTerm, tempBranchLocationIds]);
 
   const groupedLocations = useMemo(() => {
     const groups = {};
@@ -654,7 +692,16 @@ export default function MasterManagementScreen({ onBack }) {
     const initialIds = target === 'edit'
       ? (editUserForm.locationIds || [])
       : (userForm.allowedLocationIds || userForm.locationIds || []);
-    setTempBranchLocationIds([...initialIds]);
+    
+    // กรองเฉพาะสาขาที่อยู่ในขอบเขตแบรนด์ของผู้ใช้
+    const scopedList = target === 'edit' ? selectableLocationsForEdit : selectableLocationsForCreate;
+    const scopedIdSet = new Set(scopedList.map(l => l.id));
+    const validInitialIds = (target === 'edit' && editUserForm.brandScope === 'SPECIFIC' && editUserForm.allowedBrandIds?.length > 0)
+      || (target === 'create' && userForm.brandScope === 'SPECIFIC' && userForm.allowedBrandIds?.length > 0)
+        ? initialIds.filter(id => scopedIdSet.has(id))
+        : initialIds;
+
+    setTempBranchLocationIds([...validInitialIds]);
     setBranchSearchTerm('');
     setBranchRegionFilter('ALL');
     setBranchShowSelectedOnly(false);
@@ -1217,7 +1264,19 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">ขอบเขตแบรนด์</label>
                 <select
                   value={editUserForm.brandScope}
-                  onChange={(e) => setEditUserForm({ ...editUserForm, brandScope: e.target.value })}
+                  onChange={(e) => {
+                    const newScope = e.target.value;
+                    setEditUserForm(prev => ({
+                      ...prev,
+                      brandScope: newScope,
+                      locationIds: newScope === 'SPECIFIC' && prev.allowedBrandIds?.length > 0
+                        ? (prev.locationIds || []).filter(locId => {
+                            const loc = locations.find(l => l.id === locId);
+                            return loc && isLocationInBrands(loc, prev.allowedBrandIds);
+                          })
+                        : prev.locationIds
+                    }));
+                  }}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
                 >
                   <option value="ALL">ทุกแบรนด์ (ALL)</option>
@@ -1230,7 +1289,19 @@ export default function MasterManagementScreen({ onBack }) {
                   <BrandChipSelector
                     brands={brands}
                     selectedIds={editUserForm.allowedBrandIds || []}
-                    onChange={(ids) => setEditUserForm({ ...editUserForm, allowedBrandIds: ids })}
+                    onChange={(ids) => {
+                      setEditUserForm(prev => {
+                        const validLocationIds = (prev.locationIds || []).filter(locId => {
+                          const loc = locations.find(l => l.id === locId);
+                          return loc && isLocationInBrands(loc, ids);
+                        });
+                        return {
+                          ...prev,
+                          allowedBrandIds: ids,
+                          locationIds: ids.length > 0 ? validLocationIds : prev.locationIds
+                        };
+                      });
+                    }}
                   />
                 </div>
               )}
@@ -1256,13 +1327,20 @@ export default function MasterManagementScreen({ onBack }) {
                     เลือกสาขาที่ได้รับอนุญาต:
                   </label>
                   <div className="p-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 space-y-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
-                        <Store size={18} />
+                    <div className="flex items-center justify-between gap-2.5 flex-wrap">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
+                          <Store size={18} />
+                        </div>
+                        <span className="text-sm font-bold text-slate-800">
+                          เลือกแล้ว {editUserForm.locationIds?.length || 0} จาก {selectableLocationsForEdit.length} สาขา
+                        </span>
                       </div>
-                      <span className="text-sm font-bold text-slate-800">
-                        เลือกแล้ว {editUserForm.locationIds?.length || 0} จาก {locations.length} สาขา
-                      </span>
+                      {editUserForm.brandScope === 'SPECIFIC' && editUserForm.allowedBrandIds?.length > 0 && (
+                        <span className="text-[11px] font-semibold text-[#0F6659] bg-emerald-100/60 px-2 py-0.5 rounded-md">
+                          กรองตาม {editUserForm.allowedBrandIds.length} แบรนด์ที่เลือก
+                        </span>
+                      )}
                     </div>
 
                     {/* Previews of selected branches */}
@@ -1453,7 +1531,19 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">ขอบเขตแบรนด์</label>
                 <select
                   value={userForm.brandScope}
-                  onChange={(e) => setUserForm({ ...userForm, brandScope: e.target.value })}
+                  onChange={(e) => {
+                    const newScope = e.target.value;
+                    setUserForm(prev => ({
+                      ...prev,
+                      brandScope: newScope,
+                      allowedLocationIds: newScope === 'SPECIFIC' && prev.allowedBrandIds?.length > 0
+                        ? (prev.allowedLocationIds || []).filter(locId => {
+                            const loc = locations.find(l => l.id === locId);
+                            return loc && isLocationInBrands(loc, prev.allowedBrandIds);
+                          })
+                        : prev.allowedLocationIds
+                    }));
+                  }}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
                 >
                   <option value="ALL">ทุกแบรนด์ (ALL)</option>
@@ -1466,7 +1556,19 @@ export default function MasterManagementScreen({ onBack }) {
                   <BrandChipSelector
                     brands={brands}
                     selectedIds={userForm.allowedBrandIds || []}
-                    onChange={(ids) => setUserForm({ ...userForm, allowedBrandIds: ids })}
+                    onChange={(ids) => {
+                      setUserForm(prev => {
+                        const validLocationIds = (prev.allowedLocationIds || []).filter(locId => {
+                          const loc = locations.find(l => l.id === locId);
+                          return loc && isLocationInBrands(loc, ids);
+                        });
+                        return {
+                          ...prev,
+                          allowedBrandIds: ids,
+                          allowedLocationIds: ids.length > 0 ? validLocationIds : prev.allowedLocationIds
+                        };
+                      });
+                    }}
                   />
                 </div>
               )}
@@ -1492,13 +1594,20 @@ export default function MasterManagementScreen({ onBack }) {
                     เลือกสาขาที่ได้รับอนุญาต:
                   </label>
                   <div className="p-4 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 space-y-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
-                        <Store size={18} />
+                    <div className="flex items-center justify-between gap-2.5 flex-wrap">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
+                          <Store size={18} />
+                        </div>
+                        <span className="text-sm font-bold text-slate-800">
+                          เลือกแล้ว {userForm.allowedLocationIds?.length || 0} จาก {selectableLocationsForCreate.length} สาขา
+                        </span>
                       </div>
-                      <span className="text-sm font-bold text-slate-800">
-                        เลือกแล้ว {userForm.allowedLocationIds?.length || 0} จาก {locations.length} สาขา
-                      </span>
+                      {userForm.brandScope === 'SPECIFIC' && userForm.allowedBrandIds?.length > 0 && (
+                        <span className="text-[11px] font-semibold text-[#0F6659] bg-emerald-100/60 px-2 py-0.5 rounded-md">
+                          กรองตาม {userForm.allowedBrandIds.length} แบรนด์ที่เลือก
+                        </span>
+                      )}
                     </div>
 
                     {(userForm.allowedLocationIds?.length || 0) > 0 ? (
@@ -1577,8 +1686,13 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
               <div className="min-w-0 flex-1">
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">จัดการสาขาที่ได้รับอนุญาต</h3>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  เลือกแล้ว {tempBranchLocationIds.length} จาก {locations.length} สาขา
+                <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span>เลือกแล้ว {tempBranchLocationIds.length} จาก {currentScopedLocations.length} สาขา</span>
+                  {currentScopedBrandNames && (
+                    <span className="text-[#0F6659] font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 text-[10px]">
+                      {currentScopedBrandNames}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
