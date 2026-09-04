@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { List, ClipboardCheck, Store, ChevronRight, CheckCircle2, Plus, Trash2, X, Search, Filter, AlertTriangle, Info } from "lucide-react";
+import { Bar } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { ROLES, NAV_BY_ROLE } from "../../config/roles";
@@ -83,9 +68,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
           setLocationTypes(res.data);
         }
       })
-      .catch(err => {
-        console.warn("Could not load location types from API:", err);
-      });
+      .catch(() => {});
     return () => { isMounted = false; };
   }, []);
 

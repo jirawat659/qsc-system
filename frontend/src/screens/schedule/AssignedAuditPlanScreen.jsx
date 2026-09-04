@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import {
-  CalendarDays, Store, MapPin, ChevronRight, Check,
-  Clock, FileText, Tag, Play, Plus, AlertCircle, ArrowRight,
-  Navigation, ExternalLink
-} from "lucide-react";
+import { CalendarDays, Clock, FileText, Play, Plus, ArrowRight, Navigation, ExternalLink } from "lucide-react";
 import { DataContext } from "../../context/DataContext";
 import { getDistanceInMeters, formatDistance, DEFAULT_USER_COORDS } from "../../utils/geo";
 
@@ -29,9 +25,7 @@ export default function AssignedAuditPlanScreen({ auditorName, onStart, activeDr
             longitude: pos.coords.longitude
           });
         },
-        (err) => {
-          console.warn("GPS tracking error:", err.message);
-        },
+        (err) => {},
         { enableHighAccuracy: true, timeout: 6000 }
       );
     }

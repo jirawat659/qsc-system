@@ -1,8 +1,5 @@
 import React, { useState, useMemo } from "react";
-import {
-  Search, MapPin, Store, Building2, Utensils, Warehouse,
-  Check, X, ChevronRight, Filter, Phone, Sparkles, Award, Tag, ChevronDown
-} from "lucide-react";
+import { Search, MapPin, Store, Building2, Utensils, Warehouse, Check, X, ChevronRight, Tag, ChevronDown } from "lucide-react";
 import { c, sans, mono } from "../config/theme";
 import ModalWrapper from "../shared/ModalWrapper";
 
@@ -97,13 +94,13 @@ export default function LocationSelectModal({
       ? (loc.locationType?.code || loc.locationType?.name || '')
       : (loc.locationType || loc.type || '');
     if (typeCode.toLowerCase().includes('plant') || typeCode.toLowerCase().includes('warehouse')) {
-      return <Warehouse size={18} className={isSelected ? "text-white" : "text-purple-600 group-hover:text-white transition-colors"} />;
+      return <Warehouse size={18} className={isSelected ? "text-white" : "text-emerald-700 group-hover:text-white transition-colors"} />;
     }
     if (typeCode.toLowerCase().includes('cloud') || typeCode.toLowerCase().includes('kitchen')) {
       return <Utensils size={18} className={isSelected ? "text-white" : "text-amber-600 group-hover:text-white transition-colors"} />;
     }
     if (typeCode.toLowerCase().includes('office')) {
-      return <Building2 size={18} className={isSelected ? "text-white" : "text-blue-600 group-hover:text-white transition-colors"} />;
+      return <Building2 size={18} className={isSelected ? "text-white" : "text-slate-600 group-hover:text-white transition-colors"} />;
     }
     return <Store size={18} className={isSelected ? "text-white" : "text-[#0F6659] group-hover:text-white transition-colors"} />;
   };
@@ -125,12 +122,9 @@ export default function LocationSelectModal({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base sm:text-lg font-black text-slate-900 leading-snug">เลือกสาขาเป้าหมาย</h3>
-                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-[#0F6659]">
-                  {filteredLocations.length} จาก {locations.length} แห่ง
-                </span>
               </div>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                ค้นหาด้วยชื่อสาขา, รหัสสาขา, ประเภท หรือภูมิภาค
+                เลือกสถานที่กาารตรวจ
               </p>
             </div>
           </div>
@@ -147,38 +141,37 @@ export default function LocationSelectModal({
         <div className="p-4 border-b space-y-2.5 bg-white shrink-0 border-slate-100">
           {/* Search Box - NO autoFocus so mobile virtual keyboard doesn't pop up unexpectedly */}
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               placeholder="ค้นหาชื่อสาขา, รหัสสาขา หรือที่อยู่..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-8.5 pr-8 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-medium placeholder-slate-400 transition-all focus:bg-white focus:ring-1 focus:ring-emerald-500/20"
+              className="w-full pl-10 pr-9 py-2.5 min-h-[46px] text-sm sm:text-base rounded-2xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-semibold placeholder-slate-400 transition-all focus:bg-white focus:ring-1 focus:ring-emerald-500/20"
             />
             {searchTerm && (
               <button
                 type="button"
                 onClick={() => setSearchTerm("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-lg transition-colors"
                 title="ล้างข้อความค้นหา"
               >
-                <X size={13} />
+                <X size={14} />
               </button>
             )}
           </div>
 
-          {/* 🔽 2 Dropdowns Side-by-Side (ภูมิภาค & ประเภทสาขา) */}
           {/* 🔽 2 Dropdowns Side-by-Side: ประเภท (ซ้าย) & ภูมิภาค (ขวา) */}
           <div className="grid grid-cols-2 gap-2 pt-0.5">
             {/* Dropdown 1 (ซ้าย): ประเภทสาขา (Location Type) */}
-            <div className="relative flex items-center bg-slate-50 hover:bg-white border border-slate-200 rounded-xl px-2.5 sm:px-3 py-2 focus-within:border-amber-600 focus-within:ring-2 focus-within:ring-amber-500/20 transition-all min-w-0">
-              <Tag size={14} className="text-amber-600 shrink-0 mr-1.5 sm:mr-2" />
+            <div className="relative flex items-center bg-slate-50 hover:bg-white border border-slate-200 rounded-2xl px-3 py-2.5 min-h-[50px] focus-within:border-[#0F6659] focus-within:bg-white transition-all shadow-xs min-w-0">
+              <Tag size={16} className="text-amber-600 shrink-0 mr-1.5 sm:mr-2" />
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate"
+                className="w-full bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate"
               >
-                <option value="all">ทุกประเภทสาขา ({locations.length})</option>
+                <option value="all">ทั้งหมด ({locations.length})</option>
                 {availableTypes.map(t => {
                   const count = locations.filter(l => {
                     const locT = typeof l.locationType === 'object'
@@ -193,18 +186,18 @@ export default function LocationSelectModal({
                   );
                 })}
               </select>
-              <ChevronDown size={13} className="text-slate-400 pointer-events-none absolute right-2.5 shrink-0" />
+              <ChevronDown size={16} className="text-slate-400 pointer-events-none absolute right-3 shrink-0" />
             </div>
 
             {/* Dropdown 2 (ขวา): ภูมิภาค (Region) */}
-            <div className="relative flex items-center bg-slate-50 hover:bg-white border border-slate-200 rounded-xl px-2.5 sm:px-3 py-2 focus-within:border-[#0F6659] focus-within:ring-2 focus-within:ring-emerald-500/20 transition-all min-w-0">
-              <MapPin size={14} className="text-[#0F6659] shrink-0 mr-1.5 sm:mr-2" />
+            <div className="relative flex items-center bg-slate-50 hover:bg-white border border-slate-200 rounded-2xl px-3 py-2.5 min-h-[50px] focus-within:border-[#0F6659] focus-within:bg-white transition-all shadow-xs min-w-0">
+              <MapPin size={16} className="text-[#0F6659] shrink-0 mr-1.5 sm:mr-2" />
               <select
                 value={selectedRegion}
                 onChange={(e) => setSelectedRegion(e.target.value)}
-                className="w-full bg-transparent text-xs font-bold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate"
+                className="w-full bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer appearance-none pr-6 truncate"
               >
-                <option value="all">ทุกภูมิภาค ({locations.length})</option>
+                <option value="all">ทั้งหมด ({locations.length})</option>
                 {availableRegions.map(reg => {
                   const count = locations.filter(l => l.region === reg).length;
                   return (
@@ -214,7 +207,7 @@ export default function LocationSelectModal({
                   );
                 })}
               </select>
-              <ChevronDown size={13} className="text-slate-400 pointer-events-none absolute right-2.5 shrink-0" />
+              <ChevronDown size={16} className="text-slate-400 pointer-events-none absolute right-3 shrink-0" />
             </div>
           </div>
         </div>
@@ -278,7 +271,7 @@ export default function LocationSelectModal({
                             </span>
                           )}
                           {loc.brandName && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 text-purple-900 border border-purple-200">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-900 border border-emerald-200">
                               {loc.brandName}
                             </span>
                           )}
@@ -349,18 +342,6 @@ export default function LocationSelectModal({
               );
             })
           )}
-        </div>
-
-        {/* Footer info */}
-        <div className="p-3 sm:p-4 border-t bg-slate-50/80 text-center text-xs font-semibold text-slate-500 shrink-0 flex items-center justify-between border-slate-200">
-          <span>แตะสาขาที่ต้องการเพื่อเลือกทันที</span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-xs font-bold text-slate-700 border border-slate-200 cursor-pointer shadow-2xs"
-          >
-            ปิด
-          </button>
         </div>
       </div>
     </ModalWrapper>

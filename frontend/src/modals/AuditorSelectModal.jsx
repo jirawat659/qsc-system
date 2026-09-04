@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { List, Users, Check, X, Search, Filter } from "lucide-react";
+
 
 import { c, sans, mono, cardStyle } from "../config/theme";
 import ModalWrapper from "../shared/ModalWrapper";
@@ -53,7 +38,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
           setDbUsers(auditorsOnly);
         }
       })
-      .catch(err => console.warn("Could not load users for AuditorSelectModal:", err));
+      .catch(() => {});
     return () => { isMounted = false; };
   }, []);
 
@@ -101,6 +86,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-md">
+      <div className="w-full max-w-full overflow-hidden flex flex-col min-h-0 flex-1">
         {/* Modal Header */}
         <div className="shrink-0 p-4 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
           <div className="flex items-center gap-2.5">
@@ -117,43 +103,22 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
           </button>
         </div>
 
-        {/* Search & Team Filter Tabs */}
-        <div className="p-3 border-b space-y-2 bg-white" style={{ borderColor: c.border }}>
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: c.faint }} />
+        {/* Search Input */}
+        <div className="p-3 border-b bg-white shrink-0" style={{ borderColor: c.border }}>
+          <div className="relative flex items-center">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               placeholder="ค้นหาชื่อผู้ตรวจ, บทบาท, หรือทีม..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-8.5 pr-3 py-2 text-xs rounded-xl border outline-none focus:border-emerald-600 font-medium"
-              style={{ borderColor: c.border, background: c.bg }}
+              className="w-full pl-10 pr-3.5 py-2.5 min-h-[48px] text-sm sm:text-sm rounded-2xl border border-slate-200 outline-none focus:border-[#0F6659] font-semibold text-slate-800 bg-slate-50 focus:bg-white transition-colors appearance-none"
             />
           </div>
-
-          {/*<div className="flex gap-1 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
-            {[
-              { key: "all", label: "ทั้งหมด" },
-              { key: "กทม. และปริมณฑล", label: "กทม./ปริมณฑล" },
-              { key: "ภาคเหนือและอีสาน", label: "เหนือ/อีสาน" },
-              { key: "ภาคตะวันออกและใต้", label: "ตะวันออก/ใต้" },
-            ].map(tab => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setTeamTab(tab.key)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 cursor-pointer transition-colors ${
-                  teamTab === tab.key ? 'bg-[#0F6659] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>*/}
         </div>
 
         {/* List of Auditors - Clean, spacious cards without divide-y clashing */}
-        <div className="flex-1 overflow-y-auto min-h-0 custom-tab-scrollbar p-3 pb-6 space-y-2" style={{ background: "#FAF9F5" }}>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain max-h-[60dvh] sm:max-h-[68dvh] p-3 pb-12 space-y-2" style={{ background: "#FAF9F5" }}>
           {/* Quick Option: All Auditors Card */}
           {/*<button
             type="button"
@@ -229,6 +194,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
             </div>
           )}
         </div>
+      </div>
     </ModalWrapper>
   );
 }

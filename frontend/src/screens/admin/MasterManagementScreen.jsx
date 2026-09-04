@@ -1,12 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  Users, Store, Building2, ShieldCheck, Plus, Search, Edit3, Trash2,
-  Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw,
-  MapPin, Phone, Shield, ArrowUpDown, UserCheck, Layers, ExternalLink,
-  SlidersHorizontal, CheckSquare, Square, Globe, Lock, ArrowLeft,
-  ChevronDown, ChevronUp, Smartphone, Tag
-} from 'lucide-react';
+import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag } from "lucide-react";
 import api from '../../config/api';
 import Header from '../../shared/Header';
 import ModalWrapper from '../../shared/ModalWrapper';
@@ -205,13 +199,10 @@ export default function MasterManagementScreen({ onBack }) {
         api.get('/brand')
       ]);
 
-      const anySuccess = [uRes, lRes, ltRes, rRes, pRes].some(r => r.status === 'fulfilled');
+      const anySuccess = [uRes, lRes, ltRes, rRes, pRes, bRes].some(r => r.status === 'fulfilled');
       if (!anySuccess) {
         setLoadError(true);
       }
-
-      const brandRes = await api.get('/brand');
-      setBrands(brandRes.data);
 
       if (uRes.status === 'fulfilled' && uRes.value.data) setUsers(uRes.value.data);
       if (lRes.status === 'fulfilled' && lRes.value.data) setLocations(lRes.value.data);
@@ -234,7 +225,10 @@ export default function MasterManagementScreen({ onBack }) {
           }));
         }
       }
-      if (pRes.status === 'fulfilled' && pRes.value.data) setAvailablePermissions(pRes.value.data);
+      if (pRes.status === 'fulfilled' && pRes.value.data) {
+        const sortedPerms = [...pRes.value.data].sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+        setAvailablePermissions(sortedPerms);
+      }
       if (anySuccess && refreshData) {
         refreshData();
       }
@@ -287,7 +281,8 @@ export default function MasterManagementScreen({ onBack }) {
 
       // 2. If newPassword is provided, reset password
       if (editUserForm.newPassword && editUserForm.newPassword.trim()) {
-        await api.post(`/user/${editUser.id}/reset-password`, {
+        await api.post(`/auth/reset-password`, {
+          userId: editUser.id,
           newPassword: editUserForm.newPassword.trim()
         });
       }
@@ -784,7 +779,7 @@ export default function MasterManagementScreen({ onBack }) {
                   ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
                   : 'bg-slate-200 text-slate-600 border-slate-300'
               }`}>
-                {u.roleName || u.role?.name || u.roleCode || u.role?.code}
+                {u.roleCode || u.role?.code || u.roleName || u.role?.name}
               </span>
               <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
             </div>
@@ -845,6 +840,10 @@ export default function MasterManagementScreen({ onBack }) {
     );
   }, [roles, searchTerm]);
 
+  const sortedPermissions = useMemo(() => {
+    return [...availablePermissions].sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+  }, [availablePermissions]);
+
   // ── 📄 Pagination Computations & Resets ──
   const totalUserPages = Math.ceil(filteredUsers.length / pageSize) || 1;
   const paginatedUsers = useMemo(() => {
@@ -867,12 +866,12 @@ export default function MasterManagementScreen({ onBack }) {
   }, [searchTerm, locationStatusFilter, locationBrandFilter]);
 
   return (
-    <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12" style={{ fontFamily: "'IBM Plex Sans Thai', sans-serif" }}>
+    <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-full overflow-x-hidden mx-auto pb-28 lg:pb-12 font-sans">
       
       {/* Toast alert (Floating Top Screen Edge Banner via Portal) */}
       {toast && typeof document !== 'undefined' && createPortal(
         <div className={`fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] px-4.5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs sm:text-sm font-bold border animate-in fade-in slide-in-from-top-3 duration-200 backdrop-blur-md pointer-events-none ${
-          toast.isError ? 'bg-rose-50/95 text-rose-800 border-rose-200 shadow-rose-100' : 'bg-white/95 text-slate-800 border-slate-200 ring-1 ring-emerald-500/20'
+          toast.isError ? 'bg-rose-50/95 text-rose-800 border-rose-200 rounded-2xl' : 'bg-emerald-50/95 text-emerald-950 border border-emerald-300 ring-1 ring-emerald-400/20 rounded-2xl'
         }`}>
           {toast.isError ? <AlertCircle size={18} className="text-rose-600 shrink-0" /> : <CheckCircle2 size={18} className="text-[#0F6659] shrink-0" />}
           <span>{toast.msg}</span>
@@ -916,8 +915,8 @@ export default function MasterManagementScreen({ onBack }) {
           { key: 'users', label: 'ผู้ใช้งาน (Users)', count: users.length, icon: Users },
           { key: 'locations', label: 'สถานที่/สาขา (Locations)', count: locations.length, icon: Store },
           { key: 'location_types', label: 'ประเภทสถานที่ (Types)', count: locationTypes.length, icon: Building2 },
-          { key: 'roles', label: 'บทบาทและสิทธิ์ (Roles)', count: roles.length, icon: ShieldCheck },
           { key: 'brands', label: 'แบรนด์ (Brands)', count: brands.length, icon: Tag},
+          { key: 'roles', label: 'บทบาทและสิทธิ์ (Roles)', count: roles.length, icon: ShieldCheck },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -1010,7 +1009,7 @@ export default function MasterManagementScreen({ onBack }) {
             <button
               type="button"
               onClick={() => setShowAddTypeModal(true)}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
             >
               <Plus size={16} />
               <span>เพิ่มประเภทสถานที่</span>
@@ -1076,7 +1075,7 @@ export default function MasterManagementScreen({ onBack }) {
             <button
               type="button"
               onClick={() => setShowAddRoleModal(true)}
-              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
+              className="flex items-center justify-center gap-2 px-5 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md cursor-pointer active:scale-95 transition-all shrink-0"
             >
               <Plus size={16} />
               <span>เพิ่มบทบาทใหม่</span>
@@ -1109,16 +1108,16 @@ export default function MasterManagementScreen({ onBack }) {
                     <div>
                       {/* Role Header */}
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-purple-900 bg-purple-100 px-2.5 py-1 rounded-md border border-purple-200 font-mono">
+                        <span className="text-xs font-black text-emerald-950 bg-emerald-100 px-2.5 py-1 rounded-md border border-emerald-200 font-mono">
                           {r.code}
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <Shield size={18} className="text-purple-600" />
+                          <Shield size={18} className="text-[#0F6659]" />
                         </div>
                       </div>
 
                       <div className="mt-2.5">
-                        <h4 className="text-base font-black text-slate-900 group-hover:text-purple-700 transition-colors">
+                        <h4 className="text-base font-black text-slate-900 group-hover:text-emerald-800 transition-colors">
                           {r.name}
                         </h4>
                         <p className="text-xs text-slate-500 mt-1">{r.description || "บทบาทการทำงานในระบบ"}</p>
@@ -1127,10 +1126,7 @@ export default function MasterManagementScreen({ onBack }) {
                       {/* 🌟 Current Navigation Bar Preview Pills */}
                       <div className="pt-2.5 border-t border-slate-100 mt-2 space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-extrabold text-slate-400">แถบเมนูด้านล่าง (3 ช่อง):</span>
-                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                            ปุ่มกลางเด่น ★
-                          </span>
+                          <span className="text-[11px] font-extrabold text-slate-400">แถบเมนูด้านล่าง (3 ช่อง)</span>
                         </div>
                         <div className="grid grid-cols-3 gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 text-center">
                           {roleNavItems.map((slotItem, sIdx) => {
@@ -1154,7 +1150,7 @@ export default function MasterManagementScreen({ onBack }) {
 
                       {/* Permissions overview */}
                       <div className="pt-2.5 border-t border-slate-100 mt-2">
-                        <span className="text-[11px] font-extrabold text-slate-400">สิทธิ์ที่เปิดใช้งาน ({r.permissions?.length || 0}):</span>
+                        <span className="text-[11px] font-extrabold text-slate-400">สิทธิ์ที่เปิดใช้งาน ({r.permissions?.length || 0})</span>
                         <div className="flex flex-wrap gap-1.5 mt-1.5 max-h-20 overflow-y-auto">
                           {(r.permissions || []).map((p, i) => (
                             <span key={i} className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 text-slate-600">
@@ -1173,7 +1169,7 @@ export default function MasterManagementScreen({ onBack }) {
                       <button
                         type="button"
                         onClick={(e) => handleOpenNavCustomizer(r, e)}
-                        className="py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border border-emerald-200"
+                        className="py-2 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border border-emerald-200"
                         title="ปรับแต่งแถบเมนูด้านล่างสำหรับบทบาทนี้"
                       >
                         <Smartphone size={14} />
@@ -1182,7 +1178,7 @@ export default function MasterManagementScreen({ onBack }) {
                       <button
                         type="button"
                         onClick={() => handleOpenEditRole(r)}
-                        className="py-2 px-3 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border border-purple-200"
+                        className="py-2 px-3 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border border-emerald-200"
                         title="กำหนดสิทธิ์การเข้าถึงโมดูล"
                       >
                         <Shield size={14} />
@@ -1245,43 +1241,49 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   บทบาทในระบบ (Role) <span className="text-rose-500">*</span>
                 </label>
-                <select
-                  value={editUserForm.roleId}
-                  onChange={(e) => setEditUserForm({ ...editUserForm, roleId: parseInt(e.target.value) })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
-                >
-                  {roles.length === 0 ? (
-                    <option value="">กำลังโหลดบทบาท...</option>
-                  ) : (
-                    roles.map(r => (
-                      <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
-                    ))
-                  )}
-                </select>
+                <div className="relative">
+                  <select
+                    value={editUserForm.roleId}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, roleId: parseInt(e.target.value) })}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    {roles.length === 0 ? (
+                      <option value="">กำลังโหลดบทบาท...</option>
+                    ) : (
+                      roles.map(r => (
+                        <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+                      ))
+                    )}
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">ขอบเขตแบรนด์</label>
-                <select
-                  value={editUserForm.brandScope}
-                  onChange={(e) => {
-                    const newScope = e.target.value;
-                    setEditUserForm(prev => ({
-                      ...prev,
-                      brandScope: newScope,
-                      locationIds: newScope === 'SPECIFIC' && prev.allowedBrandIds?.length > 0
-                        ? (prev.locationIds || []).filter(locId => {
-                            const loc = locations.find(l => l.id === locId);
-                            return loc && isLocationInBrands(loc, prev.allowedBrandIds);
-                          })
-                        : prev.locationIds
-                    }));
-                  }}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                >
-                  <option value="ALL">ทุกแบรนด์ (ALL)</option>
-                  <option value="SPECIFIC">เฉพาะแบรนด์ที่กำหนด (SPECIFIC)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={editUserForm.brandScope}
+                    onChange={(e) => {
+                      const newScope = e.target.value;
+                      setEditUserForm(prev => ({
+                        ...prev,
+                        brandScope: newScope,
+                        locationIds: newScope === 'SPECIFIC' && prev.allowedBrandIds?.length > 0
+                          ? (prev.locationIds || []).filter(locId => {
+                              const loc = locations.find(l => l.id === locId);
+                              return loc && isLocationInBrands(loc, prev.allowedBrandIds);
+                            })
+                          : prev.locationIds
+                      }));
+                    }}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    <option value="ALL">ทุกแบรนด์ (ALL)</option>
+                    <option value="SPECIFIC">เฉพาะแบรนด์ที่กำหนด (SPECIFIC)</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
               {editUserForm.brandScope === 'SPECIFIC' && (
                 <div className="space-y-2 pt-1 animate-in fade-in">
@@ -1310,14 +1312,17 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   ขอบเขตการเข้าถึง
                 </label>
-                <select
-                  value={editUserForm.branchScope}
-                  onChange={(e) => setEditUserForm({ ...editUserForm, branchScope: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
-                >
-                  <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
-                  <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={editUserForm.branchScope}
+                    onChange={(e) => setEditUserForm({ ...editUserForm, branchScope: e.target.value })}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
+                    <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
 
               {/* Specific Locations Selection Preview Card */}
@@ -1373,7 +1378,7 @@ export default function MasterManagementScreen({ onBack }) {
                     <button
                       type="button"
                       onClick={() => handleOpenBranchSelector('edit')}
-                      className="w-full py-2.5 rounded-xl border border-[#0F6659] text-[#0F6659] hover:bg-[#0F6659] hover:text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 bg-white"
+                      className="w-full py-2.5 rounded-2xl border border-[#0F6659] text-[#0F6659] hover:bg-[#0F6659] hover:text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 bg-white"
                     >
                       <SlidersHorizontal size={15} />
                       <span>จัดการสาขา</span>
@@ -1512,43 +1517,49 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   บทบาทในระบบ (Role) <span className="text-rose-500">*</span>
                 </label>
-                <select
-                  value={userForm.roleId}
-                  onChange={(e) => setUserForm({ ...userForm, roleId: parseInt(e.target.value) })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
-                >
-                  {roles.length === 0 ? (
-                    <option value="">กำลังโหลดบทบาท...</option>
-                  ) : (
-                    roles.map(r => (
-                      <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
-                    ))
-                  )}
-                </select>
+                <div className="relative">
+                  <select
+                    value={userForm.roleId}
+                    onChange={(e) => setUserForm({ ...userForm, roleId: parseInt(e.target.value) })}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    {roles.length === 0 ? (
+                      <option value="">กำลังโหลดบทบาท...</option>
+                    ) : (
+                      roles.map(r => (
+                        <option key={r.id} value={r.id}>{r.name} ({r.code})</option>
+                      ))
+                    )}
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">ขอบเขตแบรนด์</label>
-                <select
-                  value={userForm.brandScope}
-                  onChange={(e) => {
-                    const newScope = e.target.value;
-                    setUserForm(prev => ({
-                      ...prev,
-                      brandScope: newScope,
-                      allowedLocationIds: newScope === 'SPECIFIC' && prev.allowedBrandIds?.length > 0
-                        ? (prev.allowedLocationIds || []).filter(locId => {
-                            const loc = locations.find(l => l.id === locId);
-                            return loc && isLocationInBrands(loc, prev.allowedBrandIds);
-                          })
-                        : prev.allowedLocationIds
-                    }));
-                  }}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                >
-                  <option value="ALL">ทุกแบรนด์ (ALL)</option>
-                  <option value="SPECIFIC">เฉพาะแบรนด์ที่กำหนด (SPECIFIC)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={userForm.brandScope}
+                    onChange={(e) => {
+                      const newScope = e.target.value;
+                      setUserForm(prev => ({
+                        ...prev,
+                        brandScope: newScope,
+                        allowedLocationIds: newScope === 'SPECIFIC' && prev.allowedBrandIds?.length > 0
+                          ? (prev.allowedLocationIds || []).filter(locId => {
+                              const loc = locations.find(l => l.id === locId);
+                              return loc && isLocationInBrands(loc, prev.allowedBrandIds);
+                            })
+                          : prev.allowedLocationIds
+                      }));
+                    }}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    <option value="ALL">ทุกแบรนด์ (ALL)</option>
+                    <option value="SPECIFIC">เฉพาะแบรนด์ที่กำหนด (SPECIFIC)</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
               {userForm.brandScope === 'SPECIFIC' && (
                 <div className="space-y-2 pt-1 animate-in fade-in">
@@ -1577,14 +1588,17 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   ขอบเขตสาขาที่เข้าถึงได้ (Branch Scope)
                 </label>
-                <select
-                  value={userForm.branchScope}
-                  onChange={(e) => setUserForm({ ...userForm, branchScope: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs cursor-pointer"
-                >
-                  <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
-                  <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={userForm.branchScope}
+                    onChange={(e) => setUserForm({ ...userForm, branchScope: e.target.value })}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    <option value="ALL">ทุกสาขาในองค์กร (ALL)</option>
+                    <option value="SPECIFIC">เฉพาะสาขาที่กำหนด (SPECIFIC)</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
 
               {/* Specific Locations Selection Preview for Create User */}
@@ -1638,7 +1652,7 @@ export default function MasterManagementScreen({ onBack }) {
                     <button
                       type="button"
                       onClick={() => handleOpenBranchSelector('create')}
-                      className="w-full py-2.5 rounded-xl border border-[#0F6659] text-[#0F6659] hover:bg-[#0F6659] hover:text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 bg-white"
+                      className="w-full py-2.5 rounded-2xl border border-[#0F6659] text-[#0F6659] hover:bg-[#0F6659] hover:text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 bg-white"
                     >
                       <SlidersHorizontal size={15} />
                       <span>จัดการสาขา</span>
@@ -1872,32 +1886,35 @@ export default function MasterManagementScreen({ onBack }) {
             </div>
 
             <form onSubmit={handleSaveEditLocation} className="space-y-4 overflow-y-auto flex-1 pr-1">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสสาขา *</label>
                   <input
                     type="text"
                     value={editLocationForm.code}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, code: e.target.value.toUpperCase() })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 min-h-[48px] rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-semibold text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                     required
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">ประเภทสถานที่ *</label>
-                  <select
-                    value={editLocationForm.locationTypeId}
-                    onChange={(e) => setEditLocationForm({ ...editLocationForm, locationTypeId: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    {locationTypes.length === 0 ? (
-                      <option value="">กำลังโหลดประเภทสถานที่...</option>
-                    ) : (
-                      locationTypes.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))
-                    )}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={editLocationForm.locationTypeId}
+                      onChange={(e) => setEditLocationForm({ ...editLocationForm, locationTypeId: parseInt(e.target.value) })}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      {locationTypes.length === 0 ? (
+                        <option value="">กำลังโหลดประเภทสถานที่...</option>
+                      ) : (
+                        locationTypes.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))
+                      )}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
               </div>
 
@@ -1907,7 +1924,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={editLocationForm.name}
                   onChange={(e) => setEditLocationForm({ ...editLocationForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 min-h-[48px] rounded-2xl border border-slate-200 text-sm sm:text-base font-semibold text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                   required
                 />
               </div>
@@ -1966,29 +1983,32 @@ export default function MasterManagementScreen({ onBack }) {
                 </div>
 
                 {!isCustomRegionEdit ? (
-                  <select
-                    value={editLocationForm.region || ''}
-                    onChange={(e) => {
-                      if (e.target.value === '__NEW__') {
-                        setIsCustomRegionEdit(true);
-                        setEditLocationForm(prev => ({ ...prev, region: '' }));
-                      } else {
-                        setEditLocationForm(prev => ({ ...prev, region: e.target.value }));
-                      }
-                    }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    <option value="">-- เลือกภูมิภาค --</option>
-                    {existingRegions.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={editLocationForm.region || ''}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW__') {
+                          setIsCustomRegionEdit(true);
+                          setEditLocationForm(prev => ({ ...prev, region: '' }));
+                        } else {
+                          setEditLocationForm(prev => ({ ...prev, region: e.target.value }));
+                        }
+                      }}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      <option value="">-- เลือกภูมิภาค --</option>
+                      {existingRegions.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 ) : (
                   <input
                     type="text"
                     value={editLocationForm.region}
                     onChange={(e) => setEditLocationForm(prev => ({ ...prev, region: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    className="w-full px-4.5 py-3.5 min-h-[48px] rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-semibold text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
                     placeholder="พิมพ์ภูมิภาคใหม่ เช่น ภาคตะวันออก, ชลบุรี"
                     autoFocus
                   />
@@ -2002,29 +2022,32 @@ export default function MasterManagementScreen({ onBack }) {
                 showToast={showToast}
               />
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">เบอร์โทรติดต่อ</label>
                   <input
                     type="text"
                     value={editLocationForm.phone}
                     onChange={(e) => setEditLocationForm({ ...editLocationForm, phone: e.target.value })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 min-h-[48px] rounded-2xl border border-slate-200 text-sm sm:text-base font-semibold text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                     placeholder="เช่น 02-xxx-xxxx"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">ผู้จัดการประจำสาขา</label>
-                  <select
-                    value={editLocationForm.managerUserId || ''}
-                    onChange={(e) => setEditLocationForm({ ...editLocationForm, managerUserId: e.target.value ? parseInt(e.target.value) : null })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    <option value="">-- ไม่ระบุ --</option>
-                    {users.filter(u => u.roleCode === 'AUDITEE' || u.role?.code === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
-                      <option key={u.id} value={u.id}>{u.fullName}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={editLocationForm.managerUserId || ''}
+                      onChange={(e) => setEditLocationForm({ ...editLocationForm, managerUserId: e.target.value ? parseInt(e.target.value) : null })}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      <option value="">-- ไม่ระบุ --</option>
+                      {users.filter(u => u.roleCode === 'AUDITEE' || u.role?.code === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
+                        <option key={u.id} value={u.id}>{u.fullName}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
               </div>
 
@@ -2094,33 +2117,36 @@ export default function MasterManagementScreen({ onBack }) {
             </div>
 
             <form onSubmit={handleCreateLocation} className="space-y-4 overflow-y-auto flex-1 pr-1">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสสาขา *</label>
                   <input
                     type="text"
                     value={locationForm.code}
                     onChange={(e) => setLocationForm({ ...locationForm, code: e.target.value.toUpperCase() })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 min-h-[48px] rounded-2xl border border-slate-200 text-sm sm:text-base font-mono font-semibold text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                     placeholder="BKK-006"
                     required
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">ประเภทสถานที่ *</label>
-                  <select
-                    value={locationForm.locationTypeId}
-                    onChange={(e) => setLocationForm({ ...locationForm, locationTypeId: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    {locationTypes.length === 0 ? (
-                      <option value="">กำลังโหลดประเภทสถานที่...</option>
-                    ) : (
-                      locationTypes.map(t => (
-                        <option key={t.id} value={t.id}>{t.name}</option>
-                      ))
-                    )}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={locationForm.locationTypeId}
+                      onChange={(e) => setLocationForm({ ...locationForm, locationTypeId: parseInt(e.target.value) })}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      {locationTypes.length === 0 ? (
+                        <option value="">กำลังโหลดประเภทสถานที่...</option>
+                      ) : (
+                        locationTypes.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))
+                      )}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
               </div>
 
@@ -2130,7 +2156,7 @@ export default function MasterManagementScreen({ onBack }) {
                   type="text"
                   value={locationForm.name}
                   onChange={(e) => setLocationForm({ ...locationForm, name: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                  className="w-full px-4.5 py-3.5 min-h-[48px] rounded-2xl border border-slate-200 text-sm sm:text-base font-semibold text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                   placeholder="สาขาไอคอนสยาม"
                   required
                 />
@@ -2190,29 +2216,32 @@ export default function MasterManagementScreen({ onBack }) {
                 </div>
 
                 {!isCustomRegionAdd ? (
-                  <select
-                    value={locationForm.region || ''}
-                    onChange={(e) => {
-                      if (e.target.value === '__NEW__') {
-                        setIsCustomRegionAdd(true);
-                        setLocationForm(prev => ({ ...prev, region: '' }));
-                      } else {
-                        setLocationForm(prev => ({ ...prev, region: e.target.value }));
-                      }
-                    }}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    <option value="">-- เลือกภูมิภาค --</option>
-                    {existingRegions.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={locationForm.region || ''}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW__') {
+                          setIsCustomRegionAdd(true);
+                          setLocationForm(prev => ({ ...prev, region: '' }));
+                        } else {
+                          setLocationForm(prev => ({ ...prev, region: e.target.value }));
+                        }
+                      }}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      <option value="">-- เลือกภูมิภาค --</option>
+                      {existingRegions.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 ) : (
                   <input
                     type="text"
                     value={locationForm.region}
                     onChange={(e) => setLocationForm(prev => ({ ...prev, region: e.target.value }))}
-                    className="w-full px-4.5 py-3.5 rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-normal text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
+                    className="w-full px-4.5 py-3.5 min-h-[48px] rounded-2xl border border-emerald-300 focus:border-[#0F6659] text-sm sm:text-base font-semibold text-slate-800 bg-emerald-50/20 outline-none shadow-xs animate-in fade-in"
                     placeholder="พิมพ์ภูมิภาคใหม่ เช่น ภาคตะวันออก, ชลบุรี"
                     autoFocus
                   />
@@ -2226,29 +2255,32 @@ export default function MasterManagementScreen({ onBack }) {
                 showToast={showToast}
               />
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">เบอร์โทรติดต่อ</label>
                   <input
                     type="text"
                     value={locationForm.phone}
                     onChange={(e) => setLocationForm({ ...locationForm, phone: e.target.value })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
+                    className="w-full px-4 py-3.5 min-h-[48px] rounded-2xl border border-slate-200 text-sm sm:text-base font-semibold text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs"
                     placeholder="เช่น 02-xxx-xxxx"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">ผู้จัดการประจำสาขา</label>
-                  <select
-                    value={locationForm.managerUserId || ''}
-                    onChange={(e) => setLocationForm({ ...locationForm, managerUserId: e.target.value ? parseInt(e.target.value) : null })}
-                    className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs cursor-pointer"
-                  >
-                    <option value="">-- ไม่ระบุ --</option>
-                    {users.filter(u => u.role?.code === 'AUDITEE' || u.roleCode === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
-                      <option key={u.id} value={u.id}>{u.fullName}</option>
-                    ))}
-                  </select>
+                  <div className="relative">
+                    <select
+                      value={locationForm.managerUserId || ''}
+                      onChange={(e) => setLocationForm({ ...locationForm, managerUserId: e.target.value ? parseInt(e.target.value) : null })}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      <option value="">-- ไม่ระบุ --</option>
+                      {users.filter(u => u.roleCode === 'AUDITEE' || u.role?.code === 'AUDITEE' || (roles.find(r => r.id === u.roleId)?.code === 'AUDITEE')).map(u => (
+                        <option key={u.id} value={u.id}>{u.fullName}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
               </div>
 
@@ -2308,7 +2340,7 @@ export default function MasterManagementScreen({ onBack }) {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">ชื่อประเภทภาษาไทย *</label>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">ชื่อประเภท *</label>
                 <input
                   type="text"
                   value={editTypeForm.name}
@@ -2430,12 +2462,12 @@ export default function MasterManagementScreen({ onBack }) {
           <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
                   <Shield size={22} />
                 </div>
                 <div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-800 leading-tight">กำหนดสิทธิ์บทบาท</h3>
-                  <span className="text-xs font-mono text-purple-700 bg-purple-100 px-2 py-0.5 rounded font-bold">{editRole.code}</span>
+                  <span className="text-xs font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-bold">{editRole.code}</span>
                 </div>
               </div>
               <button
@@ -2472,7 +2504,7 @@ export default function MasterManagementScreen({ onBack }) {
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-2">สิทธิ์การเข้าถึงโมดูล (Permissions Matrix):</label>
                 <div className="max-h-52 overflow-y-auto rounded-2xl border border-slate-200 p-2.5 space-y-2 bg-slate-50">
-                  {availablePermissions.map(p => {
+                  {sortedPermissions.map(p => {
                     const isChecked = editRoleForm.permissionIds.includes(p.id);
                     return (
                       <button
@@ -2480,18 +2512,18 @@ export default function MasterManagementScreen({ onBack }) {
                         key={p.id}
                         onClick={() => togglePermissionForRole(p.id)}
                         className={`w-full p-3.5 rounded-xl text-left text-sm font-normal flex items-center justify-between transition-colors cursor-pointer ${
-                          isChecked ? 'bg-purple-50 text-purple-900 border border-purple-200 font-medium' : 'bg-white text-slate-600 hover:bg-slate-100'
+                          isChecked ? 'bg-emerald-50 text-emerald-950 border border-emerald-200 font-medium' : 'bg-white text-slate-600 hover:bg-slate-100'
                         }`}
                       >
                         <div className="min-w-0 flex-1 pr-2">
                           <div className="text-sm sm:text-base font-medium text-slate-800">{p.name}</div>
                           <div className="text-xs text-slate-400 font-mono truncate">{p.code} · {p.module}</div>
                         </div>
-                        {isChecked ? <CheckSquare size={18} className="text-purple-700 shrink-0" /> : <Square size={18} className="text-slate-300 shrink-0" />}
+                        {isChecked ? <CheckSquare size={18} className="text-[#0F6659] shrink-0" /> : <Square size={18} className="text-slate-300 shrink-0" />}
                       </button>
                     );
                   })}
-                  {availablePermissions.length === 0 && (
+                  {sortedPermissions.length === 0 && (
                     <div className="text-center py-4 text-xs text-slate-400 font-normal">
                       กำลังโหลดรายการสิทธิ์...
                     </div>

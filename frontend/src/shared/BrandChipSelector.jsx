@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, Tag, Star } from 'lucide-react';
+import { Check, Tag, Star } from "lucide-react";
 
 /**
  * BrandChipSelector — กด chip เพื่อเลือก/ยกเลิกแบรนด์ (multi-select แบบ filter)
@@ -10,7 +10,7 @@ import { Check, Tag, Star } from 'lucide-react';
  *  - selectedIds (หรือ value เป็นชื่อ alias เดียวกัน): number[]
  *  - onChange: (newSelectedIds: number[]) => void
  *  - mode: 'multi' | 'single'  (default 'multi')
- *  - size: 'sm' | 'md'         (default 'md')
+ *  - size: 'xs' | 'sm' | 'md'  (default 'sm')
  *  - primaryId?: number | null       — ถ้าส่งมา จะแสดงปุ่มดาวบนชิปที่ถูกเลือก
  *  - onSetPrimary?: (id: number) => void
  */
@@ -20,7 +20,7 @@ export default function BrandChipSelector({
   value,
   onChange,
   mode = 'multi',
-  size = 'md',
+  size = 'sm',
   primaryId = null,
   onSetPrimary,
 }) {
@@ -36,14 +36,21 @@ export default function BrandChipSelector({
     );
   };
 
-  const pad = size === 'sm' ? 'pl-3 pr-2.5 py-1.5 text-xs' : 'pl-3.5 pr-3 py-2 text-sm';
+  const pad =
+    size === 'xs'
+      ? 'px-2 py-0.5 text-[11px] gap-1'
+      : size === 'md'
+      ? 'px-3 py-1.5 text-xs sm:text-sm gap-1.5'
+      : 'px-2.5 py-1 text-xs gap-1.5';
+
+  const iconSize = size === 'xs' ? 11 : size === 'md' ? 13 : 12;
 
   if (!brands.length) {
     return <p className="text-xs text-slate-400 italic">ไม่มีแบรนด์ในระบบ</p>;
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1.5 max-w-full overflow-hidden">
       {brands.map((b) => {
         const active = ids.includes(b.id);
         const isPrimary = active && onSetPrimary && primaryId === b.id;
@@ -52,14 +59,14 @@ export default function BrandChipSelector({
             key={b.id}
             type="button"
             onClick={() => toggle(b.id)}
-            className={`${pad} rounded-full border font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`${pad} rounded-full border font-semibold flex items-center transition-all cursor-pointer max-w-full truncate ${
               active
                 ? 'bg-[#0F6659] border-[#0F6659] text-white shadow-2xs'
                 : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
             }`}
           >
-            {active ? <Check size={14} strokeWidth={3} /> : <Tag size={14} className="opacity-50" />}
-            {b.name}
+            {active ? <Check size={iconSize} strokeWidth={2.5} /> : <Tag size={iconSize} className="opacity-50" />}
+            <span className="truncate">{b.name}</span>
             {active && onSetPrimary && (
               <span
                 role="button"
@@ -70,7 +77,7 @@ export default function BrandChipSelector({
                 }}
                 className="ml-0.5 -mr-1 p-0.5 rounded-full hover:bg-white/20"
               >
-                <Star size={13} fill={isPrimary ? 'currentColor' : 'none'} />
+                <Star size={iconSize} fill={isPrimary ? 'currentColor' : 'none'} />
               </span>
             )}
           </button>

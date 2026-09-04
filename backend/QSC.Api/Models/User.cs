@@ -16,5 +16,8 @@ namespace QSC.Api.Models
         public bool MustChangePassword { get; set; } = true;
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<UserLocation> UserLocations { get; set; } = new List<UserLocation>();
+        public ICollection<UserBrand> UserBrands { get; set; } = new List<UserBrand>();
     }
 }

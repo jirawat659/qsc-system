@@ -115,6 +115,25 @@ namespace QSC.Api.Data
             modelBuilder.Entity<SurveyFormBrand>()
                 .HasIndex(sfb => new { sfb.SurveyFormId, sfb.BrandId });
 
+            modelBuilder.Entity<AuditSchedule>()
+                .HasIndex(s => new { s.LocationId, s.ScheduledDate });
+
+            modelBuilder.Entity<AuditSchedule>()
+                .HasIndex(s => s.ScheduledDate);
+
+            modelBuilder.Entity<AuditScheduleAuditor>()
+                .HasIndex(a => new { a.AuditScheduleId, a.AuditorId });
+
+            modelBuilder.Entity<SurveyFormTargetLocation>()
+                .HasIndex(t => new { t.SurveyFormId, t.LocationId })
+                .IsUnique();
+
+            modelBuilder.Entity<RolePermission>()
+                .HasIndex(rp => new { rp.RoleId, rp.PermissionId });
+
+            modelBuilder.Entity<CapTask>()
+                .HasIndex(c => c.AuditRecordId);
+
             // ==========================================
             // RELATIONSHIPS & CONSTRAINTS
             // ==========================================
@@ -153,6 +172,18 @@ namespace QSC.Api.Data
                 .WithMany()
                 .HasForeignKey(r => r.PrimaryAuditorId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AuditScheduleAuditor>()
+                .HasOne(a => a.AuditSchedule)
+                .WithMany(s => s.Auditors)
+                .HasForeignKey(a => a.AuditScheduleId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<AuditScheduleAuditor>()
+                .HasOne(a => a.Auditor)
+                .WithMany()
+                .HasForeignKey(a => a.AuditorId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<AuditRecord>()
                 .HasOne(r => r.AuditeeUser)
@@ -229,25 +260,25 @@ namespace QSC.Api.Data
             // ลบ User หรือ Location/Brand ทิ้ง -> ผูกสิทธิ์เก่าไม่มีความหมายแล้ว ลบตามได้เลย (Cascade)
             modelBuilder.Entity<UserLocation>()
                 .HasOne(ul => ul.User)
-                .WithMany()
+                .WithMany(u => u.UserLocations)
                 .HasForeignKey(ul => ul.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<UserLocation>()
                 .HasOne(ul => ul.Location)
-                .WithMany()
+                .WithMany(l => l.UserLocations)
                 .HasForeignKey(ul => ul.LocationId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<UserBrand>()
                 .HasOne(ub => ub.User)
-                .WithMany()
+                .WithMany(u => u.UserBrands)
                 .HasForeignKey(ub => ub.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<UserBrand>()
                 .HasOne(ub => ub.Brand)
-                .WithMany()
+                .WithMany(b => b.UserBrands)
                 .HasForeignKey(ub => ub.BrandId)
                 .OnDelete(DeleteBehavior.Cascade);
         }

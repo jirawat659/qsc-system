@@ -25,5 +25,6 @@ namespace QSC.Api.Models
 
         public List<SurveySection> Sections { get; set; } = new();
         public List<SurveyFormBrand> FormBrands { get; set; } = new();
+        public List<SurveyFormTargetLocation> TargetLocations { get; set; } = new();
     }
 }

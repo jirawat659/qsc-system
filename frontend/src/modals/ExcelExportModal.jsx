@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { CheckCircle2, Check, X, Search, Download, FileSpreadsheet, ChevronDown } from "lucide-react";
+
 
 import { c, sans, mono, cardStyle } from "../config/theme";
 import { DataContext } from "../context/DataContext";
@@ -133,27 +118,24 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
             {/* 2. Inspection Round / Time Range Selector */}
             <div>
               <label className="text-xs font-bold block mb-1.5 text-slate-700">2. เลือกรอบการตรวจ หรือช่วงเวลาย้อนหลัง</label>
-              <select
-                value={selectedRound}
-                onChange={(e) => setSelectedRound(e.target.value)}
-                className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
-                style={{ background: c.bg, color: c.ink, borderColor: c.border }}
-              >
-                {/*<optgroup label="เลือกรอบการตรวจเฉพาะรอบ">
-                  {(selectedUnit.history || []).map((h, i) => (
-                    <option key={i} value={i === 0 ? "latest" : `round_${i}`}>
-                      {i === 0 ? `⭐ รอบตรวจล่าสุด (${h.date}) — คะแนน ${h.score}%` : `รอบตรวจวันที่ ${h.date} — คะแนน ${h.score}%`}
-                    </option>
-                  ))}
-                </optgroup>*/}
-                <optgroup label="เลือกช่วงเวลาย้อนหลัง">
-                  <option value="all">ทั้งหมด ({selectedUnit.history?.length || 0} รอบ)</option>
-                  <option value="1M">ย้อนหลัง 1 เดือน</option>
-                  <option value="3M">ย้อนหลัง 3 เดือน</option>
-                  <option value="6M">ย้อนหลัง 6 เดือน</option>
-                  <option value="1Y">ย้อนหลัง 1 ปี</option>
-                </optgroup>
-              </select>
+              <div className="relative">
+                <select
+                  value={selectedRound}
+                  onChange={(e) => setSelectedRound(e.target.value)}
+                  className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                >
+                  <optgroup label="เลือกช่วงเวลาย้อนหลัง">
+                    <option value="all">ทั้งหมด ({selectedUnit.history?.length || 0} รอบ)</option>
+                    <option value="1M">ย้อนหลัง 1 เดือน</option>
+                    <option value="3M">ย้อนหลัง 3 เดือน</option>
+                    <option value="6M">ย้อนหลัง 6 เดือน</option>
+                    <option value="1Y">ย้อนหลัง 1 ปี</option>
+                  </optgroup>
+                </select>
+                <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  <ChevronDown size={18} />
+                </div>
+              </div>
             </div>
 
             {/* Information Summary Card */}
@@ -197,35 +179,43 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
             {exportMode === "all" ? (
               <div className="space-y-3.5">
                 <div>
-                  <label className="text-xs font-bold block mb-1" style={{ color: c.muted }}>เลือกช่วงเวลาการตรวจ</label>
-                  <select
-                    value={timeRange}
-                    onChange={(e) => setTimeRange(e.target.value)}
-                    className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
-                    style={{ background: c.bg, color: c.ink, borderColor: c.border }}
-                  >
-                    <option value="all">ทั้งหมด (ทุกรอบตรวจที่บันทึกไว้)</option>
-                    <option value="1M">รอบตรวจ 1 เดือนล่าสุด (สิงหาคม 2569)</option>
-                    <option value="3M">รอบตรวจย้อนหลัง 3 เดือน (Q3 2569)</option>
-                    <option value="6M">รอบตรวจย้อนหลัง 6 เดือน (มี.ค. - ส.ค. 69)</option>
-                    <option value="1Y">รอบตรวจทั้งปี (YTD 2569)</option>
-                  </select>
+                  <label className="text-xs font-bold block mb-1 text-slate-700">เลือกช่วงเวลาการตรวจ</label>
+                  <div className="relative">
+                    <select
+                      value={timeRange}
+                      onChange={(e) => setTimeRange(e.target.value)}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      <option value="all">ทั้งหมด (ทุกรอบตรวจที่บันทึกไว้)</option>
+                      <option value="1M">รอบตรวจ 1 เดือนล่าสุด (สิงหาคม 2569)</option>
+                      <option value="3M">รอบตรวจย้อนหลัง 3 เดือน (Q3 2569)</option>
+                      <option value="6M">รอบตรวจย้อนหลัง 6 เดือน (มี.ค. - ส.ค. 69)</option>
+                      <option value="1Y">รอบตรวจทั้งปี (YTD 2569)</option>
+                    </select>
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold block mb-1" style={{ color: c.muted }}>กรองตามภูมิภาค</label>
-                  <select
-                    value={regionFilter}
-                    onChange={(e) => setRegionFilter(e.target.value)}
-                    className="w-full text-xs p-3 rounded-xl outline-none font-bold border"
-                    style={{ background: c.bg, color: c.ink, borderColor: c.border }}
-                  >
-                    <option value="all">ทุกภูมิภาคทั่วประเทศ (100+ สาขา)</option>
-                    <option value="กรุงเทพ">เขตกรุงเทพฯ และปริมณฑล</option>
-                    <option value="เหนือ">เขตภาคเหนือ</option>
-                    <option value="ตะวันออก">เขตภาคตะวันออก</option>
-                    <option value="ใต้">เขตภาคใต้</option>
-                  </select>
+                  <label className="text-xs font-bold block mb-1 text-slate-700">กรองตามภูมิภาค</label>
+                  <div className="relative">
+                    <select
+                      value={regionFilter}
+                      onChange={(e) => setRegionFilter(e.target.value)}
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    >
+                      <option value="all">ทุกภูมิภาคทั่วประเทศ (100+ สาขา)</option>
+                      <option value="กรุงเทพ">เขตกรุงเทพฯ และปริมณฑล</option>
+                      <option value="เหนือ">เขตภาคเหนือ</option>
+                      <option value="ตะวันออก">เขตภาคตะวันออก</option>
+                      <option value="ใต้">เขตภาคใต้</option>
+                    </select>
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                      <ChevronDown size={18} />
+                    </div>
+                  </div>
                 </div>
               </div>
             ) : (

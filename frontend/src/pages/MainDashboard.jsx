@@ -1,18 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, LogOut, History, Shield, Info, HelpCircle, AlertCircle, Loader2
-} from "lucide-react";
+import { ChevronLeft, CheckCircle2, Navigation, X, LogOut, AlertCircle, ChevronDown } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../config/theme";
 import { ROLES, NAV_BY_ROLE, getRoleNavConfig, NAV_MODULES_DICT } from "../config/roles";
@@ -125,7 +113,7 @@ export default function MainDashboard({ onLogout }) {
       if (auditRes.status === 'fulfilled' && auditRes.value.data) setAuditRecords(auditRes.value.data);
       if (brandRes.status === 'fulfilled' && brandRes.value.data) setBrands(brandRes.value.data);
     } catch (err) {
-      console.warn("Error refreshing backend data:", err);
+      
       setDataFetchError("เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
     } finally {
       setIsLoadingData(false);
@@ -165,6 +153,7 @@ export default function MainDashboard({ onLogout }) {
   const [preselectedPlan, setPreselectedPlan] = useState(null);
   const [auditReturnScreen, setAuditReturnScreen] = useState("dashboard"); // 🌟 จำหน้าที่มาก่อนเข้า Live Audit ไว้ กด "ย้อนกลับ" แล้วกลับไปหน้าเดิม ไม่ใช่ dashboard ตายตัว
   const [isLiveAuditActive, setIsLiveAuditActive] = useState(false);
+  const [isMoreSubScreen, setIsMoreSubScreen] = useState(false);
   const [isAuditFromReportList, setIsAuditFromReportList] = useState(false);
   const [activeAuditDraft, setActiveAuditDraft] = useState(null);
   const [auditSyncStatus, setAuditSyncStatus] = useState("idle");
@@ -198,12 +187,7 @@ export default function MainDashboard({ onLogout }) {
     };
   }, [storedUser, role]);
 
-  const handleRoleChange = (r) => {
-    setRole(r);
-    authStorage.setRole(r);
-    const newNav = getRoleNavConfig(r, storedUser?.navConfig || storedUser?.navConfigJson);
-    setScreen(newNav[0]?.key || "dashboard");
-  };
+
 
   const [moreResetKey, setMoreResetKey] = useState(0);
   const mainContentRef = useRef(null);
@@ -247,10 +231,34 @@ export default function MainDashboard({ onLogout }) {
     smoothScrollToTop();
   };
 
+  const [isScrolled, setIsScrolled] = useState(false);
+
   // Scroll to top automatically whenever screen changes
   useEffect(() => {
     smoothScrollToTop();
+    setIsScrolled(false);
   }, [screen]);
+
+  // 🌟 Dynamic Scroll Listener for Option 3 Glassmorphism Header
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY || document.documentElement.scrollTop || (mainContentRef.current?.scrollTop || 0);
+      setIsScrolled(scrollY > 12);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    const mainEl = mainContentRef.current;
+    if (mainEl) {
+      mainEl.addEventListener("scroll", handleScroll, { passive: true });
+    }
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      if (mainEl) {
+        mainEl.removeEventListener("scroll", handleScroll);
+      }
+    };
+  }, []);
 
   const showToast = (msg) => {
     setToastText(msg);
@@ -284,7 +292,7 @@ export default function MainDashboard({ onLogout }) {
         <React.Suspense fallback={<ScreenLoader />}>
           {(screen === "reports" || screen === "history") && (
             <ConsolidatedReportsScreen
-              onBack={undefined}
+              onBack={() => setScreen("more")}
               currentAuditorName={null}
               title="รายงานผลการตรวจประเมิน"
               onStartAudit={(plan) => handleStartAuditDirect(plan)}
@@ -317,8 +325,8 @@ export default function MainDashboard({ onLogout }) {
                 setScreen(auditReturnScreen || "reports"); // 👈 บังคับกลับหน้ารายงานผลตรวจ (รูปที่ 4)
               }}
               defaultAuditorName={currentUser.name || "-"}
-              onActiveStateChange={(isActive) => setIsLiveAuditActive(isActive)}
-              onSyncStatusChange={(status) => setAuditSyncStatus(status)}
+              onActiveStateChange={(isActive) => setIsLiveAuditActive(prev => (prev === isActive ? prev : isActive))}
+              onSyncStatusChange={(status) => setAuditSyncStatus(prev => (prev === status ? prev : status))}
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 if (!draft) {
@@ -361,6 +369,7 @@ export default function MainDashboard({ onLogout }) {
               currentUser={currentUser}
               onNavigate={handleNavClick}
               onStartAuditDirect={handleStartAuditDirect}
+              activeNavKeys={nav.map(n => n.key)}
             />
           )}
           {screen === "schedule" && (
@@ -433,7 +442,7 @@ export default function MainDashboard({ onLogout }) {
 
       {/* Toast Notification Banner (Floating Top Screen Edge Banner via Portal) */}
       {toastText && typeof document !== "undefined" && createPortal(
-        <div className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] bg-white/95 text-slate-800 px-4.5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-3 border border-slate-200 ring-1 ring-emerald-500/20 backdrop-blur-md pointer-events-none">
+        <div className="fixed top-4 sm:top-5 left-1/2 -translate-x-1/2 z-[99999] bg-emerald-50/95 text-emerald-950 px-4.5 py-2.5 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-3 border border-emerald-300 ring-1 ring-emerald-400/20 backdrop-blur-md pointer-events-none">
           <CheckCircle2 size={18} className="text-[#0F6659] shrink-0" />
           <span>{toastText}</span>
         </div>,
@@ -442,234 +451,212 @@ export default function MainDashboard({ onLogout }) {
 
       {/* UNIFIED FULLY RESPONSIVE APPLICATION LAYOUT */}
       <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: c.bg }}>
-        
-        {/* DESKTOP SIDEBAR (Visible on Desktop lg: >= 1024px, Hidden on Mobile) */}
-        <aside className="hidden lg:flex w-64 xl:w-72 shrink-0 bg-white border-r flex-col justify-between shadow-2xs h-screen sticky top-0" style={{ borderColor: c.border }}>
-          <div className="p-5 space-y-5">
-            {/* Brand Header */}
-            <div className="flex items-center gap-3 pb-1">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white flex items-center justify-center font-black text-lg shadow-md shrink-0">
-                Q
-              </div>
-              <div>
-                <div className="text-base font-bold leading-tight text-slate-900">Q.S.C. System</div>
-                <div className="text-xs font-normal text-slate-400 mt-0.5">Quality Compliance</div>
-              </div>
-            </div>
-
-            {brands.length > 1 && (
-              <div>
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1 px-1">แบรนด์ที่แสดง</label>
-                <select
-                  value={selectedBrandId || ''}
-                  onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-bold text-slate-700 focus:border-[#0F6659] outline-none cursor-pointer"
-                >
-                  <option value="">ทุกแบรนด์</option>
-                  {brands.filter(b => b.isActive).map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Sidebar Navigation */}
-            <nav className="space-y-1.5">
-              <div className="text-[11px] font-semibold uppercase tracking-wider px-3.5 mb-2 text-slate-400">เมนูการทำงาน</div>
-              {nav.map((item) => {
-                const Icon = item.icon;
-                const active = screen === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => handleNavClick(item.key)}
-                    className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl text-sm font-semibold text-left transition-all cursor-pointer ${
-                      active 
-                        ? 'bg-[#E3F0ED] text-[#0F6659] shadow-2xs' 
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                    }`}
-                  >
-                    <Icon size={20} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
-                    <span className="tracking-tight">{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* User footer profile */}
-          <div className="p-4 border-t bg-slate-50/50" style={{ borderColor: c.border }}>
-            <div className="flex items-center justify-between gap-2.5">
-              <div 
-                onClick={() => setShowProfileModal(true)} 
-                className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group/user"
-                title="คลิกเพื่อดูโปรไฟล์ผู้ใช้งาน"
-              >
-                <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shadow-2xs shrink-0 text-white bg-[#0F6659] group-hover/user:scale-105 transition-transform">
-                  {currentUser.avatar}
+          {/* DESKTOP SIDEBAR */}
+          <aside className="hidden lg:flex w-64 xl:w-72 shrink-0 bg-white border-r flex-col justify-between shadow-2xs h-screen sticky top-0" style={{ borderColor: c.border }}>
+            <div className="p-5 space-y-5">
+              {/* Brand Header */}
+              <div className="flex items-center gap-3 pb-1">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white flex items-center justify-center font-black text-lg shadow-md shrink-0">
+                  Q
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate text-slate-800 group-hover/user:text-[#0F6659] transition-colors">{currentUser.name}</div>
-                  <div className="text-xs font-normal truncate text-slate-500 mt-0.5">{currentUser.title}</div>
+                <div>
+                  <div className="text-base font-bold leading-tight text-slate-900">Q.S.C. System</div>
+                  <div className="text-xs font-normal text-slate-400 mt-0.5">Quality Compliance</div>
                 </div>
               </div>
 
-              {/* 🚪 Logout Button */}
-              <button
-                type="button"
-                onClick={() => setShowLogoutConfirmModal(true)}
-                className="w-9 h-9 rounded-xl bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-400 border border-slate-200 hover:border-rose-200 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0 shadow-2xs group"
-                title="ออกจากระบบ (Log Out)"
-              >
-                <LogOut size={16} className="group-hover:translate-x-0.5 transition-transform" />
-              </button>
-            </div>
-          </div>
-        </aside>
-        
-        {/* 🌟 MOBILE HEADER */}
-        <header className="flex lg:hidden flex-col shrink-0 px-3.5 pt-3.5 pb-3 shadow-xs sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b gap-2" style={{ borderColor: c.border }}>
-          {/* กรณี Live Audit หรือเปิดหน้ารายละเอียด/ผลตรวจที่มีปุ่มย้อนกลับ: ใช้แถบเดี่ยวที่มีปุ่มย้อนกลับแทนแถบโลโก้ */}
-          {((screen === "audit" && (isLiveAuditActive || isAuditFromReportList)) || subHeader?.isAudit || subHeader?.onBack || subHeader?.hasBack) ? (
-            <div className="flex items-center justify-between gap-2 min-w-0">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {subHeader?.onBack && (
-                  <button
-                    type="button"
-                    onClick={subHeader.onBack}
-                    className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200/90 shrink-0"
-                    title="ย้อนกลับ"
-                  >
-                    <ChevronLeft size={18} className="text-[#0F6659]" />
-                  </button>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-extrabold text-slate-900 truncate leading-tight">
-                    {subHeader?.title || "ตรวจหน้างาน"}
-                  </div>
-                  {subHeader?.subtitle && (
-                    <div className="text-[11px] font-medium text-slate-400 truncate leading-none mt-0.5">
-                      {subHeader.subtitle}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {subHeader?.action}
-                <button
-                  type="button"
-                  onClick={() => setShowProfileModal(true)}
-                  className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all"
-                  title="ดูโปรไฟล์และบัญชีผู้ใช้"
-                >
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
-                    {currentUser.avatar}
-                  </div>
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* หน้าจอทั่วไป: แสดงแถบ Logo ปกติ */
-            <>
-              <div className="flex items-center justify-between gap-2 min-w-0">
-                <button
-                  type="button"
-                  onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                  className="flex items-center gap-2 cursor-pointer group text-left shrink-0 min-w-0"
-                >
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shadow-xs text-white bg-gradient-to-tr from-[#0F6659] to-[#15806e] group-hover:scale-105 transition-transform shrink-0">
-                    Q
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-extrabold leading-none text-slate-900">Q.S.C.</div>
-                    <div className="text-xs font-medium text-emerald-700 mt-0.5 truncate max-w-[130px] sm:max-w-[180px]">
-                      {currentUser.name}
-                    </div>
-                  </div>
-                </button>
-
-                {brands.length > 1 && (
-                  <div className="flex items-center min-w-0 max-w-[130px] sm:max-w-[170px] shrink">
+              {brands.length > 1 ? (
+                <div>
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5 px-1">แบรนด์ที่แสดง</label>
+                  <div className="relative">
                     <select
                       value={selectedBrandId || ''}
                       onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
-                      className="w-full px-2 py-1 rounded-xl border border-slate-200 bg-slate-50 text-[11px] font-bold text-slate-700 focus:border-[#0F6659] outline-none cursor-pointer truncate shadow-2xs"
-                      title="เลือกแบรนด์ที่ต้องการแสดง"
+                      className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                     >
                       <option value="">ทุกแบรนด์</option>
                       {brands.filter(b => b.isActive).map(b => (
                         <option key={b.id} value={b.id}>{b.name}</option>
                       ))}
                     </select>
+                    <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   </div>
-                )}
+                </div>
+              ) : brands.length === 1 ? (
+                <div className="px-3.5 py-2 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200 text-xs font-bold flex items-center gap-2">
+                  <span className="truncate">🏪 {brands[0].name}</span>
+                </div>
+              ) : null}
 
-                <button
-                  type="button"
-                  onClick={() => setShowProfileModal(true)}
-                  className="flex items-center gap-1.5 p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
-                  title="ดูโปรไฟล์และบัญชีผู้ใช้"
+              {/* Sidebar Navigation */}
+              <nav className="space-y-1.5">
+                <div className="text-[11px] font-semibold uppercase tracking-wider px-3.5 mb-2 text-slate-400">เมนูการทำงาน</div>
+                {nav.map((item) => {
+                  const Icon = item.icon;
+                  const active = screen === item.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => handleNavClick(item.key)}
+                      className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl text-sm font-semibold text-left transition-all cursor-pointer ${
+                        active 
+                          ? 'bg-[#E3F0ED] text-[#0F6659] shadow-2xs' 
+                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                    >
+                      <Icon size={20} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
+                      <span className="tracking-tight">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* User footer profile */}
+            <div className="p-4 border-t bg-slate-50/50" style={{ borderColor: c.border }}>
+              <div className="flex items-center justify-between gap-2.5">
+                <div 
+                  onClick={() => setShowProfileModal(true)} 
+                  className="flex items-center gap-3 min-w-0 flex-1 cursor-pointer group/user"
+                  title="คลิกเพื่อดูโปรไฟล์ผู้ใช้งาน"
                 >
-                  <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+                  <div className="w-10 h-10 rounded-2xl flex items-center justify-center font-bold text-sm shadow-2xs shrink-0 text-white bg-[#0F6659] group-hover/user:scale-105 transition-transform">
                     {currentUser.avatar}
                   </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold truncate text-slate-800 group-hover/user:text-[#0F6659] transition-colors">{currentUser.name}</div>
+                    <div className="text-xs font-normal truncate text-slate-500 mt-0.5">{currentUser.title}</div>
+                  </div>
+                </div>
+
+                {/* 🚪 Logout Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowLogoutConfirmModal(true)}
+                  className="w-9 h-9 rounded-xl bg-white hover:bg-rose-50 hover:text-rose-600 text-slate-400 border border-slate-200 hover:border-rose-200 flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0 shadow-2xs group"
+                  title="ออกจากระบบ (Log Out)"
+                >
+                  <LogOut size={16} className="group-hover:translate-x-0.5 transition-transform" />
                 </button>
               </div>
-
-              {/* Row 2: Breadcrumb Navigation — ซ่อนเมื่ออยู่หน้า reports เพื่อไม่ให้มีแถบดำซ้ำซ้อน */}
-              {subHeader && screen !== "reports" && screen !== "history" && (
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                    {subHeader.onBack && (
-                      <button
-                        type="button"
-                        onClick={subHeader.onBack}
-                        className="w-7 h-7 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-900 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200/90 shrink-0"
-                        title="ย้อนกลับ"
-                      >
-                        <ChevronLeft size={16} className="text-[#0F6659]" />
-                      </button>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <Breadcrumbs
-                        items={[
-                          ...(nav.find((n) => n.key === screen)?.label
-                            ? [{ label: nav.find((n) => n.key === screen)?.label, onClick: subHeader.onBack }]
-                            : []),
-                          { label: subHeader.title },
-                        ]}
-                      />
-                      {subHeader.subtitle && (
-                        <div className="text-[11px] font-normal text-slate-500 leading-tight truncate mt-0.5 px-1 whitespace-pre-line">
-                          {subHeader.subtitle}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {subHeader.action && (
-                    <div className="shrink-0 flex items-center">
-                      {subHeader.action}
-                    </div>
+            </div>
+          </aside>
+          
+          {/* 🌟 MOBILE HEADER (Dynamic Scroll Transparency - Option 3 for ALL Screens) */}
+          <header
+            className={`flex lg:hidden flex-col shrink-0 px-3.5 pt-3.5 pb-3 sticky top-0 z-30 transition-all duration-300 gap-2 border-b ${
+              isScrolled
+                ? "bg-white/85 backdrop-blur-md border-slate-200/60 shadow-xs"
+                : "bg-transparent border-transparent shadow-none"
+            }`}
+          >
+            {/* กรณีเปิดหน้ารายละเอียด/ผลตรวจที่มีปุ่มย้อนกลับ: ใช้แถบเดี่ยวที่มีปุ่มย้อนกลับแทนแถบโลโก้ */}
+            {(subHeader?.isAudit || subHeader?.onBack || subHeader?.hasBack) ? (
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {subHeader?.onBack && (
+                    <button
+                      type="button"
+                      onClick={subHeader.onBack}
+                      className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200 shrink-0 group"
+                      title="ย้อนกลับ"
+                    >
+                      <ChevronLeft size={20} strokeWidth={2.5} className="text-slate-700 group-hover:text-[#0F6659] transition-colors -ml-0.5" />
+                    </button>
                   )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-extrabold text-slate-900 truncate leading-tight">
+                      {subHeader?.title || "รายละเอียด"}
+                    </div>
+                    {subHeader?.subtitle && (
+                      <div className="text-[11px] font-medium text-slate-400 truncate leading-none mt-0.5">
+                        {subHeader.subtitle}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
-            </>
-          )}
-        </header>
 
-        {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
-        <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto min-h-screen pb-16 lg:pb-8">
-          <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col">
-            {renderCurrentScreen()}
-          </div>
-        </main>
+                <div className="flex items-center gap-2 shrink-0">
+                  {subHeader?.action}
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileModal(true)}
+                    className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all"
+                    title="ดูโปรไฟล์และบัญชีผู้ใช้"
+                  >
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+                      {currentUser.avatar}
+                    </div>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* หน้าจอทั่วไป: แสดงแถบ Logo ปกติ */
+              <>
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+                    className="flex items-center gap-2 cursor-pointer group text-left shrink-0 min-w-0"
+                  >
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shadow-xs text-white bg-gradient-to-tr from-[#0F6659] to-[#15806e] group-hover:scale-105 transition-transform shrink-0">
+                      Q
+                    </div>
+                    <div className="text-left min-w-0 max-w-[120px] sm:max-w-[170px]">
+                      <div className="text-xs font-black truncate text-slate-800">Q.S.C.</div>
+                      <div className="text-[10px] font-bold truncate text-[#0F6659]">{currentUser.name}</div>
+                    </div>
+                  </button>
 
-        {/* MOBILE BOTTOM NAVIGATION: ซ่อนอัตโนมัติระหว่างที่กำลังทำการตรวจหน้างาน (Live Audit) */}
-        {!isLiveAuditActive && (
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-3 pb-2 pt-0 pointer-events-none flex justify-center animate-in slide-in-from-bottom-2 duration-200">
+                  {brands.length > 1 ? (
+                    <div className="flex items-center min-w-0 max-w-[140px] sm:max-w-[190px] shrink">
+                      <div className="relative w-full">
+                        <select
+                          value={selectedBrandId || ''}
+                          onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
+                          className="w-full pl-3 pr-7 py-1.5 sm:py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs sm:text-sm font-extrabold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none cursor-pointer truncate shadow-xs min-h-[36px] sm:min-h-[40px] appearance-none"
+                          title="เลือกแบรนด์ที่ต้องการแสดง"
+                        >
+                          <option value="">ทุกแบรนด์</option>
+                          {brands.filter(b => b.isActive).map(b => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
+                    </div>
+                  ) : brands.length === 1 ? (
+                    <div className="flex items-center px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold shrink-0 max-w-[130px]">
+                      <span className="truncate">{brands[0].name}</span>
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileModal(true)}
+                    className="flex items-center gap-1.5 p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
+                    title="ดูโปรไฟล์และบัญชีผู้ใช้"
+                  >
+                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+                      {currentUser.avatar}
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </header>
+
+          {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
+          <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden min-h-screen pb-16 lg:pb-8 w-full max-w-full">
+            <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
+              {renderCurrentScreen()}
+            </div>
+          </main>
+
+          {/* MOBILE BOTTOM NAVIGATION: ซ่อนอัตโนมัติเมื่ออยู่ในหน้าย่อย หรือระหว่างที่กำลังทำการตรวจหน้างาน (Live Audit) */}
+          {!isLiveAuditActive && !isMoreSubScreen && !isAuditFromReportList && !subHeader?.onBack && !subHeader?.hasBack && (
+          <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 px-3 pb-2 pt-0 pointer-events-none flex justify-center animate-in slide-in-from-bottom-2 duration-200">
           <div className="pointer-events-auto w-full max-w-[420px] sm:max-w-md mx-auto relative h-[60px] flex items-center justify-around px-2">
             
             {/* 🌟 1. ELEVATED CONTINUOUS SEAMLESS VECTOR PATH (ยอดโค้งสูงขึ้นและสมูท) */}

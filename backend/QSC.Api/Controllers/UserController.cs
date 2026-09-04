@@ -48,6 +48,8 @@ namespace QSC.Api.Controllers
             var query = _context.Users
                 .AsNoTracking()
                 .Include(u => u.Role)
+                .Include(u => u.UserLocations)
+                .Include(u => u.UserBrands)
                 .AsQueryable();
 
             if (activeOnly == true)
@@ -59,9 +61,6 @@ namespace QSC.Api.Controllers
                 .OrderByDescending(u => u.IsActive)
                 .ThenBy(u => u.Id)
                 .ToListAsync();
-
-            var userLocations = await _context.UserLocations.AsNoTracking().ToListAsync();
-            var userBrands = await _context.UserBrands.AsNoTracking().ToListAsync();
 
             var result = users.Select(u => new
             {
@@ -75,9 +74,9 @@ namespace QSC.Api.Controllers
                 mustChangePassword = u.MustChangePassword,
                 isActive = u.IsActive,
                 createdAt = u.CreatedAt,
-                locationIds = userLocations.Where(ul => ul.UserId == u.Id).Select(ul => ul.LocationId).ToList(),
+                locationIds = u.UserLocations.Select(ul => ul.LocationId).ToList(),
                 brandScope = u.BrandScope,
-                brandIds = userBrands.Where(ub => ub.UserId == u.Id).Select(ub => ub.BrandId).ToList()
+                brandIds = u.UserBrands.Select(ub => ub.BrandId).ToList()
             });
 
             return Ok(result);
@@ -89,21 +88,11 @@ namespace QSC.Api.Controllers
             var user = await _context.Users
                 .AsNoTracking()
                 .Include(u => u.Role)
+                .Include(u => u.UserLocations)
+                .Include(u => u.UserBrands)
                 .FirstOrDefaultAsync(u => u.Id == id);
 
             if (user == null) return NotFound();
-
-            var locationIds = await _context.UserLocations
-                .AsNoTracking()
-                .Where(ul => ul.UserId == user.Id)
-                .Select(ul => ul.LocationId)
-                .ToListAsync();
-
-            var brandIds = await _context.UserBrands
-                .AsNoTracking()
-                .Where(ub => ub.UserId == user.Id)
-                .Select(ub => ub.BrandId)
-                .ToListAsync();
 
             return Ok(new
             {
@@ -117,9 +106,9 @@ namespace QSC.Api.Controllers
                 mustChangePassword = user.MustChangePassword,
                 isActive = user.IsActive,
                 createdAt = user.CreatedAt,
-                locationIds = locationIds,
+                locationIds = user.UserLocations.Select(ul => ul.LocationId).ToList(),
                 brandScope = user.BrandScope,
-                brandIds = brandIds
+                brandIds = user.UserBrands.Select(ub => ub.BrandId).ToList()
             });
         }
 
@@ -262,10 +251,11 @@ namespace QSC.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetRoles()
         {
-            var roles = await _context.Roles.AsNoTracking().OrderBy(r => r.Id).ToListAsync();
-            var rolePerms = await _context.RolePermissions
+            var roles = await _context.Roles
+                .Include(r => r.RolePermissions)
+                .ThenInclude(rp => rp.Permission)
                 .AsNoTracking()
-                .Include(rp => rp.Permission)
+                .OrderBy(r => r.Id)
                 .ToListAsync();
 
             var result = roles.Select(r =>
@@ -283,8 +273,8 @@ namespace QSC.Api.Controllers
                     description = r.Description,
                     navConfigJson = navConfigJson,
                     navConfig = navConfig,
-                    permissionIds = rolePerms.Where(rp => rp.RoleId == r.Id).Select(rp => rp.PermissionId).ToList(),
-                    permissions = rolePerms.Where(rp => rp.RoleId == r.Id).Select(rp => rp.Permission!.Code).ToList()
+                    permissionIds = r.RolePermissions.Select(rp => rp.PermissionId).ToList(),
+                    permissions = r.RolePermissions.Select(rp => rp.Permission!.Code).ToList()
                 };
             });
 
@@ -408,8 +398,7 @@ namespace QSC.Api.Controllers
         {
             var permissions = await _context.Permissions
                 .AsNoTracking()
-                .OrderBy(p => p.Module)
-                .ThenBy(p => p.Id)
+                .OrderBy(p => p.Code)
                 .ToListAsync();
 
             return Ok(permissions);

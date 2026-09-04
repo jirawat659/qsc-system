@@ -1,16 +1,4 @@
-import {
-  LayoutDashboard,
-  ClipboardCheck,
-  CalendarDays,
-  FileText,
-  AlertCircle,
-  BarChart3,
-  MoreHorizontal,
-  Plus,
-  Settings,
-  MessageSquare,
-  ClipboardList
-} from "lucide-react";
+import { LayoutDashboard, ClipboardCheck, CalendarDays, FileText, AlertCircle, BarChart3, MoreHorizontal, Plus, Settings, MessageSquare } from "lucide-react";
 
 export const ROLES = [
   { id: "STANDARD", label: "ผู้ดูแลมาตรฐาน", desc: "จัดการเกณฑ์ ตาราง และฟอร์ม" },

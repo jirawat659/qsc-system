@@ -22,7 +22,8 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         prev.title === title &&
         prev.subtitle === subtitle &&
         prev.isAudit === isAudit &&
-        prev.hasBack === hasBack
+        prev.hasBack === hasBack &&
+        prev.rawAction === action
       ) {
         return prev;
       }
@@ -31,6 +32,7 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         title,
         subtitle,
         action: <ActionComponent />,
+        rawAction: action,
         isAudit,
         hasBack,
         onBack: hasBack ? () => {
@@ -44,7 +46,7 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [title, subtitle, hasBack, isAudit, setSubHeader]);
+  }, [title, subtitle, hasBack, isAudit, action, setSubHeader]);
 
   if (!title && !onBack) return null;
 

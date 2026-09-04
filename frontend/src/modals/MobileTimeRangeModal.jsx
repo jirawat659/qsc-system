@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Clock, X, Check, ArrowRight, Sparkles, Sunrise, Sun, Sunset, Moon } from "lucide-react";
+import { Clock, X, Check, Sparkles, Sunrise, Sun, Sunset, Moon } from "lucide-react";
 import { c, sans, mono } from "../config/theme";
 import ModalWrapper from "../shared/ModalWrapper";
 import MobileTimePicker from "../shared/MobileTimePicker";

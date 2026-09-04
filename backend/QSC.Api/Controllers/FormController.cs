@@ -12,10 +12,12 @@ namespace QSC.Api.Controllers
     public class FormController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly ILogger<FormController> _logger;
 
-        public FormController(AppDbContext context)
+        public FormController(AppDbContext context, ILogger<FormController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         [HttpGet]
@@ -27,6 +29,7 @@ namespace QSC.Api.Controllers
                 .Include(f => f.Brand)
                 .Include(f => f.FormBrands)
                     .ThenInclude(fb => fb.Brand)
+                .Include(f => f.TargetLocations)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
                 .Where(f => f.IsActive);
@@ -44,7 +47,6 @@ namespace QSC.Api.Controllers
             }
 
             var forms = await query.OrderBy(f => f.Id).ToListAsync();
-            var formTargetLocations = await _context.SurveyFormTargetLocations.AsNoTracking().ToListAsync();
 
             var auditCounts = await _context.AuditRecords
                 .AsNoTracking()
@@ -87,7 +89,7 @@ namespace QSC.Api.Controllers
                     usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
                     scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
                     isInUse = auditCounts.GetValueOrDefault(f.Id, 0) > 0 || scheduleCounts.GetValueOrDefault(f.Id, 0) > 0,
-                    targetLocationIds = formTargetLocations.Where(t => t.SurveyFormId == f.Id).Select(t => t.LocationId).ToList(),
+                    targetLocationIds = f.TargetLocations.Select(t => t.LocationId).ToList(),
                     sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
                     {
                         id = s.Id,
@@ -107,8 +109,10 @@ namespace QSC.Api.Controllers
                                 "CLN" => "ความสะอาด",
                                 "DOC" => "เอกสาร",
                                 "OPS" => "กระบวนการทำงาน",
-                                "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                                "QLT" => "คุณภาพสินค้า",
                                 "SVC" => "การบริการ",
+                                "REG" => "ความถูกระเบียบ",
+                                "SAF" => "ความปลอดภัย",
                                 _ => "ความสะอาด"
                             }),
                             orderIndex = i.OrderIndex
@@ -129,6 +133,7 @@ namespace QSC.Api.Controllers
                 .Include(f => f.Brand)
                 .Include(f => f.FormBrands)
                     .ThenInclude(fb => fb.Brand)
+                .Include(f => f.TargetLocations)
                 .Include(f => f.Sections.Where(s => s.IsActive))
                     .ThenInclude(s => s.Items.Where(i => i.IsActive))
                 .FirstOrDefaultAsync(f => f.Id == id);
@@ -138,11 +143,7 @@ namespace QSC.Api.Controllers
             var auditCount = await _context.AuditRecords.AsNoTracking().CountAsync(a => a.SurveyFormId == id);
             var scheduleCount = await _context.AuditSchedules.AsNoTracking().CountAsync(s => s.SurveyFormId == id && s.Status != "CANCELLED");
 
-            var targetLocationIds = await _context.SurveyFormTargetLocations
-                .AsNoTracking()
-                .Where(t => t.SurveyFormId == f.Id)
-                .Select(t => t.LocationId)
-                .ToListAsync();
+            var targetLocationIds = f.TargetLocations.Select(t => t.LocationId).ToList();
 
             var bIds = f.FormBrands.Select(fb => fb.BrandId).ToList();
             if (bIds.Count == 0 && f.BrandId.HasValue) bIds.Add(f.BrandId.Value);
@@ -191,8 +192,10 @@ namespace QSC.Api.Controllers
                             "CLN" => "ความสะอาด",
                             "DOC" => "เอกสาร",
                             "OPS" => "กระบวนการทำงาน",
-                            "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
+                            "QLT" => "คุณภาพสินค้า",
                             "SVC" => "การบริการ",
+                            "REG" => "ความถูกระเบียบ",
+                            "SAF" => "ความปลอดภัย",
                             _ => "ความสะอาด"
                         }),
                         orderIndex = i.OrderIndex
@@ -241,6 +244,12 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateForm([FromBody] FormSaveDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.Title))
+                return BadRequest(new { message = "กรุณาระบุชื่อแบบฟอร์ม" });
+
+            if (dto.PassingScore < 0 || dto.PassingScore > 100)
+                return BadRequest(new { message = "คะแนนผ่านเกณฑ์ต้องอยู่ระหว่าง 0-100" });
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -358,7 +367,8 @@ namespace QSC.Api.Controllers
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการสร้างแบบฟอร์ม: " + ex.Message });
+                _logger.LogError(ex, "Error creating form");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการสร้างแบบฟอร์ม กรุณาลองใหม่อีกครั้ง" });
             }
         }
 
@@ -366,6 +376,12 @@ namespace QSC.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateForm(int id, [FromBody] FormSaveDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.Title))
+                return BadRequest(new { message = "กรุณาระบุชื่อแบบฟอร์ม" });
+
+            if (dto.PassingScore < 0 || dto.PassingScore > 100)
+                return BadRequest(new { message = "คะแนนผ่านเกณฑ์ต้องอยู่ระหว่าง 0-100" });
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -606,7 +622,8 @@ namespace QSC.Api.Controllers
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตแบบฟอร์ม: " + ex.Message });
+                _logger.LogError(ex, "Error updating form");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตแบบฟอร์ม กรุณาลองใหม่อีกครั้ง" });
             }
         }
 

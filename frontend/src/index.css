@@ -58,6 +58,44 @@
   button, input, select, textarea, a {
     touch-action: manipulation;
   }
+
+  /* 🍎 iOS Safari Normalization: ป้องกัน Safari บีบ Dropdown ให้เป็นปุ่มสีเทาจิ๋วแบบดั้งเดิม */
+  select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
+  /* ขนาดเริ่มต้นบนมือถือเพื่อช่วยให้อ่านง่าย แต่เปิดให้คลาส text-xs / text-sm ปรับลดขนาดได้ */
+  @media screen and (max-width: 639px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 15px;
+    }
+  }
+
+  /* ปรับแต่ง input type="date" และ type="time" */
+  input[type="date"],
+  input[type="time"] {
+    min-height: 50px;
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+  }
+
+  /* ซ่อน native indicator สีดำที่ลอยเกะกะ เพื่อแสดงไอคอน Calendar ของระบบที่ชิดขวาอย่างสวยงาม */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
 }
 
 /* 🎯 ควบคุมมาตรฐานขนาดตัวหนังสือ (Unified Font Size Scale - อ่านง่าย ชัดเจน สบายตา) */

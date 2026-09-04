@@ -14,11 +14,13 @@ namespace QSC.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _env;
+        private readonly ILogger<AuditController> _logger;
 
-        public AuditController(AppDbContext context, IWebHostEnvironment env)
+        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger)
         {
             _context = context;
             _env = env;
+            _logger = logger;
         }
 
         private static bool IsValidImageSignature(byte[] bytes)
@@ -356,12 +358,14 @@ namespace QSC.Api.Controllers
             public string? AuditeeSignatureUrl { get; set; }
             public DateTime? SignedAt { get; set; }
 
-            // Start & End GPS
+            // Start & End GPS & Timing
             public double? StartLatitude { get; set; }
             public double? StartLongitude { get; set; }
             public double? EndLatitude { get; set; }
             public double? EndLongitude { get; set; }
+            public bool IsBackdated { get; set; } = false;
             public DateTime? StartedAt { get; set; }
+            public DateTime? SubmittedAt { get; set; }
 
             // Answers
             public List<ResponseSubmitDto> Responses { get; set; } = new();
@@ -566,8 +570,9 @@ namespace QSC.Api.Controllers
                     StartLongitude = dto.StartLongitude,
                     EndLatitude = dto.EndLatitude,
                     EndLongitude = dto.EndLongitude,
+                    IsBackdated = dto.IsBackdated,
                     StartedAt = dto.StartedAt ?? DateTime.UtcNow,
-                    SubmittedAt = DateTime.UtcNow
+                    SubmittedAt = dto.SubmittedAt ?? DateTime.UtcNow
                 };
 
                 // Save Responses & Images + Auto-create CAP Tasks for failed items
@@ -683,8 +688,8 @@ namespace QSC.Api.Controllers
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                var innerMsg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
-                return StatusCode(500, new { message = $"เกิดข้อผิดพลาดในการบันทึกผลตรวจ: {innerMsg}" });
+                _logger.LogError(ex, "Error saving audit result");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการบันทึกผลตรวจ กรุณาลองใหม่อีกครั้ง" });
             }
         }
 
@@ -819,6 +824,7 @@ namespace QSC.Api.Controllers
                 endLongitude = r.EndLongitude,
                 startedAt = r.StartedAt,
                 submittedAt = r.SubmittedAt,
+                isBackdated = r.IsBackdated,
                 responses = r.Responses?.Select(res => new
                 {
                     id = res.Id,
@@ -882,7 +888,83 @@ namespace QSC.Api.Controllers
                 return Forbid();
             }
 
-            return Ok(record);
+            var r = record;
+            var result = new
+            {
+                id = r.Id,
+                locationId = r.LocationId,
+                locationCode = r.Location?.Code,
+                locationName = r.Location?.Name,
+                locationRegion = r.Location?.Region,
+                locationBrand = r.Location?.LocationBrands
+                    .Where(lb => lb.IsPrimary)
+                    .Select(lb => lb.Brand.Name)
+                    .FirstOrDefault() ?? r.Location?.BrandName,
+                locationBrands = r.Location?.LocationBrands
+                    .OrderByDescending(lb => lb.IsPrimary)
+                    .ThenBy(lb => lb.Brand.Name)
+                    .Select(lb => new
+                    {
+                        id = lb.BrandId,
+                        name = lb.Brand.Name,
+                        isPrimary = lb.IsPrimary
+                    })
+                    .ToList(),
+                location = r.Location,
+                surveyForm = r.SurveyForm,
+                surveyFormId = r.SurveyFormId,
+                surveyFormTitle = r.SurveyForm?.Title,
+                primaryAuditorId = r.PrimaryAuditorId,
+                auditorName = r.PrimaryAuditor?.FullName,
+                auditeeUserId = r.AuditeeUserId,
+                auditeeName = r.AuditeeUser?.FullName ?? r.AuditeeNameText ?? "ผู้จัดการสาขา",
+                auditDate = r.AuditDate,
+                totalScore = r.TotalScore,
+                maxScore = r.MaxScore,
+                percentageScore = r.PercentageScore,
+                isPassed = r.IsPassed,
+                hasCriticalDefect = r.HasCriticalDefect,
+                staffCount = r.StaffCount,
+                auditType = r.AuditType,
+                notes = r.Notes,
+                metadataValuesJson = r.MetadataValuesJson,
+                auditorSignatureUrl = r.AuditorSignatureUrl,
+                auditeeSignatureUrl = r.AuditeeSignatureUrl,
+                signedAt = r.SignedAt,
+                startLatitude = r.StartLatitude,
+                startLongitude = r.StartLongitude,
+                endLatitude = r.EndLatitude,
+                endLongitude = r.EndLongitude,
+                startedAt = r.StartedAt,
+                submittedAt = r.SubmittedAt,
+                isBackdated = r.IsBackdated,
+                responses = r.Responses?.Select(res => new
+                {
+                    id = res.Id,
+                    surveyItemId = res.SurveyItemId,
+                    questionText = res.SurveyItem?.QuestionText,
+                    questionType = res.SurveyItem?.QuestionType,
+                    fullScore = res.SurveyItem?.FullScore,
+                    isCritical = res.SurveyItem?.IsCritical,
+                    orderIndex = res.SurveyItem?.OrderIndex,
+                    surveySectionId = res.SurveyItem?.SurveySectionId,
+                    sectionTitle = res.SurveyItem?.SurveySection?.Title,
+                    sectionOrderIndex = res.SurveyItem?.SurveySection?.OrderIndex,
+                    scoreGiven = res.ScoreGiven,
+                    isPassed = res.IsPassed,
+                    isNa = res.IsNa,
+                    notes = res.Notes,
+                    surveyItem = res.SurveyItem,
+                    images = res.Images?.Select(img => new
+                    {
+                        id = img.Id,
+                        imageUrl = img.ImageUrl,
+                        uploadedAt = img.UploadedAt
+                    }).ToList()
+                }).ToList()
+            };
+
+            return Ok(result);
         }
 
         // ==========================================
@@ -1076,8 +1158,8 @@ namespace QSC.Api.Controllers
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                var innerMsg = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
-                return StatusCode(500, new { message = $"เกิดข้อผิดพลาดในการแก้ไขบันทึกการตรวจ: {innerMsg}" });
+                _logger.LogError(ex, "Error editing audit record");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการแก้ไขบันทึกการตรวจ กรุณาลองใหม่อีกครั้ง" });
             }
         }
 

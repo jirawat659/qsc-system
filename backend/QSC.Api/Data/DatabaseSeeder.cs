@@ -216,7 +216,30 @@ namespace QSC.Api.Data
                     }
                 }
 
-                // 8. Ensure SurveyFormBrands table exists
+                // 8. AuditRecords.IsBackdated
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(AuditRecords);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasCol = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "IsBackdated", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasCol = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasCol)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE AuditRecords ADD COLUMN IsBackdated INTEGER NOT NULL DEFAULT 0;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                // 9. Ensure SurveyFormBrands table exists
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"
@@ -263,6 +286,7 @@ namespace QSC.Api.Data
 
             // Ensure Brand, LocationBrand, and UserBrand data is always synchronized
             EnsureBrandAndUserBrandData(context);
+            EnsurePermissionsAndRoles(context);
 
             // Check if already seeded (never wipe existing data if database is already initialized)
             if (!forceRecreate && context.Roles.Any())
@@ -318,24 +342,24 @@ namespace QSC.Api.Data
             // ==========================================
             var permissions = new List<Permission>
             {
-                new Permission { Code = "menu.dashboard", Name = "เข้าดูหน้าแดชบอร์ดภาพรวม", Module = "Dashboard" },
-                new Permission { Code = "dashboard.executive", Name = "ดูข้อมูลภาพรวมระดับผู้บริหาร", Module = "Dashboard" },
-                new Permission { Code = "menu.audit", Name = "เข้าเมนูตรวจหน้างานสด", Module = "Audit" },
+                new Permission { Code = "audit.edit", Name = "แก้ไขการตรวจบันทึกที่ส่งแล้ว พร้อมระบุเหตุผล", Module = "Audit" },
                 new Permission { Code = "audit.start", Name = "เริ่มทำการตรวจประเมิน", Module = "Audit" },
                 new Permission { Code = "audit.submit", Name = "ส่งผลการตรวจและลงนาม", Module = "Audit" },
-                new Permission { Code = "menu.schedules", Name = "เข้าดูตารางแผนการตรวจ", Module = "Schedule" },
-                new Permission { Code = "schedules.manage", Name = "สร้างและแก้ไขนัดหมายตรวจ", Module = "Schedule" },
-                new Permission { Code = "menu.forms", Name = "เข้าดูแม่แบบฟอร์มตรวจ", Module = "Form" },
-                new Permission { Code = "forms.manage", Name = "สร้างและแก้ไขแบบฟอร์มการตรวจ", Module = "Form" },
-                new Permission { Code = "menu.cap", Name = "เข้าดูรายการงานแก้ไข CAP", Module = "CAP" },
-                new Permission { Code = "cap.resolve", Name = "ส่งหลักฐานแก้ไขข้อบกพร่อง (สาขา)", Module = "CAP" },
                 new Permission { Code = "cap.approve", Name = "ตรวจสอบและอนุมัติปิดงาน CAP (QA)", Module = "CAP" },
-                new Permission { Code = "menu.analytics", Name = "เข้าดูรายงานและการวิเคราะห์สถิติ", Module = "Analytics" },
-                new Permission { Code = "menu.admin", Name = "เข้าเมนูจัดการระบบ (Admin Panel)", Module = "System" },
-                new Permission { Code = "users.manage", Name = "จัดการบัญชีผู้ใช้และรีเซ็ตรหัสผ่าน", Module = "System" },
-                new Permission { Code = "roles.manage", Name = "จัดการบทบาทและสิทธิ์การใช้งาน", Module = "System" },
+                new Permission { Code = "cap.resolve", Name = "ส่งหลักฐานแก้ไขข้อบกพร่อง (สาขา)", Module = "CAP" },
+                new Permission { Code = "dashboard.executive", Name = "ดูข้อมูลภาพรวมระดับผู้บริหาร", Module = "Dashboard" },
+                new Permission { Code = "forms.manage", Name = "สร้างและแก้ไขแบบฟอร์มการตรวจ", Module = "Form" },
                 new Permission { Code = "locations.manage", Name = "จัดการข้อมูลสาขาและประเภทสถานที่", Module = "System" },
-                new Permission { Code = "audit.edit", Name = "แก้ไขการตรวจบันทึกที่ส่งแล้ว พร้อมระบุเหตุผล", Module = "Audit"}
+                new Permission { Code = "menu.admin", Name = "เข้าเมนูจัดการระบบ (Admin Panel)", Module = "System" },
+                new Permission { Code = "menu.analytics", Name = "เข้าดูรายงานและการวิเคราะห์สถิติ", Module = "Analytics" },
+                new Permission { Code = "menu.audit", Name = "เข้าเมนูตรวจหน้างานสด", Module = "Audit" },
+                new Permission { Code = "menu.cap", Name = "เข้าดูรายการงานแก้ไข CAP", Module = "CAP" },
+                new Permission { Code = "menu.dashboard", Name = "เข้าดูหน้าแดชบอร์ดภาพรวม", Module = "Dashboard" },
+                new Permission { Code = "menu.forms", Name = "เข้าดูแม่แบบฟอร์มตรวจ", Module = "Form" },
+                new Permission { Code = "menu.schedules", Name = "เข้าดูตารางแผนการตรวจ", Module = "Schedule" },
+                new Permission { Code = "roles.manage", Name = "จัดการบทบาทและสิทธิ์การใช้งาน", Module = "System" },
+                new Permission { Code = "schedules.manage", Name = "สร้างและแก้ไขนัดหมายตรวจ", Module = "Schedule" },
+                new Permission { Code = "users.manage", Name = "จัดการบัญชีผู้ใช้และรีเซ็ตรหัสผ่าน", Module = "System" }
             };
 
             context.Permissions.AddRange(permissions);
@@ -627,21 +651,21 @@ namespace QSC.Api.Data
             context.SurveySections.AddRange(secCLN, secQLT, secSVC, secSAF);
             context.SaveChanges();
 
-            var item1_1 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "จุดล้างมือมีสบู่เหลว แอลกอฮอล์ และกระดาษเช็ดมือพร้อมใช้งาน", QuestionType = "YESNO", FullScore = 10.0, IsCritical = false, OrderIndex = 1, IsActive = true };
-            var item1_2 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "ตู้เย็นและตู้แช่เย็นควบคุมอุณหภูมิ <= 4.0°C พร้อมบันทึก Log สม่ำเสมอ", QuestionType = "YESNO", FullScore = 15.0, IsCritical = true, OrderIndex = 2, IsActive = true };
-            var item1_3 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "ฮูดดูดควัน ตะแกรงดักไขมัน และท่อระบายน้ำพื้นสะอาดปราศจากคราบสะสม", QuestionType = "YESNO", FullScore = 10.0, IsCritical = false, OrderIndex = 3, IsActive = true };
-            var item1_4 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "โต๊ะทานอาหาร ภาชนะเครื่องปรุง และหัวจ่ายเครื่องดื่มเช็ดฆ่าเชื้อทุก 2 ชม.", QuestionType = "YESNO", FullScore = 5.0, IsCritical = false, OrderIndex = 4, IsActive = true };
+            var item1_1 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "จุดล้างมือมีสบู่เหลว แอลกอฮอล์ และกระดาษเช็ดมือพร้อมใช้งาน", QuestionType = "YESNO", FullScore = 10.0, IsCritical = false, CategoryCode = "CLN", CategoryName = "ความสะอาด", OrderIndex = 1, IsActive = true };
+            var item1_2 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "ตู้เย็นและตู้แช่เย็นควบคุมอุณหภูมิ <= 4.0°C พร้อมบันทึก Log สม่ำเสมอ", QuestionType = "YESNO", FullScore = 15.0, IsCritical = true, CategoryCode = "DOC", CategoryName = "เอกสาร", OrderIndex = 2, IsActive = true };
+            var item1_3 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "ฮูดดูดควัน ตะแกรงดักไขมัน และท่อระบายน้ำพื้นสะอาดปราศจากคราบสะสม", QuestionType = "YESNO", FullScore = 10.0, IsCritical = false, CategoryCode = "CLN", CategoryName = "ความสะอาด", OrderIndex = 3, IsActive = true };
+            var item1_4 = new SurveyItem { SurveySectionId = secCLN.Id, QuestionText = "โต๊ะทานอาหาร ภาชนะเครื่องปรุง และหัวจ่ายเครื่องดื่มเช็ดฆ่าเชื้อทุก 2 ชม.", QuestionType = "YESNO", FullScore = 5.0, IsCritical = false, CategoryCode = "CLN", CategoryName = "ความสะอาด", OrderIndex = 4, IsActive = true };
 
-            var item1_5 = new SurveyItem { SurveySectionId = secQLT.Id, QuestionText = "ค่าน้ำมันทอด TPM ไม่เกิน 22% (ตรวจสอบด้วยเครื่องวัดดิจิทัล)", QuestionType = "YESNO", FullScore = 10.0, IsCritical = true, OrderIndex = 1, IsActive = true };
-            var item1_6 = new SurveyItem { SurveySectionId = secQLT.Id, QuestionText = "อุณหภูมิแกนกลางของเนื้อสัตว์ปรุงสุกถึง >= 75°C นาน 15 วินาที", QuestionType = "YESNO", FullScore = 15.0, IsCritical = true, OrderIndex = 2, IsActive = true };
-            var item1_7 = new SurveyItem { SurveySectionId = secQLT.Id, QuestionText = "วัตถุดิบทั้งหมดติดป้าย FIFO ระบุวันผลิตและวันหมดอายุย่อยชัดเจน", QuestionType = "YESNO", FullScore = 10.0, IsCritical = false, OrderIndex = 3, IsActive = true };
+            var item1_5 = new SurveyItem { SurveySectionId = secQLT.Id, QuestionText = "ค่าน้ำมันทอด TPM ไม่เกิน 22% (ตรวจสอบด้วยเครื่องวัดดิจิทัล)", QuestionType = "YESNO", FullScore = 10.0, IsCritical = true, CategoryCode = "QLT", CategoryName = "คุณภาพสินค้า", OrderIndex = 1, IsActive = true };
+            var item1_6 = new SurveyItem { SurveySectionId = secQLT.Id, QuestionText = "อุณหภูมิแกนกลางของเนื้อสัตว์ปรุงสุกถึง >= 75°C นาน 15 วินาที", QuestionType = "YESNO", FullScore = 15.0, IsCritical = true, CategoryCode = "QLT", CategoryName = "คุณภาพสินค้า", OrderIndex = 2, IsActive = true };
+            var item1_7 = new SurveyItem { SurveySectionId = secQLT.Id, QuestionText = "วัตถุดิบทั้งหมดติดป้าย FIFO ระบุวันผลิตและวันหมดอายุย่อยชัดเจน", QuestionType = "YESNO", FullScore = 10.0, IsCritical = false, CategoryCode = "DOC", CategoryName = "เอกสาร", OrderIndex = 3, IsActive = true };
 
-            var item1_8 = new SurveyItem { SurveySectionId = secSVC.Id, QuestionText = "พนักงานต้อนรับกล่าวทักทายภายใน 5 วินาทีด้วยรอยยิ้มและคำทักทายมาตรฐาน", QuestionType = "SCALE", FullScore = 5.0, IsCritical = false, OrderIndex = 1, IsActive = true };
-            var item1_9 = new SurveyItem { SurveySectionId = secSVC.Id, QuestionText = "ความเร็วในการเสิร์ฟ (สั่งซื้อจนถึงรับสินค้า) ไม่เกิน 180 วินาที", QuestionType = "SCALE", FullScore = 10.0, IsCritical = false, OrderIndex = 2, IsActive = true };
-            var item1_10 = new SurveyItem { SurveySectionId = secSVC.Id, QuestionText = "การแต่งกาย ป้ายชื่อ และหมวกเก็บผมถูกต้องตามระเบียบบริษัท 100%", QuestionType = "YESNO", FullScore = 5.0, IsCritical = false, OrderIndex = 3, IsActive = true };
+            var item1_8 = new SurveyItem { SurveySectionId = secSVC.Id, QuestionText = "พนักงานต้อนรับกล่าวทักทายภายใน 5 วินาทีด้วยรอยยิ้มและคำทักทายมาตรฐาน", QuestionType = "SCALE", FullScore = 5.0, IsCritical = false, CategoryCode = "SVC", CategoryName = "การบริการ", OrderIndex = 1, IsActive = true };
+            var item1_9 = new SurveyItem { SurveySectionId = secSVC.Id, QuestionText = "ความเร็วในการเสิร์ฟ (สั่งซื้อจนถึงรับสินค้า) ไม่เกิน 180 วินาที", QuestionType = "SCALE", FullScore = 10.0, IsCritical = false, CategoryCode = "SVC", CategoryName = "การบริการ", OrderIndex = 2, IsActive = true };
+            var item1_10 = new SurveyItem { SurveySectionId = secSVC.Id, QuestionText = "การแต่งกาย ป้ายชื่อ และหมวกเก็บผมถูกต้องตามระเบียบบริษัท 100%", QuestionType = "YESNO", FullScore = 5.0, IsCritical = false, CategoryCode = "OPS", CategoryName = "กระบวนการทำงาน", OrderIndex = 3, IsActive = true };
 
-            var item1_11 = new SurveyItem { SurveySectionId = secSAF.Id, QuestionText = "ทางหนีไฟไม่มีสิ่งกีดขวาง และถังดับเพลิงมีสติกเกอร์ตรวจเช็คประจำเดือน", QuestionType = "YESNO", FullScore = 10.0, IsCritical = true, OrderIndex = 1, IsActive = true };
-            var item1_12 = new SurveyItem { SurveySectionId = secSAF.Id, QuestionText = "เงินสดย่อยในลิ้นชักตรงกับรายงานกะ POS โดยไม่มีเงินส่วนเกิน", QuestionType = "SCALE", FullScore = 10.0, IsCritical = false, OrderIndex = 2, IsActive = true };
+            var item1_11 = new SurveyItem { SurveySectionId = secSAF.Id, QuestionText = "ทางหนีไฟไม่มีสิ่งกีดขวาง และถังดับเพลิงมีสติกเกอร์ตรวจเช็คประจำเดือน", QuestionType = "YESNO", FullScore = 10.0, IsCritical = true, CategoryCode = "OPS", CategoryName = "กระบวนการทำงาน", OrderIndex = 1, IsActive = true };
+            var item1_12 = new SurveyItem { SurveySectionId = secSAF.Id, QuestionText = "เงินสดย่อยในลิ้นชักตรงกับรายงานกะ POS โดยไม่มีเงินส่วนเกิน", QuestionType = "SCALE", FullScore = 10.0, IsCritical = false, CategoryCode = "DOC", CategoryName = "เอกสาร", OrderIndex = 2, IsActive = true };
 
             context.SurveyItems.AddRange(item1_1, item1_2, item1_3, item1_4, item1_5, item1_6, item1_7, item1_8, item1_9, item1_10, item1_11, item1_12);
             context.SaveChanges();
@@ -653,10 +677,10 @@ namespace QSC.Api.Data
             context.SaveChanges();
 
             context.SurveyItems.AddRange(
-                new SurveyItem { SurveySectionId = secPlant1.Id, QuestionText = "การควบคุมสัตว์พาหะและตาข่ายดักแมลงทางเข้าไลน์ผลิตสมบูรณ์ 100%", QuestionType = "YESNO", FullScore = 20.0, IsCritical = true, OrderIndex = 1, IsActive = true },
-                new SurveyItem { SurveySectionId = secPlant1.Id, QuestionText = "การทำความสะอาดฆ่าเชื้อเครื่องจักร CIP ตามรอบเวลา", QuestionType = "YESNO", FullScore = 15.0, IsCritical = false, OrderIndex = 2, IsActive = true },
-                new SurveyItem { SurveySectionId = secPlant2.Id, QuestionText = "ระบบควบคุมอุณหภูมิห้องเย็นกลาง (-22°C ถึง -18°C) บันทึกอัตโนมัติ 24 ชม.", QuestionType = "YESNO", FullScore = 25.0, IsCritical = true, OrderIndex = 1, IsActive = true },
-                new SurveyItem { SurveySectionId = secPlant2.Id, QuestionText = "เครื่องตรวจจับโลหะ (Metal Detector) ผ่านการทดสอบ Test Piece ทุก 2 ชม.", QuestionType = "YESNO", FullScore = 20.0, IsCritical = true, OrderIndex = 2, IsActive = true }
+                new SurveyItem { SurveySectionId = secPlant1.Id, QuestionText = "การควบคุมสัตว์พาหะและตาข่ายดักแมลงทางเข้าไลน์ผลิตสมบูรณ์ 100%", QuestionType = "YESNO", FullScore = 20.0, IsCritical = true, CategoryCode = "OPS", CategoryName = "กระบวนการทำงาน", OrderIndex = 1, IsActive = true },
+                new SurveyItem { SurveySectionId = secPlant1.Id, QuestionText = "การทำความสะอาดฆ่าเชื้อเครื่องจักร CIP ตามรอบเวลา", QuestionType = "YESNO", FullScore = 15.0, IsCritical = false, CategoryCode = "CLN", CategoryName = "ความสะอาด", OrderIndex = 2, IsActive = true },
+                new SurveyItem { SurveySectionId = secPlant2.Id, QuestionText = "ระบบควบคุมอุณหภูมิห้องเย็นกลาง (-22°C ถึง -18°C) บันทึกอัตโนมัติ 24 ชม.", QuestionType = "YESNO", FullScore = 25.0, IsCritical = true, CategoryCode = "QLT", CategoryName = "คุณภาพสินค้า", OrderIndex = 1, IsActive = true },
+                new SurveyItem { SurveySectionId = secPlant2.Id, QuestionText = "เครื่องตรวจจับโลหะ (Metal Detector) ผ่านการทดสอบ Test Piece ทุก 2 ชม.", QuestionType = "YESNO", FullScore = 20.0, IsCritical = true, CategoryCode = "OPS", CategoryName = "กระบวนการทำงาน", OrderIndex = 2, IsActive = true }
             );
             context.SaveChanges();
 
@@ -678,15 +702,27 @@ namespace QSC.Api.Data
                 new AuditRecord { LocationId = locations[7].Id, SurveyFormId = form1.Id, PrimaryAuditorId = auditorAnan.Id, AuditeeUserId = auditeePhuket.Id, AuditDate = now.AddDays(-22), TotalScore = 101.7, MaxScore = 115.0, PercentageScore = 88.4, IsPassed = false, HasCriticalDefect = true, StaffCount = 10, AuditType = "announced", Notes = "ตรวจพบค่าน้ำมันทอด TPM เกินเกณฑ์ (24.5%) เปิดตั๋ว CAP ด่วนเพื่อเปลี่ยนถ่ายน้ำมันทันที" },
                 new AuditRecord { LocationId = locations[3].Id, SurveyFormId = form1.Id, PrimaryAuditorId = auditorMike.Id, AuditeeUserId = auditeeLadprao.Id, AuditDate = now.AddDays(-23), TotalScore = 99.9, MaxScore = 115.0, PercentageScore = 86.9, IsPassed = true, HasCriticalDefect = false, StaffCount = 11, AuditType = "announced", Notes = "ขอบยางประตูตู้แช่แข็งเสื่อมสภาพ เปิดตั๋ว CAP ซ่อมแซม" },
                 new AuditRecord { LocationId = locations[20].Id, SurveyFormId = form1.Id, PrimaryAuditorId = auditorSomchaiK.Id, AuditeeUserId = auditeeRayong.Id, AuditDate = now.AddDays(-24), TotalScore = 96.8, MaxScore = 115.0, PercentageScore = 84.2, IsPassed = false, HasCriticalDefect = false, StaffCount = 7, AuditType = "announced", Notes = "คะแนนไม่ถึงเกณฑ์ 85% พนักงานฝึกหัดไม่สวมตาข่ายคลุมผมและทางหนีไฟมีกล่องวางขวาง" },
-                new AuditRecord { LocationId = locations[22].Id, SurveyFormId = form2.Id, PrimaryAuditorId = auditorSarah.Id, AuditDate = now.AddDays(-7), TotalScore = 96.0, MaxScore = 100.0, PercentageScore = 96.0, IsPassed = true, HasCriticalDefect = false, StaffCount = 35, AuditType = "announced", Notes = "มาตรฐานการผลิตโรงงานบางนายอดเยี่ยม สายพานและห้องเย็นทำงานสมบูรณ์" }
+                new AuditRecord { LocationId = locations[22].Id, SurveyFormId = form2.Id, PrimaryAuditorId = auditorSarah.Id, AuditDate = now.AddDays(-7), TotalScore = 45.0, MaxScore = 80.0, PercentageScore = 56.3, IsPassed = false, HasCriticalDefect = true, StaffCount = 35, AuditType = "announced", Notes = "พบข้อบกพร่องวิกฤตเรื่องตาข่ายดักแมลง และระบบ CIP ล่าช้า ต้องเปิดตั๋ว CAP แก้ไขด่วน" }
             };
 
             context.AuditRecords.AddRange(auditRecords);
             context.SaveChanges();
 
             // Add responses for each audit record
+            var plantItems = context.SurveyItems.Where(i => i.SurveySection != null && i.SurveySection.SurveyFormId == form2.Id).OrderBy(i => i.Id).ToList();
             foreach (var record in auditRecords)
             {
+                if (record.SurveyFormId == form2.Id && plantItems.Count >= 4)
+                {
+                    context.AuditResponses.AddRange(
+                        new AuditResponse { AuditRecordId = record.Id, SurveyItemId = plantItems[0].Id, ScoreGiven = 0.0, IsPassed = false, Notes = "พบตาข่ายดักแมลงชำรุดที่ทางเข้าไลน์ผลิตสมบูรณ์" },
+                        new AuditResponse { AuditRecordId = record.Id, SurveyItemId = plantItems[1].Id, ScoreGiven = 0.0, IsPassed = false, Notes = "รอบเวลา CIP ล่าช้ากว่ากำหนด 45 นาที" },
+                        new AuditResponse { AuditRecordId = record.Id, SurveyItemId = plantItems[2].Id, ScoreGiven = 25.0, IsPassed = true },
+                        new AuditResponse { AuditRecordId = record.Id, SurveyItemId = plantItems[3].Id, ScoreGiven = 20.0, IsPassed = true }
+                    );
+                    continue;
+                }
+
                 var isTop = record.PercentageScore >= 95.0;
                 var isFailed = !record.IsPassed;
 
@@ -944,70 +980,113 @@ namespace QSC.Api.Data
                 if (locBrandsAdded) context.SaveChanges();
 
                 // 3. Ensure UserBrand assignments and BrandScope for testing
-                var users = context.Users.ToList();
                 var existingUserBrands = context.UserBrands.ToList();
-                bool usersUpdated = false;
-
-                void MapUserToBrand(string username, int brandId, string newTitle)
+                if (!existingUserBrands.Any())
                 {
-                    var u = users.FirstOrDefault(x => x.Username == username);
-                    if (u != null)
+                    var users = context.Users.ToList();
+                    bool usersUpdated = false;
+
+                    void MapUserToBrand(string username, int brandId, string newTitle)
                     {
-                        if (u.BrandScope != "SPECIFIC") { u.BrandScope = "SPECIFIC"; usersUpdated = true; }
-                        if (u.FullName != newTitle) { u.FullName = newTitle; usersUpdated = true; }
-                        if (!existingUserBrands.Any(ub => ub.UserId == u.Id && ub.BrandId == brandId))
+                        var u = users.FirstOrDefault(x => x.Username == username);
+                        if (u != null)
                         {
-                            context.UserBrands.Add(new UserBrand { UserId = u.Id, BrandId = brandId });
-                            usersUpdated = true;
+                            if (u.BrandScope != "SPECIFIC") { u.BrandScope = "SPECIFIC"; usersUpdated = true; }
+                            if (u.FullName != newTitle) { u.FullName = newTitle; usersUpdated = true; }
+                            if (!existingUserBrands.Any(ub => ub.UserId == u.Id && ub.BrandId == brandId))
+                            {
+                                context.UserBrands.Add(new UserBrand { UserId = u.Id, BrandId = brandId });
+                                usersUpdated = true;
+                            }
                         }
                     }
-                }
 
-                void SetUserAllBrands(string username, string newTitle)
-                {
-                    var u = users.FirstOrDefault(x => x.Username == username);
-                    if (u != null)
+                    void SetUserAllBrands(string username, string newTitle)
                     {
-                        if (u.BrandScope != "ALL") { u.BrandScope = "ALL"; usersUpdated = true; }
-                        if (u.FullName != newTitle) { u.FullName = newTitle; usersUpdated = true; }
+                        var u = users.FirstOrDefault(x => x.Username == username);
+                        if (u != null)
+                        {
+                            if (u.BrandScope != "ALL") { u.BrandScope = "ALL"; usersUpdated = true; }
+                            if (u.FullName != newTitle) { u.FullName = newTitle; usersUpdated = true; }
+                        }
+                    }
+
+                    // Auditors with specific brands
+                    MapUserToBrand("somchai", ubBrand.Id, "คุณสมชาย ใจดี (Lead QA - Urban Burger)");
+                    MapUserToBrand("sarah", clBrand.Id, "Sarah Wong (Lead QA - Cafe Luna)");
+                    MapUserToBrand("john", abBrand.Id, "John Doe (Senior QA - Artisan Bakery)");
+                    MapUserToBrand("miketan", ubBrand.Id, "Mike Tan (Field QA - Urban Burger)");
+                    MapUserToBrand("anan", ubBrand.Id, "นายอนันต์ รักษ์ดี (Southern QA - Urban Burger)");
+                    MapUserToBrand("somchaik", abBrand.Id, "นายสมชาย ขจรเกียรติ (Eastern QA - Artisan Bakery)");
+
+                    // Auditors / Admins with ALL brands
+                    SetUserAllBrands("admin", "ผู้ดูแลระบบสูงสุด (System Admin - ทุกแบรนด์)");
+                    SetUserAllBrands("krit", "นายกฤษณ์ พร้อมใจ (Regional QA - ทุกแบรนด์)");
+                    SetUserAllBrands("kanda", "นางกานดา มาตรฐานดี (QA Director - ทุกแบรนด์)");
+                    SetUserAllBrands("david", "Mr. David Chen (COO - ทุกแบรนด์)");
+
+                    // Auditees / Store Managers
+                    MapUserToBrand("auditee_siam", ubBrand.Id, "นายสมชาย ธนากร (ผจก. Urban Burger - สยามพารากอน)");
+                    MapUserToBrand("auditee_sukhumvit", ubBrand.Id, "นายวิชัย รัตนะ (ผจก. Urban Burger - สุขุมวิท 24)");
+                    MapUserToBrand("auditee_bangna", ubBrand.Id, "น.ส.ณัฐพร สุขเกษม (ผจก. Urban Burger - เมกาบางนา)");
+                    MapUserToBrand("auditee_ladprao", ubBrand.Id, "น.ส.นิภา เกษมสุข (ผจก. Urban Burger - เซ็นทรัลลาดพร้าว)");
+                    MapUserToBrand("auditee_chiangmai", ubBrand.Id, "นายพงษ์พันธ์ จันทร์ดี (ผจก. Urban Burger - เซ็นทรัลเชียงใหม่)");
+                    MapUserToBrand("auditee_phuket", ubBrand.Id, "นายชูศักดิ์ บุญเรือง (ผจก. Urban Burger - เซ็นทรัลภูเก็ต)");
+                    MapUserToBrand("auditee_ari", clBrand.Id, "นายเคน วรพจน์ (ผจก. Cafe Luna - อารีย์)");
+                    MapUserToBrand("auditee_pattaya", abBrand.Id, "นางสายใจ บุญช่วย (ผจก. Artisan Bakery - เซ็นทรัลพัทยา)");
+                    MapUserToBrand("auditee_rayong", abBrand.Id, "นายธนาคาร มงคล (ผจก. Artisan Bakery - ระยอง)");
+
+                    if (usersUpdated)
+                    {
+                        context.SaveChanges();
                     }
                 }
-
-                // Auditors with specific brands
-                MapUserToBrand("somchai", ubBrand.Id, "คุณสมชาย ใจดี (Lead QA - Urban Burger)");
-                MapUserToBrand("sarah", clBrand.Id, "Sarah Wong (Lead QA - Cafe Luna)");
-                MapUserToBrand("john", abBrand.Id, "John Doe (Senior QA - Artisan Bakery)");
-                MapUserToBrand("miketan", ubBrand.Id, "Mike Tan (Field QA - Urban Burger)");
-                MapUserToBrand("anan", ubBrand.Id, "นายอนันต์ รักษ์ดี (Southern QA - Urban Burger)");
-                MapUserToBrand("somchaik", abBrand.Id, "นายสมชาย ขจรเกียรติ (Eastern QA - Artisan Bakery)");
-
-                // Auditors / Admins with ALL brands
-                SetUserAllBrands("admin", "ผู้ดูแลระบบสูงสุด (System Admin - ทุกแบรนด์)");
-                SetUserAllBrands("krit", "นายกฤษณ์ พร้อมใจ (Regional QA - ทุกแบรนด์)");
-                SetUserAllBrands("kanda", "นางกานดา มาตรฐานดี (QA Director - ทุกแบรนด์)");
-                SetUserAllBrands("david", "Mr. David Chen (COO - ทุกแบรนด์)");
-
-                // Auditees / Store Managers
-                MapUserToBrand("auditee_siam", ubBrand.Id, "นายสมชาย ธนากร (ผจก. Urban Burger - สยามพารากอน)");
-                MapUserToBrand("auditee_sukhumvit", ubBrand.Id, "นายวิชัย รัตนะ (ผจก. Urban Burger - สุขุมวิท 24)");
-                MapUserToBrand("auditee_bangna", ubBrand.Id, "น.ส.ณัฐพร สุขเกษม (ผจก. Urban Burger - เมกาบางนา)");
-                MapUserToBrand("auditee_ladprao", ubBrand.Id, "น.ส.นิภา เกษมสุข (ผจก. Urban Burger - เซ็นทรัลลาดพร้าว)");
-                MapUserToBrand("auditee_chiangmai", ubBrand.Id, "นายพงษ์พันธ์ จันทร์ดี (ผจก. Urban Burger - เซ็นทรัลเชียงใหม่)");
-                MapUserToBrand("auditee_phuket", ubBrand.Id, "นายชูศักดิ์ บุญเรือง (ผจก. Urban Burger - เซ็นทรัลภูเก็ต)");
-                MapUserToBrand("auditee_ari", clBrand.Id, "นายเคน วรพจน์ (ผจก. Cafe Luna - อารีย์)");
-                MapUserToBrand("auditee_pattaya", abBrand.Id, "นางสายใจ บุญช่วย (ผจก. Artisan Bakery - เซ็นทรัลพัทยา)");
-                MapUserToBrand("auditee_rayong", abBrand.Id, "นายธนาคาร มงคล (ผจก. Artisan Bakery - ระยอง)");
-
-                if (usersUpdated)
-                {
-                    context.SaveChanges();
-                }
-
                 Console.WriteLine("[DatabaseSeeder] EnsureBrandAndUserBrandData: Brand scope and mappings verified successfully!");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[DatabaseSeeder] Brand backfill warning: {ex.Message}");
+            }
+        }
+
+        private static void EnsurePermissionsAndRoles(AppDbContext context)
+        {
+            try
+            {
+                var existingPermissions = context.Permissions.ToList();
+                var permEdit = existingPermissions.FirstOrDefault(p => p.Code == "audit.edit");
+                if (permEdit == null)
+                {
+                    permEdit = new Permission
+                    {
+                        Code = "audit.edit",
+                        Name = "แก้ไขการตรวจบันทึกที่ส่งแล้ว พร้อมระบุเหตุผล",
+                        Module = "Audit"
+                    };
+                    context.Permissions.Add(permEdit);
+                    context.SaveChanges();
+                    Console.WriteLine("[DatabaseSeeder] Created missing permission: audit.edit");
+                }
+
+                var adminRole = context.Roles.FirstOrDefault(r => r.Code == "ADMIN");
+                if (adminRole != null)
+                {
+                    var hasAdminEdit = context.RolePermissions.Any(rp => rp.RoleId == adminRole.Id && rp.PermissionId == permEdit.Id);
+                    if (!hasAdminEdit)
+                    {
+                        context.RolePermissions.Add(new RolePermission
+                        {
+                            RoleId = adminRole.Id,
+                            PermissionId = permEdit.Id
+                        });
+                        context.SaveChanges();
+                        Console.WriteLine("[DatabaseSeeder] Linked audit.edit to ADMIN role");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] EnsurePermissionsAndRoles warning: {ex.Message}");
             }
         }
     }

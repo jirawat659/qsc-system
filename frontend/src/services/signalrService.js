@@ -51,9 +51,7 @@ class SignalRService {
         this.messageHandlers.forEach((handler) => {
           try {
             handler(comment);
-          } catch (e) {
-            console.warn("Error in ReceiveCapMessage handler:", e);
-          }
+          } catch (e) {}
         });
       });
 
@@ -61,9 +59,7 @@ class SignalRService {
         this.statusHandlers.forEach((handler) => {
           try {
             handler(statusUpdate);
-          } catch (e) {
-            console.warn("Error in CapStatusUpdated handler:", e);
-          }
+          } catch (e) {}
         });
       });
 
@@ -72,9 +68,7 @@ class SignalRService {
         for (const roomId of this.joinedRooms) {
           try {
             await this.connection.invoke("JoinCapRoom", roomId);
-          } catch (e) {
-            console.warn(`Failed to rejoin room cap_${roomId}:`, e);
-          }
+          } catch (e) {}
         }
       });
 
@@ -83,7 +77,6 @@ class SignalRService {
       return this.connection;
     } catch (err) {
       this.isConnecting = false;
-      console.warn("SignalR connection failed:", err);
       return null;
     }
   }
@@ -100,9 +93,7 @@ class SignalRService {
     if (conn && conn.state === signalR.HubConnectionState.Connected) {
       try {
         await conn.invoke("JoinCapRoom", id);
-      } catch (e) {
-        console.warn(`Error joining room cap_${id}:`, e);
-      }
+      } catch (e) {}
     }
   }
 
@@ -117,9 +108,7 @@ class SignalRService {
     if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
       try {
         await this.connection.invoke("LeaveCapRoom", id);
-      } catch (e) {
-        console.warn(`Error leaving room cap_${id}:`, e);
-      }
+      } catch (e) {}
     }
   }
 

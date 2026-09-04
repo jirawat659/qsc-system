@@ -21,23 +21,35 @@ var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowReact", policy => 
+    options.AddPolicy("AllowReact", policy =>
         policy.SetIsOriginAllowed(origin =>
         {
             if (string.IsNullOrWhiteSpace(origin)) return false;
             try
             {
                 var uri = new Uri(origin);
-                return uri.Host == "localhost" 
-                    || uri.Host == "127.0.0.1" 
-                    || uri.Host.StartsWith("192.168.") 
-                    || uri.Host.StartsWith("10.")
-                    || allowedOrigins.Contains(origin);
+                if (uri.Host == "localhost" || uri.Host == "127.0.0.1")
+                    return true;
+
+                // Validate actual IP addresses in private subnets
+                if (System.Net.IPAddress.TryParse(uri.Host, out var ip))
+                {
+                    var bytes = ip.GetAddressBytes();
+                    if (bytes.Length == 4)
+                    {
+                        // 192.168.0.0/16
+                        if (bytes[0] == 192 && bytes[1] == 168) return true;
+                        // 10.0.0.0/8
+                        if (bytes[0] == 10) return true;
+                        // 172.16.0.0/12
+                        if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+                    }
+                }
+
+                // Check explicit allowed origins list
+                return allowedOrigins.Contains(origin);
             }
-            catch
-            {
-                return false;
-            }
+            catch { return false; }
         })
         .AllowAnyMethod()
         .AllowAnyHeader()
@@ -141,10 +153,25 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 });
 
 app.UseCors("AllowReact");
-app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Protect static uploads with authentication
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/uploads"))
+    {
+        if (!context.User.Identity?.IsAuthenticated ?? true)
+        {
+            context.Response.StatusCode = 401;
+            return;
+        }
+    }
+    await next();
+});
+
+app.UseStaticFiles();
 app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())

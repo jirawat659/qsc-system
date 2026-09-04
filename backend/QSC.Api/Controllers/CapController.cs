@@ -243,6 +243,11 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateManualCap([FromBody] CreateManualCapDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.IssueItem))
+                return BadRequest(new { message = "กรุณาระบุรายการปัญหา" });
+            if (string.IsNullOrWhiteSpace(dto.Description))
+                return BadRequest(new { message = "กรุณาระบุรายละเอียดปัญหา" });
+
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
@@ -482,6 +487,9 @@ namespace QSC.Api.Controllers
         [HttpPost("{id}/reject")]
         public async Task<IActionResult> RejectCap(int id, [FromBody] RejectCapDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.Reason))
+                return BadRequest(new { message = "กรุณาระบุเหตุผลในการปฏิเสธ" });
+
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
@@ -560,6 +568,10 @@ namespace QSC.Api.Controllers
         [HttpPut("{id}/status")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
         {
+            var allowedStatuses = new[] { "OPEN", "SUBMITTED", "REJECTED", "CLOSED" };
+            if (!allowedStatuses.Contains(dto.Status?.ToUpper()))
+                return BadRequest(new { message = "สถานะไม่ถูกต้อง" });
+
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
@@ -640,6 +652,9 @@ namespace QSC.Api.Controllers
         [HttpPost("{id}/comments")]
         public async Task<IActionResult> PostComment(int id, [FromBody] PostCommentDto dto)
         {
+            if (string.IsNullOrWhiteSpace(dto.Message))
+                return BadRequest(new { message = "กรุณาระบุข้อความ" });
+
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 

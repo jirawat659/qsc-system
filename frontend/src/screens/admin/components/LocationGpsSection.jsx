@@ -1,5 +1,5 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Search, Navigation, ExternalLink, Loader2, X, Check, Compass, ZoomIn, ZoomOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapPin, Search, Navigation, ExternalLink, Loader2, X, Check, Compass, ZoomIn, ZoomOut } from "lucide-react";
 import ModalWrapper from '../../../shared/ModalWrapper';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -246,7 +246,7 @@ export default function LocationGpsSection({
           value={form.address || ''}
           onChange={(e) => setForm(prev => ({ ...prev, address: e.target.value }))}
           rows={2}
-          className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-700 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
+          className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-xs sm:text-sm font-normal text-slate-700 focus:text-slate-800 bg-white focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
           placeholder="เช่น ชั้น G โซน Veranda ถ.เจริญนคร แขวงคลองต้นไทร เขตคลองสาน กรุงเทพฯ 10600"
         />
       </div>
@@ -330,25 +330,25 @@ export default function LocationGpsSection({
               </div>
 
               {/* Quick GPS Button & Open Maps */}
-              <div className="flex items-center justify-between pt-0.5">
+              <div className="grid grid-cols-2 gap-2 pt-0.5">
                 <button
                   type="button"
                   onClick={handleGetCurrentGps}
                   disabled={gpsLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all disabled:opacity-50"
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all disabled:opacity-50 min-h-[38px] text-center"
                 >
-                  {gpsLoading ? <Loader2 size={12} className="animate-spin" /> : <Navigation size={12} />}
-                  <span>ใช้ตำแหน่ง GPS ปัจจุบัน</span>
+                  {gpsLoading ? <Loader2 size={13} className="animate-spin shrink-0" /> : <Navigation size={13} className="shrink-0" />}
+                  <span className="truncate">ใช้<span className="hidden sm:inline">ตำแหน่ง</span> GPS ปัจจุบัน</span>
                 </button>
 
                 <a
                   href={`https://www.google.com/maps?q=${tempLat},${tempLng}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-[11px] font-bold text-slate-500 hover:text-[#0F6659] flex items-center gap-1"
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border border-slate-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all min-h-[38px] text-center"
                 >
-                  <span>เปิดดูใน Google Maps</span>
-                  <ExternalLink size={10} />
+                  <ExternalLink size={13} className="shrink-0 text-slate-400" />
+                  <span className="truncate">เปิด<span className="hidden sm:inline">ดูใน</span> Google Maps</span>
                 </a>
               </div>
             </div>

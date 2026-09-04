@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { 
-  X, History, User, Clock, MessageSquare, TrendingUp,
-  ShieldCheck, AlertCircle, Loader2, ArrowRight
-} from "lucide-react";
+import { X, History, User, Clock, MessageSquare, ShieldCheck, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 import api from "../config/api";
 import { mono } from "../config/theme";
 
@@ -156,11 +153,11 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                           {before.PercentageScore !== undefined && after.PercentageScore !== undefined && (
                             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 font-medium">
                               <span className="text-slate-400 text-[10.5px]">คะแนน:</span>
-                              <span className="font-bold line-through text-slate-400" style={{ fontFamily: mono }}>
+                              <span className="font-bold line-through text-slate-400 font-mono">
                                 {Math.round(before.PercentageScore)}%
                               </span>
                               <ArrowRight size={11} className="text-slate-400" />
-                              <span className={`font-black ${after.PercentageScore >= 85 ? 'text-emerald-700' : 'text-amber-700'}`} style={{ fontFamily: mono }}>
+                              <span className={`font-black font-mono ${after.PercentageScore >= 85 ? 'text-emerald-700' : 'text-amber-700'}`}>
                                 {Math.round(after.PercentageScore)}%
                               </span>
                             </div>
@@ -193,7 +190,7 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-2xs"
+            className="px-4 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-2xs"
           >
             ปิดหน้าต่าง
           </button>

@@ -1,16 +1,13 @@
 import React, { useState, useMemo, useContext, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { 
-  X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, 
-  Save, Loader2, ArrowRight, MessageSquare, Users, FileText,
-  Thermometer, Calendar, Clock, Hash, SlidersHorizontal
-} from "lucide-react";
+import { X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2, ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock, SlidersHorizontal, ChevronDown } from "lucide-react";
 import api from "../config/api";
 import { mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 
 export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSuccess }) {
   const { forms = [] } = useContext(DataContext) || {};
+  const [currentRecord, setCurrentRecord] = useState(record);
   const [fetchedFormConfig, setFetchedFormConfig] = useState(null);
   const [reason, setReason] = useState("");
   const [staffCount, setStaffCount] = useState(record?.staffCount || 0);
@@ -18,14 +15,31 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
+  // Sync record prop to currentRecord
+  useEffect(() => {
+    setCurrentRecord(record);
+  }, [record]);
+
+  // When modal opens, fetch latest record from API to ensure fresh answers
+  useEffect(() => {
+    if (!isOpen || !record?.id) return;
+    api.get(`/audit/${record.id}`)
+      .then(res => {
+        if (res.data) {
+          setCurrentRecord(res.data);
+        }
+      })
+      .catch(() => {});
+  }, [isOpen, record?.id]);
+
   // Load and resolve form metadataConfig
   useEffect(() => {
-    if (record?.surveyForm?.metadataConfig || record?.surveyForm?.metadataConfigJson) return;
-    const matched = forms.find(f => f.id === record?.surveyFormId);
+    if (currentRecord?.surveyForm?.metadataConfig || currentRecord?.surveyForm?.metadataConfigJson) return;
+    const matched = forms.find(f => f.id === currentRecord?.surveyFormId);
     if (matched?.metadataConfig || matched?.metadataConfigJson) return;
 
-    if (record?.surveyFormId) {
-      api.get(`/form/${record.surveyFormId}`)
+    if (currentRecord?.surveyFormId) {
+      api.get(`/form/${currentRecord.surveyFormId}`)
         .then(res => {
           if (res.data?.metadataConfig) {
             setFetchedFormConfig(res.data.metadataConfig);
@@ -37,20 +51,20 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         })
         .catch(() => {});
     }
-  }, [record?.surveyFormId, record?.surveyForm, forms]);
+  }, [currentRecord?.surveyFormId, currentRecord?.surveyForm, forms]);
 
   const formMetaFields = useMemo(() => {
-    const direct = record?.surveyForm?.metadataConfig;
+    const direct = currentRecord?.surveyForm?.metadataConfig;
     if (Array.isArray(direct) && direct.length > 0) return direct;
 
-    if (record?.surveyForm?.metadataConfigJson) {
+    if (currentRecord?.surveyForm?.metadataConfigJson) {
       try {
-        const parsed = JSON.parse(record.surveyForm.metadataConfigJson);
+        const parsed = JSON.parse(currentRecord.surveyForm.metadataConfigJson);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       } catch (e) {}
     }
 
-    const fromContext = forms.find(f => f.id === record?.surveyFormId);
+    const fromContext = forms.find(f => f.id === currentRecord?.surveyFormId);
     if (Array.isArray(fromContext?.metadataConfig) && fromContext.metadataConfig.length > 0) {
       return fromContext.metadataConfig;
     }
@@ -66,7 +80,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
 
     return null;
-  }, [record, forms, fetchedFormConfig]);
+  }, [currentRecord, forms, fetchedFormConfig]);
 
   const [metadataValues, setMetadataValues] = useState(() => {
     let initial = {};
@@ -85,6 +99,23 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return initial;
   });
 
+  useEffect(() => {
+    if (!currentRecord) return;
+    let initial = {};
+    if (currentRecord.metadataValues && typeof currentRecord.metadataValues === "object") {
+      initial = { ...currentRecord.metadataValues };
+    } else if (currentRecord.metadataValuesJson) {
+      try {
+        const parsed = JSON.parse(currentRecord.metadataValuesJson);
+        if (parsed && typeof parsed === "object") initial = { ...parsed };
+      } catch (e) {}
+    }
+    if (initial.staff_count === undefined && currentRecord.staffCount) {
+      initial.staff_count = currentRecord.staffCount;
+    }
+    setMetadataValues(initial);
+  }, [currentRecord]);
+
   const handleMetaValueChange = (fieldId, val) => {
     setMetadataValues(prev => ({ ...prev, [fieldId]: val }));
     if (fieldId === "staff_count" || fieldId === "staffCount") {
@@ -92,20 +123,20 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
   };
 
-  // Match form schema from DataContext or record
+  // Match form schema from DataContext or currentRecord
   const matchedForm = useMemo(() => {
     return (forms || []).find(f => 
-      (record?.surveyFormId && (f.id === record.surveyFormId || String(f.id) === String(record.surveyFormId))) ||
-      (record?.formId && (f.id === record.formId || String(f.id) === String(record.formId))) ||
-      (f.title && (f.title === record?.surveyFormTitle || f.title === record?.formName || f.title === record?.form))
+      (currentRecord?.surveyFormId && (f.id === currentRecord.surveyFormId || String(f.id) === String(currentRecord.surveyFormId))) ||
+      (currentRecord?.formId && (f.id === currentRecord.formId || String(f.id) === String(currentRecord.formId))) ||
+      (f.title && (f.title === currentRecord?.surveyFormTitle || f.title === currentRecord?.formName || f.title === currentRecord?.form))
     );
-  }, [forms, record]);
+  }, [forms, currentRecord]);
 
   // Build complete questions list matching responses
   const checklistQuestions = useMemo(() => {
-    if (!record) return [];
+    if (!currentRecord) return [];
 
-    const resList = record.responses || [];
+    const resList = currentRecord.responses || [];
 
     // 1. If form schema has sections & items, match questions through form
     if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
@@ -114,18 +145,25 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
       matchedForm.sections.forEach((sec) => {
         (sec.items || []).forEach((item) => {
-          const res = resList.find(r => 
-            (r.surveyItemId && (r.surveyItemId === item.id || String(r.surveyItemId) === String(item.id))) ||
-            (r.id && (r.id === item.id || String(r.id) === String(item.id))) ||
-            (r.questionText && item.questionText && r.questionText.trim() === item.questionText.trim()) ||
-            (r.questionText && item.text && r.questionText.trim() === item.text.trim())
-          ) || {};
+          let res = resList.find(r => 
+            (r.surveyItemId && Number(r.surveyItemId) === Number(item.id)) ||
+            (r.surveyItem?.id && Number(r.surveyItem.id) === Number(item.id)) ||
+            (r.questionText && item.questionText && r.questionText.trim().toLowerCase() === item.questionText.trim().toLowerCase()) ||
+            (r.questionText && item.text && r.questionText.trim().toLowerCase() === item.text.trim().toLowerCase()) ||
+            (r.surveyItem?.questionText && item.questionText && r.surveyItem.questionText.trim().toLowerCase() === item.questionText.trim().toLowerCase()) ||
+            (r.surveyItem?.questionText && item.text && r.surveyItem.questionText.trim().toLowerCase() === item.text.trim().toLowerCase())
+          );
 
-          const itemId = item.id || res.surveyItemId || res.id || `item_${runningNum}`;
-          const qText = item.questionText || item.text || res.questionText || `ข้อตรวจที่ ${runningNum}`;
-          const qType = (res.questionType || item.questionType || item.type || res.surveyItem?.questionType || "yesno").toLowerCase();
-          const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (item.fullScore || res.surveyItem?.fullScore || 10));
-          const isCrit = res.isCritical !== undefined ? res.isCritical : (item.isCritical || res.surveyItem?.isCritical || false);
+          if (!res && resList[runningNum - 1]) {
+            res = resList[runningNum - 1];
+          }
+          res = res || {};
+
+          const itemId = item.id || res.surveyItemId || res.surveyItem?.id || `item_${runningNum}`;
+          const qText = item.questionText || item.text || res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${runningNum}`;
+          const qType = (res.questionType || res.surveyItem?.questionType || item.questionType || item.type || "yesno").toLowerCase();
+          const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || item.fullScore || 10));
+          const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || item.isCritical || item.critical || false);
 
           itemsList.push({
             runningNum: runningNum++,
@@ -142,7 +180,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       if (itemsList.length > 0) return itemsList;
     }
 
-    // 2. Otherwise map responses directly from record
+    // 2. Otherwise map responses directly from currentRecord
     return resList.map((res, idx) => {
       const itemId = res.surveyItemId || res.id || `item_${idx + 1}`;
       const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
@@ -160,13 +198,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         originalRes: res
       };
     });
-  }, [record, matchedForm]);
+  }, [currentRecord, matchedForm]);
 
   // Helper to parse answer status accurately from response
   const parseResponseAnswer = (q) => {
     const res = q.originalRes || {};
-    const qType = q.questionType;
-    const fullScore = q.fullScore;
+    const qType = (q.questionType || "yesno").toLowerCase();
+    const fullScore = Number(q.fullScore || 10);
 
     // Is N/A
     const isNa = res.isNa === true || res.isNa === 1 || res.isNa === "true" || res.rawAnswer === "na" || res.answerValue === "na";
@@ -181,7 +219,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       isPassed = res.rawAnswer === "yes" || res.rawAnswer === true || res.rawAnswer === 1 || res.rawAnswer === "1";
     } else if (res.scoreGiven !== undefined && res.scoreGiven !== null) {
       isPassed = Number(res.scoreGiven) > 0;
-    } else if (qType === "scale") {
+    } else if (res.id || res.surveyItemId) {
+      isPassed = Number(res.scoreGiven || 0) > 0;
+    } else {
       isPassed = true;
     }
 
@@ -235,9 +275,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [initialAnswers, setInitialAnswers] = useState(buildInitialState);
   const [expandedNotes, setExpandedNotes] = useState({});
 
-  // 🔄 Sync state whenever modal opens or record changes
+  // 🔄 Sync state whenever modal opens, currentRecord changes, or questions change
   useEffect(() => {
-    if (!isOpen || !record) return;
+    if (!isOpen || !currentRecord) return;
     const initialMap = {};
     checklistQuestions.forEach(q => {
       initialMap[q.surveyItemId] = parseResponseAnswer(q);
@@ -245,11 +285,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setAnswersState(initialMap);
     setInitialAnswers(initialMap);
     setReason("");
-    setGeneralNotes(record?.notes || "");
-    setStaffCount(record?.staffCount || 0);
+    setGeneralNotes(currentRecord?.notes || "");
+    setStaffCount(currentRecord?.staffCount || 0);
     setExpandedNotes({});
     setError(null);
-  }, [isOpen, record?.id, checklistQuestions]);
+  }, [isOpen, currentRecord?.id, checklistQuestions]);
 
   const toggleExpandNote = (itemId) => {
     setExpandedNotes((prev) => {
@@ -305,14 +345,14 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     });
 
     const percent = max > 0 ? Math.round((earned / max) * 100) : 0;
-    const isPassed = percent >= (record?.surveyForm?.passingScore || 85) && !hasCritFail;
+    const isPassed = percent >= (currentRecord?.surveyForm?.passingScore || 85) && !hasCritFail;
 
     return { earned, max, percent, isPassed, hasCritFail };
-  }, [answersState, checklistQuestions, record]);
+  }, [answersState, checklistQuestions, currentRecord]);
 
-  if (!isOpen || !record) return null;
+  if (!isOpen || !currentRecord) return null;
 
-  const originalScore = typeof record.score === "number" ? record.score : typeof record.percentageScore === "number" ? Math.round(record.percentageScore) : 0;
+  const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
 
   const handleToggleYesNo = (itemId, choice) => {
     setAnswersState((prev) => {
@@ -421,16 +461,16 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
       const payload = {
         reason: reason.trim(),
-        auditeeUserId: record.auditeeUserId || null,
-        auditeeNameText: record.auditeeNameText || record.auditeeName || null,
+        auditeeUserId: currentRecord.auditeeUserId || null,
+        auditeeNameText: currentRecord.auditeeNameText || currentRecord.auditeeName || null,
         staffCount: Number(metadataValues.staff_count ?? staffCount) || 0,
-        auditType: metadataValues.audit_type || record.auditType || "announced",
+        auditType: metadataValues.audit_type || currentRecord.auditType || "announced",
         notes: generalNotes || null,
         metadataValuesJson: JSON.stringify(metadataValues),
         responses: payloadResponses
       };
 
-      const res = await api.put(`/audit/${record.id}`, payload);
+      const res = await api.put(`/audit/${currentRecord.id}`, payload);
       if (onSaveSuccess) onSaveSuccess(res.data);
       onClose();
     } catch (err) {
@@ -473,21 +513,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   {originalScore}%
                 </span>
                 <ArrowRight size={12} className={liveScoring.isPassed ? "text-emerald-300 shrink-0" : "text-amber-900 shrink-0"} />
-                <span className={`text-xs sm:text-sm font-black ${liveScoring.isPassed ? 'text-emerald-200' : 'text-slate-900'}`}>
+                <span className={`text-[10px] sm:text-sm font-black ${liveScoring.isPassed ? 'text-emerald-200' : 'text-slate-900'}`}>
                   {liveScoring.percent}%
                 </span>
-                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                  liveScoring.isPassed 
-                    ? 'bg-emerald-400/30 text-emerald-100' 
-                    : 'bg-amber-600/30 text-amber-950 border border-amber-600/30'
-                }`}>
-                  {liveScoring.isPassed ? "✓ ผ่าน" : "⚠️ ตกเกณฑ์"}
-                </span>
-                {liveScoring.hasCritFail && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-600 text-white font-extrabold shadow-2xs">
-                    Critical ตก
-                  </span>
-                )}
               </div>
 
               <button
@@ -504,7 +532,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           {/* Sub Row: Details (Branch Name + Record ID) */}
           <div className="pl-10.5">
             <p className="text-xs text-slate-500 font-medium truncate">
-              {record?.location?.name || record?.locationName || "สาขา"} · ID: #{record.id}
+              {currentRecord?.location?.name || currentRecord?.locationName || "สาขา"} · ID: #{currentRecord?.id}
             </p>
           </div>
         </div>
@@ -529,7 +557,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="ระบุเหตุผลในการแก้ไข เช่น ปรับคะแนนข้อความสะอาดตู้เย็นเนื่องจากตรวจสอบภาพถ่ายเพิ่มเติม..."
+              placeholder="ระบุเหตุผลในการแก้ไข เช่น ปรับคะแนนข้อความสะอาดตู้เย็นเนื่องจากภาพถ่ายเพิ่มเติม..."
               className="w-full text-xs p-3 rounded-xl bg-white border border-amber-300 focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder-slate-400 transition-all font-sans"
             />
           </div>
@@ -538,7 +566,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           <div className="space-y-2">
             <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
               <span className="flex items-center gap-1.5">
-                <SlidersHorizontal size={13} className="text-[#0F6659]" />
                 <span>ข้อมูลและรายละเอียดการตรวจ (Audit Form Details)</span>
               </span>
               <span className="text-[11px] text-slate-400 font-medium">ตามที่กำหนดในแบบฟอร์ม</span>
@@ -602,7 +629,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                       return (
                         <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
                           <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <Clock size={13} className="text-blue-500" />
+                            <Clock size={13} className="text-emerald-600" />
                             <span>{field.label}</span>
                             {field.required && <span className="text-rose-500">*</span>}
                           </label>
@@ -624,16 +651,21 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                             <span>{field.label}</span>
                             {field.required && <span className="text-rose-500">*</span>}
                           </label>
-                          <select
-                            value={val}
-                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
-                            className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800 cursor-pointer"
-                          >
-                            <option value="">-- เลือก --</option>
-                            {(field.options || []).map((opt, i) => (
-                              <option key={i} value={opt}>{opt}</option>
-                            ))}
-                          </select>
+                          <div className="relative">
+                            <select
+                              value={val}
+                              onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                              className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                            >
+                              <option value="">-- เลือก --</option>
+                              {(field.options || []).map((opt, i) => (
+                                <option key={i} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                              <ChevronDown size={18} />
+                            </div>
+                          </div>
                         </div>
                       );
                     }
@@ -863,7 +895,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200/80 cursor-pointer active:scale-95 transition-all"
+            className="px-4 py-2 rounded-2xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200/80 cursor-pointer active:scale-95 transition-all"
           >
             ยกเลิก
           </button>
@@ -872,7 +904,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             type="button"
             onClick={handleSubmit}
             disabled={isSubmitting || !reason.trim()}
-            className="px-5 py-2 rounded-xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-5 py-2 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting ? (
               <>

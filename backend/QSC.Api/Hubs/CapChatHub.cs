@@ -187,6 +187,15 @@ namespace QSC.Api.Hubs
 
         public async Task UpdateCapStatusRealTime(int capTaskId, string newStatus, string? note)
         {
+            // Add authorization check
+            var roleClaim = Context.User?.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
+            var allowedRoles = new[] { "ADMIN", "STANDARD", "AUDITOR" };
+            if (string.IsNullOrEmpty(roleClaim) || !allowedRoles.Contains(roleClaim))
+            {
+                await Clients.Caller.SendAsync("Error", "ไม่มีสิทธิ์ในการเปลี่ยนสถานะ");
+                return;
+            }
+
             if (capTaskId <= 0) return;
 
             var (currentUserId, role, _) = await UserScopeHelper.GetUserScopeAsync(Context.User ?? new ClaimsPrincipal(), _context);

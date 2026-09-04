@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { List, ChevronRight, Plus, X, Search, Filter, Wrench, Info } from "lucide-react";
+import { Bar } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { ROLES, NAV_BY_ROLE } from "../../config/roles";
@@ -111,17 +96,47 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     />
   );
 
-  const filteredCapList = capList.filter(item => {
-    const matchStatus = statusFilter === "all" || item.status === statusFilter;
-    const q = searchTerm.toLowerCase();
-    const matchSearch =
-      !searchTerm.trim() ||
-      item.title.toLowerCase().includes(q) ||
-      item.unit.toLowerCase().includes(q) ||
-      (item.issueItem && item.issueItem.toLowerCase().includes(q)) ||
-      item.desc.toLowerCase().includes(q);
-    return matchStatus && matchSearch;
-  });
+  const LIST_PAGE_SIZE = 10;
+  const [listPage, setListPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
+
+  const filteredCapList = useMemo(() => {
+    return capList.filter(item => {
+      const matchStatus = statusFilter === "all" || item.status === statusFilter;
+      const q = searchTerm.toLowerCase();
+      const matchSearch =
+        !searchTerm.trim() ||
+        item.title.toLowerCase().includes(q) ||
+        item.unit.toLowerCase().includes(q) ||
+        (item.issueItem && item.issueItem.toLowerCase().includes(q)) ||
+        item.desc.toLowerCase().includes(q);
+      return matchStatus && matchSearch;
+    });
+  }, [capList, statusFilter, searchTerm]);
+
+  // Reset page on search or filter change
+  useEffect(() => {
+    setListPage(1);
+  }, [searchTerm, statusFilter]);
+
+  useEffect(() => {
+    setPageInput(String(listPage));
+  }, [listPage]);
+
+  const totalListPages = Math.max(1, Math.ceil(filteredCapList.length / LIST_PAGE_SIZE));
+  const paginatedCapList = useMemo(() => {
+    const start = (listPage - 1) * LIST_PAGE_SIZE;
+    return filteredCapList.slice(start, start + LIST_PAGE_SIZE);
+  }, [filteredCapList, listPage]);
+
+  const handlePageSubmit = () => {
+    const val = parseInt(pageInput, 10);
+    if (!isNaN(val) && val >= 1 && val <= totalListPages) {
+      setListPage(val);
+    } else {
+      setPageInput(String(listPage));
+    }
+  };
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
@@ -175,7 +190,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
               key={tab.key}
               type="button"
               onClick={() => setStatusFilter(tab.key)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 cursor-pointer transition-colors ${
+              className={`px-3.5 py-2 rounded-2xl text-xs font-bold shrink-0 cursor-pointer transition-colors ${
                 statusFilter === tab.key
                   ? 'bg-[#0F6659] text-white shadow-xs'
                   : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -187,9 +202,9 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         </div>
       </div>
 
-      {/* Long Vertical List (ปุ่มหัวข้อใหญ่ ชัดเจน เน้นๆ) */}
+      {/* Long Vertical List (ปุ่มหัวข้อใหญ่ ชัดเจน เน้นๆ ทีละ 10 รายการ) */}
       <div className="flex flex-col gap-3">
-        {filteredCapList.map((item, i) => {
+        {paginatedCapList.map((item, i) => {
           const st = CAP_STATUS_MAP[item.status] || CAP_STATUS_MAP.pending;
           return (
             <button
@@ -242,6 +257,57 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         )}
       </div>
 
+      {/* Pagination Controls */}
+      {filteredCapList.length > 0 && (
+        <div className="flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs text-xs font-medium text-slate-500 bg-white mt-2 mb-8">
+          <span>
+            หน้า {listPage} จาก {totalListPages} ({filteredCapList.length} รายการ)
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => {
+                setListPage((p) => Math.max(1, p - 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              disabled={listPage === 1}
+              className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+            >
+              ก่อนหน้า
+            </button>
+
+            {/* ช่องเล็กสำหรับพิมพ์เลขหน้า (กด Enter หรือคลิกออกนอกช่องเพื่อเปลี่ยนหน้า) */}
+            <input
+              type="number"
+              min="1"
+              max={totalListPages}
+              value={pageInput}
+              onChange={(e) => setPageInput(e.target.value)}
+              onBlur={handlePageSubmit}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handlePageSubmit();
+                  e.target.blur();
+                }
+              }}
+              className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+
+            <button
+              type="button"
+              onClick={() => {
+                setListPage((p) => Math.min(totalListPages, p + 1));
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              disabled={listPage >= totalListPages}
+              className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+            >
+              ถัดไป
+            </button>
+          </div>
+        </div>
+      )}
+
       {showNewModal && (
         <NewRemediationModal
           locations={visibleLocations}
@@ -256,17 +322,16 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
                   description: createdData.desc || "",
                   assignedTo: currentUser?.id || 1
                 });
-                if (res.data?.id && createdData.photo) {
+                const allPhotos = createdData.photos || createdData.images || (createdData.photo ? [createdData.photo] : []);
+                if (res.data?.id && allPhotos.length > 0) {
                   await api.post(`/cap/${res.data.id}/submit`, {
                     message: createdData.desc || "ส่งหลักฐานการแก้ไขเพิ่มเติมเรียบร้อยแล้ว",
-                    imageUrls: [createdData.photo]
+                    imageUrls: allPhotos
                   });
                 }
               }
               if (refreshData) await refreshData();
-            } catch (err) {
-              console.warn("Create manual CAP error:", err);
-            }
+            } catch (err) {}
           }}
         />
       )}

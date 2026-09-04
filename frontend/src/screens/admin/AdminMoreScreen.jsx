@@ -1,23 +1,8 @@
 import FormsScreen from "../forms/FormsScreen";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { CalendarDays, ClipboardList, Store, ChevronRight, Settings, MessageSquare, Key, Layers, UserCheck, FileSpreadsheet, Wrench, Building2, Monitor, ShieldCheck, Clock } from "lucide-react";
+
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { ROLES, NAV_BY_ROLE } from "../../config/roles";
@@ -39,14 +24,26 @@ import MasterManagementScreen from "./MasterManagementScreen";
 import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
-export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect, resetKey }) {
+export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect, resetKey, onSubScreenChange, activeNavKeys = [] }) {
   const { locations: allLocations = [] } = React.useContext(DataContext);
   const [open, setOpen] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [selectedIntegration, setSelectedIntegration] = useState(null);
 
   useEffect(() => {
     setOpen(null);
   }, [resetKey]);
+
+  useEffect(() => {
+    onSubScreenChange?.(open !== null);
+    // 🌟 Scroll to top immediately when opening or closing sub-screens
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.documentElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.body?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    const mainEl = document.querySelector("main");
+    if (mainEl) mainEl.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    return () => onSubScreenChange?.(false);
+  }, [open, onSubScreenChange]);
 
   const userPerms = useMemo(() => {
     return currentUser?.permissions || [];
@@ -142,7 +139,12 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
       desc: "สอบถามข้อสงสัยเกี่ยวกับเกณฑ์การตรวจประเมิน",
       roles: ["AUDITEE"]
     }
-  ].filter((tool) => hasPerm(tool.perm, tool.roles));
+  ].filter((tool) => {
+    if (activeNavKeys.includes(tool.key) || (tool.route && activeNavKeys.includes(tool.route))) {
+      return false;
+    }
+    return hasPerm(tool.perm, tool.roles);
+  });
 
   if (open === "master_management") {
     return <MasterManagementScreen onBack={() => setOpen(null)} />;
@@ -263,32 +265,147 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
     return <FormsScreen isDesktop={true} onBack={() => setOpen(null)} />;
   }
 
-  if (open === "users" || open === "org" || open === "permissions") {
-    return <MasterManagementScreen onBack={() => setOpen(null)} />;
-  }
+
 
   if (open === "integrations") {
     const integrations = [
-      { name: "ERP Enterprise Sync", desc: "เชื่อมต่อข้อมูลสาขาและสต็อกวัตถุดิบ", status: "ยังไม่เชื่อมต่อ (Coming Soon)" },
-      { name: "POS Transaction Feed", desc: "ดึงข้อมูลยอดขายและเวลาให้บริการหน้าร้าน", status: "ยังไม่เชื่อมต่อ (Coming Soon)" },
-      { name: "LINE Notify Alert Service", desc: "แจ้งเตือนงานตรวจและงานแก้ไข CAP ไปยัง LINE", status: "ยังไม่เชื่อมต่อ (Coming Soon)" }
+      { 
+        id: "erp",
+        name: "ERP Enterprise", 
+        desc: "เชื่อมต่อข้อมูลสาขาและสต็อกวัตถุดิบ", 
+        status: "ยังไม่เชื่อมต่อ",
+        substatus: "Coming Soon",
+        icon: Building2,
+        iconBg: "bg-emerald-50 text-[#0F6659] border-emerald-100",
+        details: "เชื่อมต่อระบบ ERP เพื่อซิงค์ข้อมูลรายชื่อสาขา ข้อมูลคลังสินค้า และสต็อกวัตถุดิบอัตโนมัติผ่าน REST API / Webhook"
+      },
+      { 
+        id: "pos",
+        name: "POS Transaction", 
+        desc: "ดึงข้อมูลยอดขายและเวลาที่บริการหน้าร้าน", 
+        status: "ยังไม่เชื่อมต่อ",
+        substatus: "Coming Soon",
+        icon: Monitor,
+        iconBg: "bg-blue-50 text-blue-600 border-blue-100",
+        details: "ดึงข้อมูลบิลขาย เวลาทำรายการ และสถิติการให้บริการหน้าร้าน เพื่อนำมาวิเคราะห์ร่วมกับคะแนนมาตรฐาน QSC"
+      },
+      { 
+        id: "line",
+        name: "LINE Notify", 
+        desc: "แจ้งเตือนงานตรวจและงานแก้ไข CAP ไปยัง LINE", 
+        status: "ยังไม่เชื่อมต่อ",
+        substatus: "Coming Soon",
+        isLine: true,
+        details: "ระบบส่งข้อความแจ้งเตือนอัตโนมัติเมื่อมีการตรวจประเมินเสร็จสิ้น หรือมีงาน CAP ที่ต้องเร่งแก้ไขไปยังกลุ่ม LINE ของแต่ละสาขา"
+      }
     ];
 
     return (
       <AdminSubScreen title="การเชื่อมต่อ API & Webhook" onBack={() => setOpen(null)}>
-        <div className="rounded-3xl overflow-hidden bg-white border border-slate-200 shadow-2xs divide-y divide-slate-100">
+        <div className="space-y-2.5">
           {integrations.map((a) => (
-            <div key={a.name} className="flex items-center justify-between gap-4 px-5 py-4">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm sm:text-base font-extrabold text-slate-900 truncate">{a.name}</div>
-                <div className="text-xs text-slate-500 font-medium mt-0.5">{a.desc}</div>
+            <div
+              key={a.id}
+              onClick={() => setSelectedIntegration(a)}
+              className="rounded-2xl p-3.5 sm:p-4 bg-white border border-slate-200/80 shadow-2xs hover:shadow-xs hover:border-emerald-300 transition-all flex items-center justify-between gap-3 sm:gap-4 cursor-pointer group active:scale-[0.99]"
+            >
+              {/* Left: Icon / Service Logo Placeholder */}
+              <div className="flex items-center gap-3 sm:gap-3.5 min-w-0">
+                {a.isLine ? (
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0 shadow-2xs">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#06C755] text-white flex items-center justify-center font-black text-[9px] sm:text-[10px] tracking-tighter shadow-2xs">
+                      LINE
+                    </div>
+                  </div>
+                ) : (
+                  <div className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 border ${a.iconBg} shadow-2xs`}>
+                    <a.icon size={22} strokeWidth={2.2} />
+                  </div>
+                )}
+
+                {/* Middle: Title & Description */}
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors tracking-tight">
+                    {a.name}
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5 leading-snug line-clamp-2">
+                    {a.desc}
+                  </p>
+                </div>
               </div>
-              <span className="text-xs font-bold px-3 py-1 rounded-full shrink-0 bg-slate-100 text-slate-600 border border-slate-200">
-                {a.status}
-              </span>
+
+              {/* Right: Status Pill, Subtext & Arrow */}
+              <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                <div className="text-center">
+                  <span className="inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200/80">
+                    {a.status}
+                  </span>
+                  <div className="text-[10px] font-medium text-slate-400 mt-0.5">
+                    {a.substatus}
+                  </div>
+                </div>
+                <ChevronRight size={16} className="text-slate-400 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+              </div>
             </div>
           ))}
         </div>
+
+        {/* Integration Details Modal */}
+        {selectedIntegration && (
+          <ModalWrapper onClose={() => setSelectedIntegration(null)} maxWidth="max-w-md">
+            <div className="p-5 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  {selectedIntegration.isLine ? (
+                    <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+                      <div className="w-7 h-7 rounded-full bg-[#06C755] text-white flex items-center justify-center font-black text-[9px] tracking-tighter">
+                        LINE
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border ${selectedIntegration.iconBg}`}>
+                      <selectedIntegration.icon size={22} strokeWidth={2.2} />
+                    </div>
+                  )}
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 leading-snug">
+                      {selectedIntegration.name}
+                    </h3>
+                    <span className="inline-block text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 mt-0.5">
+                      {selectedIntegration.status}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIntegration(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer transition-all shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-600 leading-relaxed font-medium">
+                {selectedIntegration.details}
+              </div>
+
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800 font-medium flex items-center gap-2">
+                <span>⏳</span>
+                <span>ฟังก์ชันนี้กำลังอยู่ระหว่างการพัฒนา กำหนดเปิดให้เชื่อมต่อ API ในเวอร์ชันถัดไป</span>
+              </div>
+
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedIntegration(null)}
+                  className="px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all active:scale-95"
+                >
+                  ปิดหน้าต่าง
+                </button>
+              </div>
+            </div>
+          </ModalWrapper>
+        )}
       </AdminSubScreen>
     );
   }
@@ -296,22 +413,66 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
   if (open === "settings") {
     return (
       <AdminSubScreen title="ตั้งค่านโยบายและเกณฑ์มาตรฐาน" onBack={() => setOpen(null)}>
-        <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
-          <div className="space-y-3">
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-              <div>
-                <div className="font-bold text-slate-800 text-sm">เกณฑ์คะแนนผ่านขั้นต่ำ (Passing Threshold)</div>
-                <div className="text-xs text-slate-500">กำหนดคะแนนร้อยละขั้นต่ำเพื่อให้ถือว่าผ่านการตรวจ</div>
+        <div className="space-y-2.5">
+          {/* Card 1: เกณฑ์คะแนนผ่านขั้นต่ำ (Passing Threshold) */}
+          <div className="rounded-2xl p-4 sm:p-4.5 bg-white border border-slate-200/80 shadow-2xs flex items-center justify-between gap-3.5">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 border border-emerald-100/90 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+                <ShieldCheck size={22} strokeWidth={2.2} />
               </div>
-              <span className="text-sm font-bold text-emerald-800 font-mono">85% (ค่าเริ่มต้น)</span>
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-snug">
+                  เกณฑ์คะแนนผ่านขั้นต่ำ
+                  <span className="block sm:inline sm:ml-1.5 text-slate-700 font-bold">(Passing Threshold)</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">
+                  กำหนดคะแนนร้อยละขั้นต่ำเพื่อให้ถือว่าผ่านการตรวจ
+                </p>
+              </div>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
-              <div>
-                <div className="font-bold text-slate-800 text-sm">กำหนดเวลาส่งแผนแก้ไข (CAP SLA)</div>
-                <div className="text-xs text-slate-500">จำนวนวันที่สาขาต้องส่งหลักฐานหลังพบข้อบกพร่อง</div>
+            {/* Right Metric */}
+            <div className="flex items-center gap-3 sm:gap-3.5 shrink-0">
+              <div className="h-8 w-px bg-slate-100 hidden sm:block" />
+              <div className="text-center min-w-[65px] sm:min-w-[75px]">
+                <div className="text-2xl sm:text-3xl font-black text-[#0F6659] font-mono tracking-tight">
+                  85%
+                </div>
+                <span className="inline-block mt-0.5 text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F6659] border border-emerald-200/60">
+                  ค่าเริ่มต้น
+                </span>
               </div>
-              <span className="text-sm font-bold text-amber-800 font-mono">3 วัน (ค่าเริ่มต้น)</span>
+            </div>
+          </div>
+
+          {/* Card 2: กำหนดเวลาส่งแผนแก้ไข (CAP SLA) */}
+          <div className="rounded-2xl p-4 sm:p-4.5 bg-white border border-slate-200/80 shadow-2xs flex items-center justify-between gap-3.5">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-amber-50 border border-amber-100/90 text-amber-600 flex items-center justify-center shrink-0 shadow-2xs">
+                <Clock size={22} strokeWidth={2.2} />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight leading-snug">
+                  กำหนดเวลาส่งแผนแก้ไข
+                  <span className="block sm:inline sm:ml-1.5 text-slate-700 font-bold">(CAP SLA)</span>
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">
+                  จำนวนวันที่สาขาต้องส่งหลักฐานหลังพบข้อบกพร่อง
+                </p>
+              </div>
+            </div>
+
+            {/* Right Metric */}
+            <div className="flex items-center gap-3 sm:gap-3.5 shrink-0">
+              <div className="h-8 w-px bg-slate-100 hidden sm:block" />
+              <div className="text-center min-w-[65px] sm:min-w-[75px]">
+                <div className="text-2xl sm:text-3xl font-black text-amber-600 font-mono tracking-tight">
+                  3 วัน
+                </div>
+                <span className="inline-block mt-0.5 text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200/60">
+                  ค่าเริ่มต้น
+                </span>
+              </div>
             </div>
           </div>
         </div>

@@ -1,10 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  MessageSquare, Camera, Send, Check, X, AlertTriangle, Clock,
-  ChevronLeft, ChevronRight, Info, ShieldAlert, Store, Calendar,
-  CheckCircle2, Sparkles, ImagePlus, User, FileText, ArrowLeft, Loader2
-} from "lucide-react";
+import { MessageSquare, Camera, Send, X, AlertTriangle, Info, CheckCircle2, Sparkles, FileText, ArrowLeft, Loader2 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { CAP_STATUS_MAP } from "../../config/constants";
@@ -63,9 +59,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       if (res.data) {
         setCapDetail(res.data);
       }
-    } catch (err) {
-      console.warn("Could not load cap detail:", err);
-    }
+    } catch (err) {}
   };
 
   useEffect(() => {
@@ -150,7 +144,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       setPhotoBase64(compressed);
       setHasPhoto(true);
     } catch (err) {
-      console.warn("Compression failed:", err);
       const reader = new FileReader();
       reader.onload = (ev) => {
         setPhotoBase64(ev.target.result);
@@ -179,7 +172,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       }
       setConfirmModal({ isOpen: false, type: null, title: '', message: '' });
     } catch (e) {
-      console.warn(e);
       setActionError(e.response?.data?.message || e.message || "เกิดข้อผิดพลาดในการดำเนินการ");
     } finally {
       setIsActionProcessing(false);
@@ -297,7 +289,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
         try {
           await signalrService.sendCapMessage(parsedId, sentReply, sentPhoto);
         } catch (sigErr) {
-          console.warn("SignalR send failed, using REST API fallback:", sigErr);
           if (sentPhoto) {
             await api.post(`/cap/${parsedId}/submit`, {
               userId: currentUser?.id || 1,
@@ -314,9 +305,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
         }
         await loadCapDetail();
       }
-    } catch (err) {
-      console.warn("Could not post comment/evidence to API:", err);
-    } finally {
+    } catch (err) {} finally {
       setIsSending(false);
       setTimeout(() => {
         if (chatContainerRef.current) {

@@ -17,10 +17,10 @@ export const AUDIT_TYPE_META = {
 };
 
 export const CAP_STATUS_MAP = {
-  pending: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#0284C7", bg: "#E0F2FE" },
-  in_progress: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#0284C7", bg: "#E0F2FE" },
-  submitted: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#0284C7", bg: "#E0F2FE" },
-  rejected: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#0284C7", bg: "#E0F2FE" },
+  pending: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#D97706", bg: "#FFFBEB" },
+  in_progress: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#D97706", bg: "#FFFBEB" },
+  submitted: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#059669", bg: "#ECFDF5" },
+  rejected: { label: "กำลังแก้ไขงาน (แชทติดตามผล)", fg: "#E11D48", bg: "#FFF1F2" },
   done: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   approved: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   closed: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },

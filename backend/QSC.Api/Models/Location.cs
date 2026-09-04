@@ -23,5 +23,6 @@ namespace QSC.Api.Models
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public ICollection<LocationBrand> LocationBrands { get; set; } = new List<LocationBrand>();
+        public ICollection<UserLocation> UserLocations { get; set; } = new List<UserLocation>();
     }
 }

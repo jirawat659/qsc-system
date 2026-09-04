@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Key, Lock, Eye, EyeOff, CheckCircle2, AlertTriangle, X, Loader2, ShieldCheck } from 'lucide-react';
+import { Key, Lock, Eye, EyeOff, CheckCircle2, AlertTriangle, X, Loader2, ShieldCheck } from "lucide-react";
 import ModalWrapper from '../shared/ModalWrapper';
 import api from '../config/api';
 
@@ -52,7 +52,6 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
         onClose();
       }, 1800);
     } catch (err) {
-      console.warn('Change password error:', err);
       const msg = err.response?.data?.message || err.message || 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน';
       setErrorMsg(msg);
     } finally {
@@ -194,14 +193,14 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
                 type="button"
                 disabled={isSubmitting}
                 onClick={onClose}
-                className="py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all active:scale-95 border border-slate-200"
+                className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer transition-all active:scale-95 border border-slate-200"
               >
                 ยกเลิก
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="py-3 px-4 rounded-xl bg-[#0F6659] hover:bg-[#0B4E44] text-white font-bold text-xs cursor-pointer transition-all active:scale-95 shadow-md shadow-emerald-900/10 flex items-center justify-center gap-1.5"
+                className="py-3 px-4 rounded-2xl bg-[#0F6659] hover:bg-[#0B4E44] text-white font-bold text-xs cursor-pointer transition-all active:scale-95 shadow-md shadow-emerald-900/10 flex items-center justify-center gap-1.5"
               >
                 {isSubmitting ? (
                   <>

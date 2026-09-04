@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { Store, Camera, Send, Trash2, X, AlertTriangle, Wrench } from "lucide-react";
+
 
 import { c, sans, mono, cardStyle } from "../config/theme";
 import ModalWrapper from "../shared/ModalWrapper";
@@ -43,7 +28,6 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
       setPhotoBase64(compressed);
       if (formError) setFormError(null);
     } catch (err) {
-      console.warn("Compression failed:", err);
       const reader = new FileReader();
       reader.onload = (ev) => {
         setPhotoBase64(ev.target.result);
@@ -168,7 +152,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="px-2.5 py-1 text-xs font-bold rounded-xl border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 cursor-pointer"
+                    className="px-2.5 py-1 text-xs font-bold rounded-2xl border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 cursor-pointer"
                   >
                     เปลี่ยนรูป
                   </button>
@@ -228,8 +212,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full py-3.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white transition-all active:scale-[0.99]"
-              style={{ background: "#0F6659" }}
+              className="w-full py-3.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white transition-all active:scale-[0.99] bg-[#0F6659]"
             >
               <Send size={15} /> ส่งหลักฐานเพื่อขออนุมัติปิดงานแก้ไข (CAP)
             </button>

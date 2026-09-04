@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from "react";
-import {
-  Sparkles, Calendar, AlertTriangle, CheckCircle2,
-  Clock, Store, RefreshCw, X, ShieldAlert,
-  MapPin, Award, UserCheck, Check
-} from "lucide-react";
+import { Sparkles, AlertTriangle, CheckCircle2, RefreshCw, X, MapPin, UserCheck } from "lucide-react";
 import ModalWrapper from "../shared/ModalWrapper";
 import api from "../config/api";
 
@@ -72,9 +68,9 @@ export default function AiScheduleAdvisorModal({ onClose }) {
     <ModalWrapper onClose={onClose} maxWidth="max-w-xl">
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-teal-50/60 rounded-t-3xl shrink-0">
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-emerald-100/60 rounded-t-3xl shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-700 text-white flex items-center justify-center shadow-xs">
+            <div className="w-10 h-10 rounded-2xl bg-[#0F6659] text-white flex items-center justify-center shadow-xs">
               <Sparkles size={19} className="animate-pulse" />
             </div>
             <div>
@@ -91,7 +87,7 @@ export default function AiScheduleAdvisorModal({ onClose }) {
               type="button"
               onClick={() => fetchRecommendations(true)}
               disabled={loading || aiCooldown > 0}
-              className={`px-2.5 py-1.5 text-xs font-bold rounded-xl flex items-center gap-1 transition-all ${
+              className={`px-2.5 py-1.5 text-xs font-bold rounded-2xl flex items-center gap-1 transition-all ${
                 loading || aiCooldown > 0
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 shadow-2xs cursor-pointer'
@@ -104,7 +100,7 @@ export default function AiScheduleAdvisorModal({ onClose }) {
             <button
               type="button"
               onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-white transition-all cursor-pointer"
+              className="p-2 text-slate-400 hover:text-slate-600 rounded-2xl hover:bg-white transition-all cursor-pointer"
             >
               <X size={19} />
             </button>
@@ -129,7 +125,7 @@ export default function AiScheduleAdvisorModal({ onClose }) {
               <button
                 type="button"
                 onClick={fetchRecommendations}
-                className="px-3 py-1 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 cursor-pointer"
+                className="px-3 py-1 bg-rose-600 text-white rounded-2xl text-xs font-bold hover:bg-rose-700 cursor-pointer"
               >
                 ลองใหม่
               </button>

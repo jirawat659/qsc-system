@@ -18,11 +18,11 @@ export default function ModalWrapper({ children, onClose, maxWidth = "max-w-2xl"
 
   const content = (
     <div
-      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-hidden animate-in fade-in duration-200 h-[100dvh] w-full"
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-x-hidden overflow-y-auto animate-in fade-in duration-200 h-[100dvh] w-full max-w-full"
       onClick={closeOnBackdrop ? onClose : undefined}
     >
       <div
-        className={`modal-transition bg-white rounded-3xl ${maxWidth} w-full shadow-2xl overflow-hidden flex flex-col max-h-[85dvh] sm:max-h-[88dvh] my-auto border transform-gpu`}
+        className={`modal-transition bg-white rounded-3xl ${maxWidth} w-full max-w-full shadow-2xl overflow-hidden flex flex-col max-h-[85dvh] sm:max-h-[88dvh] my-auto border transform-gpu`}
         style={{ borderColor: c.border, transform: 'translateZ(0)' }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -38,6 +38,7 @@ namespace QSC.Api.Models
         public double? StartLongitude { get; set; }
         public double? EndLatitude { get; set; }
         public double? EndLongitude { get; set; }
+        public bool IsBackdated { get; set; } = false;
         public DateTime? StartedAt { get; set; }
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 

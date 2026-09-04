@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { X, Calendar, Clock, MapPin, User, FileText, Tag, Check, AlertCircle, Store, ChevronRight, Search } from "lucide-react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import { X, Calendar, Clock, MapPin, User, FileText, Tag, Check, AlertCircle, Store, ChevronRight, ChevronDown, Search } from "lucide-react";
 import { c, sans, mono } from "../config/theme";
 import ModalWrapper from "../shared/ModalWrapper";
 import LocationSelectModal from "./LocationSelectModal";
@@ -36,24 +36,24 @@ function TimePicker24({ value, onChange, title }) {
   const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
   return (
-    <div className="relative flex-1" ref={dropdownRef}>
+    <div className="relative flex-1 min-w-0" ref={dropdownRef}>
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border flex items-center justify-between font-bold cursor-pointer transition-all shadow-2xs ${
+        className={`w-full text-base sm:text-sm px-3.5 py-3 min-h-[50px] rounded-2xl border flex items-center justify-between font-semibold cursor-pointer transition-all shadow-xs ${
           isOpen
             ? 'bg-white border-[#0F6659] ring-2 ring-[#0F6659]/20 text-slate-900'
             : 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-white hover:border-slate-300'
         }`}
         title={title}
       >
-        <span className="font-mono text-sm tracking-wide">{h}:{m} น.</span>
-        <Clock size={15} className="text-slate-400 shrink-0" />
+        <span className="font-mono text-xs sm:text-sm tracking-wide">{h}:{m} น.</span>
+        <Clock size={16} className="text-slate-400 shrink-0 ml-1" />
       </button>
 
       {/* 24-Hour Scrolling Popup - 2 Columns: Hours (00-23) & Minutes (00-59) without AM/PM */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2.5 flex flex-col w-52 animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute top-full right-0 sm:left-0 sm:right-auto mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2.5 flex flex-col w-52 max-w-[calc(100vw-3rem)] animate-in fade-in zoom-in-95 duration-150">
           <div className="grid grid-cols-2 text-center text-[11px] font-extrabold text-slate-400 pb-1.5 mb-1 border-b border-slate-100">
             <span>ชั่วโมง</span>
             <span>นาที</span>
@@ -131,12 +131,15 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
     if (scheduleToEdit?.dateFormatted && /^\d{4}-\d{2}-\d{2}$/.test(scheduleToEdit.dateFormatted)) {
       return scheduleToEdit.dateFormatted;
     }
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
     if (scheduleToEdit?.day) {
       const d = String(scheduleToEdit.day).padStart(2, '0');
-      return `2026-08-${d}`;
+      return `${yyyy}-${mm}-${d}`;
     }
-    const d = String(defaultDay || 18).padStart(2, '0');
-    return `2026-08-${d}`;
+    const d = String(defaultDay || now.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${d}`;
   };
 
   const [scheduledDate, setScheduledDate] = useState(parseInitialDate);
@@ -215,7 +218,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
           }
         }
       })
-      .catch(err => console.warn("Could not load auditors from API:", err));
+      .catch(() => {});
     return () => { isMounted = false; };
   }, [scheduleToEdit]);
 
@@ -330,7 +333,6 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
       setIsSaving(false);
       onClose();
     } catch (err) {
-      console.warn("Backend schedule save failed:", err.message);
       setSaveError(err.response?.data?.message || err.message || "ไม่สามารถบันทึกกำหนดการได้ กรุณาลองใหม่อีกครั้ง");
       setIsSaving(false);
     }
@@ -338,109 +340,116 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
-      {/* Header */}
-      <div className="shrink-0 p-4 sm:p-5 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-800 shrink-0 shadow-2xs">
-            <Calendar size={20} />
+      <form onSubmit={handleSubmit} className="w-full max-w-full overflow-hidden flex flex-col min-h-0 flex-1">
+        {/* Header */}
+        <div className="shrink-0 p-4 sm:p-5 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-800 shrink-0 shadow-2xs">
+              <Calendar size={20} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-800">
+                {scheduleToEdit ? "แก้ไขกำหนดการตรวจสาขา" : "กำหนดการตรวจสาขาใหม่"}
+              </h3>
+              <p className="text-xs text-slate-500">มอบหมายงานและบันทึกลงฐานข้อมูล</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-800">
-              {scheduleToEdit ? "แก้ไขกำหนดการตรวจสาขา" : "กำหนดการตรวจสาขาใหม่"}
-            </h3>
-            <p className="text-xs text-slate-500">มอบหมายงานและบันทึกลงฐานข้อมูล</p>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-slate-200 active:scale-90 cursor-pointer transition-all text-slate-400 hover:text-slate-700"
+          >
+            <X size={18} />
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-slate-200 active:scale-90 cursor-pointer transition-all text-slate-400 hover:text-slate-700"
-        >
-          <X size={18} />
-        </button>
-      </div>
 
-      {/* Form Content */}
-      <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto max-h-[75vh]">
-        {saveError && (
-          <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-2 animate-in fade-in">
-            <AlertCircle size={16} className="shrink-0 text-red-500" />
-            <span>{saveError}</span>
-          </div>
-        )}
-        {/* 1. Dedicated Interactive Branch Selector */}
-        <div>
+        {/* Scrollable Form Body */}
+        <div className="p-4 sm:p-6 space-y-4 flex-1 overflow-y-auto min-h-0 overscroll-contain custom-tab-scrollbar">
+          {saveError && (
+            <div className="p-3 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+              <AlertCircle size={16} className="shrink-0 text-red-500" />
+              <span>{saveError}</span>
+            </div>
+          )}
+          {/* 1. Dedicated Interactive Branch Selector */}
+        <div className="min-w-0 w-full">
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
               <MapPin size={14} className="text-[#0F6659]" />
               <span>สาขาเป้าหมายที่ต้องเข้าตรวจ</span>
             </label>
-            {/*<span
-              onClick={() => setShowLocationSelectModal(true)}
-              className="text-[11px] font-bold text-[#0F6659] hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <Search size={12} />
-              <span>ค้นหาจาก {locations.length} สาขา</span>
-            </span>*/}
           </div>
 
           <div
             onClick={() => setShowLocationSelectModal(true)}
-            className="w-full p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-200 hover:border-[#0F6659] hover:bg-emerald-50/30 cursor-pointer transition-all flex items-center justify-between gap-3 shadow-2xs group active:scale-[0.99]"
+            className="w-full p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/90 hover:border-[#0F6659] hover:bg-emerald-50/20 cursor-pointer transition-all flex items-center justify-between gap-3 shadow-2xs group active:scale-[0.99] min-w-0"
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0 font-bold group-hover:bg-[#0F6659] group-hover:text-white transition-colors">
+              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/60 flex items-center justify-center shrink-0 font-bold group-hover:bg-[#0F6659] group-hover:text-white transition-all shadow-2xs">
                 <Store size={20} />
               </div>
+
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {selectedUnit?.code && (
-                    <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md bg-slate-200/80 text-slate-700 font-mono">
-                      {selectedUnit.code}
-                    </span>
-                  )}
-                  {selectedUnit?.region && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-900">
-                      📍 {selectedUnit.region}
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs sm:text-sm font-extrabold text-slate-900 truncate group-hover:text-[#0F6659] transition-colors mt-0.5">
-                  {selectedUnit?.name || selectedUnitName || "แตะเพื่อเลือกสาขา"}
-                </div>
-                {selectedUnit?.fullName && selectedUnit.fullName !== selectedUnit.name && (
-                  <div className="text-[11px] font-medium text-slate-500 truncate">
-                    {selectedUnit.fullName}
+                {selectedUnit ? (
+                  <div className="space-y-1">
+                    <div className="text-sm sm:text-base font-bold text-slate-800 line-clamp-2 group-hover:text-[#0F6659] transition-colors leading-snug">
+                      {selectedUnit.fullName || selectedUnit.name || selectedUnitName}
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                      {selectedUnit.code && (
+                        <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md text-[11px]">
+                          {selectedUnit.code}
+                        </span>
+                      )}
+                      {selectedUnit.region && (
+                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                          <span>📍 {selectedUnit.region}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-sm font-bold text-slate-700 group-hover:text-[#0F6659] transition-colors">
+                      แตะเพื่อเลือกสาขาเป้าหมาย
+                    </div>
+                    <div className="text-xs text-slate-400 mt-0.5">
+                      ค้นหาตามชื่อสาขา, แบรนด์ หรือเขตพื้นที่
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="px-3 py-1.5 rounded-xl bg-white border border-slate-200 group-hover:border-emerald-300 group-hover:bg-emerald-100 group-hover:text-[#0F6659] text-slate-600 text-xs font-bold shrink-0 transition-colors flex items-center gap-1 shadow-2xs">
-              <span>เลือกสาขา</span>
-              <ChevronRight size={14} />
-            </div>
+            <ChevronRight size={18} className="text-slate-400 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
           </div>
         </div>
 
         {/* 2. Date & Time (Start on Left, End on Right - Compact) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0 w-full">
+          <div className="min-w-0">
             <label htmlFor="scheduledDate" className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
               <Calendar size={14} className="text-[#0F6659]" />
               <span>วันที่ตรวจ</span>
             </label>
-            <input
-              type="date"
-              id="scheduledDate"
-              name="scheduledDate"
-              value={scheduledDate}
-              onChange={(e) => setScheduledDate(e.target.value)}
-              className="w-full text-xs sm:text-sm p-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
-              required
-            />
+            <div className="relative">
+              <input
+                type="date"
+                id="scheduledDate"
+                name="scheduledDate"
+                value={scheduledDate}
+                onChange={(e) => setScheduledDate(e.target.value)}
+                onClick={(e) => e.target.showPicker?.()}
+                className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer"
+                required
+              />
+              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <Calendar size={16} />
+              </div>
+            </div>
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 <Clock size={14} className="text-[#0F6659]" />
@@ -448,7 +457,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
               </label>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 min-w-0 w-full">
               <TimePicker24
                 value={startTime}
                 onChange={(val) => {
@@ -472,55 +481,65 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
         </div>
 
         {/* 3. Auditor & Form */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0 w-full">
+          <div className="min-w-0">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
               <User size={14} className="text-[#0F6659]" />
               <span>ผู้ตรวจ (Auditor)</span>
             </label>
-            <select
-              value={assignedAuditorId || ""}
-              onChange={(e) => setAssignedAuditorId(Number(e.target.value))}
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
-            >
-              {dbAuditors.length > 0 ? (
-                dbAuditors.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.fullName || a.username} ({a.roleName || a.roleCode || a.role || 'ผู้ตรวจ'})
-                  </option>
-                ))
-              ) : (
-                <option value="">-- ไม่พบรายชื่อผู้ตรวจ / กำลังโหลด --</option>
-              )}
-            </select>
+            <div className="relative">
+              <select
+                value={assignedAuditorId || ""}
+                onChange={(e) => setAssignedAuditorId(Number(e.target.value))}
+                className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+              >
+                {dbAuditors.length > 0 ? (
+                  dbAuditors.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.fullName || a.username} ({a.roleName || a.roleCode || a.role || 'ผู้ตรวจ'})
+                    </option>
+                  ))
+                ) : (
+                  <option value="">-- ไม่พบรายชื่อผู้ตรวจ / กำลังโหลด --</option>
+                )}
+              </select>
+              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown size={18} />
+              </div>
+            </div>
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
               <FileText size={14} className="text-[#0F6659]" />
               <span>แบบฟอร์มที่ใช้</span>
             </label>
-            <select
-              value={selectedFormId}
-              onChange={(e) => setSelectedFormId(Number(e.target.value) || e.target.value)}
-              className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] cursor-pointer"
-            >
-              {availableForms.map(f => {
-                const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
-                return (
-                  <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
-                );
-              })}
-            </select>
+            <div className="relative">
+              <select
+                value={selectedFormId}
+                onChange={(e) => setSelectedFormId(Number(e.target.value) || e.target.value)}
+                className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+              >
+                {availableForms.map(f => {
+                  const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
+                  return (
+                    <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
+                  );
+                })}
+              </select>
+              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                <ChevronDown size={18} />
+              </div>
+            </div>
           </div>
         </div>
 
         {/* 4. Type & Notes */}
-        <div>
+        <div className="min-w-0 w-full">
           <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
             <Tag size={14} className="text-[#0F6659]" />
             <span>ประเภทการตรวจ</span>
           </label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-1.5 min-w-0 w-full">
             {[
               { key: "announced", label: "ตามกำหนดการ" },
               { key: "unannounced", label: "นอกกำหนดการ" },
@@ -530,7 +549,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
                 key={t.key}
                 type="button"
                 onClick={() => setAuditType(t.key)}
-                className={`py-2.5 rounded-xl text-xs font-bold border cursor-pointer transition-all active:scale-95 ${
+                className={`py-3 px-1 rounded-2xl text-xs sm:text-sm font-semibold border cursor-pointer transition-all active:scale-95 truncate text-center ${
                   auditType === t.key ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs' : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                 }`}
               >
@@ -540,30 +559,31 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
           </div>
         </div>
 
-        <div>
+        <div className="min-w-0 w-full">
           <label className="text-xs font-bold text-slate-700 block mb-1.5">หมายเหตุเพิ่มเติม</label>
           <textarea
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             placeholder="ระบุจุดที่ต้องเน้นย้ำ หรือข้อความถึงผู้ตรวจ..."
-            className="w-full text-xs sm:text-sm p-3 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:border-[#0F6659]"
+            className="w-full text-xs sm:text-base p-3.5 rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:border-[#0F6659] focus:bg-white shadow-xs resize-none"
           />
         </div>
+        </div>
 
-        {/* Submit Buttons */}
-        <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+        {/* Pinned Bottom Action Footer */}
+        <div className="shrink-0 p-4 border-t border-slate-100 bg-white flex items-center gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold cursor-pointer transition-colors"
+            className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs sm:text-sm font-bold cursor-pointer transition-colors"
           >
             ยกเลิก
           </button>
           <button
             type="submit"
             disabled={isSaving}
-            className="flex-1 py-3 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-extrabold shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
+            className="flex-1 py-3 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-extrabold shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
           >
             <Check size={16} />
             <span>{isSaving ? "กำลังบันทึก..." : "บันทึกกำหนดการ"}</span>

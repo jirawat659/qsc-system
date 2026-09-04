@@ -1,10 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  FileText, Plus, Trash2, Edit3, GripVertical, Check, X,
-  AlertTriangle, ShieldAlert, Sparkles, ChevronDown, ChevronUp,
-  Layers, CheckCircle2, ArrowUpDown, Info, Tag, SlidersHorizontal, Loader2, Store
-} from "lucide-react";
+import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Store } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
@@ -58,7 +54,7 @@ export const DEFAULT_FORM_METADATA_CONFIG = [
   }
 ];
 
-export default function FormEditorScreen({ form, onBack, onSave }) {
+export default function FormEditorScreen({ form, onBack, onSave, readOnly = false }) {
   const [formName, setFormName] = useState(form ? (form.name || form.title) : "แบบฟอร์มมาตรฐานใหม่");
   const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
@@ -81,9 +77,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           setLocationTypes(res.data);
         }
       })
-      .catch(err => {
-        console.warn("Could not load location types from API:", err);
-      });
+      .catch(() => {});
 
     api.get('/brand')
       .then(res => {
@@ -91,9 +85,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           setBrands(res.data);
         }
       })
-      .catch(err => {
-        console.warn("Could not load brands from API:", err);
-      });
+      .catch(() => {});
 
     const handleClickOutside = (e) => {
       if (brandDropdownRef.current && !brandDropdownRef.current.contains(e.target)) {
@@ -223,9 +215,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           }
         }
       })
-      .catch(err => {
-        console.warn("Could not load location types:", err);
-      });
+      .catch(() => {});
     return () => { isMounted = false; };
   }, [form]);
 
@@ -343,9 +333,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
         if (typeof deleteTarget.id === 'number') {
           await api.delete(`/form/${deleteTarget.id}`);
         }
-      } catch (err) {
-        console.warn("Could not delete from api:", err);
-      }
+      } catch (err) {}
       setDeleteTarget(null);
       onBack();
       return;
@@ -717,6 +705,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
   // Save form
   const handleSave = async () => {
+    if (readOnly) return;
     if (!formName.trim()) {
       setFormErrors({ name: true });
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -875,10 +864,10 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 if (formErrors.name) setFormErrors(prev => ({ ...prev, name: false }));
               }}
               placeholder="เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Store Audit)..."
-              className={`w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ${
+              className={`w-full text-sm sm:text-base font-semibold px-4.5 py-3.5 min-h-[50px] rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ${
                 formErrors.name
                   ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 text-slate-800 animate-shake"
-                  : "bg-white border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659]"
+                  : "bg-white border-slate-200 text-slate-800 focus:border-[#0F6659]"
               }`}
               required
             />
@@ -891,7 +880,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
                 เกณฑ์ผ่าน (%) <span className="text-rose-500">*</span>
               </label>
-              <div className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1.5">
+              <div className="flex items-center justify-between px-3.5 py-3 min-h-[50px] rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1.5">
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                   <input
                     type="number"
@@ -921,30 +910,34 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
                 ประเภทฟอร์ม (Category)
               </label>
-              <select
-                value={locationTypeId || ""}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setLocationTypeId(val);
-                  const selectedObj = locationTypes.find(lt => lt.id === val);
-                  if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
-                }}
-                className="w-full text-sm sm:text-base font-normal px-3.5 py-3 rounded-2xl bg-white border border-slate-200 text-slate-600 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs cursor-pointer truncate"
-              >
-                {locationTypes.length > 0 ? (
-                  locationTypes.map(lt => (
-                    <option key={lt.id} value={lt.id}>{lt.name || lt.code}</option>
-                  ))
-                ) : (
-                  <>
-                    <option value={1}>สาขาหน้าร้าน (Store Front)</option>
-                    <option value={2}>ครัวและคลังสินค้า (Kitchen & Storage)</option>
-                    <option value={3}>ขับรถรับ (Drive-Thru)</option>
-                    <option value={4}>จัดส่งและเดลิเวอรี (Delivery)</option>
-                    <option value={5}>ตรวจความปลอดภัยอาหาร (Food Safety)</option>
-                  </>
-                )}
-              </select>
+              <div className="relative flex items-center bg-white border border-slate-200 hover:border-slate-300 focus-within:border-[#0F6659] focus-within:ring-2 focus-within:ring-[#0F6659]/10 rounded-2xl transition-all shadow-xs min-h-[50px] px-3.5">
+                <Tag size={16} className="text-[#0F6659] shrink-0 mr-2 pointer-events-none" />
+                <select
+                  value={locationTypeId || ""}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    setLocationTypeId(val);
+                    const selectedObj = locationTypes.find(lt => lt.id === val);
+                    if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
+                  }}
+                  className="w-full bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer appearance-none truncate pr-8 py-3"
+                >
+                  {locationTypes.length > 0 ? (
+                    locationTypes.map(lt => (
+                      <option key={lt.id} value={lt.id}>{lt.name || lt.code}</option>
+                    ))
+                  ) : (
+                    <>
+                      <option value={1}>สาขาหน้าร้าน (Store Front)</option>
+                      <option value={2}>ครัวและคลังสินค้า (Kitchen & Storage)</option>
+                      <option value={3}>ขับรถรับ (Drive-Thru)</option>
+                      <option value={4}>จัดส่งและเดลิเวอรี (Delivery)</option>
+                      <option value={5}>ตรวจความปลอดภัยอาหาร (Food Safety)</option>
+                    </>
+                  )}
+                </select>
+                <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none shrink-0" />
+              </div>
             </div>
 
             {/* แบรนด์ (Brand) - Multi-Select */}
@@ -1058,7 +1051,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="ระบุคำอธิบาย หรือข้อแนะนำสำหรับผู้ตรวจ..."
-              className="w-full text-sm sm:text-base font-normal px-4.5 py-3.5 rounded-2xl bg-white border border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
+              className="w-full text-sm sm:text-base font-semibold px-4.5 py-3.5 min-h-[50px] rounded-2xl bg-white border border-slate-200 text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
             />
           </div>
         </div>
@@ -1089,7 +1082,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
           }`}
         >
           <CheckCircle2 size={16} />
-          <span>หมวดหมู่ รายการข้อ ({totalQuestions} ข้อ)</span>
+          <span>หมวดหมู่ คำถาม ({totalQuestions} ข้อ)</span>
         </button>
       </div>
 
@@ -1294,22 +1287,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                         >
                           <GripVertical size={16} />
                         </button>
-                        <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg">
+                        <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg shrink-0">
                           ข้อ {itemIdx + 1}
                         </span>
-                        {item.critical && (
-                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 flex items-center gap-1">
-                            <ShieldAlert size={12} />
-                            <span>สำคัญ</span>
-                          </span>
-                        )}
                       </div>
 
                       {/* Right: Score Input + Critical Toggle + Delete */}
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Score Setting Input */}
-                        <div className="flex items-center gap-1 bg-white border border-slate-200/90 rounded-xl px-2.5 py-1 shadow-2xs hover:border-[#0F6659] focus-within:border-[#0F6659] transition-colors">
-                          <span className="text-[11px] font-bold text-slate-400">คะแนน:</span>
+                        {/* Score Setting Input (Compact without 'แต้ม') */}
+                        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-2xs hover:border-[#0F6659] focus-within:border-[#0F6659] transition-colors shrink-0">
+                          <span className="text-[11px] font-semibold text-slate-500">คะแนน:</span>
                           <input
                             type="number"
                             min="1"
@@ -1317,32 +1304,31 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             value={item.fullScore !== undefined && item.fullScore !== null ? item.fullScore : 10}
                             onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
                             onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
-                            className="w-10 text-xs font-black text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
-                            title="กำหนดคะแนนเต็มของข้อนี้ (เช่น 5, 10, 20 แต้ม)"
+                            className="w-8 text-xs font-bold text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
+                            title="กำหนดคะแนนเต็มของข้อนี้"
                           />
-                          <span className="text-[11px] font-bold text-slate-400">แต้ม</span>
                         </div>
 
                         {/* Critical Toggle Button */}
                         <button
                           type="button"
                           onClick={() => toggleItemCritical(secIdx, item.id)}
-                          className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs ${
+                          className={`px-2 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs shrink-0 ${
                             item.critical
-                              ? 'bg-rose-50 text-rose-600 border border-rose-200'
-                              : 'bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:bg-rose-50'
+                              ? 'bg-rose-50 text-rose-600 border border-rose-300 ring-1 ring-rose-200'
+                              : 'bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
                           }`}
-                          title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งความสำคัญ (ตกทันที)"}
+                          title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งเป็นข้อสำคัญ (ไม่ผ่านตกทันที)"}
                         >
-                          <ShieldAlert size={14} />
-                          <span className="text-[11px] font-bold hidden sm:inline">{item.critical ? "สำคัญ" : "สำคัญ"}</span>
+                          <ShieldAlert size={14} className={item.critical ? "text-rose-600" : "text-slate-400"} />
+                          {item.critical && <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>}
                         </button>
 
                         {/* Delete Question Button */}
                         <button
                           type="button"
                           onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
-                          className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors"
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors shrink-0"
                           title="ลบคำถามข้อนี้"
                         >
                           <Trash2 size={16} />
@@ -1385,16 +1371,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                     </div>
 
                     {/* Question Footer: Type Selector (Left) & Category Selector (Right) */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100/80">
+                    <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
                       {/* Left: Answer Type */}
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold text-slate-400">ประเภทคำตอบ:</span>
-                        <div className="flex rounded-xl p-0.5 bg-slate-200/70 text-xs font-bold">
+                        <span className="text-xs font-semibold text-slate-500">ประเภทคำตอบ:</span>
+                        <div className="flex rounded-xl p-0.5 bg-slate-100 text-xs font-semibold">
                           <button
                             type="button"
                             onClick={() => updateItemType(secIdx, item.id, "yesno")}
                             className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                              item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                              item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             ผ่าน / ไม่ผ่าน
@@ -1403,7 +1389,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                             type="button"
                             onClick={() => updateItemType(secIdx, item.id, "scale")}
                             className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                              item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                              item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             คะแนน 1-5
@@ -1413,18 +1399,18 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
                       {/* Right: Category Selector (หมวดคะแนนของข้อนี้) */}
                       <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-bold text-slate-400">หมวดคะแนน:</span>
+                        <span className="text-xs font-semibold text-slate-500">หมวดคะแนน:</span>
                         <div className="relative">
                           <select
                             value={item.category || DEFAULT_CATEGORIES[0]}
                             onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
-                            className="text-xs font-extrabold pl-3 pr-7 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-700 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
+                            className="text-sm sm:text-xs font-semibold pl-3 pr-7 py-2 min-h-[38px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
                           >
                             {categories.map((cat, cIdx) => (
                               <option key={cIdx} value={cat}>{cat}</option>
                             ))}
                           </select>
-                          <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         </div>
                       </div>
                     </div>
@@ -1585,7 +1571,7 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
 
       {/* 🌟 4. BOTTOM ACTION BUTTONS */}
       <div className="pt-3 flex items-center gap-3">
-        {form?.id && (
+        {form?.id && !readOnly &&(
           <button
             type="button"
             onClick={() => setDeleteTarget({ type: "form", title: formName, id: form.id })}
@@ -1596,14 +1582,16 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
             <span className="hidden sm:inline">ลบแบบฟอร์มนี้</span>
           </button>
         )}
-        <button
-          type="button"
-          onClick={handleSave}
-          className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
-        >
-          <Check size={18} />
-          <span>บันทึกแบบฟอร์ม</span>
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={handleSave}
+            className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
+          >
+            <Check size={18} />
+            <span>บันทึกแบบฟอร์ม</span>
+          </button>
+        )}
       </div>
 
       {/* ⚙️ POPUP MODAL: ADD / EDIT METADATA FIELD */}
@@ -1652,19 +1640,22 @@ export default function FormEditorScreen({ form, onBack, onSave }) {
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   ประเภทข้อมูล (Input Type) <span className="text-rose-500">*</span>
                 </label>
-                <select
-                  value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
-                  disabled={metaFieldForm.isSystem}
-                  onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                  className="w-full text-xs sm:text-sm font-medium py-2 sm:py-2.5 px-3 sm:px-3.5 rounded-xl border border-slate-200 outline-none focus:border-[#0F6659] bg-white shadow-2xs cursor-pointer"
-                >
-                  <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
-                  <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
-                  <option value="time">เวลา (ชั่วโมง:นาที)</option>
-                  <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
-                  <option value="text">ข้อความ / หมายเหตุ (Text)</option>
-                  <option value="toggle">สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
+                    disabled={metaFieldForm.isSystem}
+                    onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
+                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[40px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                  >
+                    <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
+                    <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
+                    <option value="time">เวลา (ชั่วโมง:นาที)</option>
+                    <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
+                    <option value="text">ข้อความ / หมายเหตุ (Text)</option>
+                    <option value="toggle">สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
               </div>
 
               {/* Specific Config for NUMBER (Unit & Min/Max) */}

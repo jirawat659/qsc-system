@@ -1,14 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
-import {
-  Search, ArrowUpDown, ChevronRight, ChevronLeft, ChevronDown, CheckCircle2,
-  Wrench, AlertTriangle, Download, X, Calendar, User, FileText,
-  Building2, MapPin, Filter, ClipboardCheck, CalendarDays, Award, Plus,
-  Play, Edit3
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell
-} from "recharts";
+import { Search, ArrowUpDown, ChevronDown, Download, X, Filter, ClipboardCheck, CalendarDays, Plus } from "lucide-react";
+
 
 import { c, sans, mono } from "../../config/theme";
 import { DataContext } from "../../context/DataContext";
@@ -37,7 +29,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           })));
         }
       })
-      .catch(err => console.warn("Could not load trends in AllAuditHistoryScreen:", err));
+      .catch(() => {});
     return () => { isMounted = false; };
   }, []);
   
@@ -564,9 +556,31 @@ const handleTriggerAudit = (record) => {
   }
 
   return (
-    <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12" style={{ fontFamily: sans }}>
+    <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12 font-sans">
 
-      {!onBack && (
+      {onBack ? (
+        <Header
+          title={title}
+          subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length} รอบตรวจ`}
+          onBack={onBack}
+          isAudit={true}
+          action={
+            <div className="flex items-center gap-2">
+              {onStartNewAudit && (
+                <button
+                  type="button"
+                  onClick={onStartNewAudit}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
+                >
+                  <Plus size={14} />
+                  <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
+                  <span className="sm:hidden">นอกแผน</span>
+                </button>
+              )}
+            </div>
+          }
+        />
+      ) : (
         <div className="flex items-center justify-between pb-1 px-1">
           <div>
             <h2 className="text-base sm:text-lg font-black text-slate-900">{title}</h2>
@@ -579,7 +593,7 @@ const handleTriggerAudit = (record) => {
               <button
                 type="button"
                 onClick={onStartNewAudit}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
               >
                 <Plus size={14} />
                 <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
@@ -602,7 +616,7 @@ const handleTriggerAudit = (record) => {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
               <span className="text-xs font-extrabold text-slate-400">คะแนนเฉลี่ยภาพรวม</span>
-              <span className="text-xs font-black text-slate-900" style={{ fontFamily: mono }}>{avgScore}%</span>
+              <span className="text-xs font-black text-slate-900 font-mono">{avgScore}%</span>
             </div>
             <div className="text-xs font-bold text-emerald-800 mt-0.5 truncate">
               ✓ ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
@@ -618,13 +632,13 @@ const handleTriggerAudit = (record) => {
           <div className="min-w-0 flex-1 grid grid-cols-2 gap-2">
             <div>
               <div className="text-[11px] font-bold text-slate-400">ตรวจแล้ว</div>
-              <div className="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5" style={{ fontFamily: mono }}>
+              <div className="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5 font-mono">
                 {auditedCount} / {totalBranches} สาขา
               </div>
             </div>
             <div>
               <div className="text-[11px] font-bold text-slate-400">งานค้างส่ง CAP</div>
-              <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5" style={{ fontFamily: mono }}>
+              <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5 font-mono">
                 {pendingCapCount} รายการ
               </div>
             </div>
@@ -636,21 +650,21 @@ const handleTriggerAudit = (record) => {
       <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
         
         {/* Status Filter Tabs & Action */}
-        <div className="px-3.5 py-2.5 border-b bg-[#FAF9F5] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5" style={{ borderColor: c.border }}>
+        <div className="px-3.5 py-2.5 border-b border-slate-200 bg-[#FAF9F5] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
           <div className="flex items-center gap-2 overflow-x-auto custom-tab-scrollbar pb-1 sm:pb-0 w-full sm:w-auto">
             {[
               { key: "all", label: "ทั้งหมด (All)" },
-              { key: "completed", label: "🟢 ตรวจแล้ว" },
-              { key: "draft", label: "🟡 กำลังตรวจ" },
-              { key: "pending", label: "⚪ ยังไม่ตรวจ" },
+              { key: "completed", label: "ตรวจแล้ว" },
+              { key: "draft", label: "กำลังตรวจ" },
+              { key: "pending", label: "ยังไม่ตรวจ" },
             ].map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => setStatusFilter(key)}
-                className={`whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`whitespace-nowrap px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
                   statusFilter === key
-                    ? "bg-slate-800 text-white shadow-md"
+                    ? "bg-[#0F6659] text-white shadow-md"
                     : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 }`}
               >
@@ -668,7 +682,7 @@ const handleTriggerAudit = (record) => {
                 handleTriggerAudit({ isNewAudit: true });
               }
             }}
-            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-[#0F6659] text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
           >
             <Plus size={15} />
             <span>ตรวจงานใหม่</span>
@@ -676,7 +690,7 @@ const handleTriggerAudit = (record) => {
         </div>
 
         {/* Filter bar */}
-        <div className="px-3.5 py-2.5 border-b flex flex-col sm:flex-row items-stretch sm:items-center gap-2" style={{ borderColor: c.border }}>
+        <div className="px-3.5 py-2.5 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -725,7 +739,7 @@ const handleTriggerAudit = (record) => {
                 if (onExportExcel) onExportExcel();
                 setShowExportModal(true);
               }}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white border border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
               title="ส่งออกรายงานเป็น Excel"
             >
               <Download size={13} className="text-[#0F6659]" />
@@ -927,7 +941,7 @@ const handleTriggerAudit = (record) => {
                         {/* 6. สถานะ */}
                         <td className="py-3.5 px-4 text-center overflow-hidden">
                           <div className="flex items-center justify-center">
-                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold shrink-0 ${statusBadge}`}>
+                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
                               {statusText}
                             </span>
                           </div>
@@ -954,7 +968,7 @@ const handleTriggerAudit = (record) => {
                     type="button"
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+                    className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
                   >
                     ก่อนหน้า
                   </button>
@@ -980,7 +994,7 @@ const handleTriggerAudit = (record) => {
                     type="button"
                     onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+                    className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
                   >
                     ถัดไป
                   </button>

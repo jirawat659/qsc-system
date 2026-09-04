@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, Users, Store, Globe, Edit3, ChevronRight } from 'lucide-react';
+import { Search, Plus, Users, Store, Globe, Edit3 } from "lucide-react";
 
 export default function UserManagementTab({
   searchTerm, setSearchTerm,
@@ -63,7 +63,7 @@ export default function UserManagementTab({
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {r.name || r.code} ({count})
+                  {r.code || r.name} ({count})
                 </button>
               );
             })}
@@ -130,7 +130,7 @@ export default function UserManagementTab({
                           </td>
                           <td className="py-3.5 px-4">
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
-                              isActive ? 'bg-purple-50 text-purple-800 border border-purple-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                              isActive ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200'
                             }`}>
                               {u.roleName || u.role?.name || u.roleCode || u.role?.code}
                             </span>

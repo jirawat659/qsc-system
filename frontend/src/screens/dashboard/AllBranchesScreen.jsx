@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { ChevronLeft, ChevronRight, CheckCircle2, X, Search, Filter, AlertTriangle, Download, Wrench, ArrowUpDown } from "lucide-react";
+
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { ROLES, NAV_BY_ROLE } from "../../config/roles";
@@ -41,7 +26,6 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
   const [sortBy, setSortBy] = useState("score-desc"); // 'score-desc' | 'score-asc' | 'name' | 'date'
   const [currentPage, setCurrentPage] = useState(1);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [showScoreFilter, setShowScoreFilter] = useState(false);
   const pageSize = 10;
 
   // Reset page to 1 when filters change
@@ -133,7 +117,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             </div>
           </div>
           <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-none" style={{ fontFamily: mono }}>
+            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-none font-mono">
               {passedCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
             </div>
             <div className="mt-1.5">
@@ -161,7 +145,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             </div>
           </div>
           <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-amber-900 leading-none" style={{ fontFamily: mono }}>
+            <div className="text-2xl sm:text-3xl font-extrabold text-amber-900 leading-none font-mono">
               {improveCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
             </div>
             <div className="mt-1.5">
@@ -189,7 +173,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             </div>
           </div>
           <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-rose-800 leading-none" style={{ fontFamily: mono }}>
+            <div className="text-2xl sm:text-3xl font-extrabold text-rose-800 leading-none font-mono">
               {criticalCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
             </div>
             <div className="mt-1.5">
@@ -230,7 +214,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             if (onExportExcel) onExportExcel();
             setShowExportModal(true);
           }}
-          className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/60 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
+          className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2.5 rounded-2xl bg-white border border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/60 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
           title="ส่งออกรายงานเป็นไฟล์ Excel"
         >
           <Download size={15} className="text-[#0F6659]" />
@@ -381,7 +365,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     {/* 6. สถานะ & Arrow */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-center pr-5">
                       <div className="flex items-center justify-end gap-3">
-                        <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold ${statusBadge}`}>
+                        <span className={`inline-flex items-center justify-center px-3 py-1 rounded-lg text-xs font-bold ${statusBadge}`}>
                           {statusText}
                         </span>
                         <ChevronRight size={16} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
@@ -418,7 +402,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                 type="button"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 transition-all ${
+                className={`px-3 py-1.5 rounded-2xl font-bold flex items-center gap-1 transition-all ${
                   currentPage === 1
                     ? 'text-slate-300 bg-slate-100 cursor-not-allowed'
                     : 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 cursor-pointer shadow-2xs'
@@ -434,7 +418,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                   key={pageNum}
                   type="button"
                   onClick={() => setCurrentPage(pageNum)}
-                  className={`w-8 h-8 rounded-xl font-bold text-xs flex items-center justify-center transition-all cursor-pointer ${
+                  className={`w-8 h-8 rounded-2xl font-bold text-xs flex items-center justify-center transition-all cursor-pointer ${
                     currentPage === pageNum
                       ? 'bg-[#0F6659] text-white shadow-xs'
                       : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -448,7 +432,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                 type="button"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1 transition-all ${
+                className={`px-3 py-1.5 rounded-2xl font-bold flex items-center gap-1 transition-all ${
                   currentPage === totalPages
                     ? 'text-slate-300 bg-slate-100 cursor-not-allowed'
                     : 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 cursor-pointer shadow-2xs'

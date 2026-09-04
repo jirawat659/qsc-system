@@ -1,22 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  LayoutDashboard, CalendarDays, List, ClipboardList, ClipboardCheck,
-  Scale, Store, MapPin, ChevronLeft, ChevronRight, Camera, Bell,
-  CheckCircle2, XCircle, Banknote, Users, Settings, MoreHorizontal,
-  Navigation, Phone, PenTool, Check, FileText, Copy, Plus, ShieldCheck,
-  MessageSquare, ImagePlus, Send, Clock, Trash2, GripVertical, Edit3,
-  Megaphone, Eye, EyeOff, Zap, X, ChevronDown, ChevronUp, History as HistoryIcon,
-  Maximize2, Minimize2, CheckCheck, RefreshCw, Key, ShieldAlert,
-  Laptop, Smartphone, Search, Filter, ArrowUpRight, ExternalLink,
-  Award, TrendingUp, AlertTriangle, Sparkles, SlidersHorizontal,
-  BarChart3, CheckSquare, Layers, UserCheck, Download, FileSpreadsheet,
-  Wrench, Square, Minus, Building2, ArrowUpDown, History, Shield, Info, HelpCircle
-} from "lucide-react";
-import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, BarChart, Bar, ReferenceLine, LineChart, Line, Legend, Cell, PieChart, Pie
-} from "recharts";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, FileText, Calendar, User, FileSpreadsheet } from "lucide-react";
+
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { ROLES, NAV_BY_ROLE } from "../../config/roles";
@@ -37,6 +22,50 @@ import ViewCapEvidenceModal from "../../modals/ViewCapEvidenceModal";
 import AuditEditLogsModal from "../../modals/AuditEditLogsModal";
 import EditAuditRecordModal from "../../modals/EditAuditRecordModal";
 
+// 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
+export const CORE_CATEGORY_ORDER = [
+  "ความสะอาด",
+  "เอกสาร",
+  "กระบวนการทำงาน",
+  "คุณภาพสินค้า",
+  "การบริการ"
+];
+
+// 🏷️ ดึงชื่อหมวดคะแนนของคำถามแต่ละข้อ (แยกอิสระจากหมวดคำถามของฟอร์ม)
+export const getQuestionCategory = (q, sec) => {
+  let name = (q?.categoryName || q?.category || "").trim();
+  if (name) {
+    if (name === "คุณภาพสินค้า-วัตถุดิบ") return "คุณภาพสินค้า";
+    return name;
+  }
+  if (q?.categoryCode) {
+    const code = q.categoryCode.toUpperCase();
+    if (code === "CLN") return "ความสะอาด";
+    if (code === "DOC") return "เอกสาร";
+    if (code === "OPS") return "กระบวนการทำงาน";
+    if (code === "QLT") return "คุณภาพสินค้า";
+    if (code === "SVC") return "การบริการ";
+    if (code === "REG" || code === "RULE") return "ความถูกระเบียบ";
+    if (code === "SAF") return "ความปลอดภัย";
+  }
+  const title = sec?.title || q?.sectionTitle || "";
+  if (title) {
+    if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN")) return "ความสะอาด";
+    if (title.includes("เอกสาร") || title.includes("DOC")) return "เอกสาร";
+    if (title.includes("บริการ") || title.includes("SVC")) return "การบริการ";
+    if (title.includes("คุณภาพ") || title.includes("QLT")) return "คุณภาพสินค้า";
+    if (title.includes("กระบวนการ") || title.includes("โรงงาน") || title.includes("OPS") || title.includes("GMP")) return "กระบวนการทำงาน";
+  }
+  const text = q?.text || q?.questionText || "";
+  if (text) {
+    if (text.includes("สะอาด") || text.includes("ฆ่าเชื้อ") || text.includes("ล้างมือ")) return "ความสะอาด";
+    if (text.includes("เอกสาร") || text.includes("Log") || text.includes("FIFO") || text.includes("บันทึก") || text.includes("รายงาน")) return "เอกสาร";
+    if (text.includes("บริการ") || text.includes("ทักทาย") || text.includes("เสิร์ฟ")) return "การบริการ";
+    if (text.includes("คุณภาพ") || text.includes("อุณหภูมิ") || text.includes("TPM")) return "คุณภาพสินค้า";
+    if (text.includes("กระบวนการ") || text.includes("เครื่องจักร") || text.includes("พาหะ") || text.includes("แต่งกาย") || text.includes("หนีไฟ")) return "กระบวนการทำงาน";
+  }
+  return "ความสะอาด";
+};
 
 export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const { locations: allLocations, forms = [], currentUser, refreshData } = React.useContext(DataContext);
@@ -51,6 +80,20 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const [currentRecord, setCurrentRecord] = useState(record);
   useEffect(() => {
     setCurrentRecord(record);
+    if (record?.id) {
+      api.get(`/audit/${record.id}`)
+        .then(res => {
+          if (res.data) {
+            setCurrentRecord(res.data);
+          }
+        })
+        .catch(() => {});
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.documentElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.body?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    const mainEl = document.querySelector("main");
+    if (mainEl) mainEl.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [record]);
 
   // 🛡️ Permissions & Edit Logs State
@@ -83,18 +126,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         if (res.data) {
           setCurrentRecord(res.data);
         }
-      } catch (err) {
-        console.warn("Failed to reload audit detail:", err);
-      }
+      } catch (err) {}
     }
   };
 
   // Normalized audit record attributes
+  const isBackdated = Boolean(currentRecord.isBackdated);
   const score = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
+  const passingScore = currentRecord.passingScore || currentRecord.surveyForm?.passingScore || 85;
   const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
+  const actualInspectDateStr = currentRecord.startedAt ? new Date(currentRecord.startedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : dateStr;
   const auditorName = currentRecord.auditor || currentRecord.auditorName || currentRecord.primaryAuditor?.fullName || "-";
   const formTitle = currentRecord.form || currentRecord.formName || currentRecord.surveyFormTitle || currentRecord.surveyForm?.title || "-";
-  const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= 85 && !currentRecord.hasCriticalDefect);
+  const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= passingScore && !currentRecord.hasCriticalDefect);
   const hasCritical = currentRecord.hasCriticalDefect || (currentRecord.responses && currentRecord.responses.some(r => r.isCritical && !r.isPassed));
   const locationTitle = unitName || currentRecord.unitFullName || currentRecord.locationName || currentRecord.location?.name || "-";
   const managerName = currentRecord.auditeeName || currentRecord.auditeeUser?.fullName || "-";
@@ -159,12 +203,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
           (sec.items || []).forEach((item) => {
             // Find corresponding response
-            const res = record.responses.find(r => 
-              (r.surveyItemId && r.surveyItemId === item.id) ||
-              (r.id && r.id === item.id) ||
-              (r.questionText && item.questionText && r.questionText.trim() === item.questionText.trim()) ||
-              (r.questionText && item.text && r.questionText.trim() === item.text.trim())
-            ) || {};
+            let res = currentRecord.responses.find(r => 
+              (r.surveyItemId && Number(r.surveyItemId) === Number(item.id)) ||
+              (r.surveyItem?.id && Number(r.surveyItem.id) === Number(item.id)) ||
+              (r.questionText && item.questionText && r.questionText.trim().toLowerCase() === item.questionText.trim().toLowerCase()) ||
+              (r.questionText && item.text && r.questionText.trim().toLowerCase() === item.text.trim().toLowerCase()) ||
+              (r.surveyItem?.questionText && item.questionText && r.surveyItem.questionText.trim().toLowerCase() === item.questionText.trim().toLowerCase()) ||
+              (r.surveyItem?.questionText && item.text && r.surveyItem.questionText.trim().toLowerCase() === item.text.trim().toLowerCase())
+            );
+
+            if (!res && currentRecord.responses[runningNum - 1]) {
+              res = currentRecord.responses[runningNum - 1];
+            }
+            res = res || {};
 
             const qText = item.questionText || item.text || res.questionText || `ข้อตรวจที่ ${runningNum}`;
             const qType = (res.questionType || item.questionType || item.type || "YESNO").toLowerCase();
@@ -185,6 +236,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               fullScore: fullSc,
               isCritical: isCrit,
               isNa: isNa,
+              categoryName: item.categoryName || item.category || res.categoryName || res.surveyItem?.categoryName,
+              categoryCode: item.categoryCode || res.categoryCode || res.surveyItem?.categoryCode,
+              sectionTitle: sec.title,
               note: (res.notes && res.notes.trim()) ? res.notes.trim() : null,
               hasPhoto: (res.images && res.images.length > 0) || (!isPass && !isNa && res.hasPhoto),
               images: res.images || []
@@ -209,7 +263,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       const sectionsMap = new Map();
       let runningNum = 1;
 
-      record.responses.forEach((res, idx) => {
+      currentRecord.responses.forEach((res, idx) => {
         const secName = res.sectionTitle || res.surveyItem?.surveySection?.title || `หมวดที่ 1: การประเมินมาตรฐาน`;
         const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
         const qType = (res.questionType || res.surveyItem?.questionType || "YESNO").toLowerCase();
@@ -238,6 +292,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           fullScore: fullSc,
           isCritical: isCrit,
           isNa: isNa,
+          categoryName: res.categoryName || res.surveyItem?.categoryName,
+          categoryCode: res.categoryCode || res.surveyItem?.categoryCode,
+          sectionTitle: secName,
           note: (res.notes && res.notes.trim()) ? res.notes.trim() : null,
           hasPhoto: (res.images && res.images.length > 0) || (!isPass && !isNa && res.hasPhoto),
           images: res.images || []
@@ -249,36 +306,71 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     // No responses found from database
     return [];
-  }, [record, forms]);
+  }, [currentRecord, forms]);
 
-  // Calculated Sections Score Breakdown
-  const sections = useMemo(() => {
-    return formBreakdown.map(sec => {
-      let earned = 0;
-      let maxScore = 0;
+  // 📊 Calculated Category Scores Breakdown (จัดกลุ่มตามหมวดหมู่คะแนน ไม่ใช่หมวดหมู่คำถาม)
+  const categoryScores = useMemo(() => {
+    const catMap = new Map();
 
-      sec.questions.forEach(q => {
+    formBreakdown.forEach(sec => {
+      (sec.questions || []).forEach(q => {
+        const catName = getQuestionCategory(q, sec);
+        if (!catMap.has(catName)) {
+          catMap.set(catName, {
+            title: catName,
+            score: 0,
+            max: 0,
+            totalCount: 0,
+            answeredCount: 0
+          });
+        }
+
+        const catData = catMap.get(catName);
+        catData.totalCount += 1;
+
+        if (q.isNa) {
+          return; // Fair scoring: N/A questions excluded from max
+        }
+
         const full = Number(q.fullScore) || 10;
-        maxScore += full;
+        catData.max += full;
 
         if (q.scoreGiven !== undefined) {
-          earned += Number(q.scoreGiven) || 0;
+          catData.score += Number(q.scoreGiven) || 0;
         } else if (q.type === "scale") {
           const rating = Number(q.answer) || 5;
-          earned += rating <= 5 ? (rating / 5) * full : rating;
+          catData.score += rating <= 5 ? (rating / 5) * full : rating;
         } else if (q.answer === true) {
-          earned += full;
+          catData.score += full;
         }
       });
+    });
 
+    const categories = Array.from(catMap.values()).map(cat => {
+      const roundedScore = Math.round(cat.score * 10) / 10;
+      const percent = cat.max > 0 ? Math.round((cat.score / cat.max) * 100) : 100;
       return {
-        title: sec.title,
-        score: Math.round(earned),
-        max: maxScore,
-        percent: maxScore > 0 ? Math.round((earned / maxScore) * 100) : 100
+        title: cat.title,
+        score: roundedScore,
+        max: cat.max,
+        percent
       };
     });
+
+    // Sort according to CORE_CATEGORY_ORDER
+    categories.sort((a, b) => {
+      const idxA = CORE_CATEGORY_ORDER.indexOf(a.title);
+      const idxB = CORE_CATEGORY_ORDER.indexOf(b.title);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.title.localeCompare(b.title, "th");
+    });
+
+    return categories;
   }, [formBreakdown]);
+
+  const sections = categoryScores;
 
   // Issues List
   const issues = useMemo(() => {
@@ -333,74 +425,188 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return list;
   }, [formBreakdown, dateStr]);
 
+  // Header action buttons memoized cleanly
+  const headerAction = useMemo(() => (
+    <div className="flex items-center gap-2">
+      {editLogsCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setShowEditLogsModal(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer"
+          title="ดูประวัติการแก้ไขทั้งหมด"
+        >
+          <History size={13} className="text-amber-700" />
+          <span>ประวัติแก้ไข ({editLogsCount})</span>
+        </button>
+      )}
+      {canEditAudit && (
+        <button
+          type="button"
+          onClick={() => setShowEditFormModal(true)}
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-emerald-50 text-slate-700 hover:text-[#0F6659] border border-slate-200 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer group"
+          title="แก้ไขผลการตรวจ (ต้องระบุเหตุผล)"
+        >
+          <Edit3 size={13} className="text-[#0F6659] group-hover:scale-110 transition-transform" />
+          <span>แก้ไขผลตรวจ</span>
+        </button>
+      )}
+    </div>
+  ), [editLogsCount, canEditAudit]);
+
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
       <Header 
-        title={`ผลการตรวจ: ${locationTitle}`} 
-        subtitle={`รอบตรวจวันที่ ${dateStr} · ผู้ตรวจ: ${auditorName}`} 
+        title="ผลการตรวจ"
+        subtitle="รายละเอียดผลการตรวจ"
         onBack={onBack}
         isAudit={true}
-        action={
-          <div className="flex items-center gap-2">
-            {canEditAudit && (
-              <button
-                type="button"
-                onClick={() => setShowEditFormModal(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-slate-700 hover:text-[#0F6659] border border-slate-200 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer group"
-                title="แก้ไขผลการตรวจ (ต้องระบุเหตุผล)"
-              >
-                <Edit3 size={13} className="text-[#0F6659] group-hover:scale-110 transition-transform" />
-                <span>แก้ไขผลตรวจ</span>
-              </button>
-            )}
-          </div>
-        }
+        action={headerAction}
       />
       
-      {/* 🌟 1. ALL-IN-ONE SLEEK HERO SUMMARY CARD */}
-      <div className="rounded-3xl p-4 sm:p-5 bg-white border border-slate-200 shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        {/* Left: Score Ring & Verdict */}
-        <div className="flex items-center gap-4 min-w-0">
-          <ScoreRing score={score} size={54} />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-2xl sm:text-3xl font-extrabold text-slate-900" style={{ fontFamily: mono }}>
-                {score}%
-              </span>
-              <span className={`text-xs font-bold px-2.5 py-0.5 rounded-lg ${passed ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200'}`}>
-                {passed ? "✓ ผ่านเกณฑ์มาตรฐาน" : hasCritical ? "🚨 ตกเกณฑ์วิกฤต (Critical)" : "⚠️ ต้องส่งงานแก้ไข (CAP)"}
-              </span>
-              {editLogsCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowEditLogsModal(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 transition-all cursor-pointer active:scale-95 shadow-2xs group"
-                  title="คลิกเพื่อดูประวัติการแก้ไขย้อนหลัง"
-                >
-                  <History size={11} className="text-amber-600 group-hover:rotate-[-25deg] transition-transform" />
-                  <span>แก้ไขแล้ว ({editLogsCount})</span>
-                </button>
-              )}
+      {/* 🌟 1. ALL-IN-ONE SLEEK HERO SUMMARY CARD (ตรงตามแบบ Mockup) */}
+      <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200/90 shadow-2xs space-y-4">
+        {/* Top Section: Score Ring, Numbers, Status Pill, and Export Excel Button */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+            {/* Circular Gauge Ring with 12 o'clock notch */}
+            <div className="relative flex items-center justify-center w-[74px] h-[74px] sm:w-[82px] sm:h-[82px] rounded-full border-[5.5px] border-[#0F6659] shadow-2xs shrink-0 bg-white font-mono font-black text-xl sm:text-2xl text-slate-900 select-none">
+              {score}%
+              <div className="absolute -top-[5.5px] left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full" />
             </div>
-            <div className="text-xs text-slate-500 font-medium mt-0.5 space-y-0.5">
-              <div>เกณฑ์ผ่าน ≥85%</div>
-              <div className={passed ? "text-emerald-700 font-semibold" : "text-amber-800 font-semibold"}>
-                {passed ? "✓ ผ่านเกณฑ์มาตรฐาน" : `⚠️ พบข้อบกพร่อง ${issues.length || 1} ข้อ`}
+
+            {/* Score Text & Status Pill */}
+            <div className="min-w-0">
+              <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight leading-none">
+                {score}%
+              </div>
+              <div className="text-xs sm:text-sm font-semibold text-slate-400 mt-1">
+                เกณฑ์ผ่าน ≥{passingScore}%
+              </div>
+              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full shadow-2xs ${
+                  passed
+                    ? 'bg-[#0F6659] text-white'
+                    : hasCritical
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-amber-500 text-white'
+                }`}>
+                  <CheckCircle2 size={13} className="text-white shrink-0" />
+                  <span>{passed ? "ผ่านเกณฑ์มาตรฐาน" : hasCritical ? "ตกข้อสำคัญ" : "ต้องส่งงานแก้ไข"}</span>
+                </span>
+                {isBackdated && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                    ⏳ บันทึกย้อนหลัง
+                  </span>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Right: Export Excel Button (ย้ายมาไว้ตรงมุมขวาบนของการ์ดตามที่ผู้ใช้กำหนด) */}
+          <div className="shrink-0 ml-auto self-start">
+            <button
+              type="button"
+              onClick={() => {
+                exportToExcel({
+                  mode: "detailed_questions",
+                  targetUnit: matchedLocation || { id: currentRecord?.locationId, name: locationTitle, fullName: locationTitle },
+                  locations: allLocations,
+                  auditRecords: [currentRecord]
+                });
+              }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#0F6659] hover:bg-[#0D5449] text-white flex items-center justify-center shadow-2xs hover:shadow-sm transition-all active:scale-95 cursor-pointer"
+              title="ส่งออกรายงาน Excel"
+            >
+              <FileSpreadsheet size={18} />
+            </button>
+          </div>
         </div>
 
-        {/* Right: Clean Meta Information */}
-        <div className="flex flex-wrap sm:flex-col items-start sm:items-end justify-between sm:justify-center gap-1.5 pt-3 sm:pt-0 border-t sm:border-t-0 border-slate-100 text-xs">
-          <div><span className="text-slate-400 font-medium">แบบฟอร์ม:</span> <span className="font-bold text-[#0F6659] ml-1">{formTitle}</span></div>
-          <div><span className="text-slate-400 font-medium">วันที่ตรวจ:</span> <span className="font-bold text-slate-800 ml-1">{dateStr}</span></div>
-          <div><span className="text-slate-400 font-medium">ผู้ตรวจ:</span> <span className="font-bold text-slate-800 ml-1">{auditorName}</span></div>
+        {/* Second Section: Defect Banner (Full Width) */}
+        {issues.length > 0 ? (
+          <div className="rounded-2xl p-3 sm:p-3.5 bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-2.5 shadow-2xs">
+            <AlertTriangle size={18} className="text-rose-600 shrink-0" />
+            <span className="text-sm font-extrabold">พบข้อบกพร่อง {issues.length} ข้อ</span>
+          </div>
+        ) : (
+          <div className="rounded-2xl p-3 sm:p-3.5 bg-[#F0FDF4] border border-emerald-200/80 text-[#0F6659] flex items-center gap-2.5 shadow-2xs">
+            <CheckCircle2 size={18} className="text-[#0F6659] shrink-0" />
+            <span className="text-xs sm:text-base font-extrabold">ไม่พบข้อบกพร่อง</span>
+          </div>
+        )}
+
+        {/* Third Section: Metadata Rows (3 Rows with dividers and mint icons) */}
+        <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 px-1.5 py-1.5 sm:px-3 sm:py-3 divide-y divide-slate-100/90 text-xs sm:text-sm mt-3.5 sm:mt-4">
+          {/* Row 1: แบบฟอร์ม */}
+          <div className="flex items-center gap-1.5 sm:gap-3 pb-2 sm:pb-4">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+              <FileText size={16} />
+            </div>
+            <span className="text-slate-400 font-semibold w-[64px] sm:w-[72px] shrink-0">แบบฟอร์ม</span>
+            <span className="font-extrabold text-slate-800 truncate flex-1 min-w-0" title={formTitle}>
+              {formTitle}
+            </span>
+          </div>
+
+          {/* Row 2: วันที่ตรวจ */}
+          <div className="flex items-center gap-1.5 sm:gap-3 py-2 sm:py-4">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+              <Calendar size={16} />
+            </div>
+            <span className="text-slate-400 font-semibold w-[64px] sm:w-[72px] shrink-0">วันที่ตรวจ</span>
+            <span className="font-extrabold text-slate-800 truncate flex-1 min-w-0">
+              {isBackdated ? `${actualInspectDateStr} (${startedTimeStr} - ${submittedTimeStr})` : dateStr}
+            </span>
+          </div>
+
+          {/* Row 3: ผู้ตรวจ */}
+          <div className="flex items-center gap-1.5 sm:gap-3 pt-2 sm:pt-4">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+              <User size={16} />
+            </div>
+            <span className="text-slate-400 font-semibold w-[64px] sm:w-[72px] shrink-0">ผู้ตรวจ</span>
+            <span className="font-extrabold text-slate-800 truncate flex-1 min-w-0" title={auditorName}>
+              {auditorName}
+            </span>
+          </div>
         </div>
+
+        {/* Fourth Section: Edit History Callout (เมื่อมีประวัติการแก้ไข) */}
+        {editLogsCount > 0 && (
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/90 space-y-2.5">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+                <History size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs sm:text-sm font-bold text-amber-950">
+                    บันทึกนี้ได้รับการแก้ไข
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 text-[11px] font-black shadow-2xs">
+                    {editLogsCount} ครั้ง
+                  </span>
+                </div>
+                <div className="text-[11.5px] text-amber-800/85 font-medium mt-0.5 leading-normal">
+                  มีบันทึกประวัติการปรับปรุงคะแนนและเหตุผลกำกับ
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowEditLogsModal(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
+            >
+              <span>ดูประวัติการแก้ไข</span>
+              <ChevronRight size={14} className="text-amber-700" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* 🌟 5-TAB SEGMENTED SELECTOR */}
-      <div className="grid grid-cols-5 bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs gap-1">
+      {/* 🌟 5-TAB SEGMENTED SELECTOR (ตรงตาม Mockup) */}
+      <div className="grid grid-cols-5 bg-white rounded-2xl p-1.5 border border-slate-200/80 shadow-2xs gap-1">
         {[
           { key: "responses", label: "ผลตรวจ", icon: ClipboardCheck },
           { key: "overview", label: "คะแนน", icon: BarChart3 },
@@ -415,14 +621,14 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               key={tab.key}
               type="button"
               onClick={() => setActiveTab(tab.key)}
-              className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 py-2 px-1 sm:px-3 rounded-xl cursor-pointer transition-all active:scale-95 text-center ${
-                isActive 
-                  ? 'bg-[#0F6659] text-white shadow-xs' 
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+              className={`flex flex-col items-center justify-center py-2 px-1 rounded-xl transition-all cursor-pointer select-none active:scale-95 ${
+                isActive
+                  ? "bg-[#0F6659] text-white shadow-xs font-bold"
+                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-50 font-medium"
               }`}
             >
-              <Icon size={16} strokeWidth={isActive ? 2.5 : 2} className={isActive ? "text-emerald-200" : "text-slate-400"} />
-              <span className="text-[11px] sm:text-xs font-bold leading-tight tracking-tight">
+              <Icon size={18} className={isActive ? "text-white" : "text-slate-400"} />
+              <span className="text-[11px] sm:text-xs mt-1 leading-none tracking-tight">
                 {tab.label}
               </span>
             </button>
@@ -459,7 +665,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                 {/* CATEGORY HEADER */}
                 <div className="px-4 sm:px-5 py-3 bg-[#F4F9F6] border-b border-emerald-100 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
-                    <span className="w-7 h-7 rounded-xl bg-emerald-100 text-[#0F6659] font-extrabold text-xs flex items-center justify-center shrink-0">
+                    <span className="w-7 h-7 rounded-full bg-emerald-100 text-[#0F6659] font-black text-xs flex items-center justify-center shrink-0">
                       {secIdx + 1}
                     </span>
                     <h3 className="text-sm sm:text-base font-bold text-slate-900">
@@ -468,9 +674,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                   </div>
 
                   {/* Section Status Badge */}
-                  <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${
+                  <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
                     secPassed 
-                      ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
+                      ? "bg-emerald-50 text-[#0F6659] border-emerald-200" 
                       : "bg-amber-50 text-amber-900 border-amber-200"
                   }`}>
                     {secPassed ? `ผ่านครบ (${passedQ}/${totalQ})` : `ตก ${totalQ - passedQ} ข้อ`}
@@ -494,89 +700,129 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     return (
                       <div 
                         key={q.id} 
-                        className={`p-4 rounded-2xl border shadow-2xs space-y-3 transition-all ${
-                          q.isNa
-                            ? "bg-slate-50/60 border-slate-200"
-                            : isPass 
-                            ? "bg-white border-slate-200" 
-                            : "bg-amber-50/20 border-amber-300"
-                        }`}
+                        className="p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3 transition-all hover:border-slate-300"
                       >
                         {/* Question Header & Score Badge at Top Right */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                            <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                            <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
                               {q.num}
                             </span>
                             <div>
                               <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
                                 {q.text}
                               </div>
-                              {q.isCritical && (
-                                <span className="inline-block mt-1 text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
-                                  ⚠️ สำคัญ
+                              <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                <span className="inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                                  {getQuestionCategory(q, sec)}
                                 </span>
-                              )}
+                                {q.isCritical && (
+                                  <span className="inline-block text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
+                                    ⚠️ สำคัญ
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
                           {/* 🌟 มุมขวาบนของข้อ: แสดงเป็นคะแนนเสมอ */}
                           <div className="shrink-0">
-                            <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-extrabold px-3 py-1 rounded-xl border shadow-2xs ${
+                            <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-bold px-3 py-1 rounded-full border shadow-2xs ${
                               q.isNa
                                 ? "bg-slate-100 text-slate-500 border-slate-200"
                                 : isPass
-                                ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                ? "bg-emerald-50 text-[#0F6659] border-emerald-200"
                                 : "bg-red-50 text-red-700 border-red-300"
-                            }`} style={{ fontFamily: mono }}>
+                             } font-mono`}>
                               <span>{q.scoreGiven !== undefined ? q.scoreGiven : (isPass ? full : 0)} / {full}</span>
                             </span>
                           </div>
                         </div>
 
-                        {/* 🌟 ส่วนด้านล่าง: แสดงเป็นคำตอบที่ตอบแบบปกติ */}
-                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                          {q.isNa ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-600 border border-slate-200">
-                              <Minus size={14} />
-                              <span>ข้าม (N/A)</span>
-                            </span>
-                          ) : q.type === "yesno" ? (
-                            <span className={`inline-flex items-center gap-1.5 text-xs sm:text-sm font-extrabold px-3 py-1.5 rounded-xl border ${
-                              q.answer 
-                                ? "bg-emerald-50 text-emerald-800 border-emerald-300" 
-                                : "bg-red-50 text-red-700 border-red-300"
-                            }`}>
-                              {q.answer ? <CheckCircle2 size={15} className="text-emerald-600" /> : <XCircle size={15} className="text-red-600" />}
-                              <span>{q.answer ? "ผ่าน" : "ไม่ผ่าน"}</span>
-                            </span>
-                          ) : q.type === "scale" ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-400">คำตอบที่ประเมิน:</span>
-                              <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-extrabold px-3 py-1 rounded-xl border ${
-                                (q.scaleScore || q.answer) >= 4 
-                                  ? "bg-emerald-50 text-emerald-800 border-emerald-300" 
-                                  : (q.scaleScore || q.answer) >= 3
-                                  ? "bg-amber-50 text-amber-800 border-amber-300"
-                                  : "bg-red-50 text-red-700 border-red-300"
-                              }`}>
-                                <span>ระดับ {q.scaleScore || (typeof q.answer === 'number' && q.answer <= 5 ? q.answer : Math.round((currentSc / full) * 5))} / 5</span>
-                              </span>
-                            </div>
-                          ) : (
-                            q.answer && typeof q.answer === 'string' && q.answer.trim() && (
-                              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-medium text-slate-800 w-full">
-                                "{q.answer}"
+                        {/* 🌟 แสดงรูปแบบปุ่มเหมือนตอนตรวจหน้าร้าน (Live Audit) แต่เป็นโทนสีเทาสุขุมแบบ Disabled (กดแก้ไขไม่ได้) */}
+                        {q.type === "scale" ? (
+                          <div className="pt-1 space-y-1.5 pointer-events-none select-none cursor-default">
+                            <div className="flex gap-1.5 items-center w-full">
+                              {[1, 2, 3, 4, 5].map((n) => {
+                                const selectedScale = q.scaleScore || (typeof q.answer === 'number' && q.answer <= 5 ? q.answer : Math.round((currentSc / full) * 5));
+                                const isSelected = !q.isNa && (selectedScale === n);
+                                return (
+                                  <div
+                                    key={n}
+                                    className={`flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-black border flex items-center justify-center transition-all ${
+                                      isSelected
+                                        ? n >= 4
+                                          ? 'bg-slate-200/90 text-emerald-800 border-emerald-300/80 font-black'
+                                          : n === 3
+                                          ? 'bg-slate-200/90 text-amber-800 border-amber-300/80 font-black'
+                                          : 'bg-slate-200/90 text-rose-800 border-rose-300/80 font-black'
+                                        : 'bg-slate-50 text-slate-400/80 border-slate-200/60 opacity-40'
+                                    }`}
+                                  >
+                                    {n}
+                                  </div>
+                                );
+                              })}
+                              <div
+                                className={`px-3 py-2 sm:py-2.5 rounded-xl flex items-center justify-center text-[10px] sm:text-xs font-black border transition-all ${
+                                  q.isNa
+                                    ? 'bg-slate-200/90 text-slate-700 border-slate-300'
+                                    : 'bg-slate-50 text-slate-400/80 border-slate-200/60 opacity-40'
+                                }`}
+                              >
+                                <Minus size={14} className="mr-0.5" /> N/A
                               </div>
-                            )
-                          )}
-                        </div>
+                            </div>
+                          </div>
+                        ) : (q.type === "text" || q.type === "textarea") ? (
+                          q.answer && typeof q.answer === 'string' && q.answer.trim() && (
+                            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-medium text-slate-800 w-full">
+                              "{q.answer}"
+                            </div>
+                          )
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2 w-full pt-1 pointer-events-none select-none cursor-default">
+                            {/* ผ่าน / Yes */}
+                            <div
+                              className={`py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+                                !q.isNa && isPass
+                                  ? 'bg-slate-200/90 text-emerald-800 border-emerald-300/80'
+                                  : 'bg-slate-50 text-slate-400/80 border-slate-200/60 opacity-40'
+                              }`}
+                            >
+                              <CheckCircle2 size={18} className={!q.isNa && isPass ? "text-emerald-700" : "text-slate-400"} />
+                              <span>ผ่าน / Yes</span>
+                            </div>
+
+                            {/* ไม่ผ่าน / No */}
+                            <div
+                              className={`py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+                                !q.isNa && !isPass
+                                  ? 'bg-slate-200/90 text-rose-800 border-rose-300/80'
+                                  : 'bg-slate-50 text-slate-400/80 border-slate-200/60 opacity-40'
+                              }`}
+                            >
+                              <XCircle size={18} className={!q.isNa && !isPass ? "text-rose-700" : "text-slate-400"} />
+                              <span>ไม่ผ่าน / No</span>
+                            </div>
+
+                            {/* ข้าม (N/A) */}
+                            <div
+                              className={`py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+                                q.isNa
+                                  ? 'bg-slate-200/90 text-slate-700 border-slate-300'
+                                  : 'bg-slate-50 text-slate-400/80 border-slate-200/60 opacity-40'
+                              }`}
+                            >
+                              <Minus size={18} className={q.isNa ? "text-slate-700" : "text-slate-400"} />
+                              <span>ข้าม (N/A)</span>
+                            </div>
+                          </div>
+                        )}
 
                         {/* 🌟 ส่วนคอมเม้น: ถ้าไม่มีคอมเม้นไม่ต้องแสดงกล่องบันทึกผู้ตรวจ */}
                         {q.note && q.note.trim().length > 0 && (
-                          <div className={`p-2.5 px-3 rounded-xl text-xs sm:text-sm font-medium flex items-center gap-2 ${
-                            isPass ? "bg-slate-50 text-slate-700 border border-slate-200" : "bg-amber-50 text-amber-950 border border-amber-200"
-                          }`}>
+                          <div className="p-2.5 px-3 rounded-xl text-xs sm:text-sm font-medium flex items-center gap-2 bg-slate-50 text-slate-800 border border-slate-200">
                             <MessageSquare size={14} className="shrink-0 text-slate-400" />
                             <span><b>บันทึกผู้ตรวจ:</b> {q.note}</span>
                           </div>
@@ -658,8 +904,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               <button
                                 type="button"
                                 onClick={() => setSubmittingCapQuestion(q)}
-                                className="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-white cursor-pointer shadow-xs active:scale-95 flex items-center gap-1.5"
-                                style={{ background: "#0F6659" }}
+                                className="px-4 py-2 rounded-2xl bg-[#0F6659] text-xs sm:text-sm font-bold text-white cursor-pointer shadow-xs active:scale-95 flex items-center gap-1.5"
                               >
                                 <Wrench size={15} />
                                 <span>ส่งหลักฐาน CAP ➔</span>
@@ -752,7 +997,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             <button 
               type="button"
               onClick={() => setPreviewPhoto(null)} 
-              className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 font-bold text-xs text-slate-700 cursor-pointer transition-all"
+              className="px-5 py-2 rounded-2xl bg-slate-200 hover:bg-slate-300 font-bold text-xs text-slate-700 cursor-pointer transition-all"
             >
               ปิดหน้าต่าง
             </button>
@@ -765,20 +1010,26 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         <div className="space-y-4 animate-in fade-in duration-200">
           <Section title="คะแนนแยกตามหมวดหมู่">
             <div className="rounded-2xl overflow-hidden shadow-2xs" style={cardStyle}>
-              {sections.map((s, i) => (
-                <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < sections.length - 1 ? `1px solid ${c.border}` : "none" }}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-semibold" style={{ color: c.ink }}>{s.title}</span>
-                    <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({s.percent}%)</span>
+              {categoryScores.map((s, i) => {
+                const isPassing = s.percent >= (currentRecord?.passingScore || 85);
+                return (
+                  <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-bold text-slate-800">{s.title}</span>
+                      <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({s.percent}%)</span>
+                    </div>
+                    <div className="h-2 rounded-full overflow-hidden bg-slate-100">
+                      <div
+                        className="h-full rounded-full transition-all duration-500 ease-out"
+                        style={{
+                          width: `${s.max > 0 ? Math.min(100, Math.max(0, (s.score / s.max) * 100)) : 0}%`,
+                          background: isPassing ? c.accent : s.percent >= 70 ? c.warn : c.risk
+                        }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full overflow-hidden" style={{ background: c.border }}>
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${(s.score / s.max) * 100}%`, background: s.score / s.max >= 0.85 ? c.accent : s.score / s.max >= 0.7 ? c.warn : c.risk }}
-                    />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Section>
 
@@ -786,13 +1037,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             <Section title={`ข้อบกพร่องที่ต้องแก้ไข (${issues.length} ข้อ)`}>
               <div className="flex flex-col gap-2">
                 {issues.map((iss, i) => (
-                  <div key={i} className="rounded-2xl p-3 sm:p-3.5 flex items-start gap-2.5" style={{ background: iss.critical ? c.riskSoft : c.warnSoft }}>
+                  <div key={i} className={`rounded-2xl p-3 sm:p-3.5 flex items-start gap-2.5 ${iss.critical ? "bg-rose-50" : "bg-amber-50"}`}>
                     {iss.critical ? (
-                      <Megaphone size={15} style={{ color: c.risk, marginTop: 2 }} className="shrink-0" />
+                      <Megaphone size={15} className="shrink-0 text-rose-600 mt-0.5" />
                     ) : (
-                      <AlertTriangle size={15} style={{ color: c.warn, marginTop: 2 }} className="shrink-0" />
+                      <AlertTriangle size={15} className="shrink-0 text-amber-600 mt-0.5" />
                     )}
-                    <div className="text-xs leading-relaxed font-medium space-y-0.5" style={{ color: iss.critical ? c.risk : c.warn }}>
+                    <div className={`text-xs leading-relaxed font-medium space-y-0.5 ${iss.critical ? "text-rose-600" : "text-amber-600"}`}>
                       <div className="font-bold">ข้อ {iss.num || i + 1}. {iss.title}</div>
                       {iss.note && <div className="text-[11.5px] opacity-90">➔ {iss.note}</div>}
                     </div>
@@ -823,7 +1074,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           </div>
 
           {/* Album 1: On-site Inspection Photos */}
-          <div className="p-4 rounded-3xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
+          <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-900">📷 อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
@@ -885,7 +1136,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           </div>
 
           {/* Album 2: CAP Corrective Action Evidence Photos */}
-          <div className="p-4 rounded-3xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
+          <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-900">🛠️ อัลบั้มรูปหลักฐานการแก้ไข (CAP After-Photos)</span>
@@ -949,12 +1200,12 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         <div className="space-y-4 animate-in fade-in duration-200">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Inspector Signature */}
-            <div className="p-4 rounded-2xl bg-white border shadow-2xs space-y-2.5" style={{ borderColor: c.border }}>
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5">
               <div className="text-xs font-bold text-slate-500">ผู้ตรวจประเมิน</div>
               <div className="h-28 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center p-2 text-center overflow-hidden">
-                {(record.auditorSignatureUrl || record.auditorSignature) ? (
+                {(currentRecord.auditorSignatureUrl || currentRecord.auditorSignature) ? (
                   <img
-                    src={getFullImageUrl(record.auditorSignatureUrl || record.auditorSignature)}
+                    src={getFullImageUrl(currentRecord.auditorSignatureUrl || currentRecord.auditorSignature)}
                     alt="ลายเซ็นผู้ตรวจประเมิน"
                     className="max-h-20 object-contain mx-auto"
                   />
@@ -971,12 +1222,12 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             </div>
 
             {/* Store Manager Signature */}
-            <div className="p-4 rounded-2xl bg-white border shadow-2xs space-y-2.5" style={{ borderColor: c.border }}>
+            <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5">
               <div className="text-xs font-bold text-slate-500">ผู้จัดการสาขา (ผู้รับตรวจ)</div>
               <div className="h-28 rounded-xl bg-slate-50 border border-dashed border-slate-200 flex flex-col items-center justify-center p-2 text-center overflow-hidden">
-                {(record.auditeeSignatureUrl || record.auditeeSignature) ? (
+                {(currentRecord.auditeeSignatureUrl || currentRecord.auditeeSignature) ? (
                   <img
-                    src={getFullImageUrl(record.auditeeSignatureUrl || record.auditeeSignature)}
+                    src={getFullImageUrl(currentRecord.auditeeSignatureUrl || currentRecord.auditeeSignature)}
                     alt="ลายเซ็นผู้จัดการสาขา"
                     className="max-h-20 object-contain mx-auto"
                   />
@@ -995,7 +1246,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
           {/* Custom Audit Metadata Information Card */}
           {Object.keys(parsedMetadataValues).length > 0 && (
-            <div className="p-4 sm:p-5 rounded-2xl bg-white border shadow-2xs space-y-3" style={{ borderColor: c.border }}>
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-800 border-b border-slate-100 pb-2">
                 <SlidersHorizontal size={15} className="text-[#0F6659]" />
                 <span>ข้อมูลและตัวแปรเฉพาะรอบการตรวจ (Custom Audit Details)</span>
@@ -1032,7 +1283,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     <span>1. จุดเริ่มตรวจ (Start Inspection)</span>
                   </div>
                   <div className="text-[11.5px] text-slate-500 font-medium">
-                    เวลาเริ่ม: <span className="font-bold text-slate-700">{startedTimeStr}</span> · พิกัด: <span className="font-bold text-slate-700" style={{ fontFamily: mono }}>{startLat && startLng ? `${Number(startLat).toFixed(6)}, ${Number(startLng).toFixed(6)}` : "-"}</span>
+                    เวลาเริ่ม: <span className="font-bold text-slate-700">{startedTimeStr}</span> · พิกัด: <span className="font-bold text-slate-700 font-mono">{startLat && startLng ? `${Number(startLat).toFixed(6)}, ${Number(startLng).toFixed(6)}` : "-"}</span>
                   </div>
                 </div>
                 {startLat && startLng ? (
@@ -1056,12 +1307,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     title="Start Location Map"
                     width="100%"
                     height="100%"
-                    style={{ border: 0 }}
                     loading="lazy"
                     allowFullScreen
                     referrerPolicy="no-referrer-when-downgrade"
                     src={`https://maps.google.com/maps?q=${startLat},${startLng}&hl=th&z=16&output=embed`}
-                    className="w-full h-full block"
+                    className="w-full h-full block border-0"
                   />
                 ) : (
                   <div className="text-center p-4 text-slate-400 space-y-1">
@@ -1077,11 +1327,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-0.5">
                   <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse inline-block" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
                     <span>2. จุดส่งผลตรวจ (Submit Inspection)</span>
                   </div>
                   <div className="text-[11.5px] text-slate-500 font-medium">
-                    เวลาส่งผล: <span className="font-bold text-slate-700">{submittedTimeStr}</span> · พิกัด: <span className="font-bold text-slate-700" style={{ fontFamily: mono }}>{endLat && endLng ? `${Number(endLat).toFixed(6)}, ${Number(endLng).toFixed(6)}` : "-"}</span>
+                    เวลาส่งผล: <span className="font-bold text-slate-700">{submittedTimeStr}</span> · พิกัด: <span className="font-bold text-slate-700 font-mono">{endLat && endLng ? `${Number(endLat).toFixed(6)}, ${Number(endLng).toFixed(6)}` : "-"}</span>
                   </div>
                 </div>
                 {endLat && endLng ? (
@@ -1105,12 +1355,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     title="Submit Location Map"
                     width="100%"
                     height="100%"
-                    style={{ border: 0 }}
                     loading="lazy"
                     allowFullScreen
                     referrerPolicy="no-referrer-when-downgrade"
                     src={`https://maps.google.com/maps?q=${endLat},${endLng}&hl=th&z=16&output=embed`}
-                    className="w-full h-full block"
+                    className="w-full h-full block border-0"
                   />
                 ) : (
                   <div className="text-center p-4 text-slate-400 space-y-1">

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Plus, Tag, Edit3, Trash2, X, Check } from 'lucide-react';
+import { Search, Plus, Tag, Edit3, Trash2, X, Check, AlertTriangle, ChevronRight } from "lucide-react";
 import api from '../../../config/api';
 import ModalWrapper from '../../../shared/ModalWrapper';
 
@@ -12,6 +12,8 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
   const [editBrand, setEditBrand] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const filtered = useMemo(() => {
     let list = brands;
@@ -59,14 +61,22 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
     }
   };
 
-  const handleDelete = async (b) => {
-    if (!window.confirm(`ลบแบรนด์ "${b.name}" ใช่หรือไม่? (สาขาที่ผูกแบรนด์นี้จะถูกถอนออกอัตโนมัติ)`)) return;
+  const handleDelete = (b) => {
+    setDeleteTarget(b);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api.delete(`/brand/${b.id}`);
-      showToast?.(`✓ ลบแบรนด์ "${b.name}" สำเร็จ`);
+      await api.delete(`/brand/${deleteTarget.id}`);
+      showToast?.(`✓ ลบแบรนด์ "${deleteTarget.name}" สำเร็จ`);
       onRefresh?.();
+      setDeleteTarget(null);
     } catch (err) {
       showToast?.(err.response?.data?.message || 'ลบแบรนด์ไม่สำเร็จ (อาจมีสาขาผูกอยู่)', true);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -96,8 +106,8 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
       <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
         {[
           { id: 'ALL', label: `ทั้งหมด (${brands.length})` },
-          { id: 'ACTIVE', label: `🟢 ใช้งาน (${brands.filter(b => b.isActive).length})` },
-          { id: 'INACTIVE', label: `🔴 ปิดใช้งาน (${brands.filter(b => !b.isActive).length})` },
+          { id: 'ACTIVE', label: `ใช้งาน (${brands.filter(b => b.isActive).length})` },
+          { id: 'INACTIVE', label: `ปิดใช้งาน (${brands.filter(b => !b.isActive).length})` },
         ].map((pill) => (
           <button
             key={pill.id}
@@ -124,37 +134,32 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
           <p className="text-sm font-bold text-slate-700">ไม่พบแบรนด์ที่ตรงกับเงื่อนไข</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {filtered.map((b) => (
-            <div key={b.id} className="p-4 rounded-2xl border border-slate-200 hover:border-[#0F6659] transition-all bg-white shadow-2xs flex flex-col justify-between gap-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <span className="text-xs font-mono font-bold text-slate-400">{b.code || '-'}</span>
-                  <div className="font-bold text-slate-800 truncate">{b.name}</div>
-                  {b.description && <p className="text-xs text-slate-400 mt-0.5 line-clamp-2">{b.description}</p>}
+            <div
+              key={b.id}
+              onClick={() => openEdit(b)}
+              className="p-4.5 rounded-2xl border border-slate-200 hover:border-[#0F6659] bg-white transition-all shadow-2xs hover:shadow-xs cursor-pointer active:scale-98 space-y-2.5 flex flex-col justify-between group"
+            >
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-black text-slate-800 bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200">
+                    {b.code || '-'}
+                  </span>
+                  <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
                 </div>
-                <span className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                <h4 className="text-base font-black text-slate-850 group-hover:text-[#0F6659] transition-colors mt-2.5">{b.name}</h4>
+                <p className="text-xs text-slate-500 leading-relaxed mt-1 line-clamp-2">{b.description || "แบรนด์ในเครือมาตรฐาน Q.S.C."}</p>
+              </div>
+
+              <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                <span className="group-hover:text-[#0F6659] font-extrabold transition-colors">แตะเพื่อแก้ไข</span>
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold ${
                   b.isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${b.isActive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
                   {b.isActive ? 'ใช้งาน' : 'ปิด'}
                 </span>
-              </div>
-              <div className="flex items-center gap-2 pt-2.5 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => openEdit(b)}
-                  className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 hover:border-[#0F6659] hover:bg-[#0F6659]/5 text-xs font-bold text-slate-700 hover:text-[#0F6659] transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
-                >
-                  <Edit3 size={13} /> แก้ไข
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(b)}
-                  className="px-3 py-1.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-xs font-bold text-rose-600 transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
-                >
-                  <Trash2 size={13} />
-                </button>
               </div>
             </div>
           ))}
@@ -176,7 +181,7 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
                 type="text"
                 value={form.code}
                 onChange={(e) => setForm({ ...form, code: e.target.value })}
-                className="w-full px-4.5 py-3 rounded-2xl border border-slate-200 text-sm focus:border-[#0F6659] outline-none shadow-xs"
+                className="w-full px-4.5 py-3 rounded-2xl border border-slate-200 text-sm focus:border-[#0F6659] outline-none shadow-xs font-mono"
                 placeholder="เช่น UB"
               />
             </div>
@@ -189,7 +194,6 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
                 className="w-full px-4.5 py-3 rounded-2xl border border-slate-200 text-sm focus:border-[#0F6659] outline-none shadow-xs"
                 placeholder="เช่น Urban Burger"
                 required
-                autoFocus
               />
             </div>
             <div>
@@ -213,14 +217,72 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
               </button>
               <span className="text-sm font-semibold text-slate-700">เปิดใช้งานแบรนด์นี้</span>
             </label>
-            <button
-              type="submit"
-              disabled={saving}
-              className="w-full py-3.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-sm font-bold shadow-md cursor-pointer active:scale-98 transition-all disabled:opacity-50"
-            >
-              {saving ? 'กำลังบันทึก...' : editBrand ? 'บันทึกการแก้ไข' : 'เพิ่มแบรนด์'}
-            </button>
+
+            <div className="flex gap-2.5 pt-2">
+              {editBrand && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const bToDelete = editBrand;
+                    closeModals();
+                    setDeleteTarget(bToDelete);
+                  }}
+                  className="px-4 py-3.5 rounded-2xl border border-rose-200 hover:bg-rose-50 text-rose-600 text-sm font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 active:scale-98"
+                  title="ลบแบรนด์นี้"
+                >
+                  <Trash2 size={16} />
+                  <span>ลบ</span>
+                </button>
+              )}
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 py-3.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-sm font-bold shadow-md cursor-pointer active:scale-98 transition-all disabled:opacity-50"
+              >
+                {saving ? 'กำลังบันทึก...' : editBrand ? 'บันทึกการแก้ไข' : 'เพิ่มแบรนด์'}
+              </button>
+            </div>
           </form>
+        </ModalWrapper>
+      )}
+
+      {/* ⚠️ In-app delete confirmation (replaces window.confirm) */}
+      {deleteTarget && (
+        <ModalWrapper onClose={() => !deleting && setDeleteTarget(null)} maxWidth="max-w-md">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl flex items-center justify-center font-bold shrink-0 bg-rose-100 text-rose-600">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">ลบแบรนด์</h3>
+                <p className="text-xs text-slate-500 font-medium">กรุณาตรวจสอบก่อนยืนยันรายการ</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+              ลบแบรนด์ "{deleteTarget.name}" ใช่หรือไม่? (สาขาที่ผูกแบรนด์นี้จะถูกถอนออกอัตโนมัติ)
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer transition-all"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={confirmDelete}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm transition-all flex items-center justify-center gap-1.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50"
+              >
+                {deleting ? 'กำลังลบ...' : 'ยืนยันลบ'}
+              </button>
+            </div>
+          </div>
         </ModalWrapper>
       )}
     </div>

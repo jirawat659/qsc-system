@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Plus, Store, MapPin, UserCheck, ChevronRight, Edit3, Phone } from 'lucide-react';
+import { Search, Plus, Store, MapPin, UserCheck, ChevronRight, Edit3, Phone } from "lucide-react";
 import BrandChipSelector from '../../../shared/BrandChipSelector';
 
 export default function LocationManagementTab({
@@ -38,8 +38,8 @@ export default function LocationManagementTab({
           <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
             {[
               { id: 'ALL', label: `ทั้งหมด (${locations.length})` },
-              { id: 'ACTIVE', label: `🟢 เปิดให้บริการ (${locations.filter(l => l.isActive).length})` },
-              { id: 'INACTIVE', label: `🔴 ปิดปรับปรุง/ระงับ (${locations.filter(l => !l.isActive).length})` },
+              { id: 'ACTIVE', label: `เปิดให้บริการ (${locations.filter(l => l.isActive).length})` },
+              { id: 'INACTIVE', label: `ปิดปรับปรุง/ระงับ (${locations.filter(l => !l.isActive).length})` },
             ].map((pill) => (
               <button
                 key={pill.id}
@@ -143,7 +143,7 @@ export default function LocationManagementTab({
                             </div>
                           </td>
                           <td className="py-3.5 px-4">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
                               {loc.locationType?.name || loc.locationType?.code || "STORE"}
                             </span>
                           </td>
@@ -202,20 +202,23 @@ export default function LocationManagementTab({
                       }`}
                     >
                       <div className="space-y-2.5">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="text-xs font-mono font-bold text-slate-400 block">{loc.code}</span>
-                            <h4 className={`text-base font-black group-hover:text-[#0F6659] transition-colors ${
-                              isActive ? 'text-slate-900' : 'text-slate-600'
-                            }`}>{loc.name}</h4>
-                            <p className="text-xs text-slate-500 font-medium">{loc.brandName || "Urban Burger"}</p>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-blue-50 text-blue-800 border border-blue-200">
+                        {/* แถวที่ 1: รหัสสาขา (ซ้าย) + ป้ายประเภทสาขา & ChevronRight (ขวา) อยู่ในบรรทัดเดียวกัน */}
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span className="text-xs font-mono font-extrabold text-slate-400 shrink-0">{loc.code}</span>
+                          <div className="flex items-center gap-1.5 min-w-0 shrink">
+                            <span className="text-xs font-extrabold px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 truncate max-w-[190px] sm:max-w-[240px]">
                               {loc.locationType?.name || loc.locationType?.code || "STORE"}
                             </span>
-                            <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all" />
+                            <ChevronRight size={18} className="text-slate-300 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
                           </div>
+                        </div>
+
+                        {/* แถวที่ 2: ชื่อสาขาเต็มและแบรนด์ ยืดยาวเต็มบรรทัด ไม่บีบแคบ */}
+                        <div className="pt-0.5">
+                          <h4 className={`text-base font-black leading-snug group-hover:text-[#0F6659] transition-colors ${
+                            isActive ? 'text-slate-900' : 'text-slate-600'
+                          }`}>{loc.name}</h4>
+                          <p className="text-xs text-slate-500 font-medium mt-0.5">{loc.brandName || "Urban Burger"}</p>
                         </div>
 
                         <div className="text-xs text-slate-600 space-y-2 pt-2.5 border-t border-slate-100">
@@ -230,7 +233,7 @@ export default function LocationManagementTab({
                           {loc.managerUser && (
                             <div className="flex items-center gap-2">
                               <UserCheck size={14} className="text-emerald-600 shrink-0" />
-                              <span className="font-semibold">ผู้จัดการ: {loc.managerUser.fullName}</span>
+                              <span className="font-semibold truncate">ผู้จัดการ: {loc.managerUser.fullName}</span>
                             </div>
                           )}
                         </div>

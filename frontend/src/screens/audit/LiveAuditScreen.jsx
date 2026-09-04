@@ -1,12 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, Store,
-  MapPin, Navigation, Search, Sparkles, ChevronRight, ChevronLeft, CheckCircle2,
-  XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock,
-  ClipboardList, Check, Loader2, Save, ShieldAlert, CheckCheck,
-  RefreshCw, AlertTriangle, X
-} from "lucide-react";
+import { PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -57,6 +51,42 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
       className="w-full text-xs p-2.5 rounded-xl border border-slate-200 outline-none text-slate-800 focus:border-[#0F6659] bg-slate-50/80"
     />
   );
+};
+
+// 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
+export const CORE_CATEGORY_ORDER = [
+  "ความสะอาด",
+  "เอกสาร",
+  "กระบวนการทำงาน",
+  "คุณภาพสินค้า",
+  "การบริการ"
+];
+
+// 🏷️ ดึงชื่อหมวดคะแนนของคำถามแต่ละข้อ (แยกอิสระจากหมวดคำถามของฟอร์ม)
+export const getQuestionCategory = (q, sec) => {
+  let name = (q?.categoryName || q?.category || "").trim();
+  if (name) {
+    if (name === "คุณภาพสินค้า-วัตถุดิบ") return "คุณภาพสินค้า";
+    return name;
+  }
+  if (q?.categoryCode) {
+    const code = q.categoryCode.toUpperCase();
+    if (code === "CLN") return "ความสะอาด";
+    if (code === "DOC") return "เอกสาร";
+    if (code === "OPS") return "กระบวนการทำงาน";
+    if (code === "QLT") return "คุณภาพสินค้า";
+    if (code === "SVC") return "การบริการ";
+    if (code === "REG" || code === "RULE") return "ความถูกระเบียบ";
+    if (code === "SAF") return "ความปลอดภัย";
+  }
+  if (sec?.title) {
+    if (sec.title.includes("สะอาด") || sec.title.includes("สุขอนามัย") || sec.title.includes("CLN")) return "ความสะอาด";
+    if (sec.title.includes("เอกสาร") || sec.title.includes("DOC")) return "เอกสาร";
+    if (sec.title.includes("บริการ") || sec.title.includes("SVC")) return "การบริการ";
+    if (sec.title.includes("คุณภาพ") || sec.title.includes("QLT")) return "คุณภาพสินค้า";
+    if (sec.title.includes("กระบวนการ") || sec.title.includes("โรงงาน") || sec.title.includes("OPS") || sec.title.includes("GMP")) return "กระบวนการทำงาน";
+  }
+  return "ความสะอาด";
 };
 
 // ✍️ Touch & Mouse High-DPI Digital Signature Pad — เปิดเป็น Modal เต็มจอเวลาเซ็น (ไม่เซ็นในหน้าเดิม)
@@ -269,6 +299,16 @@ export default function LiveAuditScreen({
   onActiveStateChange,
   onSyncStatusChange
 }) {
+  const onActiveStateChangeRef = useRef(onActiveStateChange);
+  onActiveStateChangeRef.current = onActiveStateChange;
+
+  const onSyncStatusChangeRef = useRef(onSyncStatusChange);
+  onSyncStatusChangeRef.current = onSyncStatusChange;
+
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+
+  const { setSubHeader } = React.useContext(TopBarContext) || {};
   const { currentUser: ctxUser, locations: allLocations, visibleLocations, forms, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
   const currentUser = propUser || ctxUser;
   const formList = forms || [];
@@ -348,6 +388,35 @@ export default function LiveAuditScreen({
     (preselectedPlan.locationId || preselectedPlan.locationName || preselectedPlan.unit)
   );
 
+  const [searchBranch, setSearchBranch] = useState("");
+  const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
+
+  // 🌟 SORTING HIERARCHY: จัดเรียงตามระยะทาง GPS จากน้อยไปมาก สำหรับการตรวจงานใหม่
+  const sortedBranchList = useMemo(() => {
+    let list = [...(visibleLocations || [])];
+
+    if (currentUser?.branchScope === "SPECIFIC" && Array.isArray(currentUser.allowedLocationIds) && currentUser.allowedLocationIds.length > 0) {
+      list = list.filter(u => currentUser.allowedLocationIds.includes(u.id));
+    }
+
+    if (searchBranch.trim()) {
+      const q = searchBranch.toLowerCase();
+      list = list.filter(u =>
+        u.name?.toLowerCase().includes(q) ||
+        (u.fullName && u.fullName.toLowerCase().includes(q)) ||
+        u.region?.toLowerCase().includes(q) ||
+        (u.address && u.address.toLowerCase().includes(q))
+      );
+    }
+
+    // Sort by GPS distance ascending (น้อย ➔ มาก)
+    return list.sort((a, b) => {
+      const distA = getDistanceInMeters(userCoords.latitude, userCoords.longitude, a.latitude, a.longitude);
+      const distB = getDistanceInMeters(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude);
+      return distA - distB;
+    });
+  }, [visibleLocations, searchBranch, userCoords, currentUser]);
+
   // Step flow: select-unit -> select-form -> audit
   // 🌟 หากเป็นการเปิดฉบับร่างค้างตรวจ หรือตามแผนงาน ให้ข้ามไปหน้า 'audit' ทันที!
   const [step, setStep] = useState(() => {
@@ -355,9 +424,6 @@ export default function LiveAuditScreen({
     return "select-unit";
   });
   const [activeTab, setActiveTab] = useState(1);
-
-  const [searchBranch, setSearchBranch] = useState("");
-  const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
 
   const [branchPage, setBranchPage] = useState(1);
   const branchPageSize = 10;
@@ -372,6 +438,7 @@ export default function LiveAuditScreen({
     setBranchPageInput(String(branchPage));
   }, [branchPage]);
 
+  const totalBranchPages = Math.ceil(sortedBranchList.length / branchPageSize) || 1;
   const handleBranchPageSubmit = () => {
     const val = parseInt(branchPageInput, 10);
     if (!isNaN(val)) {
@@ -409,7 +476,6 @@ export default function LiveAuditScreen({
   const [photos, setPhotos] = useState(isResumeDraft ? (parsedDraftPayload?.photos || {}) : {});
   const [comments, setComments] = useState(isResumeDraft ? (parsedDraftPayload?.comments || {}) : {});
   const [openComments, setOpenComments] = useState({});
-  const [openNoteId, setOpenNoteId] = useState(null);
   const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
   const [auditorName, setAuditorName] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
@@ -450,7 +516,7 @@ export default function LiveAuditScreen({
           setUsersList(res.data);
         }
       })
-      .catch(err => console.warn('Could not load users for LiveAuditScreen:', err));
+      .catch(() => {});
     return () => { isMounted = false; };
   }, []);
 
@@ -499,7 +565,9 @@ export default function LiveAuditScreen({
     return "";
   });
   const [extraNote, setExtraNote] = useState(isResumeDraft ? (parsedDraftPayload?.extraNote || "") : "");
-  const [detailsErrors, setDetailsErrors] = useState({});
+  const [isBackdated, setIsBackdated] = useState(() => Boolean(parsedDraftPayload?.isBackdated));
+  const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
+  const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
 
   // Auto-sync status indicator
   const [syncStatus, setSyncStatus] = useState("idle"); // 'idle' | 'saving' | 'synced' // 'synced' | 'saving'
@@ -512,6 +580,7 @@ export default function LiveAuditScreen({
   const [auditStartedAt, setAuditStartedAt] = useState(() => parsedDraftPayload?.startedAt || new Date().toISOString());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
+  const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
 
   useEffect(() => {
     if (unit?.managerName) {
@@ -526,19 +595,20 @@ export default function LiveAuditScreen({
     }
   }, [unit]);
 
-  // 📍 Request real device GPS on mount
+  // 📍 GPS location tracking on mount (single watcher — no more race between two getCurrentPosition calls)
   useEffect(() => {
+    let cancelled = false;
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          if (pos?.coords) {
-            setUserCoords({
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude
-            });
-          }
+          if (cancelled || !pos?.coords) return;
+          setUserCoords({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude
+          });
         },
-        () => {
+        (err) => {
+          if (cancelled) return;
           // Fallback to unit coordinates if GPS not permitted
           if (unit?.latitude && unit?.longitude) {
             setUserCoords({
@@ -550,6 +620,9 @@ export default function LiveAuditScreen({
         { enableHighAccuracy: true, timeout: 6000 }
       );
     }
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 📍 Automatic Draft Hydration Effect (Runs ONCE when draft data arrives for this specific branch)
@@ -572,6 +645,15 @@ export default function LiveAuditScreen({
       if (parsedDraftPayload.auditorName) {
         setAuditorName(parsedDraftPayload.auditorName);
       }
+      if (parsedDraftPayload.isBackdated !== undefined) {
+        setIsBackdated(Boolean(parsedDraftPayload.isBackdated));
+      }
+      if (parsedDraftPayload.backdatedStartDate) {
+        setBackdatedStartDate(parsedDraftPayload.backdatedStartDate);
+      }
+      if (parsedDraftPayload.backdatedEndDate) {
+        setBackdatedEndDate(parsedDraftPayload.backdatedEndDate);
+      }
       if (parsedDraftPayload.auditType) {
         const t = parsedDraftPayload.auditType.toLowerCase();
         if (t === "spot" || t === "unannounced") setAuditType("spot");
@@ -593,39 +675,71 @@ export default function LiveAuditScreen({
     }
   }, [parsedDraftPayload, isResumeDraft, unit, selectedForm, formList]);
 
-  // 📍 GPS location tracking on mount
-  useEffect(() => {
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setUserCoords({
-            latitude: pos.coords.latitude,
-            longitude: pos.coords.longitude
-          });
-        },
-        (err) => console.log("Using default BKK coords:", err.message),
-        { enableHighAccuracy: false, timeout: 5000 }
-      );
-    }
-  }, []);
-
   // Inform parent whether an active live audit is happening
   useEffect(() => {
     const isActivelyAuditing = step === "audit";
-    if (onActiveStateChange) {
-      onActiveStateChange(isActivelyAuditing);
+    if (onActiveStateChangeRef.current) {
+      onActiveStateChangeRef.current(isActivelyAuditing);
     }
     return () => {
-      if (onActiveStateChange) onActiveStateChange(false);
+      if (onActiveStateChangeRef.current) onActiveStateChangeRef.current(false);
     };
-  }, [step, onActiveStateChange]);
+  }, [step]);
+
+  // 🌟 Sync subHeader to MainDashboard TopBar (แทนที่แถบโลโก้ด้วยปุ่มย้อนกลับ)
+  useEffect(() => {
+    if (!setSubHeader) return;
+    if (step === "select-unit") {
+      setSubHeader(prev => (prev === null ? prev : null));
+      return;
+    }
+
+    const title = step === "select-form" ? "เลือกแบบฟอร์มการตรวจ" : (unit?.fullName || unit?.name || "ตรวจประเมิน QSC");
+    const subtitle = step === "select-form" ? (unit?.fullName || unit?.name || "-") : (selectedForm?.title || "แบบฟอร์มการตรวจ");
+
+    setSubHeader(prev => {
+      if (
+        prev &&
+        prev.title === title &&
+        prev.subtitle === subtitle &&
+        prev.isAudit === true &&
+        prev.hasBack === true
+      ) {
+        return prev;
+      }
+
+      return {
+        title,
+        subtitle,
+        hasBack: true,
+        isAudit: true,
+        onBack: () => {
+          if (step === "select-form") {
+            setStep("select-unit");
+          } else {
+            if (isResumeDraft || isFromAssignedPlan) {
+              if (onBackRef.current) onBackRef.current(true);
+              return;
+            }
+            setStep("select-form");
+          }
+        }
+      };
+    });
+
+    return () => {
+      if (setSubHeader) {
+        setSubHeader(prev => (prev?.title === title ? null : prev));
+      }
+    };
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, setSubHeader]);
 
   // 📡 Report real-time sync status to parent TopBar
   useEffect(() => {
-    if (onSyncStatusChange) {
-      onSyncStatusChange(step === "audit" ? syncStatus : "idle");
+    if (onSyncStatusChangeRef.current) {
+      onSyncStatusChangeRef.current(step === "audit" ? syncStatus : "idle");
     }
-  }, [syncStatus, step, onSyncStatusChange]);
+  }, [syncStatus, step]);
 
   // 🔝 Always scroll window and container to top when changing steps or tabs
   const scrollToTop = () => {
@@ -657,9 +771,12 @@ export default function LiveAuditScreen({
       Boolean(staffCount) ||
       Boolean(extraNote) ||
       Boolean(auditType) ||
+      Boolean(isBackdated) ||
+      Boolean(backdatedStartDate) ||
+      Boolean(backdatedEndDate) ||
       Object.keys(metadataValues).length > 0
     );
-  }, [answers, photos, comments, staffCount, extraNote, metadataValues]);
+  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate]);
 
   const performSaveDraft = async (overrideData = {}) => {
     try {
@@ -675,6 +792,9 @@ export default function LiveAuditScreen({
       const currentAuditType = overrideData.auditType !== undefined ? overrideData.auditType : auditType;
       const currentExtraNote = overrideData.extraNote !== undefined ? overrideData.extraNote : extraNote;
       const currentMetadataValues = overrideData.metadataValues !== undefined ? overrideData.metadataValues : metadataValues;
+      const currentIsBackdated = overrideData.isBackdated !== undefined ? overrideData.isBackdated : isBackdated;
+      const currentBackdatedStartDate = overrideData.backdatedStartDate !== undefined ? overrideData.backdatedStartDate : backdatedStartDate;
+      const currentBackdatedEndDate = overrideData.backdatedEndDate !== undefined ? overrideData.backdatedEndDate : backdatedEndDate;
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
@@ -701,6 +821,9 @@ export default function LiveAuditScreen({
         auditType: currentAuditType,
         extraNote: currentExtraNote,
         metadataValues: currentMetadataValues,
+        isBackdated: currentIsBackdated,
+        backdatedStartDate: currentBackdatedStartDate,
+        backdatedEndDate: currentBackdatedEndDate,
         startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
       };
 
@@ -743,6 +866,9 @@ export default function LiveAuditScreen({
         auditType: currentAuditType,
         extraNote: currentExtraNote,
         metadataValues: currentMetadataValues,
+        isBackdated: currentIsBackdated,
+        backdatedStartDate: currentBackdatedStartDate,
+        backdatedEndDate: currentBackdatedEndDate,
         locationId: currentUnit.id,
         locationName: currentUnit.name,
         locationFullName: currentUnit.fullName,
@@ -755,7 +881,7 @@ export default function LiveAuditScreen({
 
       if (onSaveDraft) onSaveDraft(draftObj);
     } catch (err) {
-      console.warn("Auto-sync draft error:", err);
+      
       setSyncStatus("error");
     }
   };
@@ -795,6 +921,9 @@ export default function LiveAuditScreen({
     auditType,
     extraNote,
     metadataValues,
+    isBackdated,
+    backdatedStartDate,
+    backdatedEndDate,
     step,
     currentUser
   ]);
@@ -802,33 +931,6 @@ export default function LiveAuditScreen({
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
 
-  // 🌟 SORTING HIERARCHY: จัดเรียงตามระยะทาง GPS จากน้อยไปมาก สำหรับการตรวจงานใหม่
-  const sortedBranchList = useMemo(() => {
-    let list = [...(visibleLocations || [])];
-
-    if (currentUser?.branchScope === "SPECIFIC" && Array.isArray(currentUser.allowedLocationIds) && currentUser.allowedLocationIds.length > 0) {
-      list = list.filter(u => currentUser.allowedLocationIds.includes(u.id));
-    }
-
-    if (searchBranch.trim()) {
-      const q = searchBranch.toLowerCase();
-      list = list.filter(u =>
-        u.name?.toLowerCase().includes(q) ||
-        (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-        u.region?.toLowerCase().includes(q) ||
-        (u.address && u.address.toLowerCase().includes(q))
-      );
-    }
-
-    // Sort by GPS distance ascending (น้อย ➔ มาก)
-    return list.sort((a, b) => {
-      const distA = getDistanceInMeters(userCoords.latitude, userCoords.longitude, a.latitude, a.longitude);
-      const distB = getDistanceInMeters(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude);
-      return distA - distB;
-    });
-  }, [visibleLocations, searchBranch, userCoords, currentUser]);
-
-  const totalBranchPages = Math.ceil(sortedBranchList.length / branchPageSize) || 1;
   const paginatedBranchList = useMemo(() => {
     const start = (branchPage - 1) * branchPageSize;
     return sortedBranchList.slice(start, start + branchPageSize);
@@ -950,6 +1052,73 @@ export default function LiveAuditScreen({
     return { earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, failedQuestions };
   }, [currentSections, answers, comments, passingScore]);
 
+  // 📊 Live Category Score Breakdown (หมวดหมู่คะแนน - แยกอิสระจากหมวดคำถาม)
+  const categoryBreakdown = useMemo(() => {
+    const catMap = new Map();
+
+    currentSections.forEach((sec) => {
+      (sec.items || []).forEach((q) => {
+        const catName = getQuestionCategory(q, sec);
+        if (!catMap.has(catName)) {
+          catMap.set(catName, {
+            name: catName,
+            totalCount: 0,
+            answeredCount: 0,
+            earnedScore: 0,
+            maxScore: 0,
+          });
+        }
+
+        const catData = catMap.get(catName);
+        catData.totalCount += 1;
+
+        const ans = answers[q.id];
+        const isAnswered = ans !== undefined && ans !== null && ans !== "";
+        if (isAnswered) {
+          catData.answeredCount += 1;
+        }
+
+        // N/A questions: excluded from maxScore (Fair Scoring)
+        if (ans === "na") {
+          return;
+        }
+
+        const fullScore = q.fullScore || 10;
+        catData.maxScore += fullScore;
+
+        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+        if (qType === "scale" || qType === "rating") {
+          const num = Number(ans) || 0;
+          catData.earnedScore += (num / 5) * fullScore;
+        } else {
+          if (ans === "yes" || ans === true) {
+            catData.earnedScore += fullScore;
+          }
+        }
+      });
+    });
+
+    const categories = Array.from(catMap.values()).map((cat) => {
+      const percentage = cat.maxScore > 0 ? Math.round((cat.earnedScore / cat.maxScore) * 100) : 0;
+      return {
+        ...cat,
+        percentage,
+      };
+    });
+
+    // Sort by CORE_CATEGORY_ORDER, then others alphabetically
+    categories.sort((a, b) => {
+      const idxA = CORE_CATEGORY_ORDER.indexOf(a.name);
+      const idxB = CORE_CATEGORY_ORDER.indexOf(b.name);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.name.localeCompare(b.name, "th");
+    });
+
+    return categories;
+  }, [currentSections, answers]);
+
   // 🌟 ตรวจสอบข้อที่ยังไม่ได้ตอบทั้งหมดในทุกหมวด
   const checkUnansweredQuestions = () => {
     const unanswered = [];
@@ -997,6 +1166,27 @@ export default function LiveAuditScreen({
   // 🌟 ตรวจสอบความถูกต้องและครบถ้วนของทุกหมวดหมู่ (Tab 1, Tab 2, Tab 3) ก่อนส่งผลตรวจ
   const validateEntireAuditForm = () => {
     // 1️⃣ ตรวจสอบ Tab 1: ข้อมูลการตรวจ (Audit Details)
+    if (isBackdated) {
+      if (!backdatedStartDate?.trim()) {
+        setActiveTab(1);
+        alert("⚠️ กรุณาระบุวัน-เวลาเริ่มตรวจจริงสำหรับการตรวจย้อนหลัง");
+        scrollToTop();
+        return false;
+      }
+      if (!backdatedEndDate?.trim()) {
+        setActiveTab(1);
+        alert("⚠️ กรุณาระบุวัน-เวลาสิ้นสุดตรวจจริงสำหรับการตรวจย้อนหลัง");
+        scrollToTop();
+        return false;
+      }
+      if (new Date(backdatedEndDate) < new Date(backdatedStartDate)) {
+        setActiveTab(1);
+        alert("⚠️ วัน-เวลาสิ้นสุดตรวจ ต้องไม่เกิดขึ้นก่อนวัน-เวลาเริ่มตรวจ");
+        scrollToTop();
+        return false;
+      }
+    }
+
     for (const field of activeMetadataFields) {
       if (!field.required) continue;
 
@@ -1133,6 +1323,14 @@ export default function LiveAuditScreen({
         });
       });
 
+      const effectiveStartedAt = isBackdated && backdatedStartDate
+        ? new Date(backdatedStartDate).toISOString()
+        : (parsedDraftPayload?.startedAt || auditStartedAt || new Date().toISOString());
+
+      const effectiveSubmittedAt = isBackdated && backdatedEndDate
+        ? new Date(backdatedEndDate).toISOString()
+        : new Date().toISOString();
+
       const payload = {
         locationId: Number(unit.id),
         surveyFormId: Number(selectedForm?.id || 1),
@@ -1151,7 +1349,9 @@ export default function LiveAuditScreen({
         startLongitude: parsedDraftPayload?.startLongitude || userCoords.longitude || unit?.longitude,
         endLatitude: endLat || userCoords.latitude || unit?.latitude,
         endLongitude: endLng || userCoords.longitude || unit?.longitude,
-        startedAt: parsedDraftPayload?.startedAt || auditStartedAt || new Date().toISOString(),
+        isBackdated: Boolean(isBackdated),
+        startedAt: effectiveStartedAt,
+        submittedAt: effectiveSubmittedAt,
         responses
       };
 
@@ -1213,7 +1413,7 @@ export default function LiveAuditScreen({
       if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
     } catch (e) {
-      console.warn("Discard draft warning:", e);
+      
     }
 
     // เคลียร์ State ฟอร์ม
@@ -1221,6 +1421,9 @@ export default function LiveAuditScreen({
     setPhotos({});
     setComments({});
     setSectionIdx(0);
+    setIsBackdated(false);
+    setBackdatedStartDate("");
+    setBackdatedEndDate("");
     setSyncStatus("idle");
     setShowDiscardConfirmModal(false);
 
@@ -1471,53 +1674,38 @@ export default function LiveAuditScreen({
 
     return (
       <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20">
-        <Header
-          isAudit
-          title="การตรวจแบบฟอร์ม"//{unit?.fullName || unit?.name}
-          subtitle="การตรวจมาตรฐานคุณภาพขององค์กร"//{selectedForm?.title}
-          onBack={() => {
-            // 🌟 ถ้ามาจากการกด "resume draft / เริ่มตรวจ" ตรงๆ (เช่นจากหน้ารายงานผลการตรวจ)
-            // ผู้ใช้ไม่เคยผ่านหน้า "เลือกฟอร์ม" มาก่อน ไม่ควรพากลับไปหน้านั้น ให้ออกจาก Live Audit กลับไปหน้าที่มาทันที (คลิกเดียว)
-            if (isResumeDraft || isFromAssignedPlan) {
-              if (onBack) onBack(true);
-              return;
-            }
-            setStep("select-form");
-          }}
-          action={syncStatus !== "idle" ? (
-            syncStatus === "saving" ? (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-bold text-amber-700 shadow-2xs animate-pulse">
-                <Loader2 size={13} className="animate-spin text-amber-600" />
-                <span>Syncing...</span>
-              </div>
-            ) : syncStatus === "error" ? (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 shadow-2xs">
-                <AlertCircle size={13} className="text-rose-600" />
-                <span>Sync Failed</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-bold text-[#0F6659] shadow-2xs">
-                <CheckCircle2 size={13} className="text-[#0F6659]" />
-                <span>Synced</span>
-              </div>
-            )
-          ) : null}
-        />
-        {/* Sticky Top Header Card */}
-        <div className="sticky top-0 z-40 bg-slate-50/95 backdrop-blur-md pt-2.5 pb-2 px-3 sm:px-4 shadow-2xs border-b border-slate-200">
+        {/* Top Summary & Live Score Card */}
+        <div className="pt-2.5 pb-2 px-3 sm:px-4">
           <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
-            <div className="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
-              <div className="flex-1 min-w-0">
-                <h2 className="text-base sm:text-lg font-bold text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
-                <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
-                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
-                    <PenTool size={11} /> {auditorName || "ระบุผู้ตรวจ"}
-                  </span>
-                  <span className="text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 flex items-center gap-1">
-                    <Clock size={11} /> เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
+                {syncStatus !== "idle" && (
+                  syncStatus === "saving" ? (
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 animate-pulse">
+                      <Loader2 size={10} className="animate-spin text-amber-600" /> Syncing...
+                    </span>
+                  ) : syncStatus === "error" ? (
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
+                      <AlertCircle size={10} className="text-rose-600" /> Error
+                    </span>
+                  ) : (
+                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-[#0F6659]">
+                      <CheckCircle2 size={10} className="text-[#0F6659]" /> Synced
+                    </span>
+                  )
+                )}
+              </div>
+              <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
+              <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
+                <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
+                  <PenTool size={11} className="text-[#0F6659] shrink-0" />
+                  <span className="truncate">{auditorName || "ระบุผู้ตรวจ"}</span>
+                </span>
+                <span className="flex items-center gap-1 shrink-0 text-slate-400">
+                  <Clock size={11} className="shrink-0" />
+                  <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                </span>
               </div>
             </div>
 
@@ -1538,6 +1726,93 @@ export default function LiveAuditScreen({
             </div>
           </div>
         </div>
+
+        {/* 📊 Category Scores Breakdown Card (แสดงคะแนนแยกตามหมวดหมู่คะแนน) */}
+        {categoryBreakdown.length > 0 && (
+          <div className="px-3 sm:px-4 mb-2">
+            <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs transition-all">
+              <div
+                className={`flex items-center justify-between gap-2 select-none cursor-pointer ${
+                  isCategoryBreakdownExpanded ? "mb-2.5 pb-2 border-b border-slate-100" : ""
+                }`}
+                onClick={() => setIsCategoryBreakdownExpanded(prev => !prev)}
+              >
+                <div className="flex items-center gap-1.5">
+                  <BarChart3 size={14} className="text-[#0F6659]" />
+                  <span className="text-xs font-black text-slate-800 tracking-tight">
+                    คะแนนแยกตามหมวดหมู่
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {/*<span className="text-[10px] font-bold text-slate-400">
+                    เกณฑ์ผ่าน ≥ {passingScore}%
+                  </span>*/}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCategoryBreakdownExpanded(prev => !prev);
+                    }}
+                    className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-lg transition-all cursor-pointer"
+                  >
+                    <ChevronDown
+                      size={13}
+                      className={`transition-transform duration-200 ${isCategoryBreakdownExpanded ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              {isCategoryBreakdownExpanded && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 animate-in fade-in duration-200">
+                  {categoryBreakdown.map((cat) => {
+                    const isPassing = cat.percentage >= passingScore;
+                    const barColor =
+                      cat.answeredCount === 0
+                        ? "bg-slate-200"
+                        : isPassing
+                        ? "bg-emerald-500"
+                        : cat.percentage >= 70
+                        ? "bg-amber-500"
+                        : "bg-rose-500";
+
+                    const textColor =
+                      cat.answeredCount === 0
+                        ? "text-slate-400"
+                        : isPassing
+                        ? "text-emerald-700"
+                        : cat.percentage >= 70
+                        ? "text-amber-700"
+                        : "text-rose-700";
+
+                    return (
+                      <div key={cat.name} className="flex items-center gap-2.5 py-0.5">
+                        <div className="w-28 sm:w-32 shrink-0 truncate text-xs font-bold text-slate-700" title={cat.name}>
+                          {cat.name}
+                        </div>
+
+                        {/* Progress Bar [█████████] */}
+                        <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ease-out ${barColor}`}
+                            style={{ width: `${Math.min(100, Math.max(0, cat.percentage))}%` }}
+                          />
+                        </div>
+
+                        {/* Percentage (e.g. 91%) */}
+                        <div className="w-10 text-right shrink-0">
+                          <span className={`font-mono font-black text-xs ${textColor}`}>
+                            {cat.percentage}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Navigation Tabs */}
         <div className="px-4 mb-4 mt-2">
@@ -1585,15 +1860,15 @@ export default function LiveAuditScreen({
                             setAuditorName(val);
                             performSaveDraft({ auditorName: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 rounded-xl border border-slate-200 outline-none font-bold text-slate-800 bg-white focus:border-[#0F6659] shadow-2xs appearance-none pr-10 cursor-pointer"
+                          className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
                             <option key={u.id || u.fullName} value={u.fullName || u.name}>{u.fullName || u.name}</option>
                           ))}
                         </select>
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                          <ChevronDown size={16} />
+                        <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <ChevronDown size={18} />
                         </div>
                       </div>
                     </div>
@@ -1701,15 +1976,24 @@ export default function LiveAuditScreen({
                 if (field.type === "date") {
                   return (
                     <div key={field.id}>
-                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
-                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                        <Calendar size={13} className="text-[#0F6659]" />
+                        <span>{field.label}</span> {field.required && <span className="text-rose-500">*</span>}
                       </label>
-                      <input
-                        type="date"
-                        value={currentVal || ""}
-                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
-                      />
+                      <div className="relative flex items-center">
+                        <input
+                          type="date"
+                          value={currentVal || ""}
+                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                        />
+                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        {!currentVal && (
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-sm font-medium">
+                            วว/ดด/ปปปป
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 }
@@ -1718,15 +2002,24 @@ export default function LiveAuditScreen({
                 if (field.type === "time") {
                   return (
                     <div key={field.id}>
-                      <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
-                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                        <Clock size={13} className="text-[#0F6659]" />
+                        <span>{field.label}</span> {field.required && <span className="text-rose-500">*</span>}
                       </label>
-                      <input
-                        type="time"
-                        value={currentVal || ""}
-                        onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                        className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800"
-                      />
+                      <div className="relative flex items-center">
+                        <input
+                          type="time"
+                          value={currentVal || ""}
+                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          className="w-full text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                        />
+                        <Clock size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        {!currentVal && (
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-sm font-medium">
+                            --:--
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 }
@@ -1757,16 +2050,21 @@ export default function LiveAuditScreen({
                           ))}
                         </div>
                       ) : (
-                        <select
-                          value={currentVal || ""}
-                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                          className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
-                        >
-                          <option value="">-- เลือก --</option>
-                          {opts.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
+                        <div className="relative">
+                          <select
+                            value={currentVal || ""}
+                            onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                            className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                          >
+                            <option value="">-- เลือก --</option>
+                            {opts.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                          <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                            <ChevronDown size={18} />
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
@@ -1813,6 +2111,103 @@ export default function LiveAuditScreen({
                   </div>
                 );
               })}
+
+              {/* Backdated Audit Toggle Card */}
+              <div className="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock size={16} className="text-[#0F6659]" />
+                    <div>
+                      <span className="text-xs font-extrabold text-slate-800 block">
+                        บันทึกผลการตรวจย้อนหลัง
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        เปิดใช้งานเมื่อต้องการเพิ่มผลตรวจที่ได้ตรวจจริงในอดีต
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !isBackdated;
+                      setIsBackdated(next);
+                      if (next && (!backdatedStartDate || !backdatedEndDate)) {
+                        const now = new Date();
+                        const past = new Date(now.getTime() - 60 * 60 * 1000);
+                        const toIsoLocal = (d) => {
+                          const pad = (n) => String(n).padStart(2, '0');
+                          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                        };
+                        const startStr = backdatedStartDate || toIsoLocal(past);
+                        const endStr = backdatedEndDate || toIsoLocal(now);
+                        setBackdatedStartDate(startStr);
+                        setBackdatedEndDate(endStr);
+                        performSaveDraft({ isBackdated: next, backdatedStartDate: startStr, backdatedEndDate: endStr });
+                      } else {
+                        performSaveDraft({ isBackdated: next });
+                      }
+                    }}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      isBackdated ? "bg-[#0F6659] text-white shadow-2xs" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                    }`}
+                  >
+                    {isBackdated ? "เปิด" : "ปิด"}
+                  </button>
+                </div>
+
+                {isBackdated && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-emerald-100 animate-in fade-in duration-200">
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                        <Calendar size={13} className="text-[#0F6659]" />
+                        <span>เริ่มตรวจจริง</span> <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="datetime-local"
+                          value={backdatedStartDate}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setBackdatedStartDate(val);
+                            performSaveDraft({ backdatedStartDate: val });
+                          }}
+                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                        />
+                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        {!backdatedStartDate && (
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                            วว/ดด/ปปปป --:--
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
+                        <Calendar size={13} className="text-[#0F6659]" />
+                        <span>สิ้นสุดตรวจจริง</span> <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative flex items-center">
+                        <input
+                          type="datetime-local"
+                          value={backdatedEndDate}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setBackdatedEndDate(val);
+                            performSaveDraft({ backdatedEndDate: val });
+                          }}
+                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                        />
+                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        {!backdatedEndDate && (
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                            วว/ดด/ปปปป --:--
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -1881,6 +2276,9 @@ export default function LiveAuditScreen({
                           <div className="mb-3">
                             <div className="flex items-center gap-2 mb-2 flex-wrap">
                               <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                                {getQuestionCategory(q, sec)}
+                              </span>
                               {q.isCritical && (
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
                               )}

@@ -1,15 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import {
-  CalendarDays, ChevronDown, CheckCircle2, ClipboardCheck,
-  Award, AlertTriangle, Filter, ChevronRight, MapPin, Store,
-  Minimize2, Maximize2, Sparkles, BarChart3, FileSpreadsheet,
-  Info, X
-} from "lucide-react";
-import {
-  ResponsiveContainer, XAxis, YAxis, Tooltip,
-  CartesianGrid, ReferenceLine, LineChart, Line, AreaChart, Area,
-  PieChart, Pie, Cell, BarChart, Bar
-} from "recharts";
+import { CalendarDays, ChevronDown, CheckCircle2, Sparkles, BarChart3, FileSpreadsheet, Info, X } from "lucide-react";
+import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, AreaChart, Area, PieChart, Pie } from "recharts";
 
 import { c, mono, cardStyle } from "../../config/theme";
 import { getDynamicBrandLines, getDynamicRegionLines } from "../../config/constants";
@@ -27,7 +18,6 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import ExcelExportModal from "../../modals/ExcelExportModal";
 import MonthlyMeetingReportModal from "../../modals/MonthlyMeetingReportModal";
 import BranchProfile from "./BranchProfile";
-import AllBranchesScreen from "./AllBranchesScreen";
 import AllAuditHistoryScreen from "./AllAuditHistoryScreen";
 import AuditHistoryDetail from "../audit/AuditHistoryDetail";
 
@@ -103,10 +93,9 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`relative flex items-center gap-1.5 rounded-xl border cursor-pointer transition-colors group ${
+        className={`relative flex items-center gap-1.5 rounded-2xl border border-slate-200 cursor-pointer transition-colors group ${
           isSmall ? "bg-white px-2.5 py-1 hover:border-[#0F6659]" : "bg-white hover:bg-slate-50 px-3 py-1.5"
         }`}
-        style={{ borderColor: c.border }}
       >
         <CalendarDays size={isSmall ? 12 : 14} className="text-[#0F6659] shrink-0" />
         <span className={`font-semibold text-slate-700 select-none ${isSmall ? "text-[11px]" : "text-xs"}`}>
@@ -136,6 +125,11 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
   );
 }
 
+// 🌟 Global memory cache for AI dashboard insights to prevent redundant API calls on tab switching
+let cachedAiInsights = null;
+let lastAiFetchTimestamp = 0;
+const AI_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes cache TTL
+
 export default function DashboardScreen({ role, isDesktop }) {
   const { locations: visibleLocations, auditRecords, capTasks, currentUser } = React.useContext(DataContext);
   const activeLocations = useMemo(() => visibleLocations || [], [visibleLocations]);
@@ -144,9 +138,20 @@ export default function DashboardScreen({ role, isDesktop }) {
   const isBranchManager = userRole === "AUDITEE" || userRole === "BRANCH_MANAGER" || currentUser?.branchScope === "SPECIFIC";
   
   const [periodFilter, setPeriodFilter] = useState("month");
-  const [aiInsightsData, setAiInsightsData] = useState(null);
+  const [aiInsightsData, setAiInsightsData] = useState(() => {
+    if (cachedAiInsights && (Date.now() - lastAiFetchTimestamp < AI_CACHE_TTL_MS)) {
+      return cachedAiInsights;
+    }
+    return null;
+  });
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiCooldown, setAiCooldown] = useState(0);
+  const [aiCooldown, setAiCooldown] = useState(() => {
+    const elapsed = Date.now() - lastAiFetchTimestamp;
+    if (elapsed < 30000 && lastAiFetchTimestamp > 0) {
+      return Math.ceil((30000 - elapsed) / 1000);
+    }
+    return 0;
+  });
 
   useEffect(() => {
     if (aiCooldown > 0) {
@@ -158,23 +163,37 @@ export default function DashboardScreen({ role, isDesktop }) {
   }, [aiCooldown]);
 
   const fetchAiDashboardInsights = async (isManual = false) => {
+    const now = Date.now();
+    // 🌟 If cache is fresh and not a manual user click, reuse cache without making any HTTP request!
+    if (!isManual && cachedAiInsights && (now - lastAiFetchTimestamp < AI_CACHE_TTL_MS)) {
+      setAiInsightsData(cachedAiInsights);
+      return;
+    }
+
     if (isAiLoading || (isManual && aiCooldown > 0)) return;
     setIsAiLoading(true);
     try {
       const res = await api.get('/ai/dashboard-insights');
       if (res.data) {
+        cachedAiInsights = res.data;
+        lastAiFetchTimestamp = Date.now();
         setAiInsightsData(res.data);
         if (isManual) setAiCooldown(15);
       }
     } catch (err) {
-      console.error('Failed to load AI dashboard insights:', err);
+      if (err?.response?.status === 429) {
+        console.warn('AI Rate Limit reached, using smart analytics engine fallback.');
+        if (isManual) setAiCooldown(30);
+      } else {
+        console.warn('AI dashboard insights unavailable, using smart analytics fallback:', err?.message || err);
+      }
     } finally {
       setIsAiLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAiDashboardInsights();
+    fetchAiDashboardInsights(false);
   }, []);
 
   const periodFilteredData = useMemo(() => {
@@ -293,8 +312,6 @@ export default function DashboardScreen({ role, isDesktop }) {
   }, []);
 
   const [viewUnit, setViewUnit] = useState(null);
-  const [showAllBranches, setShowAllBranches] = useState(false);
-  const [selectedAuditLog, setSelectedAuditLog] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [trendsData, setTrendsData] = useState([]);
@@ -307,7 +324,7 @@ export default function DashboardScreen({ role, isDesktop }) {
           setTrendsData(res.data.monthlyTrends);
         }
       })
-      .catch(err => console.warn("Could not load dashboard trends:", err));
+      .catch(() => {});
     return () => { isMounted = false; };
   }, []);
 
@@ -365,13 +382,10 @@ export default function DashboardScreen({ role, isDesktop }) {
   const rankedBranches = [...periodFilteredData.branchStats].sort((a, b) => b.displayScore - a.displayScore).slice(0, 5);
 
   const aiInsightsList = useMemo(() => [
-    { type: "highlight", icon: "✨", title: "จุดเด่น", icon_color: "#0F6659", bg: "#EFF8F6", border: "#A7D7CE", text: aiInsightsData?.highlight || `คะแนนเฉลี่ยภาพรวม ${avgScore}% ผ่านเกณฑ์ ${passRate}%` },
-    { type: "attention", icon: "⚠️", title: "จุดเฝ้าระวัง", icon_color: "#D97706", bg: "#FFFBEB", border: "#FDE68A", text: aiInsightsData?.attention || `มีงานค้างส่ง CAP ${pendingCapCount} รายการที่ต้องติดตาม` },
-    { type: "action", icon: "🎯", title: "ข้อเสนอแนะ", icon_color: "#2563EB", bg: "#EFF6FF", border: "#BFDBFE", text: aiInsightsData?.action || "เน้นย้ำมาตรฐานจุดตรวจที่ตกบ่อยและติดตามสม่ำเสมอ" }
+    { type: "highlight", icon: "✨", title: "จุดเด่น", iconClass: "text-[#0F6659]", bgClass: "bg-[#EFF8F6] border-[#A7D7CE]", text: aiInsightsData?.highlight || `คะแนนเฉลี่ยภาพรวม ${avgScore}% ผ่านเกณฑ์ ${passRate}%` },
+    { type: "attention", icon: "⚠️", title: "จุดเฝ้าระวัง", iconClass: "text-amber-600", bgClass: "bg-amber-50 border-amber-200", text: aiInsightsData?.attention || `มีงานค้างส่ง CAP ${pendingCapCount} รายการที่ต้องติดตาม` },
+    { type: "action", icon: "🎯", title: "ข้อเสนอแนะ", iconClass: "text-[#0F6659]", bgClass: "bg-emerald-50 border-emerald-200", text: aiInsightsData?.action || "เน้นย้ำมาตรฐานจุดตรวจที่ตกบ่อยและติดตามสม่ำเสมอ" }
   ], [aiInsightsData, avgScore, passRate, pendingCapCount]);
-
-  if (selectedAuditLog) return <AuditHistoryDetail unitName={selectedAuditLog.unitName} record={selectedAuditLog.record} onBack={() => setSelectedAuditLog(null)} />;
-  if (showAllBranches) return <AllBranchesScreen onBack={() => setShowAllBranches(false)} onSelectUnit={(u) => { setShowAllBranches(false); setViewUnit(u); }} />;
   if (viewUnit) return <BranchProfile unit={viewUnit} onBack={() => setViewUnit(null)} />;
 
   return (
@@ -396,16 +410,16 @@ export default function DashboardScreen({ role, isDesktop }) {
           />
           <button
             onClick={() => setShowMonthlyModal(true)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+            className="px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
           >
             <BarChart3 size={13} className="text-[#0F6659]" />
             <span>รายงานประจำเดือน</span>
           </button>
           <button
             onClick={() => setShowExportModal(true)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+            className="px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
           >
-            <FileSpreadsheet size={13} className="text-emerald-700" />
+            <FileSpreadsheet size={13} className="text-[#0F6659]" />
             <span>ส่งออก Excel</span>
           </button>
         </div>
@@ -497,7 +511,7 @@ export default function DashboardScreen({ role, isDesktop }) {
               <div className="text-4xl font-extrabold text-slate-900 font-mono">{avgScore}%</div>
             </div>
             <div className="absolute top-[35%] right-[15%] flex flex-col items-center">
-              <div className="w-1 h-3 bg-emerald-500 rounded-full mb-1"></div>
+              <div className="w-1 h-3 bg-[#0F6659] rounded-full mb-1"></div>
               <div className="text-[10px] font-bold text-slate-500">≥85%</div>
             </div>
           </div>
@@ -524,7 +538,7 @@ export default function DashboardScreen({ role, isDesktop }) {
                   contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
                   itemStyle={{ color: "#0F6659", fontWeight: "bold" }}
                 />
-                <ReferenceLine y={85} stroke="#10B981" strokeDasharray="4 4" strokeWidth={2} label={{ value: "Target 85%", position: "insideTopLeft", fill: "#10B981", fontSize: 12, fontWeight: "bold" }} />
+                <ReferenceLine y={85} stroke="#0F6659" strokeDasharray="4 4" strokeWidth={2} label={{ value: "Target 85%", position: "insideTopLeft", fill: "#0F6659", fontSize: 12, fontWeight: "bold" }} />
                 <Area type="monotone" dataKey="avgScore" name="คะแนนเฉลี่ย" stroke="#0F6659" strokeWidth={3} fillOpacity={1} fill="url(#colorAvg)" activeDot={{ r: 6, fill: "#0F6659", stroke: "#fff", strokeWidth: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
@@ -609,10 +623,10 @@ export default function DashboardScreen({ role, isDesktop }) {
           <button
             onClick={() => fetchAiDashboardInsights(true)}
             disabled={isAiLoading || aiCooldown > 0}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold shadow-2xs transition-all flex items-center gap-2 ${
+            className={`px-3 py-1.5 rounded-2xl border text-xs font-bold shadow-2xs transition-all flex items-center gap-2 ${
               isAiLoading || aiCooldown > 0
                 ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                : 'bg-[#0F6659] hover:bg-[#0D5449] text-white border-[#0F6659] cursor-pointer active:scale-95'
+                : 'bg-[#0F6659] hover:bg-emerald-800 text-white border-[#0F6659] cursor-pointer active:scale-95'
             }`}
           >
             <Sparkles size={14} className={isAiLoading ? "animate-spin text-white" : aiCooldown > 0 ? "text-slate-400" : "text-emerald-200"} />
@@ -621,10 +635,10 @@ export default function DashboardScreen({ role, isDesktop }) {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {aiInsightsList.map((ins) => (
-            <div key={ins.type} className="rounded-2xl p-4 shadow-sm border flex flex-col gap-2" style={{ background: ins.bg, borderColor: ins.border }}>
+            <div key={ins.type} className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 ${ins.bgClass}`}>
               <div className="flex items-center gap-2">
                 <span className="text-lg">{ins.icon}</span>
-                <span className="text-xs font-bold" style={{ color: ins.icon_color }}>{ins.title}</span>
+                <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
               </div>
               <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
             </div>

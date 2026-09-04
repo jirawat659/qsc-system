@@ -1,9 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import {
-  CalendarDays, List, Plus, Users, ChevronLeft, ChevronRight,
-  Clock, ChevronDown, X, MapPin, Check, AlertCircle, Sparkles, CheckCircle2
-} from "lucide-react";
+import { CalendarDays, List, Plus, Users, ChevronLeft, ChevronRight, Clock, ChevronDown, X, Sparkles, CheckCircle2 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TODAY } from "../../config/constants";
@@ -35,6 +32,9 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [showAiQuickPopover, setShowAiQuickPopover] = useState(false);
   const [showAiDetailModal, setShowAiDetailModal] = useState(false);
+  const [listPage, setListPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
+  const LIST_PAGE_SIZE = 10;
 
   const scheduleList = useMemo(() => {
     if (schedules && schedules.length > 0) {
@@ -241,10 +241,37 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
     return filteredSchedules.filter(s => isSameDay(s.scheduledDate, selectedDate));
   }, [filteredSchedules, selectedDate]);
 
+  // Reset list page on filter or view change
+  useEffect(() => {
+    setListPage(1);
+  }, [auditorFilter, viewDate, view]);
+
+  useEffect(() => {
+    setPageInput(String(listPage));
+  }, [listPage]);
+
+  const totalListPages = Math.max(1, Math.ceil(filteredSchedules.length / LIST_PAGE_SIZE));
+  const paginatedSchedules = useMemo(() => {
+    const start = (listPage - 1) * LIST_PAGE_SIZE;
+    return filteredSchedules.slice(start, start + LIST_PAGE_SIZE);
+  }, [filteredSchedules, listPage]);
+
+  const handlePageSubmit = () => {
+    const val = parseInt(pageInput, 10);
+    if (!isNaN(val)) {
+      const clamped = Math.max(1, Math.min(totalListPages, val));
+      setListPage(clamped);
+      setPageInput(String(clamped));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      setPageInput(String(listPage));
+    }
+  };
+
   const statusStyle = {
     today: { label: "วันนี้", fg: "#0F6659", bg: "#E3F0ED" },
-    upcoming: { label: "นัดหมาย", fg: "#3B82F6", bg: "#EFF6FF" },
-    done: { label: "เสร็จแล้ว", fg: "#6B7280", bg: "#F3F4F6" },
+    upcoming: { label: "นัดหมาย", fg: "#059669", bg: "#ECFDF5" },
+    done: { label: "เสร็จแล้ว", fg: "#64748B", bg: "#F1F5F9" },
   };
 
   if (role === "AUDITEE") {
@@ -300,7 +327,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
             <button
               type="button"
               onClick={() => setView("calendar")}
-              className={`px-3 py-2 rounded-xl cursor-pointer transition-all flex items-center justify-center ${
+              className={`px-3 py-2 rounded-2xl cursor-pointer transition-all flex items-center justify-center ${
                 view === "calendar"
                   ? "bg-[#0F6659] text-white shadow-2xs"
                   : "text-slate-400 hover:text-slate-700"
@@ -312,7 +339,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
             <button
               type="button"
               onClick={() => setView("list")}
-              className={`px-3 py-2 rounded-xl cursor-pointer transition-all flex items-center justify-center ${
+              className={`px-3 py-2 rounded-2xl cursor-pointer transition-all flex items-center justify-center ${
                 view === "list"
                   ? "bg-[#0F6659] text-white shadow-2xs"
                   : "text-slate-400 hover:text-slate-700"
@@ -329,7 +356,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           <button
             type="button"
             onClick={() => setShowNewScheduleModal(true)}
-            className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 text-white font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md active:scale-[0.99] transition-all cursor-pointer"
+            className="w-full py-2.5 px-4 rounded-2xl bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 text-white font-extrabold text-sm sm:text-base flex items-center justify-center gap-2 shadow-md active:scale-[0.99] transition-all cursor-pointer"
           >
             <Plus size={18} />
             <span>กำหนดการตรวจใหม่</span>
@@ -388,7 +415,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
               <button
                 type="button"
                 onClick={prevMonth}
-                className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors text-slate-500 hover:text-slate-900"
+                className="p-2 hover:bg-slate-100 rounded-2xl cursor-pointer transition-colors text-slate-500 hover:text-slate-900"
                 title="เดือนก่อนหน้า"
               >
                 <ChevronLeft size={18} />
@@ -413,7 +440,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
               <button
                 type="button"
                 onClick={nextMonth}
-                className="p-2 hover:bg-slate-100 rounded-xl cursor-pointer transition-colors text-slate-500 hover:text-slate-900"
+                className="p-2 hover:bg-slate-100 rounded-2xl cursor-pointer transition-colors text-slate-500 hover:text-slate-900"
                 title="เดือนถัดไป"
               >
                 <ChevronRight size={18} />
@@ -453,27 +480,27 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                     }}
                     className={`aspect-square rounded-2xl flex flex-col items-center justify-center text-xs sm:text-sm cursor-pointer transition-all relative group ${
                       !cell.isCurrentMonth ? "opacity-30 hover:opacity-70" : ""
+                    } ${
+                      isSelected 
+                        ? "bg-[#0F6659] text-white font-bold" 
+                        : isToday 
+                        ? "bg-[#E3F0ED] text-[#1C2129] font-bold border-[1.5px] border-[#0F6659]" 
+                        : isPast 
+                        ? "text-slate-400 font-medium border border-transparent" 
+                        : "text-[#1C2129] font-medium border border-transparent"
                     }`}
-                    style={{
-                      background: isSelected ? "#0F6659" : isToday ? "#E3F0ED" : "transparent",
-                      color: isSelected ? "#fff" : isPast && !isToday ? "#9CA3AF" : "#1C2129",
-                      fontWeight: isSelected || isToday ? 700 : 500,
-                      border: isToday && !isSelected ? "1.5px solid #0F6659" : "1px solid transparent",
-                    }}
                   >
                     <span className="leading-none">{cell.day}</span>
                     {hasEvents && (
                       <div className="flex items-center gap-0.5 mt-1">
                         {hasCompleted && (
                           <span
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ background: isSelected ? "#fff" : "#10B981" }}
+                            className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-white" : "bg-[#0F6659]"}`}
                           />
                         )}
                         {hasPending && (
                           <span
-                            className="w-1.5 h-1.5 rounded-full"
-                            style={{ background: isSelected ? "#fff" : "#0F6659" }}
+                            className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-white" : "bg-[#0F6659]"}`}
                           />
                         )}
                       </div>
@@ -526,7 +553,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span
-                        className="text-xs font-extrabold px-2.5 py-1 rounded-full"
+                        className="text-xs font-extrabold px-2.5 py-1 rounded-lg"
                         style={{ color: st.fg, background: st.bg }}
                       >
                         {st.label}
@@ -552,7 +579,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                         setEditingSchedule(null);
                         setShowNewScheduleModal(true);
                       }}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-extrabold cursor-pointer border border-emerald-200/80 transition-all inline-flex items-center gap-1"
+                      className="px-3.5 py-1.5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] text-xs font-extrabold cursor-pointer border border-emerald-200/80 transition-all inline-flex items-center gap-1"
                     >
                       <Plus size={14} />
                       <span>เพิ่มนัดตรวจในวันนี้</span>
@@ -571,7 +598,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
               ไม่พบรายการตรวจที่ตรงกับตัวกรอง
             </div>
           )}
-          {filteredSchedules.map((s, i) => {
+          {paginatedSchedules.map((s, i) => {
             const st = statusStyle[s.status] || { label: "นัดหมาย", fg: "#0F6659", bg: "#E3F0ED" };
             const schedDate = new Date(s.scheduledDate);
             const today = new Date();
@@ -581,11 +608,10 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                 key={s.id || i}
                 type="button"
                 onClick={() => setDetail(s)}
-                className="w-full rounded-3xl p-4 sm:p-5 flex items-center gap-4 text-left shadow-2xs hover:bg-slate-50 border border-slate-200 bg-white transition-colors cursor-pointer"
-                style={{ opacity: isPast ? 0.7 : 1 }}
+                className={`w-full rounded-3xl p-4 sm:p-5 flex items-center gap-4 text-left shadow-2xs hover:bg-slate-50 border border-slate-200 bg-white transition-colors cursor-pointer ${isPast ? "opacity-70" : "opacity-100"}`}
               >
                 <div className="w-12 text-center shrink-0">
-                  <div className="text-xl font-bold font-mono" style={{ color: isPast ? "#9CA3AF" : "#1C2129" }}>
+                  <div className={`text-xl font-bold font-mono ${isPast ? "text-slate-400" : "text-slate-900"}`}>
                     {!isNaN(schedDate.getDate()) ? schedDate.getDate() : s.day}
                   </div>
                   <div className="text-xs font-medium text-slate-400">
@@ -599,7 +625,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                   </div>
                 </div>
                 <span
-                  className="text-xs font-extrabold px-3 py-1 rounded-full shrink-0"
+                  className="text-xs font-extrabold px-3 py-1 rounded-lg shrink-0"
                   style={{ color: st.fg, background: st.bg }}
                 >
                   {st.label}
@@ -608,6 +634,55 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
               </button>
             );
           })}
+
+          {/* Pagination Controls */}
+          <div className="flex items-center justify-between p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-2xs text-xs font-medium text-slate-500 bg-white mt-2 mb-8">
+            <span>
+              หน้า {listPage} จาก {totalListPages} ({filteredSchedules.length} รายการ)
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setListPage((p) => Math.max(1, p - 1));
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                disabled={listPage === 1}
+                className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+              >
+                ก่อนหน้า
+              </button>
+
+              {/* ช่องเล็กสำหรับพิมพ์เลขหน้า (กด Enter หรือคลิกออกนอกช่องเพื่อเปลี่ยนหน้า) */}
+              <input
+                type="number"
+                min="1"
+                max={totalListPages}
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={handlePageSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePageSubmit();
+                    e.target.blur();
+                  }
+                }}
+                className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+
+              <button
+                type="button"
+                onClick={() => {
+                  setListPage((p) => Math.min(totalListPages, p + 1));
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                disabled={listPage >= totalListPages}
+                className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+              >
+                ถัดไป
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -700,7 +775,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                   setShowAiQuickPopover(false);
                   setShowAiDetailModal(true);
                 }}
-                className="w-full py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
+                className="w-full py-2 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-2xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
               >
                 <span>ดูรายละเอียด</span>
               </button>
@@ -711,7 +786,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           <button
             type="button"
             onClick={() => setShowAiQuickPopover(prev => !prev)}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xl shadow-emerald-950/25 active:scale-95 transition-all cursor-pointer border border-emerald-500/30"
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-[#0F6659] hover:bg-emerald-800 text-white font-bold text-xs shadow-xl shadow-emerald-950/25 active:scale-95 transition-all cursor-pointer border border-emerald-500/30"
             title="คำแนะนำจาก AI"
           >
             <Sparkles size={15} className="animate-pulse" />

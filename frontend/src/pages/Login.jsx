@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import api from '../config/api';
 import authStorage from '../config/storage';
-import { LogIn, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from 'lucide-react';
+import { LogIn, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
 
 function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');

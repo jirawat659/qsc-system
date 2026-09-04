@@ -1,10 +1,5 @@
 import React, { useState, useMemo } from "react";
-import {
-  LayoutDashboard, Plus, MoreHorizontal, MessageSquare,
-  ClipboardCheck, CalendarDays, Settings, ClipboardList,
-  BarChart3, Check, AlertTriangle, RotateCcw, X,
-  Smartphone, ArrowRightLeft, Shield, Eye
-} from "lucide-react";
+import { Check, AlertTriangle, RotateCcw, X, Smartphone, ArrowRightLeft, Eye, ChevronDown } from "lucide-react";
 import api from "../../config/api";
 import ModalWrapper from "../../shared/ModalWrapper";
 import {
@@ -34,9 +29,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
             right: parsed.right
           };
         }
-      } catch (e) {
-        console.warn("Failed to parse role navConfigJson:", e);
-      }
+      } catch (e) {}
     }
     const defaultForRole = getDefaultNavKeysForRole(role?.code);
     return { ...defaultForRole };
@@ -154,7 +147,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
         {/* Floating Top Dynamic Island / Notch */}
         <div className="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-4 bg-slate-950 rounded-full z-30 flex items-center justify-center shadow-xs">
           <div className="w-2 h-2 rounded-full bg-slate-900 border border-slate-800 mr-2"></div>
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-950"></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-950"></div>
         </div>
 
         {/* Top App Header with Status Bar (Seamless White going all the way to the top border) */}
@@ -223,9 +216,9 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
 
           {activeModuleKey === "audit" && (
             <div className="space-y-1.5">
-              <div className="p-2 rounded-xl bg-teal-50 border border-teal-200">
-                <div className="text-[9px] font-bold text-teal-800">งานตรวจหน้างานที่มอบหมาย</div>
-                <div className="text-[11px] font-extrabold text-teal-950">สาขา CTW - Central World</div>
+              <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200">
+                <div className="text-[9px] font-bold text-emerald-800">งานตรวจหน้างานที่มอบหมาย</div>
+                <div className="text-[11px] font-extrabold text-emerald-950">สาขา CTW - Central World</div>
               </div>
               <div className="p-2 rounded-xl bg-white border border-slate-200 text-[10px] text-slate-600">
                 ✓ 1. ความสะอาดบริเวณจุดบริการ<br />
@@ -246,7 +239,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
           )}
 
           {activeModuleKey === "schedule" && (
-            <div className="p-2 rounded-xl bg-sky-50 border border-sky-200 text-[10px] space-y-1 text-sky-900">
+            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-[10px] space-y-1 text-emerald-900">
               <div className="font-bold">📅 แผนงานสัปดาห์นี้</div>
               <div>• จันทร์: สาขาพระราม 9</div>
               <div>• พุธ: สาขาสยามพารากอน</div>
@@ -254,14 +247,14 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
           )}
 
           {activeModuleKey === "forms" && (
-            <div className="p-2 rounded-xl bg-purple-50 border border-purple-200 text-[10px] space-y-1 text-purple-900">
+            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-[10px] space-y-1 text-emerald-900">
               <div className="font-bold">📋 แบบฟอร์มมาตรฐาน</div>
               <div>• เกณฑ์ตรวจ QSC ปี 2026 (50 ข้อ)</div>
             </div>
           )}
 
           {activeModuleKey === "reports" && (
-            <div className="p-2 rounded-xl bg-blue-50 border border-blue-200 text-[10px] space-y-1 text-blue-900">
+            <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-[10px] space-y-1 text-emerald-900">
               <div className="font-bold">📊 รายงานวิเคราะห์</div>
               <div>• ส่งออกคะแนนรายสาขา (Excel)</div>
             </div>
@@ -375,47 +368,45 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
         <div className="flex flex-col flex-1 min-h-0 bg-white rounded-3xl overflow-hidden shadow-2xl">
           
           {/* MODAL HEADER */}
-          <div className="flex items-center justify-between px-5 sm:px-6 py-4 border-b border-slate-100 bg-slate-50/60 shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-100 text-[#0F6659] flex items-center justify-center shadow-2xs">
-                <Smartphone size={22} strokeWidth={2.2} />
+          <div className="px-5 sm:px-6 pt-3 pb-3.5 border-b border-slate-100 bg-slate-50/70 shrink-0">
+            {/* แถวบน: ไอคอนมือถืออยู่ซ้ายสุด บรรทัดเดียวกับ preview และไอคอนปิด */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shadow-2xs">
+                <Smartphone size={18} strokeWidth={2.2} />
               </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm sm:text-base font-black text-slate-900 leading-tight">
-                    ปรับแต่งแถบเมนูนำทาง (Dynamic Navigation)
-                  </h3>
-                  <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-200">
-                    {role?.code}
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  กำหนด 3 เมนูด้านล่างสำหรับบทบาท: <span className="font-bold text-slate-800">{role?.name}</span>
-                </p>
+
+              <div className="flex items-center gap-2">
+                {/* 📱 Mobile Preview Button (Visible ONLY on Small / Tablet Screens < lg) */}
+                <button
+                  type="button"
+                  onClick={() => setShowPreviewModal(true)}
+                  className="lg:hidden inline-flex items-center gap-1.5 py-1 px-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-2xs"
+                  title="กดเพื่อดูตัวอย่างหน้าจอมือถือจำลอง"
+                >
+                  <Eye size={14} className="text-[#0F6659]" />
+                  <span>Preview</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="ปิดหน้าต่าง"
+                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+                >
+                  <X size={16} />
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              {/* 📱 Mobile Preview Button (Visible ONLY on Small / Tablet Screens < lg) */}
-              <button
-                type="button"
-                onClick={() => setShowPreviewModal(true)}
-                className="lg:hidden inline-flex items-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-[#0F6659] text-xs font-black transition-all active:scale-95 shadow-2xs cursor-pointer"
-                title="กดเพื่อดูตัวอย่างหน้าจอมือถือจำลอง"
-              >
-                <Eye size={15} />
-                <span>Preview</span>
-              </button>
+            {/* บรรทัดต่อมาเป็นชื่อ */}
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-tight">
+              ปรับแต่งแถบเมนูนำทาง (Dynamic Navigation)
+            </h3>
 
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="ปิดหน้าต่าง"
-                className="w-9 h-9 rounded-full bg-white hover:bg-slate-100 border border-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
+            {/* บรรทัดต่อมาเป็น สำหรับบทบาท:{Code Role} */}
+            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+              สำหรับบทบาท: <span className="font-bold text-slate-800">{role?.code}</span>{role?.name ? <span className="text-slate-500 font-normal"> ({role.name})</span> : null}
+            </p>
           </div>
 
           {/* TOAST ALERT NOTIFICATION BANNER */}
@@ -426,7 +417,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                   ? "bg-emerald-600 text-white"
                   : toastMessage.type === "error"
                   ? "bg-rose-600 text-white"
-                  : "bg-blue-600 text-white"
+                  : "bg-[#0F6659] text-white"
               }`}
             >
               <div className="flex items-center gap-2">
@@ -454,7 +445,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
               <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-4 space-y-3.5 shadow-2xs">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                    ตำแหน่งเมนู 3 ช่อง (เรียงตามลำดับหน้าจอ)
+                    ตำแหน่งเมนู 3 ช่อง
                   </span>
                   <button
                     type="button"
@@ -479,10 +470,10 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         <select
                           value={slotConfig.left}
                           onChange={(e) => handleSlotChange("left", e.target.value)}
-                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ${
+                          className={`w-full text-xs sm:text-sm pl-3 pr-8 py-2.5 min-h-[48px] rounded-2xl border outline-none font-semibold text-slate-700 cursor-pointer appearance-none truncate transition-all shadow-xs ${
                             validation.errors.left
                               ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
-                              : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:bg-white"
+                              : "border-slate-200 bg-slate-50 focus:border-[#0F6659] focus:bg-white"
                           }`}
                         >
                           {Object.values(NAV_MODULES_DICT).map((mod) => (
@@ -491,6 +482,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                             </option>
                           ))}
                         </select>
+                        <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       </div>
                     </div>
                     {validation.errors.left && (
@@ -513,10 +505,10 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         <select
                           value={slotConfig.center}
                           onChange={(e) => handleSlotChange("center", e.target.value)}
-                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-black bg-white outline-none cursor-pointer transition-all ${
+                          className={`w-full text-xs sm:text-sm pl-3 pr-8 py-2.5 min-h-[48px] rounded-2xl border outline-none font-semibold cursor-pointer appearance-none truncate transition-all shadow-xs ${
                             validation.errors.center
                               ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
-                              : "border-emerald-400 text-[#0F6659] focus:border-[#0F6659] focus:ring-1 focus:ring-emerald-500"
+                              : "border-emerald-400 text-[#0F6659] bg-white focus:border-[#0F6659] focus:ring-1 focus:ring-emerald-500"
                           }`}
                         >
                           {Object.values(NAV_MODULES_DICT).map((mod) => (
@@ -525,6 +517,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                             </option>
                           ))}
                         </select>
+                        <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-600 pointer-events-none" />
                       </div>
                     </div>
                     {validation.errors.center && (
@@ -545,10 +538,10 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                         <select
                           value={slotConfig.right}
                           onChange={(e) => handleSlotChange("right", e.target.value)}
-                          className={`w-full py-2 px-2.5 rounded-xl border text-xs font-bold bg-slate-50/70 outline-none cursor-pointer transition-all ${
+                          className={`w-full text-xs sm:text-sm pl-3 pr-8 py-2.5 min-h-[48px] rounded-2xl border outline-none font-semibold text-slate-700 cursor-pointer appearance-none truncate transition-all shadow-xs ${
                             validation.errors.right
                               ? "border-rose-400 text-rose-800 bg-rose-50 ring-1 ring-rose-300"
-                              : "border-slate-200 text-slate-800 focus:border-[#0F6659] focus:bg-white"
+                              : "border-slate-200 bg-slate-50 focus:border-[#0F6659] focus:bg-white"
                           }`}
                         >
                           {Object.values(NAV_MODULES_DICT).map((mod) => (
@@ -557,6 +550,7 @@ export default function RoleNavCustomizerModal({ role, onClose, onSaveSuccess })
                             </option>
                           ))}
                         </select>
+                        <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                       </div>
                     </div>
                     {validation.errors.right && (
