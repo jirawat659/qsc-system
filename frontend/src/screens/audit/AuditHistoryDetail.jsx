@@ -791,7 +791,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               }`}
                             >
                               <CheckCircle2 size={18} className={!q.isNa && isPass ? "text-emerald-700" : "text-slate-400"} />
-                              <span>ผ่าน / Yes</span>
+                              <span>ผ่าน</span>
                             </div>
 
                             {/* ไม่ผ่าน / No */}
@@ -803,7 +803,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               }`}
                             >
                               <XCircle size={18} className={!q.isNa && !isPass ? "text-rose-700" : "text-slate-400"} />
-                              <span>ไม่ผ่าน / No</span>
+                              <span>ไม่ผ่าน</span>
                             </div>
 
                             {/* ข้าม (N/A) */}
@@ -815,7 +815,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               }`}
                             >
                               <Minus size={18} className={q.isNa ? "text-slate-700" : "text-slate-400"} />
-                              <span>ข้าม (N/A)</span>
+                              <span>ข้าม</span>
                             </div>
                           </div>
                         )}
