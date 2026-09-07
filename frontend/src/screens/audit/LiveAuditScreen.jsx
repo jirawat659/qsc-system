@@ -401,13 +401,25 @@ export default function LiveAuditScreen({
     }
 
     if (searchBranch.trim()) {
-      const q = searchBranch.toLowerCase();
-      list = list.filter(u =>
-        u.name?.toLowerCase().includes(q) ||
-        (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-        u.region?.toLowerCase().includes(q) ||
-        (u.address && u.address.toLowerCase().includes(q))
-      );
+      const q = searchBranch.toLowerCase().trim();
+      list = list.filter(u => {
+        const matchName = u.name?.toLowerCase().includes(q);
+        const matchFullName = u.fullName?.toLowerCase().includes(q);
+        const matchCode = u.code?.toLowerCase().includes(q);
+        const matchRegion = u.region?.toLowerCase().includes(q);
+        const matchAddress = u.address?.toLowerCase().includes(q);
+        const matchBrand = (u.locationBrands || []).some(lb =>
+          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+        ) || (u.brand?.name || u.brandName || "").toLowerCase().includes(q) || (u.brand?.code || "").toLowerCase().includes(q);
+        const matchType = (
+          u.locationType?.name ||
+          u.locationType?.code ||
+          (typeof u.locationType === 'string' ? u.locationType : '')
+        ).toLowerCase().includes(q);
+
+        return matchName || matchFullName || matchCode || matchRegion || matchAddress || matchBrand || matchType;
+      });
     }
 
     // Sort by GPS distance ascending (น้อย ➔ มาก)
@@ -1533,7 +1545,7 @@ export default function LiveAuditScreen({
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="ค้นหาชื่อสาขา, โรงงาน หรือสำนักงาน..."
+            placeholder="ค้นหาชื่อสาขา, แบรนด์, โรงงาน หรือสำนักงาน..."
             value={searchBranch}
             onChange={(e) => setSearchBranch(e.target.value)}
             className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal"
@@ -1551,59 +1563,97 @@ export default function LiveAuditScreen({
         </div>
 
         {/* Branch Cards List */}
-        <div className="flex flex-col gap-3">
-          {paginatedBranchList.map((u) => {
-            const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
-            const distLabel = formatDistance(distMeters);
-            const isPassed = u.lastScore >= 85;
-
-            return (
+        {sortedBranchList.length === 0 ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center shadow-2xs space-y-3 my-2">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <Search size={22} />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-800">ไม่พบสาขาที่ค้นหา</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                ไม่พบสาขาที่ตรงกับคำค้นหา "{searchBranch}" กรุณาลองค้นหาด้วยชื่อสาขา แบรนด์ หรือภูมิภาคอื่น
+              </p>
+            </div>
+            {searchBranch && (
               <button
-                key={u.id || u.name}
                 type="button"
-                onClick={() => {
-                  setUnit(u);
-                  const matchedForms = formList.filter(f => isFormApplicableToLocation(f, u));
-                  if (matchedForms.length > 0) {
-                    setSelectedForm(matchedForms[0]);
-                  }
-                  setStep("select-form");
-                }}
-                className="w-full rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 bg-white border-slate-200 hover:border-emerald-500"
+                onClick={() => setSearchBranch("")}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-colors bg-emerald-50 text-[#0F6659] border-emerald-200 group-hover:bg-[#0F6659] group-hover:text-white">
-                    <Store size={24} />
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
-                        {u.fullName || u.name}
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <span className="text-xs font-medium px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
-                        {((u.locationType?.code === 'Office' || u.locationType === 'Office') ? '🏢 สำนักงาน' : (u.locationType?.code === 'Plant' || u.locationType === 'Plant') ? '🏭 โรงงาน' : '🏪 สาขา')} · {u.region}
-                      </span>
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                        <Navigation size={11} /> {distLabel}
-                      </span>
-                      <span className={`text-xs font-bold px-2.5 py-0.5 rounded-xl ${isPassed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                        คะแนนล่าสุด {u.lastScore}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <ChevronRight size={20} className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-1 transition-all" />
-                </div>
+                ล้างคำค้นหา
               </button>
-            );
-          })}
-          {totalBranchPages > 1 && (
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {paginatedBranchList.map((u) => {
+              const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
+              const distLabel = formatDistance(distMeters);
+              const isPassed = u.lastScore >= 85;
+
+              return (
+                <button
+                  key={u.id || u.name}
+                  type="button"
+                  onClick={() => {
+                    setUnit(u);
+                    const matchedForms = formList.filter(f => isFormApplicableToLocation(f, u));
+                    if (matchedForms.length > 0) {
+                      setSelectedForm(matchedForms[0]);
+                    }
+                    setStep("select-form");
+                  }}
+                  className="w-full rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 bg-white border-slate-200 hover:border-emerald-500"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-colors bg-emerald-50 text-[#0F6659] border-emerald-200 group-hover:bg-[#0F6659] group-hover:text-white">
+                      <Store size={24} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
+                          {u.fullName || u.name}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {/* Brand badges */}
+                        {(() => {
+                          const brands = (u.locationBrands || [])
+                            .map(lb => lb.brand?.name || lb.brandName)
+                            .filter(Boolean);
+                          if (brands.length === 0 && (u.brand?.name || u.brandName)) {
+                            brands.push(u.brand?.name || u.brandName);
+                          }
+                          if (brands.length === 0) return null;
+                          return (
+                            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-xl bg-teal-50 text-teal-800 border border-teal-200/80">
+                              🏷️ {brands.join(", ")}
+                            </span>
+                          );
+                        })()}
+
+                        <span className="text-xs font-medium px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
+                          {((u.locationType?.code === 'Office' || u.locationType === 'Office') ? '🏢 สำนักงาน' : (u.locationType?.code === 'Plant' || u.locationType === 'Plant') ? '🏭 โรงงาน' : '🏪 สาขา')} · {u.region}
+                        </span>
+                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                          <Navigation size={11} /> {distLabel}
+                        </span>
+                        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-xl ${isPassed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                          คะแนนล่าสุด {u.lastScore}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <ChevronRight size={20} className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-1 transition-all" />
+                  </div>
+                </button>
+              );
+            })}
+            {totalBranchPages > 1 && (
             <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-200 text-xs font-semibold text-slate-600 mt-2 shadow-2xs">
               <span>หน้า {branchPage} จาก {totalBranchPages} ({sortedBranchList.length} สาขา)</span>
               <div className="flex items-center gap-1.5">
@@ -1645,9 +1695,10 @@ export default function LiveAuditScreen({
             </div>
           )}
         </div>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
   // ════════════════════════════════════════════════════════════════════════════
   // STEP 2: SELECT FORM

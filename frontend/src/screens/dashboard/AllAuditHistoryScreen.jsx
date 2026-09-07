@@ -83,6 +83,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       return "แบบฟอร์มมาตรฐานใหม่";
     };
 
+    const getBrandsForLoc = (locId, directLoc) => {
+      const loc = (directLoc && (directLoc.locationBrands || directLoc.brand)) ? directLoc : (activeLocations || []).find(al => al.id === locId);
+      if (!loc) return "";
+      const brands = (loc.locationBrands || []).map(lb => lb.brand?.name || lb.brandName).filter(Boolean);
+      if (brands.length === 0 && (loc.brand?.name || loc.brandName)) brands.push(loc.brand?.name || loc.brandName);
+      return brands.join(" ");
+    };
+
     // 1. Completed Records
     if (auditRecords && auditRecords.length > 0) {
       auditRecords.forEach((r) => {
@@ -96,6 +104,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
         const directForm = r.surveyFormTitle || r.surveyForm?.title || r.formTitle || r.formName || r.form;
         const formVal = resolveFormTitle(formId, directForm);
+        const brandNames = getBrandsForLoc(r.locationId, r.location);
         
         logs.push({
           id: `completed-${r.id}`,
@@ -103,6 +112,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           type: 'completed',
           unitName: branchName,
           unitFullName: branchFullName,
+          brandNames: brandNames,
           region: r.locationRegion || r.location?.region || "-",
           date: dateFormatted,
           rawDate: rawDate,
@@ -178,12 +188,15 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           totalCount = Number(d.totalQuestions || d.TotalQuestions) || 0;
         }
         
+        const brandNames = getBrandsForLoc(d.locationId, d.location);
+
         logs.push({
           id: `draft-${d.id}`,
           originalId: d.id,
           type: 'draft',
           unitName: branchName,
           unitFullName: branchFullName,
+          brandNames: brandNames,
           region: d.locationRegion || d.location?.region || "-",
           date: dateFormatted,
           rawDate: rawDate,
@@ -241,6 +254,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         );
         if (existingDraft) return; // already represented in activeDrafts
 
+        const brandNames = getBrandsForLoc(s.locationId, s.location);
+
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
           logs.push({
@@ -249,6 +264,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             type: 'draft',
             unitName: branchName,
             unitFullName: branchFullName,
+            brandNames: brandNames,
             region: s.locationRegion || s.location?.region || s.region || "-",
             date: dateFormatted,
             rawDate: rawDate,
@@ -286,6 +302,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           type: 'schedule',
           unitName: branchName,
           unitFullName: branchFullName,
+          brandNames: brandNames,
           region: s.locationRegion || s.location?.region || "-",
           date: dateFormatted, // scheduled date
           rawDate: rawDate,
@@ -317,6 +334,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     // If no data, use mocks
     if (logs.length === 0) {
       activeLocations.forEach(u => {
+        const uBrandNames = getBrandsForLoc(u.id, u);
         (u.history || []).forEach((h, hIdx) => {
           const timestamp = parseAuditTimestamp(h.date, h.id || hIdx);
           logs.push({
@@ -325,6 +343,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             type: 'completed',
             unitName: u.name,
             unitFullName: u.fullName || u.name,
+            brandNames: uBrandNames,
             region: u.region || "-",
             date: h.date,
             rawDate: h.date,
@@ -381,6 +400,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         return (
           (l.unitName && l.unitName.toLowerCase().includes(q)) ||
           (l.unitFullName && l.unitFullName.toLowerCase().includes(q)) ||
+          (l.brandNames && l.brandNames.toLowerCase().includes(q)) ||
           (l.region && l.region.toLowerCase().includes(q)) ||
           (l.date && l.date.toLowerCase().includes(q)) ||
           (l.auditor && l.auditor.toLowerCase().includes(q)) ||
@@ -496,14 +516,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     let list = [...allBranches];
 
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
+      const q = searchTerm.toLowerCase().trim();
       list = list.filter(l =>
         (l.name && l.name.toLowerCase().includes(q)) ||
         (l.fullName && l.fullName.toLowerCase().includes(q)) ||
         (l.code && l.code.toLowerCase().includes(q)) ||
         (l.region && l.region.toLowerCase().includes(q)) ||
         (l.locationType && l.locationType.toLowerCase().includes(q)) ||
-        (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q))
+        (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q)) ||
+        (l.locationBrands || l.rawLocation?.locationBrands || []).some(lb =>
+          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+        ) ||
+        (l.brand?.name || l.brandName || l.rawLocation?.brand?.name || "").toLowerCase().includes(q)
       );
     }
 
@@ -751,7 +776,7 @@ const handleTriggerAudit = (record) => {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="ค้นหาชื่อสาขา, วันที่, ผู้ตรวจ, สถานะ..."
+              placeholder="ค้นหาชื่อสาขา, แบรนด์, วันที่, ผู้ตรวจ, สถานะ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full text-xs sm:text-sm pl-8.5 pr-7 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400 shadow-2xs"

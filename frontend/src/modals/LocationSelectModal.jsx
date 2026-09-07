@@ -159,7 +159,7 @@ export default function LocationSelectModal({
         const matchCode = (loc.code || "").toLowerCase().includes(query);
         const matchReg = (loc.region || "").toLowerCase().includes(query);
         const matchAddress = (loc.address || "").toLowerCase().includes(query);
-        const matchB = (loc.locationBrands || []).some(lb => (lb.brand?.name || "").toLowerCase().includes(query) || (lb.brand?.code || "").toLowerCase().includes(query)) || ((loc.brand?.name || "").toLowerCase().includes(query));
+        const matchB = (loc.locationBrands || []).some(lb => (lb.brand?.name || lb.brandName || "").toLowerCase().includes(query) || (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(query)) || ((loc.brand?.name || loc.brandName || "").toLowerCase().includes(query)) || ((loc.brand?.code || "").toLowerCase().includes(query));
         const matchT = getLocTypeString(loc).toLowerCase().includes(query);
         return matchName || matchFullName || matchCode || matchReg || matchAddress || matchB || matchT;
       }
@@ -223,7 +223,7 @@ export default function LocationSelectModal({
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="ค้นหาชื่อสาขา, รหัสสาขา หรือที่อยู่..."
+              placeholder="ค้นหาชื่อสาขา, แบรนด์, รหัสสาขา หรือที่อยู่..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-9 py-2.5 min-h-[46px] text-sm sm:text-base rounded-2xl border border-slate-200 outline-none focus:border-[#0F6659] bg-slate-50 text-slate-800 font-semibold placeholder-slate-400 transition-all focus:bg-white focus:ring-1 focus:ring-emerald-500/20"
