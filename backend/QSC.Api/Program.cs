@@ -157,19 +157,7 @@ app.UseCors("AllowReact");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Protect static uploads with authentication
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/uploads"))
-    {
-        if (!context.User.Identity?.IsAuthenticated ?? true)
-        {
-            context.Response.StatusCode = 401;
-            return;
-        }
-    }
-    await next();
-});
+
 
 app.UseStaticFiles();
 app.UseRateLimiter();
