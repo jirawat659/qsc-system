@@ -87,7 +87,6 @@ export default function MasterManagementScreen({ onBack }) {
   const [editLocationForm, setEditLocationForm] = useState({
     code: '',
     name: '',
-    brandName: '',
     boundBrandIds: [],
     primaryBrandId: null,
     locationTypeId: 1,
@@ -156,7 +155,6 @@ export default function MasterManagementScreen({ onBack }) {
   const [locationForm, setLocationForm] = useState({
     code: '',
     name: '',
-    brandName: '',
     boundBrandIds: [],
     primaryBrandId: null,
     locationTypeId: 1,
@@ -328,7 +326,6 @@ export default function MasterManagementScreen({ onBack }) {
     setEditLocationForm({
       code: loc.code || '',
       name: loc.name || '',
-      brandName: loc.brandName || '',
       boundBrandIds: lbs.map(lb => lb.brandId),
       primaryBrandId: lbs.find(lb => lb.isPrimary)?.brandId ?? (lbs[0]?.brandId ?? null),
       locationTypeId: loc.locationTypeId || 1,
@@ -1940,15 +1937,13 @@ export default function MasterManagementScreen({ onBack }) {
                   onChange={(ids) => setEditLocationForm(prev => ({
                     ...prev,
                     boundBrandIds: ids,
-                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null),
-                    brandName: brands.find(b => b.id === (ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : ids[0]))?.name || ''
+                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null)
                   }))}
                   mode="multi"
                   primaryId={editLocationForm.primaryBrandId}
                   onSetPrimary={(id) => setEditLocationForm(prev => ({
                     ...prev,
-                    primaryBrandId: id,
-                    brandName: brands.find(b => b.id === id)?.name || prev.brandName
+                    primaryBrandId: id
                   }))}
                 />
               </div>
@@ -2173,15 +2168,13 @@ export default function MasterManagementScreen({ onBack }) {
                   onChange={(ids) => setLocationForm(prev => ({
                     ...prev,
                     boundBrandIds: ids,
-                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null),
-                    brandName: brands.find(b => b.id === (ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : ids[0]))?.name || ''
+                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null)
                   }))}
                   mode="multi"
                   primaryId={locationForm.primaryBrandId}
                   onSetPrimary={(id) => setLocationForm(prev => ({
                     ...prev,
-                    primaryBrandId: id,
-                    brandName: brands.find(b => b.id === id)?.name || prev.brandName
+                    primaryBrandId: id
                   }))}
                 />
               </div>

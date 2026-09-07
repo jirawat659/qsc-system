@@ -251,6 +251,7 @@ namespace QSC.Api.Services
 
             var locations = await _context.Locations
                 .AsNoTracking()
+                .Include(l => l.LocationBrands).ThenInclude(lb => lb.Brand)
                 .Where(l => l.IsActive)
                 .ToListAsync();
 
@@ -339,7 +340,7 @@ namespace QSC.Api.Services
                 {
                     LocationId = loc.Id,
                     LocationName = loc.Name,
-                    BrandName = loc.BrandName,
+                    BrandName = string.Join(", ", loc.LocationBrands.OrderByDescending(lb => lb.IsPrimary).Select(lb => lb.Brand.Name)),
                     Region = loc.Region,
                     PriorityLevel = priority,
                     LastScore = lastScore,

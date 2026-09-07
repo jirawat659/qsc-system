@@ -843,7 +843,7 @@ namespace QSC.Api.Controllers
                 locationBrand = r.Location?.LocationBrands
                     .Where(lb => lb.IsPrimary)
                     .Select(lb => lb.Brand.Name)
-                    .FirstOrDefault() ?? r.Location?.BrandName,
+                    .FirstOrDefault() ?? r.Location?.LocationBrands.Select(lb => lb.Brand.Name).FirstOrDefault(),
                 locationBrands = r.Location?.LocationBrands
                     .OrderByDescending(lb => lb.IsPrimary)
                     .ThenBy(lb => lb.Brand.Name)
@@ -954,7 +954,7 @@ namespace QSC.Api.Controllers
                 locationBrand = r.Location?.LocationBrands
                     .Where(lb => lb.IsPrimary)
                     .Select(lb => lb.Brand.Name)
-                    .FirstOrDefault() ?? r.Location?.BrandName,
+                    .FirstOrDefault() ?? r.Location?.LocationBrands.Select(lb => lb.Brand.Name).FirstOrDefault(),
                 locationBrands = r.Location?.LocationBrands
                     .OrderByDescending(lb => lb.IsPrimary)
                     .ThenBy(lb => lb.Brand.Name)

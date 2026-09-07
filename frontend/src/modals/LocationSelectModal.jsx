@@ -39,13 +39,12 @@ export default function LocationSelectModal({
       if (match) return true;
     }
 
-    // 2. Fallback check for single brand properties
+    // 2. Fallback check for single brand object properties if any
     const locBrandId = String(loc.brandId || '').toLowerCase().trim();
-    const locBrandName = String(loc.brandName || '').toLowerCase().trim();
     const locBrandObjId = String(loc.brand?.id || '').toLowerCase().trim();
     const locBrandObjName = String(loc.brand?.name || '').toLowerCase().trim();
 
-    return locBrandId === filterStr || locBrandName === filterStr || locBrandObjId === filterStr || locBrandObjName === filterStr;
+    return locBrandId === filterStr || locBrandObjId === filterStr || locBrandObjName === filterStr;
   };
 
   const matchRegion = (loc, regionFilter) => {
@@ -107,9 +106,10 @@ export default function LocationSelectModal({
             brandMap.set(bId, { id: bId, name: bName, code: bCode });
           }
         });
-      } else if (loc.brandName) {
-        if (!brandMap.has(loc.brandName)) {
-          brandMap.set(loc.brandName, { id: loc.brandName, name: loc.brandName });
+      } else if (loc.brand && loc.brand.name) {
+        const bId = String(loc.brand.id || loc.brand.name);
+        if (!brandMap.has(bId)) {
+          brandMap.set(bId, { id: bId, name: loc.brand.name, code: loc.brand.code });
         }
       }
     });
@@ -159,7 +159,7 @@ export default function LocationSelectModal({
         const matchCode = (loc.code || "").toLowerCase().includes(query);
         const matchReg = (loc.region || "").toLowerCase().includes(query);
         const matchAddress = (loc.address || "").toLowerCase().includes(query);
-        const matchB = (loc.brandName || "").toLowerCase().includes(query) || (loc.locationBrands || []).some(lb => (lb.brand?.name || "").toLowerCase().includes(query) || (lb.brand?.code || "").toLowerCase().includes(query));
+        const matchB = (loc.locationBrands || []).some(lb => (lb.brand?.name || "").toLowerCase().includes(query) || (lb.brand?.code || "").toLowerCase().includes(query)) || ((loc.brand?.name || "").toLowerCase().includes(query));
         const matchT = getLocTypeString(loc).toLowerCase().includes(query);
         return matchName || matchFullName || matchCode || matchReg || matchAddress || matchB || matchT;
       }
@@ -341,7 +341,7 @@ export default function LocationSelectModal({
               // รวมรายชื่อแบรนด์ของสาขา
               const locBrandNames = (loc.locationBrands && loc.locationBrands.length > 0)
                 ? loc.locationBrands.map(lb => lb.brand?.name || lb.brand?.code).filter(Boolean)
-                : (loc.brandName ? [loc.brandName] : (loc.brand?.name ? [loc.brand.name] : []));
+                : (loc.brand?.name ? [loc.brand.name] : []);
 
               return (
                 <div

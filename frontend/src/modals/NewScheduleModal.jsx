@@ -229,9 +229,12 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
     if (!forms || forms.length === 0) return [];
     if (!selectedUnit) return forms;
 
-    const locBrandId = selectedUnit.brandId;
-    const locBrandIds = selectedUnit.brandIds || (locBrandId ? [locBrandId] : []);
-    const locBrandName = selectedUnit.brandName || selectedUnit.brand?.name;
+    const locBrandIds = (selectedUnit.locationBrands && selectedUnit.locationBrands.length > 0)
+      ? selectedUnit.locationBrands.map(lb => lb.brandId || lb.brand?.id).filter(Boolean)
+      : (selectedUnit.brandId ? [selectedUnit.brandId] : []);
+    const locBrandNames = (selectedUnit.locationBrands && selectedUnit.locationBrands.length > 0)
+      ? selectedUnit.locationBrands.map(lb => lb.brand?.name).filter(Boolean)
+      : (selectedUnit.brand?.name ? [selectedUnit.brand.name] : []);
 
     const matched = forms.filter(f => {
       const formBrandIds = f.brandIds || (f.brandId ? [f.brandId] : []);
@@ -244,7 +247,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
       if (locBrandIds.length > 0 && formBrandIds.some(bid => locBrandIds.includes(bid))) return true;
 
       // Check Name match
-      if (locBrandName && formBrandNames.some(bn => bn.toLowerCase() === locBrandName.toLowerCase())) return true;
+      if (locBrandNames.length > 0 && formBrandNames.some(bn => locBrandNames.some(lbn => lbn.toLowerCase() === bn.toLowerCase()))) return true;
 
       return false;
     });

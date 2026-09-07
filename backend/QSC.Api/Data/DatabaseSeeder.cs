@@ -491,38 +491,38 @@ namespace QSC.Api.Data
             var locations = new List<Location>
             {
                 // --- Urban Burger ---
-                new Location { Code = "UB-001", Name = "สาขาสยามพารากอน (Siam Paragon Flagship)", LocationTypeId = storeType.Id, ManagerUserId = auditeeSiam.Id, Latitude = 13.7466, Longitude = 100.5347, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Urban Burger", Address = "ชั้น G สยามพารากอน ถ.พระราม 1 ปทุมวัน กรุงเทพฯ 10330", Phone = "02-123-4567", LastScore = 98.5, LastAuditDate = now.AddDays(-14) },
-                new Location { Code = "UB-002", Name = "สาขาสุขุมวิท 24 (Sukhumvit 24)", LocationTypeId = storeType.Id, ManagerUserId = auditeeSukhumvit.Id, Latitude = 13.7291, Longitude = 100.5678, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Urban Burger", Address = "ซอยสุขุมวิท 24 คลองตัน คลองเตย กรุงเทพฯ 10110", Phone = "02-234-5678", LastScore = 91.2, LastAuditDate = now.AddDays(-21) },
-                new Location { Code = "UB-003", Name = "สาขาเมกาบางนา (Mega Bangna Drive-thru)", LocationTypeId = storeType.Id, ManagerUserId = auditeeBangna.Id, Latitude = 13.6468, Longitude = 100.6802, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Urban Burger", Address = "ศูนย์การค้าเมกาบางนา ถ.บางนา-ตราด กม.8 สมุทรปราการ 10540", Phone = "02-345-6789", LastScore = 94.8, LastAuditDate = now.AddDays(-13) },
-                new Location { Code = "UB-004", Name = "สาขาเซ็นทรัลลาดพร้าว (Central Ladprao)", LocationTypeId = storeType.Id, ManagerUserId = auditeeLadprao.Id, Latitude = 13.8164, Longitude = 100.5611, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Urban Burger", Address = "ชั้น 3 เซ็นทรัลลาดพร้าว ถ.พหลโยธิน จตุจักร กรุงเทพฯ 10900", Phone = "02-456-7890", LastScore = 86.9, LastAuditDate = now.AddDays(-23) },
-                new Location { Code = "UB-005", Name = "สาขาแฟชั่นไอส์แลนด์ (Fashion Island)", LocationTypeId = storeType.Id, Latitude = 13.8247, Longitude = 100.6789, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Urban Burger", Address = "ชั้น B แฟชั่นไอส์แลนด์ ถ.รามอินทรา คันนายาว กรุงเทพฯ 10230", Phone = "02-567-8901", LastScore = 93.0, LastAuditDate = now.AddDays(-30) },
-                new Location { Code = "UB-006", Name = "สาขาเซ็นทรัลเชียงใหม่ (Central Chiang Mai)", LocationTypeId = storeType.Id, ManagerUserId = auditeeChiangmai.Id, Latitude = 18.7997, Longitude = 99.0178, Region = "ภาคเหนือ", BrandName = "Urban Burger", Address = "ชั้น 4 เซ็นทรัลเชียงใหม่ ถ.ซุปเปอร์ไฮเวย์ อ.เมือง จ.เชียงใหม่ 50000", Phone = "053-123-456", LastScore = 96.4, LastAuditDate = now.AddDays(-18) },
-                new Location { Code = "UB-007", Name = "สาขาเชียงรายแอร์พอร์ต (Chiang Rai Airport Mall)", LocationTypeId = storeType.Id, Latitude = 19.9520, Longitude = 99.8820, Region = "ภาคเหนือ", BrandName = "Urban Burger", Address = "ชั้น 1 ศูนย์การค้าแอร์พอร์ตพลาซ่า อ.เมือง จ.เชียงราย 57000", Phone = "053-234-567", LastScore = 92.8, LastAuditDate = now.AddDays(-25) },
-                new Location { Code = "UB-008", Name = "สาขาเซ็นทรัลภูเก็ต (Central Festival Phuket)", LocationTypeId = storeType.Id, ManagerUserId = auditeePhuket.Id, Latitude = 7.8920, Longitude = 98.3670, Region = "ภาคใต้", BrandName = "Urban Burger", Address = "ชั้น 3 เซ็นทรัลภูเก็ต ถ.วิชิตสงคราม อ.เมือง จ.ภูเก็ต 83000", Phone = "076-123-456", LastScore = 88.4, LastAuditDate = now.AddDays(-22) },
-                new Location { Code = "UB-009", Name = "สาขาหาดใหญ่ ลีการ์เดนส์ (Hat Yai Lee Gardens)", LocationTypeId = storeType.Id, Latitude = 7.0068, Longitude = 100.4715, Region = "ภาคใต้", BrandName = "Urban Burger", Address = "ถ.เสน่หานุสรณ์ อ.หาดใหญ่ จ.สงขลา 90110", Phone = "074-234-567", LastScore = 91.0, LastAuditDate = now.AddDays(-35) },
-                new Location { Code = "UB-010", Name = "สาขาเซ็นทรัลขอนแก่น (Central Khon Kaen)", LocationTypeId = storeType.Id, Latitude = 16.4320, Longitude = 102.8240, Region = "ภาคตะวันออกเฉียงเหนือ", BrandName = "Urban Burger", Address = "ชั้น G เซ็นทรัลขอนแก่น ถ.ศรีจันทร์ อ.เมือง จ.ขอนแก่น 40000", Phone = "043-123-456", LastScore = 89.5, LastAuditDate = now.AddDays(-32) },
-                new Location { Code = "UB-011", Name = "สาขาเทอร์มินอล 21 โคราช (Terminal 21 Korat)", LocationTypeId = storeType.Id, Latitude = 14.9810, Longitude = 102.0980, Region = "ภาคตะวันออกเฉียงเหนือ", BrandName = "Urban Burger", Address = "ชั้น 4 เทอร์มินอล 21 ถ.มิตรภาพ อ.เมือง จ.นครราชสีมา 30000", Phone = "044-234-567", LastScore = 93.2, LastAuditDate = now.AddDays(-29) },
+                new Location { Code = "UB-001", Name = "สาขาสยามพารากอน (Siam Paragon Flagship)", LocationTypeId = storeType.Id, ManagerUserId = auditeeSiam.Id, Latitude = 13.7466, Longitude = 100.5347, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น G สยามพารากอน ถ.พระราม 1 ปทุมวัน กรุงเทพฯ 10330", Phone = "02-123-4567", LastScore = 98.5, LastAuditDate = now.AddDays(-14) },
+                new Location { Code = "UB-002", Name = "สาขาสุขุมวิท 24 (Sukhumvit 24)", LocationTypeId = storeType.Id, ManagerUserId = auditeeSukhumvit.Id, Latitude = 13.7291, Longitude = 100.5678, Region = "กรุงเทพฯ และปริมณฑล", Address = "ซอยสุขุมวิท 24 คลองตัน คลองเตย กรุงเทพฯ 10110", Phone = "02-234-5678", LastScore = 91.2, LastAuditDate = now.AddDays(-21) },
+                new Location { Code = "UB-003", Name = "สาขาเมกาบางนา (Mega Bangna Drive-thru)", LocationTypeId = storeType.Id, ManagerUserId = auditeeBangna.Id, Latitude = 13.6468, Longitude = 100.6802, Region = "กรุงเทพฯ และปริมณฑล", Address = "ศูนย์การค้าเมกาบางนา ถ.บางนา-ตราด กม.8 สมุทรปราการ 10540", Phone = "02-345-6789", LastScore = 94.8, LastAuditDate = now.AddDays(-13) },
+                new Location { Code = "UB-004", Name = "สาขาเซ็นทรัลลาดพร้าว (Central Ladprao)", LocationTypeId = storeType.Id, ManagerUserId = auditeeLadprao.Id, Latitude = 13.8164, Longitude = 100.5611, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น 3 เซ็นทรัลลาดพร้าว ถ.พหลโยธิน จตุจักร กรุงเทพฯ 10900", Phone = "02-456-7890", LastScore = 86.9, LastAuditDate = now.AddDays(-23) },
+                new Location { Code = "UB-005", Name = "สาขาแฟชั่นไอส์แลนด์ (Fashion Island)", LocationTypeId = storeType.Id, Latitude = 13.8247, Longitude = 100.6789, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น B แฟชั่นไอส์แลนด์ ถ.รามอินทรา คันนายาว กรุงเทพฯ 10230", Phone = "02-567-8901", LastScore = 93.0, LastAuditDate = now.AddDays(-30) },
+                new Location { Code = "UB-006", Name = "สาขาเซ็นทรัลเชียงใหม่ (Central Chiang Mai)", LocationTypeId = storeType.Id, ManagerUserId = auditeeChiangmai.Id, Latitude = 18.7997, Longitude = 99.0178, Region = "ภาคเหนือ", Address = "ชั้น 4 เซ็นทรัลเชียงใหม่ ถ.ซุปเปอร์ไฮเวย์ อ.เมือง จ.เชียงใหม่ 50000", Phone = "053-123-456", LastScore = 96.4, LastAuditDate = now.AddDays(-18) },
+                new Location { Code = "UB-007", Name = "สาขาเชียงรายแอร์พอร์ต (Chiang Rai Airport Mall)", LocationTypeId = storeType.Id, Latitude = 19.9520, Longitude = 99.8820, Region = "ภาคเหนือ", Address = "ชั้น 1 ศูนย์การค้าแอร์พอร์ตพลาซ่า อ.เมือง จ.เชียงราย 57000", Phone = "053-234-567", LastScore = 92.8, LastAuditDate = now.AddDays(-25) },
+                new Location { Code = "UB-008", Name = "สาขาเซ็นทรัลภูเก็ต (Central Festival Phuket)", LocationTypeId = storeType.Id, ManagerUserId = auditeePhuket.Id, Latitude = 7.8920, Longitude = 98.3670, Region = "ภาคใต้", Address = "ชั้น 3 เซ็นทรัลภูเก็ต ถ.วิชิตสงคราม อ.เมือง จ.ภูเก็ต 83000", Phone = "076-123-456", LastScore = 88.4, LastAuditDate = now.AddDays(-22) },
+                new Location { Code = "UB-009", Name = "สาขาหาดใหญ่ ลีการ์เดนส์ (Hat Yai Lee Gardens)", LocationTypeId = storeType.Id, Latitude = 7.0068, Longitude = 100.4715, Region = "ภาคใต้", Address = "ถ.เสน่หานุสรณ์ อ.หาดใหญ่ จ.สงขลา 90110", Phone = "074-234-567", LastScore = 91.0, LastAuditDate = now.AddDays(-35) },
+                new Location { Code = "UB-010", Name = "สาขาเซ็นทรัลขอนแก่น (Central Khon Kaen)", LocationTypeId = storeType.Id, Latitude = 16.4320, Longitude = 102.8240, Region = "ภาคตะวันออกเฉียงเหนือ", Address = "ชั้น G เซ็นทรัลขอนแก่น ถ.ศรีจันทร์ อ.เมือง จ.ขอนแก่น 40000", Phone = "043-123-456", LastScore = 89.5, LastAuditDate = now.AddDays(-32) },
+                new Location { Code = "UB-011", Name = "สาขาเทอร์มินอล 21 โคราช (Terminal 21 Korat)", LocationTypeId = storeType.Id, Latitude = 14.9810, Longitude = 102.0980, Region = "ภาคตะวันออกเฉียงเหนือ", Address = "ชั้น 4 เทอร์มินอล 21 ถ.มิตรภาพ อ.เมือง จ.นครราชสีมา 30000", Phone = "044-234-567", LastScore = 93.2, LastAuditDate = now.AddDays(-29) },
 
                 // --- Cafe Luna ---
-                new Location { Code = "CL-001", Name = "สาขาอารีย์ (Ari Craft Yard)", LocationTypeId = storeType.Id, ManagerUserId = auditeeAri.Id, Latitude = 13.7797, Longitude = 100.5447, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Cafe Luna", Address = "โครงการ ลาวิลล่า พหลโยธิน พญาไท กรุงเทพฯ 10400", Phone = "02-678-9012", LastScore = 97.8, LastAuditDate = now.AddDays(-16) },
-                new Location { Code = "CL-002", Name = "สาขาทองหล่อ 13 (Thong Lo 13)", LocationTypeId = storeType.Id, Latitude = 13.7335, Longitude = 100.5822, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Cafe Luna", Address = "ซอยทองหล่อ 13 สุขุมวิท 55 คลองตันเหนือ วัฒนา กรุงเทพฯ 10110", Phone = "02-789-0123", LastScore = 92.1, LastAuditDate = now.AddDays(-19) },
-                new Location { Code = "CL-003", Name = "สาขาสีลมคอมเพล็กซ์ (Silom Complex)", LocationTypeId = storeType.Id, Latitude = 13.7285, Longitude = 100.5348, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Cafe Luna", Address = "ชั้น 2 สีลมคอมเพล็กซ์ ถ.สีลม บางรัก กรุงเทพฯ 10500", Phone = "02-890-1234", LastScore = 94.0, LastAuditDate = now.AddDays(-24) },
-                new Location { Code = "CL-004", Name = "สาขาไอคอนสยาม (IconSiam Riverside)", LocationTypeId = storeType.Id, Latitude = 13.7268, Longitude = 100.5108, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Cafe Luna", Address = "ชั้น G โซน Veranda ไอคอนสยาม คลองสาน กรุงเทพฯ 10600", Phone = "02-901-2345", LastScore = 95.5, LastAuditDate = now.AddDays(-12) },
-                new Location { Code = "CL-005", Name = "สาขานิมมานเชียงใหม่ (Nimman Promenade)", LocationTypeId = storeType.Id, Latitude = 18.7960, Longitude = 98.9680, Region = "ภาคเหนือ", BrandName = "Cafe Luna", Address = "ถนนนิมมานเหมินท์ ซอย 9 ต.สุเทพ อ.เมือง จ.เชียงใหม่ 50200", Phone = "053-345-678", LastScore = 95.9, LastAuditDate = now.AddDays(-17) },
-                new Location { Code = "CL-006", Name = "สาขาเซ็นทรัลอุดรธานี (Central Udon Thani)", LocationTypeId = storeType.Id, Latitude = 17.4060, Longitude = 102.7930, Region = "ภาคตะวันออกเฉียงเหนือ", BrandName = "Cafe Luna", Address = "ชั้น 2 เซ็นทรัลอุดรธานี ถ.ประจักษ์ศิลปาคม อ.เมือง จ.อุดรธานี 41000", Phone = "042-123-456", LastScore = 91.8, LastAuditDate = now.AddDays(-27) },
+                new Location { Code = "CL-001", Name = "สาขาอารีย์ (Ari Craft Yard)", LocationTypeId = storeType.Id, ManagerUserId = auditeeAri.Id, Latitude = 13.7797, Longitude = 100.5447, Region = "กรุงเทพฯ และปริมณฑล", Address = "โครงการ ลาวิลล่า พหลโยธิน พญาไท กรุงเทพฯ 10400", Phone = "02-678-9012", LastScore = 97.8, LastAuditDate = now.AddDays(-16) },
+                new Location { Code = "CL-002", Name = "สาขาทองหล่อ 13 (Thong Lo 13)", LocationTypeId = storeType.Id, Latitude = 13.7335, Longitude = 100.5822, Region = "กรุงเทพฯ และปริมณฑล", Address = "ซอยทองหล่อ 13 สุขุมวิท 55 คลองตันเหนือ วัฒนา กรุงเทพฯ 10110", Phone = "02-789-0123", LastScore = 92.1, LastAuditDate = now.AddDays(-19) },
+                new Location { Code = "CL-003", Name = "สาขาสีลมคอมเพล็กซ์ (Silom Complex)", LocationTypeId = storeType.Id, Latitude = 13.7285, Longitude = 100.5348, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น 2 สีลมคอมเพล็กซ์ ถ.สีลม บางรัก กรุงเทพฯ 10500", Phone = "02-890-1234", LastScore = 94.0, LastAuditDate = now.AddDays(-24) },
+                new Location { Code = "CL-004", Name = "สาขาไอคอนสยาม (IconSiam Riverside)", LocationTypeId = storeType.Id, Latitude = 13.7268, Longitude = 100.5108, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น G โซน Veranda ไอคอนสยาม คลองสาน กรุงเทพฯ 10600", Phone = "02-901-2345", LastScore = 95.5, LastAuditDate = now.AddDays(-12) },
+                new Location { Code = "CL-005", Name = "สาขานิมมานเชียงใหม่ (Nimman Promenade)", LocationTypeId = storeType.Id, Latitude = 18.7960, Longitude = 98.9680, Region = "ภาคเหนือ", Address = "ถนนนิมมานเหมินท์ ซอย 9 ต.สุเทพ อ.เมือง จ.เชียงใหม่ 50200", Phone = "053-345-678", LastScore = 95.9, LastAuditDate = now.AddDays(-17) },
+                new Location { Code = "CL-006", Name = "สาขาเซ็นทรัลอุดรธานี (Central Udon Thani)", LocationTypeId = storeType.Id, Latitude = 17.4060, Longitude = 102.7930, Region = "ภาคตะวันออกเฉียงเหนือ", Address = "ชั้น 2 เซ็นทรัลอุดรธานี ถ.ประจักษ์ศิลปาคม อ.เมือง จ.อุดรธานี 41000", Phone = "042-123-456", LastScore = 91.8, LastAuditDate = now.AddDays(-27) },
 
                 // --- Artisan Bakery ---
-                new Location { Code = "AB-001", Name = "สาขาเอ็มควอเทียร์ (EmQuartier Flagship)", LocationTypeId = storeType.Id, Latitude = 13.7314, Longitude = 100.5698, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Artisan Bakery", Address = "ชั้น G อาคาร The Glass Quartier เอ็มควอเทียร์ สุขุมวิท กรุงเทพฯ 10110", Phone = "02-012-3456", LastScore = 97.2, LastAuditDate = now.AddDays(-15) },
-                new Location { Code = "AB-002", Name = "สาขาเซ็นทรัลพระราม 9 (Central Rama 9)", LocationTypeId = storeType.Id, Latitude = 13.7580, Longitude = 100.5660, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Artisan Bakery", Address = "ชั้น B เซ็นทรัลพระราม 9 ถ.รัชดาภิเษก ห้วยขวาง กรุงเทพฯ 10310", Phone = "02-123-7890", LastScore = 89.0, LastAuditDate = now.AddDays(-42) },
-                new Location { Code = "AB-003", Name = "สาขาเซ็นทรัลพัทยา (Central Pattaya)", LocationTypeId = storeType.Id, ManagerUserId = auditeePattaya.Id, Latitude = 12.9350, Longitude = 100.8830, Region = "ภาคตะวันออก", BrandName = "Artisan Bakery", Address = "ชั้น 1 เซ็นทรัลพัทยาบีช ถ.พัทยาสาย 1 อ.บางละมุง จ.ชลบุรี 20150", Phone = "038-123-456", LastScore = 93.5, LastAuditDate = now.AddDays(-21) },
-                new Location { Code = "AB-004", Name = "สาขาระยองซิตี้ (Rayong City Center)", LocationTypeId = storeType.Id, ManagerUserId = auditeeRayong.Id, Latitude = 12.6830, Longitude = 101.2780, Region = "ภาคตะวันออก", BrandName = "Artisan Bakery", Address = "ถ.สุขุมวิท ต.เชิงเนิน อ.เมือง จ.ระยอง 21000", Phone = "038-234-567", LastScore = 84.2, LastAuditDate = now.AddDays(-24) },
-                new Location { Code = "AB-005", Name = "สาขาเซ็นทรัลชลบุรี (Central Chonburi)", LocationTypeId = storeType.Id, Latitude = 13.3370, Longitude = 100.9650, Region = "ภาคตะวันออก", BrandName = "Artisan Bakery", Address = "ชั้น 1 เซ็นทรัลชลบุรี ถ.สุขุมวิท อ.เมือง จ.ชลบุรี 20000", Phone = "038-345-678", LastScore = 90.5, LastAuditDate = now.AddDays(-37) },
+                new Location { Code = "AB-001", Name = "สาขาเอ็มควอเทียร์ (EmQuartier Flagship)", LocationTypeId = storeType.Id, Latitude = 13.7314, Longitude = 100.5698, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น G อาคาร The Glass Quartier เอ็มควอเทียร์ สุขุมวิท กรุงเทพฯ 10110", Phone = "02-012-3456", LastScore = 97.2, LastAuditDate = now.AddDays(-15) },
+                new Location { Code = "AB-002", Name = "สาขาเซ็นทรัลพระราม 9 (Central Rama 9)", LocationTypeId = storeType.Id, Latitude = 13.7580, Longitude = 100.5660, Region = "กรุงเทพฯ และปริมณฑล", Address = "ชั้น B เซ็นทรัลพระราม 9 ถ.รัชดาภิเษก ห้วยขวาง กรุงเทพฯ 10310", Phone = "02-123-7890", LastScore = 89.0, LastAuditDate = now.AddDays(-42) },
+                new Location { Code = "AB-003", Name = "สาขาเซ็นทรัลพัทยา (Central Pattaya)", LocationTypeId = storeType.Id, ManagerUserId = auditeePattaya.Id, Latitude = 12.9350, Longitude = 100.8830, Region = "ภาคตะวันออก", Address = "ชั้น 1 เซ็นทรัลพัทยาบีช ถ.พัทยาสาย 1 อ.บางละมุง จ.ชลบุรี 20150", Phone = "038-123-456", LastScore = 93.5, LastAuditDate = now.AddDays(-21) },
+                new Location { Code = "AB-004", Name = "สาขาระยองซิตี้ (Rayong City Center)", LocationTypeId = storeType.Id, ManagerUserId = auditeeRayong.Id, Latitude = 12.6830, Longitude = 101.2780, Region = "ภาคตะวันออก", Address = "ถ.สุขุมวิท ต.เชิงเนิน อ.เมือง จ.ระยอง 21000", Phone = "038-234-567", LastScore = 84.2, LastAuditDate = now.AddDays(-24) },
+                new Location { Code = "AB-005", Name = "สาขาเซ็นทรัลชลบุรี (Central Chonburi)", LocationTypeId = storeType.Id, Latitude = 13.3370, Longitude = 100.9650, Region = "ภาคตะวันออก", Address = "ชั้น 1 เซ็นทรัลชลบุรี ถ.สุขุมวิท อ.เมือง จ.ชลบุรี 20000", Phone = "038-345-678", LastScore = 90.5, LastAuditDate = now.AddDays(-37) },
 
                 // --- Plants & Kitchens & HQ ---
-                new Location { Code = "PLANT-01", Name = "โรงงานผลิตและศูนย์แปรรูปบางนา (Bangna Central Kitchen)", LocationTypeId = plantType.Id, Latitude = 13.6682, Longitude = 100.6341, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Central Supply", Address = "ถ.บางนา-ตราด กม.18 ต.บางโฉลง อ.บางพลี จ.สมุทรปราการ 10540", Phone = "02-456-7890", LastScore = 96.0, LastAuditDate = now.AddDays(-7) },
-                new Location { Code = "PLANT-02", Name = "คลังสินค้าและศูนย์กระจายสินค้าอยุธยา (Ayutthaya Logistics Hub)", LocationTypeId = plantType.Id, Latitude = 14.3530, Longitude = 100.5770, Region = "ภาคกลาง", BrandName = "Central Supply", Address = "นิคมอุตสาหกรรมโรจนะ อ.อุทัย จ.พระนครศรีอยุธยา 13210", Phone = "035-123-456", LastScore = 91.5, LastAuditDate = now.AddDays(-10) },
-                new Location { Code = "CK-01", Name = "ครัวกลางพัฒนาการ (Pattanakarn Cloud Kitchen)", LocationTypeId = cloudKitchenType.Id, Latitude = 13.7340, Longitude = 100.6280, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "Central Supply", Address = "ถ.พัฒนาการ สวนหลวง กรุงเทพฯ 10250", Phone = "02-321-4567", LastScore = 94.0, LastAuditDate = now.AddDays(-5) },
-                new Location { Code = "HQ-01", Name = "สำนักงานใหญ่อโศก (Asoke Headquarters)", LocationTypeId = officeType.Id, Latitude = 13.7380, Longitude = 100.5604, Region = "กรุงเทพฯ และปริมณฑล", BrandName = "QSC Holding", Address = "อาคารเอกซ์เชนจ์ ทาวเวอร์ ถ.สุขุมวิท คลองเตย กรุงเทพฯ 10110", Phone = "02-567-8901", LastScore = 98.0, LastAuditDate = now.AddDays(-60) }
+                new Location { Code = "PLANT-01", Name = "โรงงานผลิตและศูนย์แปรรูปบางนา (Bangna Central Kitchen)", LocationTypeId = plantType.Id, Latitude = 13.6682, Longitude = 100.6341, Region = "กรุงเทพฯ และปริมณฑล", Address = "ถ.บางนา-ตราด กม.18 ต.บางโฉลง อ.บางพลี จ.สมุทรปราการ 10540", Phone = "02-456-7890", LastScore = 96.0, LastAuditDate = now.AddDays(-7) },
+                new Location { Code = "PLANT-02", Name = "คลังสินค้าและศูนย์กระจายสินค้าอยุธยา (Ayutthaya Logistics Hub)", LocationTypeId = plantType.Id, Latitude = 14.3530, Longitude = 100.5770, Region = "ภาคกลาง", Address = "นิคมอุตสาหกรรมโรจนะ อ.อุทัย จ.พระนครศรีอยุธยา 13210", Phone = "035-123-456", LastScore = 91.5, LastAuditDate = now.AddDays(-10) },
+                new Location { Code = "CK-01", Name = "ครัวกลางพัฒนาการ (Pattanakarn Cloud Kitchen)", LocationTypeId = cloudKitchenType.Id, Latitude = 13.7340, Longitude = 100.6280, Region = "กรุงเทพฯ และปริมณฑล", Address = "ถ.พัฒนาการ สวนหลวง กรุงเทพฯ 10250", Phone = "02-321-4567", LastScore = 94.0, LastAuditDate = now.AddDays(-5) },
+                new Location { Code = "HQ-01", Name = "สำนักงานใหญ่อโศก (Asoke Headquarters)", LocationTypeId = officeType.Id, Latitude = 13.7380, Longitude = 100.5604, Region = "กรุงเทพฯ และปริมณฑล", Address = "อาคารเอกซ์เชนจ์ ทาวเวอร์ ถ.สุขุมวิท คลองเตย กรุงเทพฯ 10110", Phone = "02-567-8901", LastScore = 98.0, LastAuditDate = now.AddDays(-60) }
             };
 
             context.Locations.AddRange(locations);
@@ -560,12 +560,22 @@ namespace QSC.Api.Data
                     continue;
                 }
 
-                if (brandIdByName.TryGetValue(loc.BrandName ?? string.Empty, out var legacyBrandId))
+                string? targetBrandName = loc.Code switch
+                {
+                    var c when c.StartsWith("UB") => "Urban Burger",
+                    var c when c.StartsWith("CL") => "Cafe Luna",
+                    var c when c.StartsWith("AB") => "Artisan Bakery",
+                    "HQ-01" => "QSC Holding",
+                    "GG" => "Genger",
+                    _ => null
+                };
+
+                if (targetBrandName != null && brandIdByName.TryGetValue(targetBrandName, out var targetBrandId))
                 {
                     locationBrandLinks.Add(new LocationBrand
                     {
                         LocationId = loc.Id,
-                        BrandId = legacyBrandId,
+                        BrandId = targetBrandId,
                         IsPrimary = true
                     });
                 }
@@ -986,7 +996,7 @@ namespace QSC.Api.Data
                             }
                         }
                     }
-                    else if (loc.Code.StartsWith("UB") || (loc.BrandName != null && loc.BrandName.Contains("Urban")))
+                    else if (loc.Code.StartsWith("UB"))
                     {
                         if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == ubBrand.Id))
                         {
@@ -994,7 +1004,7 @@ namespace QSC.Api.Data
                             locBrandsAdded = true;
                         }
                     }
-                    else if (loc.Code.StartsWith("CL") || (loc.BrandName != null && loc.BrandName.Contains("Luna")))
+                    else if (loc.Code.StartsWith("CL"))
                     {
                         if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == clBrand.Id))
                         {
@@ -1002,7 +1012,7 @@ namespace QSC.Api.Data
                             locBrandsAdded = true;
                         }
                     }
-                    else if (loc.Code.StartsWith("AB") || (loc.BrandName != null && loc.BrandName.Contains("Artisan")))
+                    else if (loc.Code.StartsWith("AB"))
                     {
                         if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == abBrand.Id))
                         {
