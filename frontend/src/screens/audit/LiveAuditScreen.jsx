@@ -617,9 +617,9 @@ export default function LiveAuditScreen({
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
   const [highlightedQuestionId, setHighlightedQuestionId] = useState(null);
-  const [auditeeSignature, setAuditeeSignature] = useState(null);
-  const [auditorSignature, setAuditorSignature] = useState(null);
-  const [auditeeSignName, setAuditeeSignName] = useState(unit?.managerName || "ผู้จัดการสาขา");
+  const [auditeeSignature, setAuditeeSignature] = useState(() => parsedDraftPayload?.auditeeSignature || preselectedPlan?.auditeeSignature || null);
+  const [auditorSignature, setAuditorSignature] = useState(() => parsedDraftPayload?.auditorSignature || preselectedPlan?.auditorSignature || null);
+  const [auditeeSignName, setAuditeeSignName] = useState(() => parsedDraftPayload?.auditeeSignName || preselectedPlan?.auditeeSignName || unit?.managerName || "ผู้จัดการสาขา");
   const [auditStartedAt, setAuditStartedAt] = useState(() => parsedDraftPayload?.startedAt || new Date().toISOString());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
@@ -749,6 +749,15 @@ export default function LiveAuditScreen({
       if (parsedDraftPayload.backdatedEndDate) {
         setBackdatedEndDate(parsedDraftPayload.backdatedEndDate);
       }
+      if (parsedDraftPayload.auditeeSignature) {
+        setAuditeeSignature(parsedDraftPayload.auditeeSignature);
+      }
+      if (parsedDraftPayload.auditorSignature) {
+        setAuditorSignature(parsedDraftPayload.auditorSignature);
+      }
+      if (parsedDraftPayload.auditeeSignName) {
+        setAuditeeSignName(parsedDraftPayload.auditeeSignName);
+      }
       if (parsedDraftPayload.auditType) {
         const t = parsedDraftPayload.auditType.toLowerCase();
         if (t === "spot" || t === "unannounced") setAuditType("spot");
@@ -869,9 +878,11 @@ export default function LiveAuditScreen({
       Boolean(isBackdated) ||
       Boolean(backdatedStartDate) ||
       Boolean(backdatedEndDate) ||
+      Boolean(auditeeSignature) ||
+      Boolean(auditorSignature) ||
       Object.keys(metadataValues).length > 0
     );
-  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate]);
+  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate, auditeeSignature, auditorSignature]);
 
   const performSaveDraft = async (overrideData = {}) => {
     try {
@@ -890,6 +901,9 @@ export default function LiveAuditScreen({
       const currentIsBackdated = overrideData.isBackdated !== undefined ? overrideData.isBackdated : isBackdated;
       const currentBackdatedStartDate = overrideData.backdatedStartDate !== undefined ? overrideData.backdatedStartDate : backdatedStartDate;
       const currentBackdatedEndDate = overrideData.backdatedEndDate !== undefined ? overrideData.backdatedEndDate : backdatedEndDate;
+      const currentAuditeeSignature = overrideData.auditeeSignature !== undefined ? overrideData.auditeeSignature : auditeeSignature;
+      const currentAuditorSignature = overrideData.auditorSignature !== undefined ? overrideData.auditorSignature : auditorSignature;
+      const currentAuditeeSignName = overrideData.auditeeSignName !== undefined ? overrideData.auditeeSignName : auditeeSignName;
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
@@ -898,8 +912,8 @@ export default function LiveAuditScreen({
 
       const totalAnswered = Object.keys(currentAnswers).length;
 
-      // 🎯 Only persist draft when the auditor has answered at least 1 question
-      if (totalAnswered === 0) {
+      // 🎯 Only persist draft when the auditor has answered at least 1 question OR has provided signatures
+      if (totalAnswered === 0 && !currentAuditeeSignature && !currentAuditorSignature) {
         setSyncStatus("idle");
         return;
       }
@@ -919,6 +933,9 @@ export default function LiveAuditScreen({
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
+        auditeeSignature: currentAuditeeSignature,
+        auditorSignature: currentAuditorSignature,
+        auditeeSignName: currentAuditeeSignName,
         startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
       };
 
@@ -977,6 +994,9 @@ export default function LiveAuditScreen({
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
+        auditeeSignature: currentAuditeeSignature,
+        auditorSignature: currentAuditorSignature,
+        auditeeSignName: currentAuditeeSignName,
         locationId: currentUnit.id,
         locationName: currentUnit.name,
         locationFullName: currentUnit.fullName,
@@ -1032,6 +1052,9 @@ export default function LiveAuditScreen({
     isBackdated,
     backdatedStartDate,
     backdatedEndDate,
+    auditeeSignature,
+    auditorSignature,
+    auditeeSignName,
     step,
     currentUser
   ]);
@@ -1539,6 +1562,8 @@ export default function LiveAuditScreen({
     setAnswers({});
     setPhotos({});
     setComments({});
+    setAuditeeSignature(null);
+    setAuditorSignature(null);
     setSectionIdx(0);
     setIsBackdated(false);
     setBackdatedStartDate("");
@@ -2641,15 +2666,19 @@ export default function LiveAuditScreen({
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
-                  //onNameChange={setAuditeeSignName}
-                  onSignChange={setAuditeeSignature}
+                  onSignChange={(sig) => {
+                    setAuditeeSignature(sig);
+                    performSaveDraft({ auditeeSignature: sig });
+                  }}
                   signatureUrl={auditeeSignature}
-                  //placeholderName="ระบุชื่อ-นามสกุล..."
                 />
 
                 <SignaturePad
                   label={`2. ผู้ตรวจประเมิน (${auditorName || defaultAuditorName})`}
-                  onSignChange={setAuditorSignature}
+                  onSignChange={(sig) => {
+                    setAuditorSignature(sig);
+                    performSaveDraft({ auditorSignature: sig });
+                  }}
                   signatureUrl={auditorSignature}
                 />
               </div>

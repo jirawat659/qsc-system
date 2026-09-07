@@ -237,6 +237,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             staffCount: parsedPayload?.staffCount || d.staffCount || "",
             auditorName: auditorVal,
             auditType: parsedPayload?.auditType || d.auditType || "announced",
+            auditeeSignature: parsedPayload?.auditeeSignature || d.auditeeSignature || null,
+            auditorSignature: parsedPayload?.auditorSignature || d.auditorSignature || null,
+            auditeeSignName: parsedPayload?.auditeeSignName || d.auditeeSignName || "",
             draftPayloadJson: d.draftPayloadJson
           }
         });
