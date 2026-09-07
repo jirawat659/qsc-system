@@ -542,12 +542,6 @@ namespace QSC.Api.Data
 
             foreach (var loc in locations)
             {
-                if (string.Equals(loc.Code, "HQ-01", StringComparison.OrdinalIgnoreCase))
-                {
-                    // HQ-01 เป็น org-wide: ตั้งใจไม่สร้าง LocationBrand
-                    continue;
-                }
-
                 if (sharedFacilityCodes.Contains(loc.Code))
                 {
                     foreach (var brandName in sharedBrandNames)

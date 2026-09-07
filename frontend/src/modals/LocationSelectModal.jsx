@@ -23,14 +23,29 @@ export default function LocationSelectModal({
   const [selectedType, setSelectedType] = useState("all");
 
   // Helper matching functions for faceted filtering
+  // Match brand across both relational locationBrands array AND fallback brand properties
   const matchBrand = (loc, brandFilter) => {
     if (!brandFilter || brandFilter === "all") return true;
-    return (
-      (loc.locationBrands && Array.isArray(loc.locationBrands) && loc.locationBrands.some(lb => String(lb.brandId || lb.brand?.id) === String(brandFilter) || lb.brand?.name === brandFilter))
-      || String(loc.brandId) === String(brandFilter)
-      || loc.brandName === brandFilter
-      || (loc.brand && (String(loc.brand.id) === String(brandFilter) || loc.brand.name === brandFilter))
-    );
+    const filterStr = String(brandFilter).toLowerCase().trim();
+
+    // 1. Check relational locationBrands array (many-to-many)
+    if (loc.locationBrands && Array.isArray(loc.locationBrands) && loc.locationBrands.length > 0) {
+      const match = loc.locationBrands.some(lb => {
+        const bId = String(lb.brandId || lb.brand?.id || '').toLowerCase().trim();
+        const bName = String(lb.brand?.name || lb.brandName || '').toLowerCase().trim();
+        const bCode = String(lb.brand?.code || '').toLowerCase().trim();
+        return bId === filterStr || bName === filterStr || bCode === filterStr;
+      });
+      if (match) return true;
+    }
+
+    // 2. Fallback check for single brand properties
+    const locBrandId = String(loc.brandId || '').toLowerCase().trim();
+    const locBrandName = String(loc.brandName || '').toLowerCase().trim();
+    const locBrandObjId = String(loc.brand?.id || '').toLowerCase().trim();
+    const locBrandObjName = String(loc.brand?.name || '').toLowerCase().trim();
+
+    return locBrandId === filterStr || locBrandName === filterStr || locBrandObjId === filterStr || locBrandObjName === filterStr;
   };
 
   const matchRegion = (loc, regionFilter) => {
