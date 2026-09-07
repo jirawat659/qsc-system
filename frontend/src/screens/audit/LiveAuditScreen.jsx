@@ -2371,13 +2371,13 @@ export default function LiveAuditScreen({
                           {!isScale && (
                             <div className="grid grid-cols-3 gap-2">
                               <button type="button" onClick={() => handleAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "yes" || answers[q.id] === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                <CheckCircle2 size={18} /><span>ผ่าน / Yes</span>
+                                <CheckCircle2 size={18} /><span>ผ่าน</span>
                               </button>
                               <button type="button" onClick={() => handleAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "no" || answers[q.id] === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                <XCircle size={18} /><span>ไม่ผ่าน / No</span>
+                                <XCircle size={18} /><span>ไม่ผ่าน</span>
                               </button>
                               <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
-                                <Minus size={18} /><span>ข้าม (N/A)</span>
+                                <Minus size={18} /><span>ข้าม</span>
                               </button>
                             </div>
                           )}
@@ -2500,7 +2500,7 @@ export default function LiveAuditScreen({
         {/* CONFIRMATION MODAL */}
         {showConfirmModal && typeof document !== 'undefined' && createPortal(
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-            <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-200 space-y-5 animate-in zoom-in-95 max-h-[90dvh] overflow-y-auto overscroll-contain">
               <div className="text-center">
                 <div className="w-14 h-14 rounded-3xl bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-3 shadow-2xs">
                   <CheckCircle2 size={32} />

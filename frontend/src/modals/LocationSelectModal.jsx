@@ -112,7 +112,7 @@ export default function LocationSelectModal({
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-2xl">
-      <div className="flex flex-col max-h-[85vh] bg-white rounded-3xl overflow-hidden shadow-2xl">
+      <div className="flex flex-col max-h-[85dvh] bg-white rounded-3xl overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b flex items-center justify-between shrink-0" style={{ borderColor: c.border, background: "#FAF9F5" }}>
           <div className="flex items-center gap-3">
@@ -213,7 +213,7 @@ export default function LocationSelectModal({
         </div>
 
         {/* Location List View */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2 divide-y-0 max-h-[50vh] sm:max-h-[55vh]">
+        <div className="flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-2 divide-y-0 max-h-[50dvh] sm:max-h-[55dvh]">
           {filteredLocations.length === 0 ? (
             <div className="text-center py-12 space-y-3">
               <div className="w-14 h-14 rounded-3xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">

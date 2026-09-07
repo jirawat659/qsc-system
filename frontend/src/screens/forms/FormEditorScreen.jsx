@@ -920,7 +920,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                     const selectedObj = locationTypes.find(lt => lt.id === val);
                     if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
                   }}
-                  className="w-full bg-transparent text-xs sm:text-sm font-semibold text-slate-700 outline-none cursor-pointer appearance-none truncate pr-8 py-3"
+                  className="w-full bg-transparent text-base font-semibold text-slate-700 outline-none cursor-pointer appearance-none truncate pr-8 py-3"
                 >
                   {locationTypes.length > 0 ? (
                     locationTypes.map(lt => (
@@ -1404,7 +1404,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                           <select
                             value={item.category || DEFAULT_CATEGORIES[0]}
                             onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
-                            className="text-sm sm:text-xs font-semibold pl-3 pr-7 py-2 min-h-[38px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
+                            className="min-w-[140px] text-base font-semibold pl-3 pr-7 py-2.5 min-h-[44px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
                           >
                             {categories.map((cat, cIdx) => (
                               <option key={cIdx} value={cat}>{cat}</option>
@@ -1597,7 +1597,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       {/* ⚙️ POPUP MODAL: ADD / EDIT METADATA FIELD */}
       {metaFieldModal && (
         <ModalWrapper onClose={() => setMetaFieldModal(false)} maxWidth="max-w-md">
-          <div className="p-4 sm:p-6 space-y-3.5 sm:space-y-4 max-h-[82dvh] overflow-y-auto">
+          <div className="p-4 sm:p-6 space-y-3.5 sm:space-y-4 max-h-[82dvh] overflow-y-auto overscroll-contain">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <h3 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-2">
                 <SlidersHorizontal size={17} className="text-[#0F6659]" />
@@ -1645,7 +1645,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                     value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
                     disabled={metaFieldForm.isSystem}
                     onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                    className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[40px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    className="w-full text-base pl-4 pr-10 py-3 min-h-[44px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                   >
                     <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
                     <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>

@@ -75,7 +75,7 @@ export default function MobileTimeRangeModal({
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-md">
-      <div className="flex flex-col max-h-[85vh] bg-white rounded-3xl overflow-hidden shadow-2xl">
+      <div className="flex flex-col max-h-[85dvh] bg-white rounded-3xl overflow-hidden shadow-2xl">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b flex items-center justify-between shrink-0" style={{ borderColor: c.border, background: "#FAF9F5" }}>
           <div className="flex items-center gap-3">
@@ -99,7 +99,7 @@ export default function MobileTimeRangeModal({
         </div>
 
         {/* Content */}
-        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 max-h-[68vh]">
+        <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain space-y-4 max-h-[68dvh]">
           {/* Step 1 & Step 2 Switcher */}
           <div className="grid grid-cols-2 gap-2.5 p-1 bg-slate-100/90 rounded-2xl border border-slate-200">
             <button

@@ -702,7 +702,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       {/* 📱 MOBILE SLIDE DRAWER / MODAL FOR DEFECT DETAILS */}
       {showInfoDrawer && (
         <ModalWrapper onClose={() => setShowInfoDrawer(false)} maxWidth="max-w-lg">
-          <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+          <div className="p-5 space-y-4 max-h-[80dvh] overflow-y-auto overscroll-contain">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">

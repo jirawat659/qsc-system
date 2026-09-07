@@ -18,7 +18,7 @@ export default function ModalWrapper({ children, onClose, maxWidth = "max-w-2xl"
 
   const content = (
     <div
-      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-x-hidden overflow-y-auto animate-in fade-in duration-200 h-[100dvh] w-full max-w-full"
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 overflow-x-hidden overflow-y-auto overscroll-contain animate-in fade-in duration-200 h-[100dvh] w-full max-w-full"
       onClick={closeOnBackdrop ? onClose : undefined}
     >
       <div

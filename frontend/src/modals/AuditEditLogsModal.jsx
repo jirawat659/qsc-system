@@ -58,7 +58,7 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="w-full max-w-lg max-h-[85vh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="w-full max-w-lg max-h-[85dvh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -86,7 +86,7 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
         </div>
 
         {/* Content Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+        <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4">
           {isLoading ? (
             <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-2.5">
               <Loader2 size={24} className="animate-spin text-[#0F6659]" />

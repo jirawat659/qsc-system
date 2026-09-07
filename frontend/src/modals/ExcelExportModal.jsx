@@ -50,7 +50,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
-      <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto min-h-0" style={{ background: c.surface }}>
+      <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto overscroll-contain min-h-0" style={{ background: c.surface }}>
         
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: c.border }}>
@@ -240,7 +240,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                   </div>
                 </div>
 
-                <div className="max-h-36 overflow-y-auto space-y-1.5 p-1 border rounded-2xl" style={{ borderColor: c.border, background: c.bg }}>
+                <div className="max-h-36 overflow-y-auto overscroll-contain space-y-1.5 p-1 border rounded-2xl" style={{ borderColor: c.border, background: c.bg }}>
                   {filteredUnits.length === 0 && (
                     <div className="text-center py-4 text-xs text-slate-400 font-medium">ไม่พบสาขาที่ค้นหา</div>
                   )}

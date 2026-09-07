@@ -1198,7 +1198,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 1. MODAL: EDIT USER */}
       {editUser && (
         <ModalWrapper onClose={() => setEditUser(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
@@ -1221,7 +1221,7 @@ export default function MasterManagementScreen({ onBack }) {
             </div>
 
             {/* Modal Form Body */}
-            <form onSubmit={handleSaveEditUser} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleSaveEditUser} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
@@ -1454,7 +1454,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 2. MODAL: CREATE USER */}
       {showAddUserModal && (
         <ModalWrapper onClose={() => setShowAddUserModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1471,7 +1471,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleCreateUser} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   ชื่อผู้ใช้งาน (Username) <span className="text-rose-500">*</span>
@@ -1687,7 +1687,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* ── 🏬 SUB-MODAL: MANAGE SPECIFIC BRANCHES (จัดการสาขาที่ได้รับอนุญาต) ── */}
       {showBranchSelectorModal && (
         <ModalWrapper onClose={() => setShowBranchSelectorModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-6 pb-6 sm:pb-8 space-y-4 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-6 pb-6 sm:pb-8 space-y-4 flex flex-col max-h-[85dvh]">
             {/* Header */}
             <div className="flex items-center gap-3 pb-3.5 border-b border-slate-100 shrink-0">
               <button
@@ -1771,7 +1771,7 @@ export default function MasterManagementScreen({ onBack }) {
             </div>
 
             {/* Scrollable Grouped Branch List */}
-            <div className="space-y-3 overflow-y-auto flex-1 pr-1 pb-1">
+            <div className="space-y-3 overflow-y-auto overscroll-contain flex-1 pr-1 pb-1">
               {Object.keys(groupedLocations).length === 0 ? (
                 <div className="py-12 text-center text-slate-400">
                   <Store size={32} className="mx-auto mb-2 opacity-40" />
@@ -1865,7 +1865,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 3. MODAL: EDIT LOCATION */}
       {editLocation && (
         <ModalWrapper onClose={() => setEditLocation(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -1885,7 +1885,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditLocation} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleSaveEditLocation} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสสาขา *</label>
@@ -2099,7 +2099,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 4. MODAL: CREATE LOCATION */}
       {showAddLocationModal && (
         <ModalWrapper onClose={() => setShowAddLocationModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -2116,7 +2116,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleCreateLocation} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleCreateLocation} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสสาขา *</label>
@@ -2307,7 +2307,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 5. MODAL: EDIT LOCATION TYPE */}
       {editType && (
         <ModalWrapper onClose={() => setEditType(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -2327,7 +2327,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditType} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleSaveEditType} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสประเภท (Type Code) *</label>
                 <input
@@ -2383,7 +2383,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 6. MODAL: CREATE LOCATION TYPE */}
       {showAddTypeModal && (
         <ModalWrapper onClose={() => setShowAddTypeModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -2400,7 +2400,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleCreateLocationType} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleCreateLocationType} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสประเภท (Type Code) *</label>
                 <input
@@ -2459,7 +2459,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 7. MODAL: EDIT ROLE */}
       {editRole && (
         <ModalWrapper onClose={() => setEditRole(null)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
@@ -2479,7 +2479,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleSaveEditRole} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleSaveEditRole} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">ชื่อบทบาทภาษาไทย *</label>
                 <input
@@ -2554,7 +2554,7 @@ export default function MasterManagementScreen({ onBack }) {
       {/* 8. MODAL: CREATE ROLE */}
       {showAddRoleModal && (
         <ModalWrapper onClose={() => setShowAddRoleModal(false)} maxWidth="max-w-md sm:max-w-lg">
-          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85vh]">
+          <div className="p-5 sm:p-7 pb-6 sm:pb-8 space-y-4 sm:space-y-5 flex flex-col max-h-[85dvh]">
             <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
@@ -2571,7 +2571,7 @@ export default function MasterManagementScreen({ onBack }) {
               </button>
             </div>
 
-            <form onSubmit={handleCreateRole} className="space-y-4 overflow-y-auto flex-1 pr-1">
+            <form onSubmit={handleCreateRole} className="space-y-4 overflow-y-auto overscroll-contain flex-1 pr-1">
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">รหัสบทบาท (Role Code) *</label>
                 <input

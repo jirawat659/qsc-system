@@ -93,30 +93,30 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`relative flex items-center gap-1.5 rounded-2xl border border-slate-200 cursor-pointer transition-colors group ${
-          isSmall ? "bg-white px-2.5 py-1 hover:border-[#0F6659]" : "bg-white hover:bg-slate-50 px-3 py-1.5"
+        className={`relative flex items-center gap-2 rounded-2xl border border-slate-200 cursor-pointer transition-colors group ${
+          isSmall ? "bg-white px-3.5 py-2 hover:border-[#0F6659]" : "bg-white hover:bg-slate-50 px-4 py-2"
         }`}
       >
-        <CalendarDays size={isSmall ? 12 : 14} className="text-[#0F6659] shrink-0" />
-        <span className={`font-semibold text-slate-700 select-none ${isSmall ? "text-[11px]" : "text-xs"}`}>
+        <CalendarDays size={isSmall ? 13 : 15} className="text-[#0F6659] shrink-0" />
+        <span className={`font-semibold text-slate-700 select-none ${isSmall ? "text-xs" : "text-sm"}`}>
           {current?.label || value}
         </span>
-        <ChevronDown size={isSmall ? 11 : 13} className={`text-slate-400 shrink-0 group-hover:text-slate-600 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={isSmall ? 12 : 14} className={`text-slate-400 shrink-0 group-hover:text-slate-600 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
-        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[220px] border-slate-200 animate-in fade-in zoom-in-95">
           {options.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-3.5 py-2.5 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
+              className={`w-full text-left px-4 py-3 text-sm font-bold cursor-pointer transition-colors flex items-center justify-between ${
                 opt.value === value ? "bg-[#0F6659] text-white" : "text-slate-700 hover:bg-slate-50"
               }`}
             >
               <span>{opt.label}</span>
-              {opt.value === value && <CheckCircle2 size={13} className="text-white shrink-0" />}
+              {opt.value === value && <CheckCircle2 size={14} className="text-white shrink-0" />}
             </button>
           ))}
         </div>
@@ -578,9 +578,9 @@ export default function DashboardScreen({ role, isDesktop }) {
                 <thead>
                   <tr className="border-b border-slate-100">
                     <th className="pb-2 text-xs font-semibold text-slate-500 w-12 text-center">อันดับ</th>
-                    <th className="pb-2 text-xs font-semibold text-slate-500">ชื่อสาขา</th>
-                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center">คะแนน</th>
-                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center">สถานะ</th>
+                    <th className="pb-2 text-xs font-semibold text-slate-500 px-2">ชื่อสาขา</th>
+                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center w-5 sm:w-16 px-3">คะแนน</th>
+                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center w-5 sm:w-16 px-3">สถานะ</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -595,14 +595,14 @@ export default function DashboardScreen({ role, isDesktop }) {
                           #{idx + 1}
                         </div>
                       </td>
-                      <td className="py-2.5 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
-                      <td className="py-2.5 text-center">
+                      <td className="py-2.5 px-2 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
+                      <td className="py-2.5 px-3 text-center">
                         <div className="inline-flex items-center justify-center font-mono font-bold text-sm text-slate-900">
                           {b.displayScore}%
                         </div>
                       </td>
-                      <td className="py-2.5 text-center">
-                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${b.displayScore >= 85 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold inline-block shadow-2xs ${b.displayScore >= 85 ? "bg-emerald-100 text-[#0F6659]" : "bg-amber-100 text-amber-800"}`}>
                           {b.displayScore >= 85 ? "ผ่าน" : "ปรับปรุง"}
                         </span>
                       </td>

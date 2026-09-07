@@ -277,7 +277,7 @@ export default function LocationGpsSection({
       {/* ── 🗺️ 3. INTERACTIVE POP-UP MAP MODAL WITH RED CENTER PIN ── */}
       {showMapModal && (
         <ModalWrapper onClose={() => setShowMapModal(false)} maxWidth="max-w-md sm:max-w-xl">
-          <div className="p-5 sm:p-6 space-y-4 flex flex-col max-h-[90vh]">
+          <div className="p-5 sm:p-6 space-y-4 flex flex-col max-h-[90dvh] overflow-y-auto overscroll-contain">
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
@@ -315,7 +315,6 @@ export default function LocationGpsSection({
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearchLocation(); } }}
                     placeholder="พิมพ์ชื่อสถานที่, วางลิงก์ Google Maps, หรือพิกัด..."
                     className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-normal text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs placeholder:text-slate-400"
-                    autoFocus
                   />
                 </div>
                 <button

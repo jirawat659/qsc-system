@@ -152,7 +152,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 space-y-5">
+      <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 p-4 sm:p-6 space-y-5">
         {/* Period Header */}
         <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
           <div>

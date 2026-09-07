@@ -483,7 +483,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="w-full max-w-2xl max-h-[90vh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="w-full max-w-2xl max-h-[90dvh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -538,7 +538,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-5">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-5">
           {error && (
             <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
               <AlertTriangle size={15} className="shrink-0" />

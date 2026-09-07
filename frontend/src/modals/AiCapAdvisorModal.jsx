@@ -68,7 +68,7 @@ export default function AiCapAdvisorModal({ taskId, onClose }) {
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
-      <div className="flex flex-col max-h-[85vh]">
+      <div className="flex flex-col max-h-[85dvh]">
         {/* Header */}
         <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-emerald-100/60 rounded-t-3xl">
           <div className="flex items-center gap-3">
@@ -110,7 +110,7 @@ export default function AiCapAdvisorModal({ taskId, onClose }) {
         </div>
 
         {/* Content Body */}
-        <div className="p-5 overflow-y-auto space-y-3.5">
+        <div className="p-5 overflow-y-auto overscroll-contain space-y-3.5">
           {loading ? (
             <div className="py-12 flex flex-col items-center justify-center gap-2.5 text-center">
               <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center animate-bounce">

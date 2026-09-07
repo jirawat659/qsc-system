@@ -968,7 +968,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             </button>
           </div>
 
-          <div className="p-4 space-y-3 max-h-[75vh] overflow-y-auto">
+          <div className="p-4 space-y-3 max-h-[75dvh] overflow-y-auto overscroll-contain">
             <div className="rounded-2xl overflow-hidden bg-slate-950 border border-slate-200 flex items-center justify-center min-h-[220px]">
               <img 
                 src={getFullImageUrl(previewPhoto.url)} 
