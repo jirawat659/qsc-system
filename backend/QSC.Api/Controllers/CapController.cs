@@ -268,7 +268,7 @@ namespace QSC.Api.Controllers
             var task = new CapTask
             {
                 LocationId = dto.LocationId,
-                AuditRecordId = dto.AuditRecordId ?? 0,
+                AuditRecordId = dto.AuditRecordId,
                 AuditResponseId = null, // Manual
                 IssueItem = dto.IssueItem,
                 Description = dto.Description,

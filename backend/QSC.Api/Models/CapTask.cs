@@ -6,7 +6,7 @@ namespace QSC.Api.Models
     public class CapTask
     {
         public int Id { get; set; }
-        public int AuditRecordId { get; set; }
+        public int? AuditRecordId { get; set; }
         public AuditRecord? AuditRecord { get; set; }
         public int? AuditResponseId { get; set; } // Nullable for ad-hoc / manual CAP
         public AuditResponse? AuditResponse { get; set; }

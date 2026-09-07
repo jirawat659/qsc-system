@@ -131,6 +131,19 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] ScheduleSaveDto dto)
         {
+            var location = await _context.Locations.AnyAsync(l => l.Id == dto.LocationId);
+            if (!location) return BadRequest(new { message = "ไม่พบสาขาที่ระบุในระบบ" });
+
+            var formExists = await _context.SurveyForms.AnyAsync(f => f.Id == dto.SurveyFormId && f.IsActive);
+            if (!formExists) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจที่ระบุในระบบ" });
+
+            if (dto.AuditorIds.Any())
+            {
+                var validAuditorCount = await _context.Users.CountAsync(u => dto.AuditorIds.Contains(u.Id) && u.IsActive);
+                if (validAuditorCount != dto.AuditorIds.Distinct().Count())
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
+            }
+
             var schedule = new AuditSchedule
             {
                 LocationId = dto.LocationId,
@@ -175,6 +188,19 @@ namespace QSC.Api.Controllers
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (schedule == null) return NotFound();
+
+            var location = await _context.Locations.AnyAsync(l => l.Id == dto.LocationId);
+            if (!location) return BadRequest(new { message = "ไม่พบสาขาที่ระบุในระบบ" });
+
+            var formExists = await _context.SurveyForms.AnyAsync(f => f.Id == dto.SurveyFormId && f.IsActive);
+            if (!formExists) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจที่ระบุในระบบ" });
+
+            if (dto.AuditorIds.Any())
+            {
+                var validAuditorCount = await _context.Users.CountAsync(u => dto.AuditorIds.Contains(u.Id) && u.IsActive);
+                if (validAuditorCount != dto.AuditorIds.Distinct().Count())
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
+            }
 
             if (schedule.Status == "completed")
             {

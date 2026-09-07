@@ -207,7 +207,7 @@ namespace QSC.Api.Data
                 .HasOne(t => t.AuditRecord)
                 .WithMany()
                 .HasForeignKey(t => t.AuditRecordId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<CapTask>()
                 .HasOne(t => t.AuditResponse)

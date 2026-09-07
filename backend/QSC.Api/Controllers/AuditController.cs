@@ -129,7 +129,17 @@ namespace QSC.Api.Controllers
                 .Include(d => d.Location)
                     .ThenInclude(l => l!.LocationBrands)
                 .Include(d => d.SurveyForm)
-                .Where(d => d.AuditorId == targetAuditorId || d.AuditorId == currentUserId);
+                .Include(d => d.AuditSchedule)
+                .AsQueryable();
+
+            if (role != "ADMIN")
+            {
+                query = query.Where(d => d.AuditorId == targetAuditorId || d.AuditorId == currentUserId);
+            }
+            else if (auditorId.HasValue && auditorId.Value > 0)
+            {
+                query = query.Where(d => d.AuditorId == auditorId.Value);
+            }
 
             if (allowedLocationIds != null)
             {
@@ -152,6 +162,7 @@ namespace QSC.Api.Controllers
             public int LocationId { get; set; }
             public int SurveyFormId { get; set; } = 1;
             public int AuditorId { get; set; }
+            public int? AuditScheduleId { get; set; }
             public string DraftPayloadJson { get; set; } = string.Empty;
             public int CurrentSectionIdx { get; set; } = 0;
             public int TotalAnswered { get; set; } = 0;
@@ -182,6 +193,27 @@ namespace QSC.Api.Controllers
 
             int effectiveAuditorId = dto.AuditorId > 0 ? dto.AuditorId : currentUserId;
 
+            // Associate schedule and update its status to in_progress
+            AuditSchedule? targetSchedule = null;
+            if (dto.AuditScheduleId.HasValue && dto.AuditScheduleId.Value > 0)
+            {
+                targetSchedule = await _context.AuditSchedules.FindAsync(dto.AuditScheduleId.Value);
+            }
+            if (targetSchedule == null)
+            {
+                targetSchedule = await _context.AuditSchedules
+                    .Where(s => s.LocationId == dto.LocationId && (s.Status == "pending" || s.Status == "in_progress"))
+                    .OrderByDescending(s => s.ScheduledDate)
+                    .FirstOrDefaultAsync();
+            }
+
+            if (targetSchedule != null && targetSchedule.Status == "pending")
+            {
+                targetSchedule.Status = "in_progress";
+            }
+
+            int? effectiveScheduleId = dto.AuditScheduleId ?? targetSchedule?.Id;
+
             var draft = await _context.AuditDrafts
                 .FirstOrDefaultAsync(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && (d.AuditorId == effectiveAuditorId || d.AuditorId == currentUserId));
 
@@ -192,6 +224,7 @@ namespace QSC.Api.Controllers
                     LocationId = dto.LocationId,
                     SurveyFormId = dto.SurveyFormId,
                     AuditorId = effectiveAuditorId,
+                    AuditScheduleId = effectiveScheduleId,
                     DraftPayloadJson = dto.DraftPayloadJson,
                     CurrentSectionIdx = dto.CurrentSectionIdx,
                     TotalAnswered = dto.TotalAnswered,
@@ -205,6 +238,7 @@ namespace QSC.Api.Controllers
             }
             else
             {
+                draft.AuditScheduleId = effectiveScheduleId ?? draft.AuditScheduleId;
                 draft.DraftPayloadJson = dto.DraftPayloadJson;
                 draft.CurrentSectionIdx = dto.CurrentSectionIdx;
                 draft.TotalAnswered = dto.TotalAnswered;
@@ -257,6 +291,27 @@ namespace QSC.Api.Controllers
             var drafts = await query.ToListAsync();
             if (drafts.Any())
             {
+                // Revert any related in_progress schedule back to pending
+                foreach (var d in drafts)
+                {
+                    AuditSchedule? scheduleToRevert = null;
+                    if (d.AuditScheduleId.HasValue && d.AuditScheduleId.Value > 0)
+                    {
+                        scheduleToRevert = await _context.AuditSchedules.FindAsync(d.AuditScheduleId.Value);
+                    }
+                    if (scheduleToRevert == null)
+                    {
+                        scheduleToRevert = await _context.AuditSchedules
+                            .Where(s => s.LocationId == d.LocationId && s.Status == "in_progress")
+                            .OrderByDescending(s => s.ScheduledDate)
+                            .FirstOrDefaultAsync();
+                    }
+                    if (scheduleToRevert != null && scheduleToRevert.Status == "in_progress")
+                    {
+                        scheduleToRevert.Status = "pending";
+                    }
+                }
+
                 _context.AuditDrafts.RemoveRange(drafts);
                 await _context.SaveChangesAsync();
             }
@@ -1111,10 +1166,27 @@ namespace QSC.Api.Controllers
                     record.Responses.Add(response);
                 }
 
-                // Sync แคชคะแนนล่าสุดของสาขา ถ้าบันทึกนี้เป็นบันทึกล่าสุดของสาขานั้น
-                if (record.Location != null && record.Location.LastAuditDate == record.AuditDate)
+                // 🌟 Sync แคชคะแนนล่าสุดของสาขา (คำนวณใหม่จากบันทึกล่าสุดจริงเสมอ ไม่ใช้ cache เดิมที่อาจ stale)
+                if (record.Location != null)
                 {
-                    record.Location.LastScore = percentageScore;
+                    var latestAudit = await _context.AuditRecords
+                        .AsNoTracking()
+                        .Where(a => a.LocationId == record.LocationId && a.Id != record.Id)
+                        .OrderByDescending(a => a.AuditDate)
+                        .Select(a => new { a.PercentageScore, a.AuditDate })
+                        .FirstOrDefaultAsync();
+
+                    // Compare: is the current edited record the latest, or is there a newer one?
+                    if (latestAudit == null || record.AuditDate >= latestAudit.AuditDate)
+                    {
+                        // This record is the latest (or only) audit for this location
+                        record.Location.LastScore = percentageScore;
+                        record.Location.LastAuditDate = record.AuditDate;
+                    }
+                    else
+                    {
+                        // There's a newer audit — don't touch LastScore (it belongs to the newer record)
+                    }
                 }
 
                 // บันทึกประวัติการแก้ไข — เก็บเหตุผลไว้เสมอ ห้ามข้าม

@@ -615,6 +615,19 @@ namespace QSC.Api.Controllers
                         await _context.SaveChangesAsync();
                     }
 
+                    // 🌟 Migrate pending schedules from old form version to new version
+                    var pendingSchedules = await _context.AuditSchedules
+                        .Where(s => s.SurveyFormId == id && (s.Status == "pending" || s.Status == "in_progress"))
+                        .ToListAsync();
+                    foreach (var ps in pendingSchedules)
+                    {
+                        ps.SurveyFormId = newVersionForm.Id;
+                    }
+                    if (pendingSchedules.Any())
+                    {
+                        await _context.SaveChangesAsync();
+                    }
+
                     await transaction.CommitAsync();
                     return Ok(new { message = "สร้างเวอร์ชันใหม่สำเร็จเพื่อล็อกประวัติเดิม (Version Clone)", formId = newVersionForm.Id });
                 }

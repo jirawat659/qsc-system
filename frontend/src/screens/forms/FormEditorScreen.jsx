@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
 import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Store } from "lucide-react";
 
@@ -7,6 +7,7 @@ import Header from "../../shared/Header";
 import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
+import { DataContext } from "../../context/DataContext";
 
 export const DEFAULT_CATEGORIES = [
   "ความสะอาด",
@@ -37,7 +38,7 @@ export const DEFAULT_FORM_METADATA_CONFIG = [
     id: "audit_type",
     label: "ประเภทการตรวจ (Audit Type)",
     type: "select",
-    options: ["ตามกำหนดการ", "นอกกำหนดการ (Spot)", "ปลอมตัว"],
+    options: ["ตามกำหนดการ", "นอกกำหนดการ", "ปลอมตัว"],
     required: true,
     enabled: true,
     isSystem: true
@@ -55,13 +56,20 @@ export const DEFAULT_FORM_METADATA_CONFIG = [
 ];
 
 export default function FormEditorScreen({ form, onBack, onSave, readOnly = false }) {
+  const { brands: contextBrands, currentUser } = useContext(DataContext);
+  const userRole = (currentUser?.role || currentUser?.roleCode || "").toUpperCase();
+  const isAuditorOrAuditee = userRole === "AUDITOR" || userRole === "AUDITEE";
+  const canManage = !isAuditorOrAuditee && (userRole === "ADMIN" || userRole === "STANDARD" || (currentUser?.permissions || []).includes("forms.manage"));
+  const isReadOnly = readOnly || !canManage;
+
   const [formName, setFormName] = useState(form ? (form.name || form.title) : "แบบฟอร์มมาตรฐานใหม่");
   const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
   const [locationTypes, setLocationTypes] = useState([]);
-  const [brands, setBrands] = useState([]);
+  const [brands, setBrands] = useState(() => (Array.isArray(contextBrands) && contextBrands.length > 0 ? contextBrands : []));
   const [brandIds, setBrandIds] = useState(() => {
     if (form?.brandIds && Array.isArray(form.brandIds)) return form.brandIds.map(Number);
+    if (form?.formBrands && Array.isArray(form.formBrands)) return form.formBrands.map(fb => Number(fb.brandId || fb.id));
     if (form?.brandId) return [Number(form.brandId)];
     return [];
   });
@@ -71,6 +79,10 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
   useEffect(() => {
     let isMounted = true;
+    if (contextBrands && contextBrands.length > 0 && brands.length === 0) {
+      setBrands(contextBrands);
+    }
+
     api.get('/location-type')
       .then(res => {
         if (isMounted && res.data && Array.isArray(res.data)) {
@@ -98,7 +110,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       isMounted = false;
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, []);
+  }, [contextBrands]);
   const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
@@ -132,7 +144,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const [formErrors, setFormErrors] = useState({});
 
   const [description, setDescription] = useState(
-    form?.description || "แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และสุขอนามัยประจำสาขา (Q.S.C. Standard)"
+    form?.description || "แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และความปลอดภัย"
   );
   const [passingScore, setPassingScore] = useState(() => {
     if (form && form.passingScore !== undefined && form.passingScore !== null) {
@@ -202,6 +214,10 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const sectionRefs = useRef({});
   const dragRef = useRef(null);
   const [dragUI, setDragUI] = useState(null);
+
+  const metaRefs = useRef({});
+  const metaDragRef = useRef(null);
+  const [metaDragUI, setMetaDragUI] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -617,6 +633,94 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     setMetadataConfig(next);
   };
 
+  // Drag handler for metadata fields (เหมือนหมวดหมู่คำถาม)
+  const handleMetaPointerDown = (e, fieldId) => {
+    e.preventDefault();
+    if (metadataConfig.length <= 1) return;
+    const fieldIds = metadataConfig.map(f => f.id);
+    const startIdx = fieldIds.indexOf(fieldId);
+    if (startIdx === -1) return;
+
+    const tops = [];
+    const heights = [];
+    fieldIds.forEach(id => {
+      const el = metaRefs.current[id];
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        tops.push(rect.top + window.scrollY);
+        heights.push(rect.height);
+      } else {
+        tops.push(0);
+        heights.push(60);
+      }
+    });
+
+    const startPointerY = e.clientY;
+    metaDragRef.current = {
+      id: fieldId,
+      startIdx,
+      currentIdx: startIdx,
+      fieldIds,
+      tops,
+      heights,
+      startPointerY
+    };
+
+    setMetaDragUI({ id: fieldId, deltaY: 0, displace: {} });
+
+    const handlePointerMove = (moveEvent) => {
+      if (!metaDragRef.current) return;
+      const d = metaDragRef.current;
+      const deltaY = moveEvent.clientY - d.startPointerY;
+      const currentCenterY = d.tops[d.startIdx] + deltaY + d.heights[d.startIdx] / 2;
+
+      let newIdx = d.startIdx;
+      for (let i = 0; i < d.tops.length; i++) {
+        const itemCenter = d.tops[i] + d.heights[i] / 2;
+        if (i < d.startIdx && currentCenterY < itemCenter) {
+          newIdx = i;
+          break;
+        } else if (i > d.startIdx && currentCenterY > itemCenter) {
+          newIdx = i;
+        }
+      }
+
+      d.currentIdx = newIdx;
+      const displace = {};
+      d.fieldIds.forEach((id, i) => {
+        if (id === d.id) return;
+        if (d.startIdx < newIdx && i > d.startIdx && i <= newIdx) {
+          displace[id] = -d.heights[d.startIdx];
+        } else if (d.startIdx > newIdx && i >= newIdx && i < d.startIdx) {
+          displace[id] = d.heights[d.startIdx];
+        } else {
+          displace[id] = 0;
+        }
+      });
+
+      setMetaDragUI({ id: d.id, deltaY, displace });
+    };
+
+    const handlePointerUp = () => {
+      if (metaDragRef.current) {
+        const d = metaDragRef.current;
+        if (d.startIdx !== d.currentIdx) {
+          const next = [...metadataConfig];
+          const [movedField] = next.splice(d.startIdx, 1);
+          next.splice(d.currentIdx, 0, movedField);
+          setMetadataConfig(next);
+        }
+      }
+      metaDragRef.current = null;
+      setMetaDragUI(null);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  };
+
   const toggleMetaFieldEnabled = (id) => {
     setMetadataConfig(prev => prev.map(f => f.id === id ? { ...f, enabled: f.enabled === false ? true : false } : f));
   };
@@ -705,7 +809,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
   // Save form
   const handleSave = async () => {
-    if (readOnly) return;
+    if (isReadOnly) return;
     if (!formName.trim()) {
       setFormErrors({ name: true });
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -766,14 +870,14 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       return;
     }
 
-    const selectedBrandObjects = brands.filter(b => brandIds.includes(b.id));
+    const selectedBrandObjects = brands.filter(b => brandIds.map(Number).includes(Number(b.id)));
     const savedForm = {
       id: backendId || form?.id || "f_" + Date.now(),
       name: formName.trim(),
       title: formName.trim(),
       type: formType,
       locationTypeId: locationTypeId || 1,
-      brandId: brandIds.length > 0 ? brandIds[0] : null,
+      brandId: brandIds.length > 0 ? Number(brandIds[0]) : null,
       brandIds: brandIds.map(Number),
       brandName: selectedBrandObjects.length > 0 ? selectedBrandObjects[0].name : null,
       brandNames: selectedBrandObjects.map(b => b.name),
@@ -794,16 +898,15 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   };
 
   return (
-    <div className="page-transition p-4 sm:p-6 space-y-6 w-full max-w-[100%] sm:max-w-[92%] mx-auto pb-24">
+    <div className="page-transition p-4 sm:p-6 space-y-6 w-full max-w-[100%] sm:max-w-[92%] mx-auto pb-32">
       {/* 1. TOP HEADER */}
       <Header
-        title={form ? `แก้ไขแบบฟอร์ม: ${form.name || form.title}` : "สร้างแบบฟอร์มมาตรฐานใหม่"}
-        subtitle="กำหนดเกณฑ์คะแนน หัวข้อ และหมวดหมู่คำถามสำหรับการตรวจประเมิน"
+        title={isReadOnly ? `รายละเอียดแบบฟอร์ม: ${form?.name || form?.title || formName}` : (form ? `แก้ไขแบบฟอร์ม: ${form.name || form.title}` : "สร้างแบบฟอร์มมาตรฐานใหม่")}
         onBack={onBack}
       />
 
       {/* ⚠️ IN-USE WARNING BANNER */}
-      {(form?.usedCount > 0 || form?.scheduledCount > 0) && (
+      {!isReadOnly && (form?.usedCount > 0 || form?.scheduledCount > 0) && (
         <div className="rounded-2xl p-4 bg-amber-50/90 border border-amber-200 text-amber-950 flex items-start gap-3 shadow-2xs">
           <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs sm:text-sm space-y-1">
@@ -829,28 +932,23 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
       {/* 🌟 2. STREAMLINED FORM SETTINGS CARD */}
       <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3 gap-2">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold shrink-0">
-              <FileText size={18} />
-            </div>
-            <h3 className="text-sm sm:text-base font-bold text-slate-800 leading-snug">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
-          </div>
-          <div className="text-right shrink-0 px-2.5 py-1 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shadow-2xs">
-            <div className="text-[11px] font-normal leading-tight whitespace-nowrap text-emerald-800">
+        <div className="flex items-center justify-between gap-2 pb-1">
+          <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
               {sections.length} หมวดหมู่
-            </div>
-            <div className="text-[11px] font-normal leading-tight whitespace-nowrap text-emerald-700 mt-0.5">
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
               {totalQuestions} ข้อคำถาม
-            </div>
+            </span>
           </div>
         </div>
 
         <div className="space-y-4">
-          {/* 1. ชื่อแบบฟอร์ม */}
+          {/* ชื่อแบบฟอร์ม */}
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1.5 flex items-center justify-between">
-              <span>ชื่อแบบฟอร์มการตรวจ (Form Title) <span className="text-rose-500">*</span></span>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
+              <span>ชื่อแบบฟอร์มการตรวจ (Form Title) {!isReadOnly && <span className="text-rose-500">*</span>}</span>
               {formErrors.name && (
                 <span className="text-xs font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
                   <AlertTriangle size={13} /> กรุณาระบุชื่อแบบฟอร์ม
@@ -859,60 +957,68 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             </label>
             <input
               value={formName}
+              disabled={isReadOnly}
               onChange={(e) => {
                 setFormName(e.target.value);
                 if (formErrors.name) setFormErrors(prev => ({ ...prev, name: false }));
               }}
-              placeholder="เช่น แบบฟอร์มมาตรฐาน 5 ดาว (QSC Core Store Audit)..."
-              className={`w-full text-sm sm:text-base font-semibold px-4.5 py-3.5 min-h-[50px] rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ${
-                formErrors.name
-                  ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 text-slate-800 animate-shake"
+              placeholder="แบบฟอร์มมาตรฐานใหม่"
+              className={`w-full text-sm sm:text-base font-normal px-4 py-3 min-h-[50px] rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ${
+                isReadOnly
+                  ? "bg-slate-50/80 text-slate-700 border-slate-200 cursor-default"
+                  : formErrors.name
+                  ? "border-rose-500 ring-2 ring-rose-500/20 bg-rose-50/40 text-slate-700 animate-shake"
                   : "bg-white border-slate-200 text-slate-800 focus:border-[#0F6659]"
               }`}
               required
             />
           </div>
 
-          {/* 2. แถวกลาง: เกณฑ์คะแนน + ประเภทฟอร์ม + แบรนด์ */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            {/* เกณฑ์คะแนนผ่าน (%) */}
-            <div className="min-w-0">
-              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
-                เกณฑ์ผ่าน (%) <span className="text-rose-500">*</span>
+          {/* 2. เกณฑ์ผ่าน (%) ช่องเล็กลง + ประเภทฟอร์ม (Category) ขยายเต็มพื้นที่ */}
+          <div className="flex items-start gap-2.5 sm:gap-4">
+            {/* เกณฑ์คะแนนผ่าน (%) - ช่องเล็กลงกะทัดรัด */}
+            <div className="w-28 sm:w-36 md:w-40 shrink-0">
+              <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-1.5 truncate">
+                เกณฑ์ผ่าน (%) {!isReadOnly && <span className="text-rose-500">*</span>}
               </label>
-              <div className="flex items-center justify-between px-3.5 py-3 min-h-[50px] rounded-2xl bg-white border border-slate-200 focus-within:border-[#0F6659] transition-all shadow-xs gap-1.5">
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <input
-                    type="number"
-                    min="1"
-                    max="100"
-                    value={passingScore ?? 85}
-                    onChange={(e) => {
-                      const val = e.target.value === '' ? '' : Math.min(100, Math.max(1, Number(e.target.value) || 0));
-                      setPassingScore(val);
-                    }}
-                    onBlur={() => {
-                      if (!passingScore || passingScore < 1) setPassingScore(85);
-                    }}
-                    className="w-12 text-sm sm:text-base font-bold text-slate-800 focus:text-emerald-950 outline-none font-mono text-center p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    placeholder="85"
-                    required
-                  />
-                  <span className="text-xs font-semibold text-slate-400 select-none whitespace-nowrap">
-                    % ขึ้นไป
-                  </span>
-                </div>
+              <div className={`flex items-center justify-between px-2.5 sm:px-3.5 py-3 min-h-[50px] rounded-2xl border transition-all shadow-xs gap-1 ${
+                isReadOnly ? "bg-slate-50/80 border-slate-200" : "bg-white border-slate-200 focus-within:border-[#0F6659]"
+              }`}>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  disabled={isReadOnly}
+                  value={passingScore ?? 85}
+                  onChange={(e) => {
+                    const val = e.target.value === '' ? '' : Math.min(100, Math.max(1, Number(e.target.value) || 0));
+                    setPassingScore(val);
+                  }}
+                  onBlur={() => {
+                    if (!passingScore || passingScore < 1) setPassingScore(85);
+                  }}
+                  className={`w-8 sm:w-11 text-sm sm:text-base font-bold outline-none font-mono text-left p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                    isReadOnly ? "text-slate-700 cursor-default" : "text-slate-800 focus:text-emerald-950 cursor-text"
+                  }`}
+                  placeholder="85"
+                  required
+                />
+                <span className="text-[11px] sm:text-xs font-normal text-slate-400 select-none whitespace-nowrap">
+                  % ขึ้นไป
+                </span>
               </div>
             </div>
 
-            {/* ประเภทฟอร์ม */}
-            <div className="min-w-0">
-              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate">
+            {/* ประเภทฟอร์ม (Category) */}
+            <div className="flex-1 min-w-0">
+              <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-1.5 truncate">
                 ประเภทฟอร์ม (Category)
               </label>
-              <div className="relative flex items-center bg-white border border-slate-200 hover:border-slate-300 focus-within:border-[#0F6659] focus-within:ring-2 focus-within:ring-[#0F6659]/10 rounded-2xl transition-all shadow-xs min-h-[50px] px-3.5">
-                <Tag size={16} className="text-[#0F6659] shrink-0 mr-2 pointer-events-none" />
+              <div className={`relative flex items-center border rounded-2xl transition-all shadow-xs min-h-[50px] px-3.5 sm:px-4 ${
+                isReadOnly ? "bg-slate-50/80 border-slate-200" : "bg-white border-slate-200 hover:border-slate-300 focus-within:border-[#0F6659] focus-within:ring-2 focus-within:ring-[#0F6659]/10"
+              }`}>
                 <select
+                  disabled={isReadOnly}
                   value={locationTypeId || ""}
                   onChange={(e) => {
                     const val = Number(e.target.value);
@@ -920,7 +1026,9 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                     const selectedObj = locationTypes.find(lt => lt.id === val);
                     if (selectedObj) setFormType(selectedObj.name || selectedObj.code);
                   }}
-                  className="w-full bg-transparent text-base font-semibold text-slate-700 outline-none cursor-pointer appearance-none truncate pr-8 py-3"
+                  className={`w-full bg-transparent text-xs sm:text-sm font-normal text-slate-800 outline-none appearance-none truncate pr-6 sm:pr-8 py-3 ${
+                    isReadOnly ? "cursor-default" : "cursor-pointer"
+                  }`}
                 >
                   {locationTypes.length > 0 ? (
                     locationTypes.map(lt => (
@@ -929,129 +1037,149 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                   ) : (
                     <>
                       <option value={1}>สาขาหน้าร้าน (Store Front)</option>
-                      <option value={2}>ครัวและคลังสินค้า (Kitchen & Storage)</option>
+                      <option value={2}>ครัวกลาง (Cloud Kitchen)</option>
                       <option value={3}>ขับรถรับ (Drive-Thru)</option>
                       <option value={4}>จัดส่งและเดลิเวอรี (Delivery)</option>
                       <option value={5}>ตรวจความปลอดภัยอาหาร (Food Safety)</option>
                     </>
                   )}
                 </select>
-                <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none shrink-0" />
+                {!isReadOnly && (
+                  <ChevronDown size={18} className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-[#0F6659] pointer-events-none shrink-0" />
+                )}
               </div>
             </div>
+          </div>
 
-            {/* แบรนด์ (Brand) - Multi-Select */}
-            <div className="min-w-0 relative">
-              <label className="block text-sm font-medium text-slate-600 mb-1.5 truncate flex items-center justify-between">
-                <span>แบรนด์ (Brand)</span>
-                <span className="text-[11px] font-medium text-slate-400">เลือกได้หลายแบรนด์</span>
-              </label>
-              <div 
-                ref={brandDropdownRef}
-                onClick={() => setIsBrandDropdownOpen(prev => !prev)}
-                className={`w-full min-h-[50px] px-3.5 py-2 rounded-2xl bg-white border transition-all shadow-xs cursor-pointer flex items-center justify-between gap-2 ${
-                  isBrandDropdownOpen ? 'border-[#0F6659] ring-2 ring-[#0F6659]/10' : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1 py-0.5">
-                  {brandIds.length === 0 ? (
-                    <span className="text-sm font-normal text-slate-500 flex items-center gap-1.5">
-                      <Store size={14} className="text-slate-400" />
-                      <span>ทุกแบรนด์ (All Brands / Global)</span>
-                    </span>
-                  ) : (
-                    brandIds.map(bid => {
-                      const bObj = brands.find(b => b.id === bid);
-                      return (
-                        <span 
-                          key={bid}
-                          className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shrink-0 select-none animate-in fade-in zoom-in-95 duration-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setBrandIds(prev => prev.filter(id => id !== bid));
-                          }}
-                          title="คลิกเพื่อลบแบรนด์นี้ออก"
-                        >
-                          <Store size={11} className="text-emerald-600" />
-                          <span>{bObj?.name || `Brand #${bid}`}</span>
-                          <X size={12} className="text-emerald-700 hover:text-rose-600 cursor-pointer ml-0.5" />
-                        </span>
-                      );
-                    })
-                  )}
-                </div>
-                <ChevronDown size={16} className={`text-slate-400 shrink-0 transition-transform duration-200 ${isBrandDropdownOpen ? 'rotate-180 text-[#0F6659]' : ''}`} />
-              </div>
-
-              {/* Multi-Brand Popover Menu */}
-              {isBrandDropdownOpen && (
-                <div 
-                  className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150 max-h-56 overflow-y-auto"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* All Brands Option */}
-                  <label 
-                    onClick={() => setBrandIds([])}
-                    className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-bold ${
-                      brandIds.length === 0 ? 'bg-emerald-50 text-[#0F6659]' : 'text-slate-800 hover:bg-slate-50'
-                    }`}
-                  >
-                    <input 
-                      type="checkbox"
-                      checked={brandIds.length === 0}
-                      onChange={() => setBrandIds([])}
-                      className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer"
-                    />
-                    <span className="flex-1">ทุกแบรนด์ (All Brands / Global)</span>
-                  </label>
-                  
-                  <div className="border-t border-slate-100 my-1" />
-
-                  {/* Individual Brands */}
-                  {brands.map(b => {
-                    const isChecked = brandIds.includes(b.id);
+          {/* แบรนด์ (Brand) */}
+          <div ref={brandDropdownRef} className="min-w-0 relative">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5 truncate flex items-center justify-between">
+              <span>แบรนด์ (Brand)</span>
+            </label>
+            <div 
+              onClick={!isReadOnly ? () => setIsBrandDropdownOpen(prev => !prev) : undefined}
+              className={`w-full min-h-[50px] px-4 py-2.5 rounded-2xl border transition-all shadow-xs flex items-center justify-between gap-2 ${
+                isReadOnly
+                  ? "bg-slate-50/80 border-slate-200 cursor-default"
+                  : isBrandDropdownOpen
+                  ? "bg-white border-[#0F6659] ring-2 ring-[#0F6659]/10 cursor-pointer"
+                  : "bg-white border-slate-200 hover:border-slate-300 cursor-pointer"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1 py-0.5">
+                {brandIds.length === 0 ? (
+                  <span className="text-sm font-normal text-slate-800 truncate">
+                    ทุกแบรนด์ (All Brands / Global)
+                  </span>
+                ) : (
+                  brandIds.map(bid => {
+                    const bObj = brands.find(b => Number(b.id) === Number(bid));
                     return (
-                      <label 
+                      <span 
+                        key={bid}
+                        className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shrink-0 select-none animate-in fade-in zoom-in-95 duration-100"
+                        onClick={!isReadOnly ? (e) => {
+                          e.stopPropagation();
+                          setBrandIds(prev => prev.filter(id => Number(id) !== Number(bid)));
+                        } : undefined}
+                        title={!isReadOnly ? "คลิกเพื่อลบแบรนด์นี้ออก" : undefined}
+                      >
+                        <span>{bObj?.name || `Brand #${bid}`}</span>
+                        {!isReadOnly && <X size={12} className="text-emerald-700 hover:text-rose-600 cursor-pointer ml-0.5" />}
+                      </span>
+                    );
+                  })
+                )}
+              </div>
+              {!isReadOnly && (
+                <ChevronDown size={18} className={`text-[#0F6659] shrink-0 transition-transform duration-200 ${isBrandDropdownOpen ? 'rotate-180' : ''}`} />
+              )}
+            </div>
+
+            {/* Multi-Brand Popover Menu */}
+            {isBrandDropdownOpen && !isReadOnly && (
+              <div 
+                className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150 max-h-56 overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {/* All Brands Option */}
+                <div 
+                  role="button"
+                  onClick={() => setBrandIds([])}
+                  className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-bold select-none ${
+                    brandIds.length === 0 ? 'bg-emerald-50 text-[#0F6659]' : 'text-slate-800 hover:bg-slate-50'
+                  }`}
+                >
+                  <input 
+                    type="checkbox"
+                    checked={brandIds.length === 0}
+                    readOnly
+                    className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer pointer-events-none"
+                  />
+                  <span className="flex-1">ทุกแบรนด์ (All Brands / Global)</span>
+                </div>
+                
+                <div className="border-t border-slate-100 my-1" />
+
+                {/* Individual Brands */}
+                {brands.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 text-center">
+                    ไม่มีรายการแบรนด์ในระบบ
+                  </div>
+                ) : (
+                  brands.map(b => {
+                    const bid = Number(b.id);
+                    const isChecked = brandIds.map(Number).includes(bid);
+                    return (
+                      <div 
                         key={b.id}
+                        role="button"
                         onClick={() => {
                           setBrandIds(prev => {
-                            if (prev.includes(b.id)) {
-                              return prev.filter(id => id !== b.id);
+                            const cur = prev.map(Number);
+                            if (cur.includes(bid)) {
+                              return cur.filter(id => id !== bid);
                             } else {
-                              return [...prev, b.id];
+                              return [...cur, bid];
                             }
                           });
                         }}
-                        className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-medium ${
+                        className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-medium select-none ${
                           isChecked ? 'bg-emerald-50 text-[#0F6659] font-bold' : 'text-slate-700 hover:bg-slate-50'
                         }`}
                       >
                         <input 
                           type="checkbox"
                           checked={isChecked}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer"
+                          readOnly
+                          className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer pointer-events-none"
                         />
                         <span className="flex-1">{b.name}</span>
-                      </label>
+                      </div>
                     );
-                  })}
-                </div>
-              )}
-            </div>
+                  })
+                )}
+              </div>
+            )}
           </div>
 
-          {/* 3. คำอธิบายแบบฟอร์ม */}
+          {/* คำอธิบายแบบฟอร์ม */}
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1.5">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
               คำอธิบาย / วัตถุประสงค์การตรวจ
             </label>
             <input
               type="text"
+              disabled={isReadOnly}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="ระบุคำอธิบาย หรือข้อแนะนำสำหรับผู้ตรวจ..."
-              className="w-full text-sm sm:text-base font-semibold px-4.5 py-3.5 min-h-[50px] rounded-2xl bg-white border border-slate-200 text-slate-800 focus:border-[#0F6659] outline-none transition-all shadow-xs placeholder:text-slate-400"
+              placeholder="แบบฟอร์มตรวจสอบมาตรฐานคุณภาพ การบริการ และความปลอดภัย"
+              className={`w-full text-sm sm:text-base font-normal px-4 py-3 min-h-[50px] rounded-2xl border outline-none transition-all shadow-xs placeholder:text-slate-400 ${
+                isReadOnly
+                  ? "bg-slate-50/80 border-slate-200 text-slate-700 cursor-default"
+                  : "bg-white border-slate-200 text-slate-800 focus:border-[#0F6659]"
+              }`}
             />
           </div>
         </div>
@@ -1121,7 +1249,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 <span className="px-1.5 py-0.5 rounded-md bg-white border border-emerald-200 text-[#0F6659] text-[10px] font-black font-mono">
                   {count} ข้อ
                 </span>
-                {categories.length > 1 && (
+                {!isReadOnly && categories.length > 1 && (
                   <button
                     type="button"
                     onClick={() => handleRemoveCategory(cat)}
@@ -1137,32 +1265,34 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         </div>
 
         {/* Add Category Input Bar */}
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-          <div className="relative flex-1 max-w-sm">
-            <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="เพิ่มชื่อหมวดคะแนนใหม่ (เช่น ความปลอดภัย, สุขาภิบาล)..."
-              value={newCategoryInput}
-              onChange={(e) => setNewCategoryInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddCategory();
-                }
-              }}
-              className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
-            />
+        {!isReadOnly && (
+          <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+            <div className="relative flex-1 max-w-sm">
+              <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="เพิ่มชื่อหมวดคะแนนใหม่ (เช่น ความปลอดภัย, สุขาภิบาล)..."
+                value={newCategoryInput}
+                onChange={(e) => setNewCategoryInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCategory();
+                  }
+                }}
+                className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAddCategory}
+              className="px-3.5 py-2 rounded-xl bg-[#0F6659] hover:bg-[#0D5449] text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs shrink-0"
+            >
+              <Plus size={14} />
+              <span>เพิ่มหมวดคะแนน</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={handleAddCategory}
-            className="px-3.5 py-2 rounded-xl bg-[#0F6659] hover:bg-[#0D5449] text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs shrink-0"
-          >
-            <Plus size={14} />
-            <span>เพิ่มหมวดคะแนน</span>
-          </button>
-        </div>
+        )}
       </div>
 
       {/* 🌟 3. SECTIONS & QUESTIONS BUILDER */}
@@ -1172,14 +1302,16 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             <Layers size={18} className="text-[#0F6659]" />
             <h3 className="text-base font-extrabold text-slate-800">หมวดหมู่และข้อคำถามการตรวจ</h3>
           </div>
-          <button
-            type="button"
-            onClick={addSection}
-            className="px-3.5 py-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] font-extrabold text-xs sm:text-sm border border-emerald-200 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all active:scale-95"
-          >
-            <Plus size={16} />
-            <span>เพิ่มหมวดหมู่</span>
-          </button>
+          {!isReadOnly && (
+            <button
+              type="button"
+              onClick={addSection}
+              className="px-3.5 py-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] font-extrabold text-xs sm:text-sm border border-emerald-200 flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all active:scale-95"
+            >
+              <Plus size={16} />
+              <span>เพิ่มหมวดหมู่</span>
+            </button>
+          )}
         </div>
 
         {sections.map((sec, secIdx) => (
@@ -1195,7 +1327,11 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                   {secIdx + 1}
                 </span>
 
-                {editingSecIdx === secIdx ? (
+                {isReadOnly ? (
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <h4 className="text-sm sm:text-base font-bold text-slate-800 truncate">{sec.title}</h4>
+                  </div>
+                ) : editingSecIdx === secIdx ? (
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <input
                       type="text"
@@ -1216,38 +1352,44 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
-                {/* Reorder Section Buttons */}
-                <button
-                  type="button"
-                  disabled={secIdx === 0}
-                  onClick={() => moveSection(secIdx, 'up')}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
-                  title="เลื่อนหมวดหมู่ขึ้น"
-                >
-                  <ChevronUp size={16} />
-                </button>
-                <button
-                  type="button"
-                  disabled={secIdx === sections.length - 1}
-                  onClick={() => moveSection(secIdx, 'down')}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
-                  title="เลื่อนหมวดหมู่ลง"
-                >
-                  <ChevronDown size={16} />
-                </button>
+                {!isReadOnly && (
+                  <>
+                    {/* Reorder Section Buttons */}
+                    <button
+                      type="button"
+                      disabled={secIdx === 0}
+                      onClick={() => moveSection(secIdx, 'up')}
+                      className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                      title="เลื่อนหมวดหมู่ขึ้น"
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={secIdx === sections.length - 1}
+                      onClick={() => moveSection(secIdx, 'down')}
+                      className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                      title="เลื่อนหมวดหมู่ลง"
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                  </>
+                )}
 
                 <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600">
                   {sec.items.length} ข้อ
                 </span>
 
-                <button
-                  type="button"
-                  onClick={() => handleRequestRemoveSection(secIdx)}
-                  className="p-2 rounded-xl text-red-500 hover:bg-red-50 cursor-pointer transition-colors"
-                  title="ลบหมวดหมู่นี้"
-                >
-                  <Trash2 size={16} />
-                </button>
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() => handleRequestRemoveSection(secIdx)}
+                    className="p-2 rounded-xl text-red-500 hover:bg-red-50 cursor-pointer transition-colors"
+                    title="ลบหมวดหมู่นี้"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1279,14 +1421,16 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                     <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/60">
                       {/* Left: Drag Handle & Question Number Badge */}
                       <div className="flex items-center gap-2 min-w-0">
-                        <button
-                          type="button"
-                          onPointerDown={(e) => handlePointerDown(e, secIdx, item.id)}
-                          className="p-1 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing rounded-lg hover:bg-slate-200/60 shrink-0 touch-none"
-                          title="คลิกลากเพื่อสลับลำดับข้อ"
-                        >
-                          <GripVertical size={16} />
-                        </button>
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onPointerDown={(e) => handlePointerDown(e, secIdx, item.id)}
+                            className="p-1 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing rounded-lg hover:bg-slate-200/60 shrink-0 touch-none"
+                            title="คลิกลากเพื่อสลับลำดับข้อ"
+                          >
+                            <GripVertical size={16} />
+                          </button>
+                        )}
                         <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg shrink-0">
                           ข้อ {itemIdx + 1}
                         </span>
@@ -1295,50 +1439,72 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       {/* Right: Score Input + Critical Toggle + Delete */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         {/* Score Setting Input (Compact without 'แต้ม') */}
-                        <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-1 shadow-2xs hover:border-[#0F6659] focus-within:border-[#0F6659] transition-colors shrink-0">
+                        <div className={`flex items-center gap-1 border rounded-xl px-2 py-1 shadow-2xs transition-colors shrink-0 ${
+                          isReadOnly ? "bg-slate-50 border-slate-200" : "bg-white border-slate-200 hover:border-[#0F6659] focus-within:border-[#0F6659]"
+                        }`}>
                           <span className="text-[11px] font-semibold text-slate-500">คะแนน:</span>
                           <input
                             type="number"
                             min="1"
                             max="500"
+                            disabled={isReadOnly}
                             value={item.fullScore !== undefined && item.fullScore !== null ? item.fullScore : 10}
                             onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
                             onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
-                            className="w-8 text-xs font-bold text-center font-mono text-[#0F6659] outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0"
-                            title="กำหนดคะแนนเต็มของข้อนี้"
+                            className={`w-8 text-xs font-bold text-center font-mono outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 ${
+                              isReadOnly ? "text-slate-700 cursor-default" : "text-[#0F6659] cursor-text"
+                            }`}
+                            title={isReadOnly ? "คะแนนเต็มของข้อนี้" : "กำหนดคะแนนเต็มของข้อนี้"}
                           />
                         </div>
 
                         {/* Critical Toggle Button */}
-                        <button
-                          type="button"
-                          onClick={() => toggleItemCritical(secIdx, item.id)}
-                          className={`px-2 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs shrink-0 ${
-                            item.critical
-                              ? 'bg-rose-50 text-rose-600 border border-rose-300 ring-1 ring-rose-200'
-                              : 'bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                          }`}
-                          title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งเป็นข้อสำคัญ (ไม่ผ่านตกทันที)"}
-                        >
-                          <ShieldAlert size={14} className={item.critical ? "text-rose-600" : "text-slate-400"} />
-                          {item.critical && <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>}
-                        </button>
+                        {isReadOnly ? (
+                          item.critical ? (
+                            <div className="px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 bg-rose-50 text-rose-600 border border-rose-300 shrink-0">
+                              <ShieldAlert size={14} className="text-rose-600" />
+                              <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>
+                            </div>
+                          ) : null
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => toggleItemCritical(secIdx, item.id)}
+                            className={`px-2 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs shrink-0 ${
+                              item.critical
+                                ? 'bg-rose-50 text-rose-600 border border-rose-300 ring-1 ring-rose-200'
+                                : 'bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                            }`}
+                            title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งเป็นข้อสำคัญ (ไม่ผ่านตกทันที)"}
+                          >
+                            <ShieldAlert size={14} className={item.critical ? "text-rose-600" : "text-slate-400"} />
+                            {item.critical && <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>}
+                          </button>
+                        )}
 
                         {/* Delete Question Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
-                          className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors shrink-0"
-                          title="ลบคำถามข้อนี้"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors shrink-0"
+                            title="ลบคำถามข้อนี้"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     {/* 2. Full-Width Question Text Area */}
                     <div className="w-full">
-                      {editingId === item.id ? (
+                      {isReadOnly ? (
+                        <div className="w-full p-2.5 -mx-1 rounded-xl">
+                          <p className="text-xs sm:text-sm font-medium text-slate-800 leading-relaxed break-words">
+                            {item.text}
+                          </p>
+                        </div>
+                      ) : editingId === item.id ? (
                         <div className="flex items-center gap-2 w-full">
                           <textarea
                             rows={2}
@@ -1375,42 +1541,53 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       {/* Left: Answer Type */}
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-slate-500">ประเภทคำตอบ:</span>
-                        <div className="flex rounded-xl p-0.5 bg-slate-100 text-xs font-semibold">
-                          <button
-                            type="button"
-                            onClick={() => updateItemType(secIdx, item.id, "yesno")}
-                            className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                              item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            ผ่าน / ไม่ผ่าน
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateItemType(secIdx, item.id, "scale")}
-                            className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                              item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            คะแนน 1-5
-                          </button>
-                        </div>
+                        {isReadOnly ? (
+                          <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-[#0F6659] shadow-2xs">
+                            {item.type === "scale" ? "คะแนน 1-5" : "ผ่าน / ไม่ผ่าน"}
+                          </span>
+                        ) : (
+                          <div className="flex rounded-xl p-0.5 bg-slate-100 text-xs font-semibold">
+                            <button
+                              type="button"
+                              onClick={() => updateItemType(secIdx, item.id, "yesno")}
+                              className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
+                                item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              ผ่าน / ไม่ผ่าน
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateItemType(secIdx, item.id, "scale")}
+                              className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
+                                item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                            >
+                              คะแนน 1-5
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: Category Selector (หมวดคะแนนของข้อนี้) */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <span className="text-xs font-semibold text-slate-500">หมวดคะแนน:</span>
                         <div className="relative">
                           <select
+                            disabled={isReadOnly}
                             value={item.category || DEFAULT_CATEGORIES[0]}
                             onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
-                            className="min-w-[140px] text-base font-semibold pl-3 pr-7 py-2.5 min-h-[44px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none hover:border-[#0F6659] focus:border-[#0F6659] shadow-2xs cursor-pointer appearance-none"
+                            className={`text-xs sm:text-sm font-semibold pl-2.5 pr-6 py-1.5 min-h-[34px] sm:min-h-[36px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none shadow-2xs appearance-none ${
+                              isReadOnly ? "cursor-default" : "hover:border-[#0F6659] focus:border-[#0F6659] cursor-pointer"
+                            }`}
                           >
                             {categories.map((cat, cIdx) => (
                               <option key={cIdx} value={cat}>{cat}</option>
                             ))}
                           </select>
-                          <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          {!isReadOnly && (
+                            <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1420,14 +1597,16 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             </div>
 
             {/* Add Question Button */}
-            <button
-              type="button"
-              onClick={() => addItemToSection(secIdx)}
-              className="w-full py-3 rounded-2xl bg-slate-50 hover:bg-emerald-50/60 border border-dashed border-slate-300 hover:border-emerald-400 text-xs sm:text-sm font-extrabold text-slate-600 hover:text-[#0F6659] flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
-            >
-              <Plus size={16} />
-              <span>เพิ่มข้อคำถามในหมวดหมู่นี้</span>
-            </button>
+            {!isReadOnly && (
+              <button
+                type="button"
+                onClick={() => addItemToSection(secIdx)}
+                className="w-full py-3 rounded-2xl bg-slate-50 hover:bg-emerald-50/60 border border-dashed border-slate-300 hover:border-emerald-400 text-xs sm:text-sm font-extrabold text-slate-600 hover:text-[#0F6659] flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
+              >
+                <Plus size={16} />
+                <span>เพิ่มข้อคำถามในหมวดหมู่นี้</span>
+              </button>
+            )}
           </div>
         ))}
           </div>
@@ -1449,112 +1628,146 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={openAddMetaField}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
-              >
-                <Plus size={15} />
-                <span>เพิ่มฟิลด์ข้อมูลใหม่</span>
-              </button>
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={openAddMetaField}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+                >
+                  <Plus size={15} />
+                  <span>เพิ่มฟิลด์ข้อมูลใหม่</span>
+                </button>
+              )}
             </div>
 
             {/* List of Fields */}
             <div className="space-y-3">
-              {metadataConfig.map((field, idx) => (
-                <div
-                  key={field.id || idx}
-                  className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                    field.enabled !== false
-                      ? "bg-slate-50/70 border-slate-200 hover:border-emerald-300 shadow-2xs"
-                      : "bg-slate-100/50 border-slate-200 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="flex flex-col gap-0.5 shrink-0">
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => moveMetaField(idx, -1)}
-                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                        title="เลื่อนขึ้น"
-                      >
-                        <ChevronUp size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === metadataConfig.length - 1}
-                        onClick={() => moveMetaField(idx, 1)}
-                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-20 cursor-pointer"
-                        title="เลื่อนลง"
-                      >
-                        <ChevronDown size={14} />
-                      </button>
-                    </div>
-
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-slate-900">{field.label}</span>
-                        {field.required && (
-                          <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
-                            * บังคับกรอก
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 mt-1.5 text-xs text-slate-500 flex-wrap">
-                        <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 font-semibold text-slate-700">
-                          ประเภท: {getFieldTypeLabel(field.type)}
-                        </span>
-                        {field.type === "number" && field.unit && (
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
-                            หน่วย: {field.unit}
-                          </span>
-                        )}
-                        {field.type === "select" && Array.isArray(field.options) && field.options.length > 0 && (
-                          <span className="px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-800 font-medium truncate max-w-xs">
-                            ตัวเลือก ({field.options.length}): {field.options.join(", ")}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => toggleMetaFieldEnabled(field.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer border ${
-                        field.enabled !== false
-                          ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
-                          : "bg-slate-200 text-slate-600 border-slate-300 hover:bg-slate-300"
-                      }`}
-                    >
-                      {field.enabled !== false ? "✓ เปิดใช้งาน" : "ปิดใช้งาน"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => openEditMetaField(field, idx)}
-                      className="p-2 text-slate-500 hover:text-[#0F6659] bg-white border border-slate-200 rounded-xl hover:border-emerald-400 cursor-pointer shadow-2xs"
-                      title="แก้ไขฟิลด์นี้"
-                    >
-                      <Edit3 size={14} />
-                    </button>
-
-                    {!field.isSystem && (
-                      <button
-                        type="button"
-                        onClick={() => deleteMetaField(field.id)}
-                        className="p-2 text-slate-400 hover:text-rose-600 bg-white border border-slate-200 rounded-xl hover:border-rose-300 cursor-pointer shadow-2xs"
-                        title="ลบฟิลด์นี้"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
+              {metadataConfig.length === 0 ? (
+                <div className="py-8 px-4 text-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50">
+                  <p className="text-xs font-semibold text-slate-500">
+                    ยังไม่มีฟิลด์ข้อมูลการตรวจ {!isReadOnly && '(คลิก "+ เพิ่มฟิลด์ข้อมูลใหม่" เพื่อเพิ่ม)'}
+                  </p>
                 </div>
-              ))}
+              ) : (
+                metadataConfig.map((field, idx) => {
+                  const isDragging = metaDragUI && metaDragUI.id === field.id;
+                  const displacePx = (metaDragUI && metaDragUI.displace[field.id]) || 0;
+
+                  return (
+                    <div
+                      key={field.id || idx}
+                      ref={(el) => { metaRefs.current[field.id] = el; }}
+                      style={{
+                        transform: isDragging
+                          ? `translateY(${metaDragUI.deltaY}px) scale(1.01)`
+                          : displacePx
+                          ? `translateY(${displacePx}px)`
+                          : undefined,
+                        zIndex: isDragging ? 40 : 1,
+                        boxShadow: isDragging ? "0 16px 32px rgba(0,0,0,0.12)" : undefined,
+                        transition: isDragging ? "box-shadow 0.15s" : "transform 0.18s cubic-bezier(0.2,0,0,1)"
+                      }}
+                      className="p-3.5 sm:p-4 rounded-2xl border border-slate-200 hover:border-emerald-300 shadow-2xs space-y-3 relative transition-all bg-[#FAFAF8]"
+                    >
+                      {/* 1. Field Header Bar: Drag Handle + Number Badge (เหมือนหมวดหมู่คำถาม) */}
+                      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/60">
+                        {/* Left: Drag Handle & Number Badge & Up/Down Arrows */}
+                        <div className="flex items-center gap-2 min-w-0">
+                          {!isReadOnly && (
+                            <button
+                              type="button"
+                              onPointerDown={(e) => handleMetaPointerDown(e, field.id)}
+                              className="p-1 text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing rounded-lg hover:bg-slate-200/60 shrink-0 touch-none"
+                              title="คลิกลากเพื่อสลับลำดับข้อ"
+                            >
+                              <GripVertical size={16} />
+                            </button>
+                          )}
+
+                          <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg shrink-0">
+                            ข้อ {idx + 1}
+                          </span>
+
+                          {!isReadOnly && (
+                            <div className="flex items-center gap-0.5 shrink-0 ml-0.5">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => moveMetaField(idx, -1)}
+                                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 disabled:opacity-20 cursor-pointer transition-colors"
+                                title="เลื่อนขึ้น"
+                              >
+                                <ChevronUp size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === metadataConfig.length - 1}
+                                onClick={() => moveMetaField(idx, 1)}
+                                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 disabled:opacity-20 cursor-pointer transition-colors"
+                                title="เลื่อนลง"
+                              >
+                                <ChevronDown size={15} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right: Edit + Delete */}
+                        {!isReadOnly && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openEditMetaField(field, idx)}
+                              className="p-1.5 text-slate-500 hover:text-[#0F6659] bg-white border border-slate-200 rounded-xl hover:border-emerald-400 cursor-pointer shadow-2xs transition-colors"
+                              title="แก้ไขฟิลด์นี้"
+                            >
+                              <Edit3 size={15} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => deleteMetaField(field.id)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer shadow-2xs transition-colors"
+                              title="ลบฟิลด์นี้"
+                            >
+                              <Trash2 size={13} />
+                              <span>ลบ</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 2. Field Content: Name & Badges */}
+                      <div className="pt-0.5 space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-bold text-slate-900">{field.label}</h4>
+                          {field.required && (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-rose-100 text-rose-700">
+                              * บังคับกรอก
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+                          <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-semibold text-slate-700 shadow-2xs">
+                            ประเภท: {getFieldTypeLabel(field.type)}
+                          </span>
+                          {field.type === "number" && field.unit && (
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
+                              หน่วย: {field.unit}
+                            </span>
+                          )}
+                          {field.type === "select" && Array.isArray(field.options) && field.options.length > 0 && (
+                            <span className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 font-medium truncate max-w-xs">
+                              ตัวเลือก ({field.options.length}): {field.options.join(", ")}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -1569,28 +1782,47 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         document.body
       )}
 
-      {/* 🌟 4. BOTTOM ACTION BUTTONS */}
-      <div className="pt-3 flex items-center gap-3">
-        {form?.id && !readOnly &&(
-          <button
-            type="button"
-            onClick={() => setDeleteTarget({ type: "form", title: formName, id: form.id })}
-            className="px-4 py-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer shadow-xs active:scale-95 transition-all shrink-0"
-            title="ลบแบบฟอร์มนี้ออกจากระบบ"
-          >
-            <Trash2 size={16} />
-            <span className="hidden sm:inline">ลบแบบฟอร์มนี้</span>
-          </button>
-        )}
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={handleSave}
-            className="flex-1 py-4 rounded-2xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-gradient-to-tr from-[#0F6659] via-[#117a6b] to-emerald-700 hover:opacity-95 transition-all"
-          >
-            <Check size={18} />
-            <span>บันทึกแบบฟอร์ม</span>
-          </button>
+      {/* 🌟 4. BOTTOM ACTION BAR (Sticky Bar Matching Mockup) */}
+      <div className="fixed sm:sticky bottom-0 left-0 right-0 p-4 sm:p-5 bg-white/95 backdrop-blur-md border-t border-slate-200/80 rounded-t-2xl sm:rounded-t-3xl shadow-lg z-30">
+        {isReadOnly ? (
+          <div className="max-w-md mx-auto flex items-center justify-center w-full">
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-full py-3.5 sm:py-4 rounded-2xl text-sm sm:text-base font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md bg-[#0F6659] hover:bg-[#0c5247] text-white active:scale-95 transition-all"
+            >
+              ย้อนกลับ
+            </button>
+          </div>
+        ) : (
+          <div className="max-w-2xl mx-auto flex items-center gap-3 w-full">
+            {form?.id && (
+              <button
+                type="button"
+                onClick={() => setDeleteTarget({ type: "form", title: formName, id: form.id })}
+                className="px-4 py-3.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 border border-red-200 text-red-600 hover:bg-red-50 cursor-pointer shadow-xs active:scale-95 transition-all shrink-0"
+                title="ลบแบบฟอร์มนี้ออกจากระบบ"
+              >
+                <Trash2 size={16} />
+                <span className="hidden sm:inline">ลบแบบฟอร์มนี้</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex-1 py-3.5 sm:py-4 rounded-2xl text-sm sm:text-base font-bold flex items-center justify-center gap-2 cursor-pointer shadow-xs bg-white text-[#0F6659] border border-[#0F6659] hover:bg-emerald-50 active:scale-95 transition-all"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex-1 py-3.5 sm:py-4 rounded-2xl text-sm sm:text-base font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md text-white active:scale-95 bg-[#0F6659] hover:bg-[#0c5247] transition-all disabled:opacity-50"
+            >
+              {isSaving ? "กำลังบันทึก..." : "บันทึกแบบฟอร์ม"}
+            </button>
+          </div>
         )}
       </div>
 
@@ -1614,7 +1846,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
                   <span>ชื่อฟิลด์ข้อมูล (Label) <span className="text-rose-500">*</span></span>
                   {metaFieldErrors.label && (
-                    <span className="text-[11px] font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
+                    <span className="text-xs font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
                       <AlertTriangle size={12} /> กรุณาระบุชื่อฟิลด์ข้อมูล
                     </span>
                   )}
@@ -1643,34 +1875,81 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 <div className="relative">
                   <select
                     value={metaFieldForm.type === "textarea" ? "text" : metaFieldForm.type}
-                    disabled={metaFieldForm.isSystem}
                     onChange={(e) => setMetaFieldForm({ ...metaFieldForm, type: e.target.value })}
-                    className="w-full text-base pl-4 pr-10 py-3 min-h-[44px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                    className="w-full text-sm pl-4 pr-10 py-3 min-h-[44px] rounded-2xl bg-white border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] transition-all shadow-xs cursor-pointer appearance-none truncate"
                   >
+                    <option value="auditor">ผู้ตรวจประเมิน (Auditor)</option>
                     <option value="number">ตัวเลข / จำนวน (ระบุหน่วย)</option>
+                    <option value="text">ข้อความ / หมายเหตุ (Text)</option>
+                    <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
                     <option value="date">ปฏิทิน (วัน/เดือน/ปี)</option>
                     <option value="time">เวลา (ชั่วโมง:นาที)</option>
-                    <option value="select">ตัวเลือกปุ่มกด / Dropdown</option>
-                    <option value="text">ข้อความ / หมายเหตุ (Text)</option>
                     <option value="toggle">สวิตช์ ใช่/ไม่ใช่ (Toggle)</option>
                   </select>
                   <ChevronDown size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 </div>
               </div>
 
-              {/* Specific Config for NUMBER (Unit & Min/Max) */}
+              {/* Specific Config for AUDITOR */}
+              {metaFieldForm.type === "auditor" && (
+                <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs font-semibold text-emerald-900 leading-relaxed">
+                  ฟิลด์นี้สำหรับระบุหรือเลือกผู้ตรวจประเมิน (Auditor) จากระบบ หรือกรอกชื่อผู้ตรวจในขณะลงพื้นที่
+                </div>
+              )}
+
+              {/* Specific Config for NUMBER (Unit & Min/Max & Placeholder) */}
               {metaFieldForm.type === "number" && (
-                <div className="p-2.5 sm:p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-1.5">
+                <div className="p-3 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2.5">
                   <div>
                     <label className="block text-xs font-bold text-emerald-950 mb-1">
                       หน่วยของตัวเลข
                     </label>
                     <input
                       type="text"
-                      value={metaFieldForm.unit}
+                      value={metaFieldForm.unit || ""}
                       onChange={(e) => setMetaFieldForm({ ...metaFieldForm, unit: e.target.value })}
-                      placeholder="ระบุหน่วย เช่น คน หรือ °C"
-                      className="w-full text-xs sm:text-sm font-semibold py-1.5 sm:py-2 px-3 rounded-lg border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                      placeholder="ระบุหน่วย เช่น คน, ชิ้น, °C"
+                      className="w-full text-xs sm:text-sm font-semibold py-2 px-3 rounded-lg border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-emerald-950 mb-1">
+                        ค่าต่ำสุด (Min)
+                      </label>
+                      <input
+                        type="number"
+                        value={metaFieldForm.min !== undefined ? metaFieldForm.min : 0}
+                        onChange={(e) => setMetaFieldForm({ ...metaFieldForm, min: e.target.value })}
+                        placeholder="0"
+                        className="w-full text-xs sm:text-sm font-semibold py-2 px-3 rounded-lg border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-emerald-950 mb-1">
+                        ค่าสูงสุด (Max)
+                      </label>
+                      <input
+                        type="number"
+                        value={metaFieldForm.max !== undefined ? metaFieldForm.max : 9999}
+                        onChange={(e) => setMetaFieldForm({ ...metaFieldForm, max: e.target.value })}
+                        placeholder="9999"
+                        className="w-full text-xs sm:text-sm font-semibold py-2 px-3 rounded-lg border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-emerald-950 mb-1">
+                      ข้อความแนะนำในช่อง (Placeholder)
+                    </label>
+                    <input
+                      type="text"
+                      value={metaFieldForm.placeholder || ""}
+                      onChange={(e) => setMetaFieldForm({ ...metaFieldForm, placeholder: e.target.value })}
+                      placeholder="เช่น ระบุจำนวนพนักงาน..."
+                      className="w-full text-xs sm:text-sm font-semibold py-2 px-3 rounded-lg border border-emerald-200 outline-none focus:border-[#0F6659] bg-white"
                     />
                   </div>
                 </div>

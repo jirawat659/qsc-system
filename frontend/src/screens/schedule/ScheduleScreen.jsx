@@ -27,7 +27,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [detail, setDetail] = useState(null);
   const [showAuditorModal, setShowAuditorModal] = useState(false);
-  const { schedules, locations, forms, auditRecords, refreshData } = React.useContext(DataContext);
+  const { schedules, locations, allLocations, forms, auditRecords, refreshData, brands } = React.useContext(DataContext);
   const [showNewScheduleModal, setShowNewScheduleModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [showAiQuickPopover, setShowAiQuickPopover] = useState(false);
@@ -65,6 +65,23 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
                  ad.getDate() === dateObj.getDate();
         });
 
+        const now = new Date();
+        const isToday = !isNaN(dateObj.getTime()) && 
+          dateObj.getFullYear() === now.getFullYear() && 
+          dateObj.getMonth() === now.getMonth() && 
+          dateObj.getDate() === now.getDate();
+
+        let computedStatus = "upcoming";
+        if (isCompleted) {
+          computedStatus = "done";
+        } else if (s.status === "in_progress") {
+          computedStatus = "in_progress";
+        } else if (isToday) {
+          computedStatus = "today";
+        } else {
+          computedStatus = "upcoming";
+        }
+
         return {
           id: s.id,
           locationId: s.locationId,
@@ -84,7 +101,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           auditors: s.auditors || [],
           form: s.surveyFormTitle || "-",
           surveyFormTitle: s.surveyFormTitle,
-          status: isCompleted ? "done" : s.status === "in_progress" ? "today" : "upcoming",
+          status: computedStatus,
           isCompleted,
           auditType: s.auditType || "announced",
           notes: s.notes
@@ -270,6 +287,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
   const statusStyle = {
     today: { label: "วันนี้", fg: "#0F6659", bg: "#E3F0ED" },
+    in_progress: { label: "กำลังตรวจ", fg: "#D97706", bg: "#FEF3C7" },
     upcoming: { label: "นัดหมาย", fg: "#059669", bg: "#ECFDF5" },
     done: { label: "เสร็จแล้ว", fg: "#64748B", bg: "#F1F5F9" },
   };
@@ -699,7 +717,8 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
         <NewScheduleModal
           defaultDay={selectedDate.getDate()}
           currentUser={currentUser}
-          locations={locations}
+          locations={allLocations && allLocations.length > 0 ? allLocations : locations}
+          brands={brands}
           forms={forms}
           scheduleToEdit={editingSchedule}
           onClose={() => {

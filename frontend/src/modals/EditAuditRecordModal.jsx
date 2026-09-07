@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useContext, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2, ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock, SlidersHorizontal, ChevronDown } from "lucide-react";
-import api from "../config/api";
+import { X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2, ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock, SlidersHorizontal, ChevronDown, Camera, Plus } from "lucide-react";
+import api, { getFullImageUrl } from "../config/api";
+import { compressImageFile } from "../utils/imageCompressor";
 import { mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 
@@ -14,6 +15,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [generalNotes, setGeneralNotes] = useState(record?.notes || "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState({});
+  const [previewModalPhoto, setPreviewModalPhoto] = useState(null);
 
   // Sync record prop to currentRecord
   useEffect(() => {
@@ -249,6 +252,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       scoreGiven = isPassed ? fullScore : 0;
     }
 
+    let parsedImages = [];
+    if (Array.isArray(res.images)) {
+      parsedImages = res.images.map(img => img.imageUrl || img).filter(Boolean);
+    } else if (Array.isArray(res.imageUrls)) {
+      parsedImages = [...res.imageUrls].filter(Boolean);
+    }
+
     return {
       surveyItemId: q.surveyItemId,
       isNa,
@@ -258,7 +268,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       type: qType,
       scaleScore,
       notes: res.notes || "",
-      imageUrls: (res.images || []).map(img => img.imageUrl || img)
+      imageUrls: parsedImages
     };
   };
 
@@ -288,6 +298,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setGeneralNotes(currentRecord?.notes || "");
     setStaffCount(currentRecord?.staffCount || 0);
     setExpandedNotes({});
+    setIsUploadingPhoto({});
+    setPreviewModalPhoto(null);
     setError(null);
   }, [isOpen, currentRecord?.id, checklistQuestions]);
 
@@ -303,7 +315,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     });
   };
 
-  const isQuestionEdited = (itemId) => {
+  const isScoreEdited = (itemId) => {
     const orig = initialAnswers[itemId];
     const curr = answersState[itemId];
     if (!orig || !curr) return false;
@@ -313,6 +325,21 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     if (curr.type === "scale" && orig.scaleScore !== curr.scaleScore) return true;
 
     return false;
+  };
+
+  const isPhotosEdited = (itemId) => {
+    const orig = initialAnswers[itemId];
+    const curr = answersState[itemId];
+    if (!orig || !curr) return false;
+
+    const origPhotos = orig.imageUrls || [];
+    const currPhotos = curr.imageUrls || [];
+    if (origPhotos.length !== currPhotos.length) return true;
+    return origPhotos.some((p, i) => p !== currPhotos[i]);
+  };
+
+  const isQuestionEdited = (itemId) => {
+    return isScoreEdited(itemId) || isPhotosEdited(itemId);
   };
 
   // Calculate live preview score
@@ -403,6 +430,45 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }));
   };
 
+  const handlePhotoUpload = async (itemId, files) => {
+    if (!files || files.length === 0) return;
+    setIsUploadingPhoto((prev) => ({ ...prev, [itemId]: true }));
+    try {
+      const fileList = Array.from(files);
+      const compressedUrls = await Promise.all(fileList.map((f) => compressImageFile(f)));
+      setAnswersState((prev) => {
+        const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
+        const existing = Array.isArray(current.imageUrls) ? current.imageUrls : [];
+        return {
+          ...prev,
+          [itemId]: {
+            ...current,
+            imageUrls: [...existing, ...compressedUrls]
+          }
+        };
+      });
+    } catch (e) {
+      console.error("Compression error:", e);
+    } finally {
+      setIsUploadingPhoto((prev) => ({ ...prev, [itemId]: false }));
+    }
+  };
+
+  const handlePhotoDelete = (itemId, photoIdx) => {
+    setAnswersState((prev) => {
+      const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
+      const existing = Array.isArray(current.imageUrls) ? current.imageUrls : [];
+      const updated = existing.filter((_, i) => i !== photoIdx);
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          imageUrls: updated
+        }
+      };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!reason.trim()) {
@@ -410,10 +476,10 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       return;
     }
 
-    // 🌟 ตรวจสอบว่าข้อที่มีการแก้ไข ถูกระบุคอมเมนต์ครบทุกข้อหรือไม่
+    // 🌟 ตรวจสอบว่าข้อที่มีการแก้ไขคะแนน ถูกระบุคอมเมนต์ครบทุกข้อหรือไม่
     const invalidEditedItems = checklistQuestions.filter((q) => {
       const itemId = q.surveyItemId;
-      if (!isQuestionEdited(itemId)) return false;
+      if (!isScoreEdited(itemId)) return false;
       const note = answersState[itemId]?.notes?.trim();
       return !note;
     });
@@ -766,30 +832,110 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                         )}
                       </div>
 
-                      {/* ปุ่มเปิดปิดคอมเมนต์ทางขวา */}
-                      <button
-                        type="button"
-                        onClick={() => toggleExpandNote(itemId)}
-                        className={`px-2.5 py-1 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
-                          isNoteMissing
-                            ? 'bg-rose-50 text-rose-700 border-rose-300'
-                            : shouldShowNote
-                            ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                            : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
-                        }`}
-                        title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
-                      >
-                        <MessageSquare size={13} />
-                        {state.notes && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        )}
-                      </button>
+                      {/* ปุ่มทางขวา: ปุ่มคอมเมนต์ และ ปุ่มแนบรูปถ่าย */}
+                      <div className="flex items-center gap-1.5">
+                        {/* ปุ่มเปิดปิดคอมเมนต์ */}
+                        <button
+                          type="button"
+                          onClick={() => toggleExpandNote(itemId)}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
+                            isNoteMissing
+                              ? 'bg-rose-50 text-rose-700 border-rose-300'
+                              : shouldShowNote
+                              ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                              : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
+                          }`}
+                          title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
+                        >
+                          <MessageSquare size={13} />
+                          {state.notes && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                          )}
+                        </button>
+
+                        {/* 📷 ปุ่มแนบรูปถ่ายหลักฐาน (เหมือนเวลาตรวจจริง) */}
+                        <label
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
+                            (state.imageUrls?.length || 0) > 0
+                              ? 'bg-emerald-50 text-[#0F6659] border-emerald-300 shadow-2xs'
+                              : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
+                          }`}
+                          title="แนบรูปถ่ายหลักฐาน"
+                        >
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              handlePhotoUpload(itemId, e.target.files);
+                              e.target.value = '';
+                            }}
+                          />
+                          {isUploadingPhoto[itemId] ? (
+                            <Loader2 size={13} className="animate-spin text-[#0F6659]" />
+                          ) : (
+                            <Camera size={13} />
+                          )}
+                          {(state.imageUrls?.length || 0) > 0 && (
+                            <span className="text-[11px] font-mono font-bold text-[#0F6659]">
+                              {state.imageUrls.length}
+                            </span>
+                          )}
+                        </label>
+                      </div>
                     </div>
 
                     {/* 🌟 2. ต่อมา: คำถามของข้อจะเรียงยาวจากซ้ายไปขวา */}
                     <div className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed">
                       {qText}
                     </div>
+
+                    {/* 📸 แกลเลอรีรูปถ่ายของข้อนี้ (เหมือนเวลาตรวจจริง) */}
+                    {state.imageUrls && state.imageUrls.length > 0 && (
+                      <div className="flex items-center gap-2 overflow-x-auto py-1 custom-tab-scrollbar">
+                        {state.imageUrls.map((imgUrl, imgIdx) => (
+                          <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group bg-slate-100">
+                            <img
+                              src={getFullImageUrl(imgUrl)}
+                              alt={`Evidence ${imgIdx + 1}`}
+                              className="h-16 sm:h-20 w-22 sm:w-28 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                              onClick={() => setPreviewModalPhoto(getFullImageUrl(imgUrl))}
+                            />
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePhotoDelete(itemId, imgIdx);
+                              }}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
+                              title="ลบรูปภาพนี้"
+                            >
+                              ✕
+                            </button>
+                            <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
+                              #{imgIdx + 1}
+                            </span>
+                          </div>
+                        ))}
+
+                        {/* ปุ่มเพิ่มรูปด่วนในแกลเลอรี */}
+                        <label className="h-16 sm:h-20 w-16 sm:w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-[#0F6659] cursor-pointer transition-all">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              handlePhotoUpload(itemId, e.target.files);
+                              e.target.value = '';
+                            }}
+                          />
+                          <Plus size={16} />
+                          <span className="text-[9px] font-bold">เพิ่มรูป</span>
+                        </label>
+                      </div>
+                    )}
 
                     {/* 🌟 3. ลงมาล่างอีก: คำตอบเอาไว้สำหรับแก้ */}
                     <div>
@@ -920,6 +1066,30 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           </button>
         </div>
       </div>
+
+      {/* 🔍 MODAL ขยายรูปภาพขนาดเต็ม */}
+      {previewModalPhoto && (
+        <div 
+          className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
+          onClick={() => setPreviewModalPhoto(null)}
+        >
+          <div className="relative max-w-2xl max-h-[85dvh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setPreviewModalPhoto(null)}
+              className="absolute -top-10 right-0 w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center cursor-pointer transition-all"
+              title="ปิด"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={previewModalPhoto}
+              alt="Preview"
+              className="max-h-[80dvh] w-auto max-w-full rounded-2xl object-contain shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 

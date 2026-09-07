@@ -40,15 +40,15 @@ function TimePicker24({ value, onChange, title }) {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`w-full text-base sm:text-sm px-3.5 py-3 min-h-[50px] rounded-2xl border flex items-center justify-between font-semibold cursor-pointer transition-all shadow-xs ${
+        className={`w-full text-xs sm:text-sm px-3 py-2.5 min-h-[44px] rounded-xl border flex items-center justify-between font-semibold cursor-pointer transition-all shadow-2xs ${
           isOpen
             ? 'bg-white border-[#0F6659] ring-2 ring-[#0F6659]/20 text-slate-900'
             : 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-white hover:border-slate-300'
         }`}
         title={title}
       >
-        <span className="font-mono text-xs sm:text-sm tracking-wide">{h}:{m} น.</span>
-        <Clock size={16} className="text-slate-400 shrink-0 ml-1" />
+        <span className="font-mono text-xs sm:text-sm tracking-tight font-bold">{h}:{m} น.</span>
+        <Clock size={14} className="text-slate-400 shrink-0 ml-1" />
       </button>
 
       {/* 24-Hour Scrolling Popup - 2 Columns: Hours (00-23) & Minutes (00-59) without AM/PM */}
@@ -118,7 +118,7 @@ function TimePicker24({ value, onChange, title }) {
   );
 }
 
-export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, currentUser, locations = [], forms = [], scheduleToEdit = null }) {
+export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, currentUser, locations = [], forms = [], scheduleToEdit = null, brands = [] }) {
   const [selectedUnitName, setSelectedUnitName] = useState(() => scheduleToEdit?.unit || scheduleToEdit?.locationName || locations[0]?.name || "");
   const [showLocationSelectModal, setShowLocationSelectModal] = useState(false);
 
@@ -440,10 +440,10 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
                 value={scheduledDate}
                 onChange={(e) => setScheduledDate(e.target.value)}
                 onClick={(e) => e.target.showPicker?.()}
-                className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer"
+                className="w-full text-xs sm:text-sm pl-3.5 pr-10 py-2.5 min-h-[44px] rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs cursor-pointer"
                 required
               />
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                 <Calendar size={16} />
               </div>
             </div>
@@ -597,6 +597,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
           currentLocationId={selectedUnit?.id}
           currentLocationName={selectedUnit?.name || selectedUnitName}
           locations={locations}
+          brands={brands}
           onSelect={(loc) => {
             setSelectedUnitName(loc.name);
           }}

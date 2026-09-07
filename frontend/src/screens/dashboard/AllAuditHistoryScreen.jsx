@@ -14,7 +14,7 @@ import api from "../../config/api";
 import { parseAuditTimestamp } from "../../utils/formatters";
 
 export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
-  const { locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms } = React.useContext(DataContext);
+  const { locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms, refreshData } = React.useContext(DataContext);
   const activeLocations = visibleLocations || [];
   const [trendsData, setTrendsData] = useState([]);
 
@@ -216,7 +216,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     // 3. Schedules
     if (schedules && schedules.length > 0) {
       schedules.forEach((s) => {
-        if (s.status === 'completed' || s.status === 'in_progress') return; // skip if already in records/drafts
+        if (s.status === 'completed') return; // skip completed schedules
+
         const branchName = s.locationName || s.location?.name || "-";
         const branchFullName = s.locationName || s.location?.fullName || s.location?.name || "-";
         const rawDate = s.scheduledDate || null;
@@ -228,11 +229,57 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         }
         
         const timestamp = parseAuditTimestamp(rawDate, s.id) + 2000000000; // prioritize schedules (future)
-        const auditorVal = s.auditorName || s.primaryAuditor?.fullName || "-";
+        const auditorVal = s.auditorName || s.primaryAuditor?.fullName || (s.auditors?.[0]?.fullName) || "-";
         const formId = s.surveyFormId || s.formId || s.surveyForm?.id;
         const directForm = s.surveyFormTitle || s.formTitle || s.surveyForm?.title || s.formName || s.form;
         const formVal = resolveFormTitle(formId, directForm);
-        
+
+        // Check if there is already an active draft for this schedule/location
+        const existingDraft = (activeDrafts || []).find(d => 
+          (d.scheduleId && Number(d.scheduleId) === Number(s.id)) || 
+          (d.locationId && Number(d.locationId) === Number(s.locationId))
+        );
+        if (existingDraft) return; // already represented in activeDrafts
+
+        // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
+        if (s.status === 'in_progress') {
+          logs.push({
+            id: `schedule-progress-${s.id}`,
+            originalId: s.id,
+            type: 'draft',
+            unitName: branchName,
+            unitFullName: branchFullName,
+            region: s.locationRegion || s.location?.region || s.region || "-",
+            date: dateFormatted,
+            rawDate: rawDate,
+            timestamp: timestamp,
+            score: null,
+            auditor: auditorVal,
+            formName: formVal,
+            auditType: (s.auditType === 'unannounced' || s.auditType === 'spot') ? "นอกกำหนดการ" : (s.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+            status: "draft",
+            progressText: "กำลังดำเนินการตรวจ",
+            record: {
+              ...s,
+              id: s.id,
+              scheduleId: s.id,
+              locationId: s.locationId,
+              locationName: branchName,
+              locationFullName: branchFullName,
+              unit: branchName,
+              surveyFormId: formId || s.surveyFormId || s.formId,
+              surveyFormTitle: formVal,
+              formTitle: formVal,
+              formName: formVal,
+              auditType: s.auditType || "announced",
+              auditorName: auditorVal,
+              scheduledDate: s.scheduledDate,
+              notes: s.notes
+            }
+          });
+          return;
+        }
+
         logs.push({
           id: `schedule-${s.id}`,
           originalId: s.id,
@@ -526,15 +573,24 @@ const handleTriggerAudit = (record) => {
 };
 
   if (activeDirectPlan) {
-  return (
-    <LiveAuditScreen
-      preselectedPlan={activeDirectPlan}
-      onClearPlan={() => setActiveDirectPlan(null)}
-      onBack={() => setActiveDirectPlan(null)} // 👈 เมื่อกดย้อนกลับ จะสั่งเคลียร์ค่าและกลับมาที่ตารางรายงานผลตรวจทันที 100%
-      onCompleteAudit={() => setActiveDirectPlan(null)}
-    />
-  );
-}
+    return (
+      <LiveAuditScreen
+        preselectedPlan={activeDirectPlan}
+        onClearPlan={() => {
+          if (refreshData) refreshData();
+          setActiveDirectPlan(null);
+        }}
+        onBack={() => {
+          if (refreshData) refreshData();
+          setActiveDirectPlan(null);
+        }}
+        onCompleteAudit={() => {
+          if (refreshData) refreshData();
+          setActiveDirectPlan(null);
+        }}
+      />
+    );
+  }
 
   if (selectedBranch) {
     return (

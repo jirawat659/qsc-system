@@ -626,18 +626,70 @@ export default function LiveAuditScreen({
   }, []);
 
   // 📍 Automatic Draft Hydration Effect (Runs ONCE when draft data arrives for this specific branch)
+  // 🛡️ Includes form version validation: if the form was updated since the draft was saved,
+  //    discard stale answers whose SurveyItemIds no longer exist in the current form.
   const hasHydratedDraftRef = useRef(false);
   useEffect(() => {
     if (parsedDraftPayload && !hasHydratedDraftRef.current && isResumeDraft) {
       hasHydratedDraftRef.current = true;
+
+      // 🛡️ Form Version Validation: check that draft answer keys still exist in the current form
+      const currentForm = selectedForm || formList.find(f => f.id === parsedDraftPayload.formId);
+      const currentItemIds = new Set();
+      if (currentForm?.sections) {
+        for (const sec of currentForm.sections) {
+          for (const item of (sec.items || [])) {
+            currentItemIds.add(String(item.id));
+          }
+        }
+      }
+
       if (parsedDraftPayload.answers && Object.keys(parsedDraftPayload.answers).length > 0) {
-        setAnswers(parsedDraftPayload.answers);
+        if (currentItemIds.size > 0) {
+          // Filter out answers whose SurveyItemId no longer exists in the current form
+          const validAnswers = {};
+          const staleKeys = [];
+          for (const [key, val] of Object.entries(parsedDraftPayload.answers)) {
+            if (currentItemIds.has(String(key))) {
+              validAnswers[key] = val;
+            } else {
+              staleKeys.push(key);
+            }
+          }
+          if (staleKeys.length > 0) {
+            console.warn(`[Draft] ⚠️ Discarded ${staleKeys.length} stale answer(s) — form was updated since draft was saved`);
+          }
+          setAnswers(validAnswers);
+        } else {
+          setAnswers(parsedDraftPayload.answers);
+        }
       }
       if (parsedDraftPayload.photos && Object.keys(parsedDraftPayload.photos).length > 0) {
-        setPhotos(parsedDraftPayload.photos);
+        // Also filter photos by valid item IDs
+        if (currentItemIds.size > 0) {
+          const validPhotos = {};
+          for (const [key, val] of Object.entries(parsedDraftPayload.photos)) {
+            if (currentItemIds.has(String(key))) {
+              validPhotos[key] = val;
+            }
+          }
+          setPhotos(validPhotos);
+        } else {
+          setPhotos(parsedDraftPayload.photos);
+        }
       }
       if (parsedDraftPayload.comments && Object.keys(parsedDraftPayload.comments).length > 0) {
-        setComments(parsedDraftPayload.comments);
+        if (currentItemIds.size > 0) {
+          const validComments = {};
+          for (const [key, val] of Object.entries(parsedDraftPayload.comments)) {
+            if (currentItemIds.has(String(key))) {
+              validComments[key] = val;
+            }
+          }
+          setComments(validComments);
+        } else {
+          setComments(parsedDraftPayload.comments);
+        }
       }
       if (parsedDraftPayload.staffCount) {
         setStaffCount(parsedDraftPayload.staffCount);
@@ -838,11 +890,16 @@ export default function LiveAuditScreen({
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
       } catch (e) { }
 
+      const effectiveSchedId = (preselectedPlan?.id && Number(preselectedPlan.id) > 0) 
+        ? Number(preselectedPlan.id) 
+        : (preselectedPlan?.scheduleId ? Number(preselectedPlan.scheduleId) : null);
+
       // 2. Persist to SQLite Backend
       await api.put('/audit/draft', {
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
         auditorId: currentUser?.id || 1,
+        auditScheduleId: effectiveSchedId,
         draftPayloadJson: draftPayloadJson,
         currentSectionIdx: currentSectionIdx,
         totalAnswered,
@@ -2113,15 +2170,17 @@ export default function LiveAuditScreen({
               })}
 
               {/* Backdated Audit Toggle Card */}
-              <div className="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-200/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock size={16} className="text-[#0F6659]" />
-                    <div>
-                      <span className="text-xs font-extrabold text-slate-800 block">
+              <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50/50 border border-emerald-200/90 space-y-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100/80 text-[#0F6659] flex items-center justify-center shrink-0">
+                      <Clock size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm sm:text-base font-black text-slate-900 block leading-tight">
                         บันทึกผลการตรวจย้อนหลัง
                       </span>
-                      <span className="text-[11px] text-slate-500 font-medium">
+                      <span className="text-xs sm:text-sm text-slate-600 font-medium block mt-0.5">
                         เปิดใช้งานเมื่อต้องการเพิ่มผลตรวจที่ได้ตรวจจริงในอดีต
                       </span>
                     </div>
@@ -2147,8 +2206,8 @@ export default function LiveAuditScreen({
                         performSaveDraft({ isBackdated: next });
                       }
                     }}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                      isBackdated ? "bg-[#0F6659] text-white shadow-2xs" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                    className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer min-h-[38px] flex items-center justify-center shrink-0 active:scale-95 ${
+                      isBackdated ? "bg-[#0F6659] text-white shadow-sm hover:bg-[#0B4E44]" : "bg-slate-200 hover:bg-slate-300 text-slate-700"
                     }`}
                   >
                     {isBackdated ? "เปิด" : "ปิด"}
@@ -2156,10 +2215,10 @@ export default function LiveAuditScreen({
                 </div>
 
                 {isBackdated && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-emerald-100 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-3 border-t border-emerald-200/60 animate-in fade-in duration-200">
                     <div>
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                        <Calendar size={13} className="text-[#0F6659]" />
+                        <Calendar size={14} className="text-[#0F6659]" />
                         <span>เริ่มตรวจจริง</span> <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative flex items-center">
@@ -2171,11 +2230,11 @@ export default function LiveAuditScreen({
                             setBackdatedStartDate(val);
                             performSaveDraft({ backdatedStartDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
-                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedStartDate && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-normal">
                             วว/ดด/ปปปป --:--
                           </div>
                         )}
@@ -2183,7 +2242,7 @@ export default function LiveAuditScreen({
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                        <Calendar size={13} className="text-[#0F6659]" />
+                        <Calendar size={14} className="text-[#0F6659]" />
                         <span>สิ้นสุดตรวจจริง</span> <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative flex items-center">
@@ -2195,11 +2254,11 @@ export default function LiveAuditScreen({
                             setBackdatedEndDate(val);
                             performSaveDraft({ backdatedEndDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
-                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedEndDate && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-normal">
                             วว/ดด/ปปปป --:--
                           </div>
                         )}

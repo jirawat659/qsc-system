@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Camera, Send, X, AlertTriangle, Info, CheckCircle2, Sparkles, FileText, ArrowLeft, Loader2 } from "lucide-react";
+import { MessageSquare, Camera, Send, X, AlertTriangle, Info, CheckCircle2, Sparkles, FileText, Loader2 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { CAP_STATUS_MAP } from "../../config/constants";
@@ -338,7 +338,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       {/* Status & ID Badge */}
       <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
         <span className="text-xs font-mono font-bold text-slate-400">
-          {item.id} · {item.unit}
+          ข้อ {item.id} · {item.unit}
         </span>
         <span
           className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1 rounded-full border shadow-2xs"
@@ -423,43 +423,12 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
 
   return (
     <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[94%] mx-auto pb-28 lg:pb-12">
-      {/* 🌟 1. REGISTER TOPBAR HEADER (REPLACES LOGO IN TOP APP BAR ON MOBILE) */}
+      {/* 🌟 1. TOP HEADER BAR (Mobile synced via TopBarContext, Desktop rendered cleanly) */}
       <Header 
         title={item.title || item.issueItem || "งานแก้ไข CAP"} 
-        subtitle={`${item.id} · ${item.unit}`} 
+        subtitle={`ข้อ ${item.id} · ${item.unit}`} 
         onBack={onBack} 
       />
-
-      {/* 🌟 2. DESKTOP TOP HEADER BAR */}
-      <div className="hidden lg:flex bg-white p-4 rounded-3xl border border-slate-200 shadow-2xs items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            type="button"
-            onClick={onBack}
-            className="w-10 h-10 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center shrink-0 cursor-pointer transition-colors active:scale-90"
-            title="ย้อนกลับ"
-          >
-            <ArrowLeft size={18} />
-          </button>
-
-          <div className="min-w-0">
-            <div className="text-xs font-mono font-bold text-[#0F6659]">
-              {item.id} · {item.unit}
-            </div>
-            <h2 className="text-base font-black text-slate-800 truncate">
-              {item.title || item.issueItem || "ห้องแชทติดตามงานแก้ไข CAP"}
-            </h2>
-          </div>
-        </div>
-
-        <span
-          className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3.5 py-1.5 rounded-full border shadow-2xs"
-          style={{ background: st.bg, color: st.fg, borderColor: `${st.fg}40` }}
-        >
-          <span className="w-2 h-2 rounded-full" style={{ background: st.fg }} />
-          {st.label}
-        </span>
-      </div>
 
       {/* 🌟 3. SPLIT LAYOUT (DESKTOP 2-COLUMN / MOBILE FULL CHAT) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start">

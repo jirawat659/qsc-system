@@ -239,6 +239,29 @@ namespace QSC.Api.Data
                     }
                 }
 
+                // 8.1 AuditDrafts.AuditScheduleId
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(AuditDrafts);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasSchedCol = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "AuditScheduleId", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasSchedCol = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasSchedCol)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE AuditDrafts ADD COLUMN AuditScheduleId INTEGER NULL;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
                 // 9. Ensure SurveyFormBrands table exists
                 using (var cmd = conn.CreateCommand())
                 {
@@ -768,6 +791,23 @@ namespace QSC.Api.Data
                 new AuditScheduleAuditor { AuditScheduleId = schedUpcoming4.Id, AuditorId = auditorSarah.Id, IsLead = true },
                 new AuditScheduleAuditor { AuditScheduleId = schedUpcoming5.Id, AuditorId = auditorAnan.Id, IsLead = true }
             );
+            context.SaveChanges();
+
+            // Link draft to in-progress schedule for Fashion Island
+            var draftFashionIsland = new AuditDraft
+            {
+                LocationId = locations[4].Id,
+                SurveyFormId = form1.Id,
+                AuditorId = auditorSomchai.Id,
+                AuditScheduleId = schedToday.Id,
+                DraftPayloadJson = "{\"locationId\":" + locations[4].Id + ",\"formId\":" + form1.Id + ",\"auditorName\":\"คุณสมชาย ใจดี\",\"answers\":{\"1\":true,\"2\":true,\"3\":false},\"currentSectionIdx\":0,\"startedAt\":\"" + now.ToString("o") + "\"}",
+                CurrentSectionIdx = 0,
+                TotalAnswered = 3,
+                TotalQuestions = 12,
+                StartedAt = now.AddHours(-1),
+                UpdatedAt = now.AddMinutes(-20)
+            };
+            context.AuditDrafts.Add(draftFashionIsland);
             context.SaveChanges();
 
             // ==========================================

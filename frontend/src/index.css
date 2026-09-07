@@ -75,17 +75,36 @@
     }
   }
 
-  /* ปรับแต่ง input type="date" และ type="time" */
+  /* 🍎 ปรับแต่ง input type="date", type="time" และ type="datetime-local" สำหรับ iOS / Safari */
   input[type="date"],
-  input[type="time"] {
-    min-height: 50px;
+  input[type="time"],
+  input[type="datetime-local"] {
+    min-height: 42px;
     display: inline-flex;
     align-items: center;
     position: relative;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
   }
 
-  /* ซ่อน native indicator สีดำที่ลอยเกะกะ เพื่อแสดงไอคอน Calendar ของระบบที่ชิดขวาอย่างสวยงาม */
-  input[type="date"]::-webkit-calendar-picker-indicator {
+  /* 🍎 iOS Safari Normalization: ให้ข้อความวันที่และเวลาใน Safari แสดงผลขนาดปกติ ไม่ถูกบีบตัวเล็ก */
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: left;
+    min-height: 1.5em;
+    font-size: inherit !important;
+    line-height: inherit;
+    padding: 0;
+    margin: 0;
+    font-weight: inherit;
+  }
+
+  /* 🍎 ซ่อน native calendar indicator สีดำ เพื่อแสดงไอคอนระบบชิดขวาอย่างสวยงาม */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     position: absolute;
     top: 0;
     left: 0;

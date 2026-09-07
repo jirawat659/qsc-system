@@ -83,19 +83,6 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     });
   }, [capTasks, role, currentUser]);
 
-  if (selected) return (
-    <CapDetailScreen
-      item={selected}
-      role={role}
-      currentUser={currentUser}
-      refreshData={refreshData}
-      onBack={() => {
-        setSelected(null);
-        if (refreshData) refreshData();
-      }}
-    />
-  );
-
   const LIST_PAGE_SIZE = 10;
   const [listPage, setListPage] = useState(1);
   const [pageInput, setPageInput] = useState("1");
@@ -137,6 +124,19 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
       setPageInput(String(listPage));
     }
   };
+
+  if (selected) return (
+    <CapDetailScreen
+      item={selected}
+      role={role}
+      currentUser={currentUser}
+      refreshData={refreshData}
+      onBack={() => {
+        setSelected(null);
+        if (refreshData) refreshData();
+      }}
+    />
+  );
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
@@ -180,7 +180,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           )}
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+        {<div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
           {[
             { key: "all", label: "ทั้งหมด" },
             { key: "pending", label: "กำลังแก้ไขงาน" },
@@ -199,7 +199,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
               {tab.label}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Long Vertical List (ปุ่มหัวข้อใหญ่ ชัดเจน เน้นๆ ทีละ 10 รายการ) */}

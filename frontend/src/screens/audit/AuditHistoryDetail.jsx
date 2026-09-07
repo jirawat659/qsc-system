@@ -469,7 +469,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4 sm:gap-5 min-w-0">
             {/* Circular Gauge Ring with 12 o'clock notch */}
-            <div className="relative flex items-center justify-center w-[74px] h-[74px] sm:w-[82px] sm:h-[82px] rounded-full border-[5.5px] border-[#0F6659] shadow-2xs shrink-0 bg-white font-mono font-black text-xl sm:text-2xl text-slate-900 select-none">
+            <div className={`relative flex items-center justify-center w-[74px] h-[74px] sm:w-[82px] sm:h-[82px] rounded-full border-[5.5px] shadow-2xs shrink-0 bg-white font-mono font-black text-xl sm:text-2xl text-slate-900 select-none ${
+              passed
+                ? 'border-[#0F6659]'
+                : hasCritical
+                ? 'border-rose-600'
+                : 'border-amber-500'
+            }`}>
               {score}%
               <div className="absolute -top-[5.5px] left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full" />
             </div>
@@ -490,7 +496,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     ? 'bg-rose-600 text-white'
                     : 'bg-amber-500 text-white'
                 }`}>
-                  <CheckCircle2 size={13} className="text-white shrink-0" />
+                  {passed ? (
+                    <CheckCircle2 size={13} className="text-white shrink-0" />
+                  ) : hasCritical ? (
+                    <XCircle size={13} className="text-white shrink-0" />
+                  ) : (
+                    <AlertTriangle size={13} className="text-white shrink-0" />
+                  )}
                   <span>{passed ? "ผ่านเกณฑ์มาตรฐาน" : hasCritical ? "ตกข้อสำคัญ" : "ต้องส่งงานแก้ไข"}</span>
                 </span>
                 {isBackdated && (
