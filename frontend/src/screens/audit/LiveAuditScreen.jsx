@@ -6,7 +6,7 @@ import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { getDistanceInMeters, formatDistance, DEFAULT_USER_COORDS } from "../../utils/geo";
-import api from "../../config/api";
+import api, { getFullImageUrl } from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -226,6 +226,7 @@ function SignaturePadCanvas({ onDone, onCancel }) {
 
 function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม...", signatureUrl }) {
   const [showModal, setShowModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const hasSigned = Boolean(signatureUrl);
 
   return (
@@ -252,8 +253,13 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         onClick={() => setShowModal(true)}
         className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/50 transition-colors shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer"
       >
-        {hasSigned ? (
-          <img src={signatureUrl} alt={label} className="max-h-full max-w-full object-contain" />
+        {isUploading ? (
+          <div className="flex items-center justify-center gap-2 text-slate-500 text-xs font-semibold">
+            <Loader2 size={16} className="animate-spin text-[#0F6659]" />
+            <span>กำลังบันทึกลายเซ็น...</span>
+          </div>
+        ) : hasSigned ? (
+          <img src={getFullImageUrl(signatureUrl)} alt={label} className="max-h-full max-w-full object-contain" />
         ) : (
           <div className="flex items-center justify-center text-slate-400 text-xs font-medium gap-1.5 select-none">
             <Edit3 size={14} />
@@ -275,9 +281,22 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
       {showModal && typeof document !== "undefined" && createPortal(
         <SignaturePadCanvas
           onCancel={() => setShowModal(false)}
-          onDone={(dataUrl) => {
-            onSignChange(dataUrl);
+          onDone={async (dataUrl) => {
             setShowModal(false);
+            // แสดงผลชั่วคราวให้ผู้ใช้เห็นทันที
+            onSignChange(dataUrl);
+            try {
+              setIsUploading(true);
+              const res = await api.post('/audit/upload-signature', { base64Data: dataUrl });
+              if (res.data?.url) {
+                // บันทึก Path URL จากเซิร์ฟเวอร์
+                onSignChange(res.data.url);
+              }
+            } catch (err) {
+              console.warn("Upload signature to server failed, keeping dataUrl:", err);
+            } finally {
+              setIsUploading(false);
+            }
           }}
         />,
         document.body
