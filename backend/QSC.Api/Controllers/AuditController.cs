@@ -152,13 +152,20 @@ namespace QSC.Api.Controllers
                     d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
-            var drafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
+            var allDrafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
+
+            // Deduplicate drafts by (LocationId, SurveyFormId) ensuring only the latest draft is returned
+            var drafts = allDrafts
+                .GroupBy(d => new { d.LocationId, d.SurveyFormId })
+                .Select(g => g.First())
+                .ToList();
 
             return Ok(drafts);
         }
 
         public class DraftSaveDto
         {
+            public int? Id { get; set; }
             public int LocationId { get; set; }
             public int SurveyFormId { get; set; } = 1;
             public int AuditorId { get; set; }
@@ -214,8 +221,30 @@ namespace QSC.Api.Controllers
 
             int? effectiveScheduleId = dto.AuditScheduleId ?? targetSchedule?.Id;
 
-            var draft = await _context.AuditDrafts
-                .FirstOrDefaultAsync(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && (d.AuditorId == effectiveAuditorId || d.AuditorId == currentUserId));
+            AuditDraft? draft = null;
+            if (dto.Id.HasValue && dto.Id.Value > 0)
+            {
+                draft = await _context.AuditDrafts.FindAsync(dto.Id.Value);
+            }
+
+            if (draft == null)
+            {
+                // Find any existing draft(s) for this location and form
+                var existingDrafts = await _context.AuditDrafts
+                    .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && (d.AuditorId == effectiveAuditorId || d.AuditorId == currentUserId))
+                    .OrderByDescending(d => d.UpdatedAt)
+                    .ToListAsync();
+
+                if (existingDrafts.Any())
+                {
+                    draft = existingDrafts.First();
+                    // If multiple duplicate drafts exist in DB, clean up older duplicates
+                    if (existingDrafts.Count > 1)
+                    {
+                        _context.AuditDrafts.RemoveRange(existingDrafts.Skip(1));
+                    }
+                }
+            }
 
             if (draft == null)
             {
@@ -779,12 +808,13 @@ namespace QSC.Api.Controllers
                     }
                 }
 
-                // Delete Draft
-                var draft = await _context.AuditDrafts
-                    .FirstOrDefaultAsync(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId));
-                if (draft != null)
+                // Delete Draft(s)
+                var draftsToDelete = await _context.AuditDrafts
+                    .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
+                    .ToListAsync();
+                if (draftsToDelete.Any())
                 {
-                    _context.AuditDrafts.Remove(draft);
+                    _context.AuditDrafts.RemoveRange(draftsToDelete);
                 }
 
                 await _context.SaveChangesAsync();

@@ -592,6 +592,26 @@ export default function LiveAuditScreen({
   const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
   const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
 
+  const initialDraftId = useMemo(() => {
+    if (isResumeDraft && matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') {
+      return matchedDraftRecord.id;
+    }
+    if (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan.id).startsWith('schedule')) {
+      return preselectedPlan.id;
+    }
+    return null;
+  }, [isResumeDraft, matchedDraftRecord, preselectedPlan]);
+
+  const [draftId, setDraftId] = useState(initialDraftId);
+  const draftIdRef = useRef(initialDraftId);
+
+  useEffect(() => {
+    if (initialDraftId) {
+      setDraftId(initialDraftId);
+      draftIdRef.current = initialDraftId;
+    }
+  }, [initialDraftId]);
+
   // Auto-sync status indicator
   const [syncStatus, setSyncStatus] = useState("idle"); // 'idle' | 'saving' | 'synced' // 'synced' | 'saving'
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -918,7 +938,9 @@ export default function LiveAuditScreen({
         : (preselectedPlan?.scheduleId ? Number(preselectedPlan.scheduleId) : null);
 
       // 2. Persist to SQLite Backend
-      await api.put('/audit/draft', {
+      const effectiveDraftId = draftIdRef.current || draftId;
+      const res = await api.put('/audit/draft', {
+        id: effectiveDraftId,
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
         auditorId: currentUser?.id || 1,
@@ -932,9 +954,15 @@ export default function LiveAuditScreen({
         startedAt: payload.startedAt
       });
 
+      if (res?.data?.id) {
+        draftIdRef.current = res.data.id;
+        setDraftId(res.data.id);
+      }
+
       setSyncStatus("synced");
 
       const draftObj = {
+        id: res?.data?.id || effectiveDraftId,
         unit: currentUnit,
         formId: currentForm.id,
         sectionIdx: currentSectionIdx,
@@ -1477,11 +1505,11 @@ export default function LiveAuditScreen({
   // 🗑️ Discard Draft & Reset (ลบแบบร่างถาวรและกลับหน้าหลัก)
   const confirmDiscardDraft = async () => {
     try {
-      const targetDraftId = (matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') 
+      const targetDraftId = draftIdRef.current || draftId || ((matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') 
         ? matchedDraftRecord.id 
         : (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan?.id).startsWith('schedule'))
           ? preselectedPlan.id
-          : null;
+          : null);
       const targetScheduleId = preselectedPlan?.scheduleId || (preselectedPlan?.type === 'schedule' ? (preselectedPlan.originalId || preselectedPlan.id) : null) || matchedDraftRecord?.auditScheduleId;
       const targetLocId = unit?.id || preselectedPlan?.locationId;
       const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || 1;
@@ -1506,6 +1534,8 @@ export default function LiveAuditScreen({
     }
 
     // เคลียร์ State ฟอร์ม
+    draftIdRef.current = null;
+    setDraftId(null);
     setAnswers({});
     setPhotos({});
     setComments({});

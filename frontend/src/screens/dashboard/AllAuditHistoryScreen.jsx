@@ -143,9 +143,26 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       });
     }
 
-    // 2. Drafts (ฉบับร่างค้างตรวจ)
+    // 2. Drafts (ฉบับร่างค้างตรวจ) - ป้องกันรายการซ้ำซ้อนตามสาขาและแบบฟอร์ม
     if (activeDrafts && activeDrafts.length > 0) {
-      activeDrafts.forEach((d) => {
+      const uniqueDrafts = [];
+      const seenDraftKeys = new Set();
+      const sortedDrafts = [...activeDrafts].sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || a.startedAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || b.startedAt || 0).getTime();
+        return (timeB - timeA) || ((b.id || 0) - (a.id || 0));
+      });
+
+      sortedDrafts.forEach(d => {
+        const fId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id || 0;
+        const key = `${d.locationId || 0}_${fId}`;
+        if (!seenDraftKeys.has(key)) {
+          seenDraftKeys.add(key);
+          uniqueDrafts.push(d);
+        }
+      });
+
+      uniqueDrafts.forEach((d) => {
         const branchName = d.locationName || d.location?.name || "-";
         const branchFullName = d.locationFullName || d.locationName || d.location?.fullName || d.location?.name || "-";
         const rawDate = d.updatedAt || d.createdAt || d.startedAt || null;
