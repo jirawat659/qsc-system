@@ -127,15 +127,65 @@ namespace QSC.Api.Controllers
             return Ok(result);
         }
 
+        private async Task<string?> ValidateFormForLocationAsync(int locationId, int surveyFormId)
+        {
+            var location = await _context.Locations
+                .Include(l => l.LocationBrands)
+                .FirstOrDefaultAsync(l => l.Id == locationId);
+            if (location == null)
+            {
+                return "ไม่พบสาขาที่ระบุในระบบ";
+            }
+
+            var form = await _context.SurveyForms
+                .Include(f => f.FormBrands)
+                .Include(f => f.TargetLocations)
+                .FirstOrDefaultAsync(f => f.Id == surveyFormId);
+            if (form == null || !form.IsActive)
+            {
+                return "ไม่พบแบบฟอร์มการตรวจหรือแบบฟอร์มถูกปิดการใช้งาน";
+            }
+
+            if (form.LocationTypeId.HasValue && form.LocationTypeId.Value > 0 && form.LocationTypeId.Value != location.LocationTypeId)
+            {
+                return "แบบฟอร์มนี้ไม่ตรงกับประเภทสถานที่ของสาขานี้";
+            }
+
+            if (string.Equals(form.TargetingMode, "SPECIFIC_LOCATIONS", StringComparison.OrdinalIgnoreCase) && form.TargetLocations.Any())
+            {
+                if (!form.TargetLocations.Any(tl => tl.LocationId == location.Id))
+                {
+                    return "แบบฟอร์มนี้ไม่ได้กำหนดให้ใช้กับสาขานี้";
+                }
+            }
+
+            var formBrandIds = form.FormBrands.Select(fb => fb.BrandId).ToList();
+            if (form.BrandId.HasValue && !formBrandIds.Contains(form.BrandId.Value))
+            {
+                formBrandIds.Add(form.BrandId.Value);
+            }
+
+            if (formBrandIds.Any())
+            {
+                var locBrandIds = location.LocationBrands.Select(lb => lb.BrandId).ToList();
+                if (!locBrandIds.Any(lbid => formBrandIds.Contains(lbid)))
+                {
+                    return "แบบฟอร์มนี้ใช้ได้เฉพาะแบรนด์ที่กำหนดไว้เท่านั้น";
+                }
+            }
+
+            return null;
+        }
+
         [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] ScheduleSaveDto dto)
         {
-            var location = await _context.Locations.AnyAsync(l => l.Id == dto.LocationId);
-            if (!location) return BadRequest(new { message = "ไม่พบสาขาที่ระบุในระบบ" });
-
-            var formExists = await _context.SurveyForms.AnyAsync(f => f.Id == dto.SurveyFormId && f.IsActive);
-            if (!formExists) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจที่ระบุในระบบ" });
+            var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
+            if (formValidationError != null)
+            {
+                return BadRequest(new { message = formValidationError });
+            }
 
             if (dto.AuditorIds.Any())
             {
@@ -189,11 +239,11 @@ namespace QSC.Api.Controllers
 
             if (schedule == null) return NotFound();
 
-            var location = await _context.Locations.AnyAsync(l => l.Id == dto.LocationId);
-            if (!location) return BadRequest(new { message = "ไม่พบสาขาที่ระบุในระบบ" });
-
-            var formExists = await _context.SurveyForms.AnyAsync(f => f.Id == dto.SurveyFormId && f.IsActive);
-            if (!formExists) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจที่ระบุในระบบ" });
+            var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
+            if (formValidationError != null)
+            {
+                return BadRequest(new { message = formValidationError });
+            }
 
             if (dto.AuditorIds.Any())
             {

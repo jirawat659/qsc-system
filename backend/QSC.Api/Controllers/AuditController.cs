@@ -540,9 +540,11 @@ namespace QSC.Api.Controllers
             var form = await _context.SurveyForms
                 .Include(f => f.Sections)
                     .ThenInclude(s => s.Items)
+                .Include(f => f.FormBrands)
+                .Include(f => f.TargetLocations)
                 .FirstOrDefaultAsync(f => f.Id == dto.SurveyFormId);
 
-            if (form == null) return NotFound(new { message = "ไม่พบแบบฟอร์มการตรวจ" });
+            if (form == null || !form.IsActive) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจหรือแบบฟอร์มถูกปิดการใช้งาน" });
 
             var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
 
@@ -585,10 +587,42 @@ namespace QSC.Api.Controllers
             }
 
             // 🛡️ Ensure valid LocationId (สิทธิ์ถูกตรวจแล้วด้านบน ห้าม fallback ไปสถานที่อื่น)
-            var location = await _context.Locations.FirstOrDefaultAsync(l => l.Id == dto.LocationId);
+            var location = await _context.Locations
+                .Include(l => l.LocationBrands)
+                .FirstOrDefaultAsync(l => l.Id == dto.LocationId);
             if (location == null)
             {
                 return BadRequest(new { message = "ไม่พบข้อมูลสาขาในระบบ" });
+            }
+
+            // 🛡️ Validate form compatibility with branch brand/location type/targeting
+
+            if (form.LocationTypeId.HasValue && form.LocationTypeId.Value > 0 && form.LocationTypeId.Value != location.LocationTypeId)
+            {
+                return BadRequest(new { message = "แบบฟอร์มนี้ไม่ตรงกับประเภทสถานที่ของสาขานี้" });
+            }
+
+            if (string.Equals(form.TargetingMode, "SPECIFIC_LOCATIONS", StringComparison.OrdinalIgnoreCase) && form.TargetLocations.Any())
+            {
+                if (!form.TargetLocations.Any(tl => tl.LocationId == location.Id))
+                {
+                    return BadRequest(new { message = "แบบฟอร์มนี้ไม่ได้กำหนดให้ใช้กับสาขานี้" });
+                }
+            }
+
+            var formBrandIds = form.FormBrands.Select(fb => fb.BrandId).ToList();
+            if (form.BrandId.HasValue && !formBrandIds.Contains(form.BrandId.Value))
+            {
+                formBrandIds.Add(form.BrandId.Value);
+            }
+
+            if (formBrandIds.Any())
+            {
+                var locBrandIds = location.LocationBrands.Select(lb => lb.BrandId).ToList();
+                if (!locBrandIds.Any(lbid => formBrandIds.Contains(lbid)))
+                {
+                    return BadRequest(new { message = "แบบฟอร์มนี้ใช้ได้เฉพาะแบรนด์ที่กำหนดไว้เท่านั้น" });
+                }
             }
 
             // 🌟 2. ATOMIC DATABASE TRANSACTION

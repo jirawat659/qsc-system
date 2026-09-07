@@ -15,6 +15,7 @@ import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import { compressImageFile } from "../../utils/imageCompressor";
+import { isFormApplicableToLocation } from "../../utils/formMatching";
 
 const QuestionCommentInput = ({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -463,10 +464,20 @@ export default function LiveAuditScreen({
     return null;
   });
 
+  // 🌟 Filter forms strictly applicable to the currently selected unit (Brand + Location Type + Specific Targets)
+  const applicableForms = useMemo(() => {
+    if (!unit) return formList;
+    return formList.filter(f => isFormApplicableToLocation(f, unit));
+  }, [formList, unit]);
+
   const [selectedForm, setSelectedForm] = useState(() => {
     const targetFId = (isResumeDraft && parsedDraftPayload?.formId) ? parsedDraftPayload.formId : (preselectedPlan?.surveyFormId || targetFormId);
     if (targetFId) {
       return formList.find(f => f.id === targetFId) || formList[0];
+    }
+    if (unit) {
+      const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
+      if (matched.length > 0) return matched[0];
     }
     return formList[0];
   });
@@ -1552,6 +1563,10 @@ export default function LiveAuditScreen({
                 type="button"
                 onClick={() => {
                   setUnit(u);
+                  const matchedForms = formList.filter(f => isFormApplicableToLocation(f, u));
+                  if (matchedForms.length > 0) {
+                    setSelectedForm(matchedForms[0]);
+                  }
                   setStep("select-form");
                 }}
                 className="w-full rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 bg-white border-slate-200 hover:border-emerald-500"
@@ -1638,53 +1653,90 @@ export default function LiveAuditScreen({
   // STEP 2: SELECT FORM
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "select-form") {
+    const unitTypeName = unit?.locationType?.name || (typeof unit?.locationType === 'string' ? unit.locationType : "สาขาหน้าร้าน");
+    const unitBrands = unit?.locationBrands?.map(lb => lb.brand?.name || lb.brandName).filter(Boolean).join(", ") || "";
+
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto">
-        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+        {/* 🌟 In-page Breadcrumb */}
         <div className="space-y-1">
           <Breadcrumbs
             items={[
               { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
-              { label: "เลือกสาขา", onClick: () => setStep("select-unit") },
+              { label: `เลือกสาขา (${unit?.name || 'สาขา'})`, onClick: () => setStep("select-unit") },
               { label: "เลือกฟอร์ม" },
             ]}
           />
-          <p className="text-xs text-slate-500 font-medium px-1">เลือกฟอร์มเพื่อเริ่มตรวจประเมินคุณภาพ</p>
+          <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+            <p className="text-xs text-slate-500 font-medium">
+              แบบฟอร์มที่เปิดให้ใช้งานสำหรับสาขา <strong className="text-slate-800">{unit?.fullName || unit?.name}</strong>
+              <span className="text-slate-400 font-normal"> ({unitTypeName}{unitBrands ? ` · แบรนด์ ${unitBrands}` : ''})</span>
+            </p>
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200">
+              พบ {applicableForms.length} แบบฟอร์ม
+            </span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {formList.map((f) => (
-            <button
-              key={f.id || f.title}
-              type="button"
-              onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
-              className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
-                }`}
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
-                    เกณฑ์ผ่าน {f.passingScore || 85}%
-                  </span>
-                  <span className="text-xs font-bold text-slate-400">
-                    {(f.sections || []).length} หมวดการตรวจ
-                  </span>
+        {applicableForms.length === 0 ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center shadow-xs space-y-4 my-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto">
+              <AlertCircle size={32} />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">ไม่พบแบบฟอร์มที่ตรงกับสาขานี้</h3>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+                สาขา <strong className="text-slate-700">"{unit?.fullName || unit?.name}"</strong> เป็นประเภทสถานที่ 
+                <span className="font-semibold text-slate-700"> {unitTypeName}</span> 
+                {unitBrands ? <span> (แบรนด์ {unitBrands})</span> : ''} ซึ่งยังไม่มีแบบฟอร์มที่กำหนดไว้สำหรับแบรนด์และประเภทสถานที่นี้
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setStep("select-unit")}
+                className="px-5 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-2"
+              >
+                <ChevronLeft size={16} />
+                <span>เปลี่ยนสาขาที่ต้องการตรวจ</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {applicableForms.map((f) => (
+              <button
+                key={f.id || f.title}
+                type="button"
+                onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
+                className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
+                  }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
+                      เกณฑ์ผ่าน {f.passingScore || 85}%
+                    </span>
+                    <span className="text-xs font-bold text-slate-400">
+                      {(f.sections || []).length} หมวดการตรวจ
+                    </span>
+                  </div>
+                  <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
+                    {f.title}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
+                    {f.description}
+                  </p>
                 </div>
-                <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
-                  {f.title}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
-                  {f.description}
-                </p>
-              </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
-                <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
-              </div>
-            </button>
-          ))}
-        </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
+                  <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

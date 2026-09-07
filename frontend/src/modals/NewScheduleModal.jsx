@@ -4,6 +4,7 @@ import { c, sans, mono } from "../config/theme";
 import ModalWrapper from "../shared/ModalWrapper";
 import LocationSelectModal from "./LocationSelectModal";
 import api from "../config/api";
+import { isFormApplicableToLocation } from "../utils/formMatching";
 
 function TimePicker24({ value, onChange, title }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -224,44 +225,23 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
 
   const selectedUnit = locations.find(u => u.name === selectedUnitName || u.fullName === selectedUnitName) || locations[0];
 
-  // Smart Form Filtering based on selected unit's brand(s)
+  // Smart Form Filtering strictly matching selected unit (Brand + Location Type + Specific Targets)
   const availableForms = useMemo(() => {
     if (!forms || forms.length === 0) return [];
     if (!selectedUnit) return forms;
 
-    const locBrandIds = (selectedUnit.locationBrands && selectedUnit.locationBrands.length > 0)
-      ? selectedUnit.locationBrands.map(lb => lb.brandId || lb.brand?.id).filter(Boolean)
-      : (selectedUnit.brandId ? [selectedUnit.brandId] : []);
-    const locBrandNames = (selectedUnit.locationBrands && selectedUnit.locationBrands.length > 0)
-      ? selectedUnit.locationBrands.map(lb => lb.brand?.name).filter(Boolean)
-      : (selectedUnit.brand?.name ? [selectedUnit.brand.name] : []);
-
-    const matched = forms.filter(f => {
-      const formBrandIds = f.brandIds || (f.brandId ? [f.brandId] : []);
-      const formBrandNames = f.brandNames || (f.brandName ? [f.brandName] : (f.brand?.name ? [f.brand.name] : []));
-
-      // Global form (no brand restrictions) -> always available
-      if (formBrandIds.length === 0 && formBrandNames.length === 0) return true;
-
-      // Check ID match
-      if (locBrandIds.length > 0 && formBrandIds.some(bid => locBrandIds.includes(bid))) return true;
-
-      // Check Name match
-      if (locBrandNames.length > 0 && formBrandNames.some(bn => locBrandNames.some(lbn => lbn.toLowerCase() === bn.toLowerCase()))) return true;
-
-      return false;
-    });
-
-    return matched.length > 0 ? matched : forms;
+    return forms.filter(f => isFormApplicableToLocation(f, selectedUnit));
   }, [forms, selectedUnit]);
 
   useEffect(() => {
     if (availableForms.length > 0 && !availableForms.some(f => f.id === selectedFormId)) {
       setSelectedFormId(availableForms[0].id);
+    } else if (availableForms.length === 0) {
+      setSelectedFormId(null);
     }
   }, [availableForms, selectedFormId]);
 
-  const selectedForm = availableForms.find(f => f.id === selectedFormId) || forms.find(f => f.id === selectedFormId) || forms[0];
+  const selectedForm = availableForms.find(f => f.id === selectedFormId) || availableForms[0] || null;
 
   const [saveError, setSaveError] = useState(null);
 
@@ -269,6 +249,12 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
     e.preventDefault();
     setIsSaving(true);
     setSaveError(null);
+
+    if (!selectedFormId || availableForms.length === 0) {
+      setSaveError("สาขานี้ยังไม่มีแบบฟอร์มที่ตรงกับประเภทสถานที่หรือแบรนด์ กรุณาเลือกสาขาอื่น");
+      setIsSaving(false);
+      return;
+    }
 
     const chosenAuditor = dbAuditors.find(a => a.id === assignedAuditorId) || dbAuditors[0];
     const auditorId = chosenAuditor?.id || (currentUser?.id || null);
@@ -515,24 +501,38 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
               <FileText size={14} className="text-[#0F6659]" />
               <span>แบบฟอร์มที่ใช้</span>
+              {availableForms.length > 0 && (
+                <span className="text-[11px] font-semibold text-slate-400">({availableForms.length} ฟอร์ม)</span>
+              )}
             </label>
             <div className="relative">
               <select
-                value={selectedFormId}
+                value={selectedFormId || ""}
                 onChange={(e) => setSelectedFormId(Number(e.target.value) || e.target.value)}
-                className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                disabled={availableForms.length === 0}
+                className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                {availableForms.map(f => {
-                  const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
-                  return (
-                    <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
-                  );
-                })}
+                {availableForms.length > 0 ? (
+                  availableForms.map(f => {
+                    const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
+                    return (
+                      <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
+                    );
+                  })
+                ) : (
+                  <option value="">-- ไม่พบแบบฟอร์มที่ตรงกับสาขานี้ --</option>
+                )}
               </select>
               <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                 <ChevronDown size={18} />
               </div>
             </div>
+            {availableForms.length === 0 && (
+              <p className="text-[11px] font-medium text-amber-600 mt-1 flex items-center gap-1">
+                <AlertCircle size={12} className="shrink-0" />
+                <span>สาขานี้ยังไม่มีแบบฟอร์มที่ตรงกับแบรนด์หรือประเภทสถานที่</span>
+              </p>
+            )}
           </div>
         </div>
 
@@ -585,8 +585,8 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
           </button>
           <button
             type="submit"
-            disabled={isSaving}
-            className="flex-1 py-3 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-extrabold shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
+            disabled={isSaving || availableForms.length === 0}
+            className="flex-1 py-3 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-extrabold shadow-md active:scale-98 cursor-pointer flex items-center justify-center gap-1.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Check size={16} />
             <span>{isSaving ? "กำลังบันทึก..." : "บันทึกกำหนดการ"}</span>
