@@ -258,7 +258,7 @@ namespace QSC.Api.Controllers
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
         [HttpDelete("draft")]
-        public async Task<IActionResult> DiscardDraft([FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId)
+        public async Task<IActionResult> DiscardDraft([FromQuery] int? id, [FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId, [FromQuery] int? scheduleId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -266,11 +266,18 @@ namespace QSC.Api.Controllers
 
             var query = _context.AuditDrafts.AsQueryable();
 
-            if (locationId.HasValue && locationId.Value > 0)
-                query = query.Where(d => d.LocationId == locationId.Value);
+            if (id.HasValue && id.Value > 0)
+            {
+                query = query.Where(d => d.Id == id.Value);
+            }
+            else
+            {
+                if (locationId.HasValue && locationId.Value > 0)
+                    query = query.Where(d => d.LocationId == locationId.Value);
 
-            if (surveyFormId.HasValue && surveyFormId.Value > 0)
-                query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
+                if (surveyFormId.HasValue && surveyFormId.Value > 0)
+                    query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
+            }
 
             if (allowedLocationIds != null)
                 query = query.Where(d => allowedLocationIds.Contains(d.LocationId));
@@ -313,9 +320,30 @@ namespace QSC.Api.Controllers
                 }
 
                 _context.AuditDrafts.RemoveRange(drafts);
-                await _context.SaveChangesAsync();
             }
 
+            // Also revert schedule if explicit scheduleId was provided (even if no draft existed)
+            if (scheduleId.HasValue && scheduleId.Value > 0)
+            {
+                var directSchedule = await _context.AuditSchedules.FindAsync(scheduleId.Value);
+                if (directSchedule != null && directSchedule.Status == "in_progress")
+                {
+                    directSchedule.Status = "pending";
+                }
+            }
+            else if (!drafts.Any() && locationId.HasValue && locationId.Value > 0)
+            {
+                var locSchedule = await _context.AuditSchedules
+                    .Where(s => s.LocationId == locationId.Value && s.Status == "in_progress")
+                    .OrderByDescending(s => s.ScheduledDate)
+                    .FirstOrDefaultAsync();
+                if (locSchedule != null)
+                {
+                    locSchedule.Status = "pending";
+                }
+            }
+
+            await _context.SaveChangesAsync();
             return NoContent();
         }
 

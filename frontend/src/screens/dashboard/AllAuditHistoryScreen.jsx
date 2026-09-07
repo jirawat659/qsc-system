@@ -249,6 +249,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         // Check if there is already an active draft for this schedule/location
         const existingDraft = (activeDrafts || []).find(d => 
+          (d.auditScheduleId && Number(d.auditScheduleId) === Number(s.id)) ||
           (d.scheduleId && Number(d.scheduleId) === Number(s.id)) || 
           (d.locationId && Number(d.locationId) === Number(s.locationId))
         );
@@ -258,6 +259,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
+          let totalCount = 0;
+          const matchedForm = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
+          if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+            totalCount = matchedForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
+          } else if (s.surveyForm?.sections && Array.isArray(s.surveyForm.sections) && s.surveyForm.sections.length > 0) {
+            totalCount = s.surveyForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
+          }
+
           logs.push({
             id: `schedule-progress-${s.id}`,
             originalId: s.id,
@@ -274,7 +283,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             formName: formVal,
             auditType: (s.auditType === 'unannounced' || s.auditType === 'spot') ? "นอกกำหนดการ" : (s.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
             status: "draft",
-            progressText: "กำลังดำเนินการตรวจ",
+            progressText: totalCount > 0 ? `ตอบแล้ว 0/${totalCount} ข้อ` : "กำลังดำเนินการตรวจ",
             record: {
               ...s,
               id: s.id,

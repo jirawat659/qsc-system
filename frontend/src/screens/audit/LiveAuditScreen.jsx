@@ -1477,15 +1477,24 @@ export default function LiveAuditScreen({
   // 🗑️ Discard Draft & Reset (ลบแบบร่างถาวรและกลับหน้าหลัก)
   const confirmDiscardDraft = async () => {
     try {
+      const targetDraftId = (matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') 
+        ? matchedDraftRecord.id 
+        : (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan?.id).startsWith('schedule'))
+          ? preselectedPlan.id
+          : null;
+      const targetScheduleId = preselectedPlan?.scheduleId || (preselectedPlan?.type === 'schedule' ? (preselectedPlan.originalId || preselectedPlan.id) : null) || matchedDraftRecord?.auditScheduleId;
       const targetLocId = unit?.id || preselectedPlan?.locationId;
       const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || 1;
       const targetAuditorId = currentUser?.id || 1;
 
-      if (targetLocId) {
-        await api.delete(`/audit/draft?locationId=${targetLocId}&surveyFormId=${targetFormId}&auditorId=${targetAuditorId}`);
-      } else {
-        await api.delete(`/audit/draft?auditorId=${targetAuditorId}`);
-      }
+      const params = new URLSearchParams();
+      if (targetDraftId) params.append('id', String(targetDraftId));
+      if (targetLocId) params.append('locationId', String(targetLocId));
+      if (targetFormId) params.append('surveyFormId', String(targetFormId));
+      if (targetAuditorId) params.append('auditorId', String(targetAuditorId));
+      if (targetScheduleId) params.append('scheduleId', String(targetScheduleId));
+
+      await api.delete(`/audit/draft?${params.toString()}`);
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (targetLocId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
@@ -1507,9 +1516,13 @@ export default function LiveAuditScreen({
     setSyncStatus("idle");
     setShowDiscardConfirmModal(false);
 
-    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขา (select-unit)
+    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขาหรือรายการหลัก
     if (setUnit) setUnit(null);
-    setStep("select-unit");
+    if (preselectedPlan && onClearPlan) {
+      onClearPlan();
+    } else {
+      setStep("select-unit");
+    }
   };
 
   const handleDiscardDraft = () => {
