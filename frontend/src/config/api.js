@@ -14,6 +14,16 @@ while (envApiBaseUrl?.endsWith('/')) {
 }
 const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:';
 const hostname = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+
+// ถ้าหน้าเว็บเปิดผ่าน https แต่ env ตั้ง http:// ไว้ (เช่น CI variable ตั้งค่าตอนยังไม่มี SSL)
+// ต้อง upgrade เป็น https:// ไม่งั้นเบราว์เซอร์บล็อก mixed content — ห้าม downgrade กลับทางกัน
+// ยกเว้นตอนตั้ง VITE_APP_ENV=development ไว้ใน FRONTEND_ENV_FILE (CI/CD variable) ของ
+// staging ที่ backend ยังไม่มี SSL จริง เลยปล่อยให้ยิง http ได้ตามที่ env กำหนดไว้ตรงๆ
+const isDevMode = import.meta.env.VITE_APP_ENV === 'development';
+if (!isDevMode && envApiBaseUrl && protocol === 'https:' && envApiBaseUrl.startsWith('http://')) {
+  envApiBaseUrl = `https://${envApiBaseUrl.slice('http://'.length)}`;
+}
+
 export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}`;
 export const API_BASE_URL = `${SERVER_BASE_URL}/api`;
 
