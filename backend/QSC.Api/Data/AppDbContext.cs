@@ -51,34 +51,166 @@ namespace QSC.Api.Data
             base.OnModelCreating(modelBuilder);
 
             // ==========================================
+            // STANDARD AUDIT COLUMNS (shadow properties)
+            // ค่าถูกเซ็ตโดย AuditStampInterceptor ตอน SaveChanges
+            // ==========================================
+            // ตารางที่มี property เหล่านี้เป็นของตัวเองอยู่แล้ว (CreatedAt ส่วนใหญ่,
+            // SurveyForm/AuditSchedule.CreatedBy ที่เป็น FK, AuditDraft.UpdatedAt) จะใช้ของเดิม
+            // และปล่อยให้โค้ดที่มีอยู่เป็นคนเซ็ตค่าเหมือนเดิม
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes().ToList())
+            {
+                var entity = modelBuilder.Entity(entityType.ClrType);
+
+                if (entityType.FindProperty("CreatedBy") is null)
+                    entity.Property<int?>("CreatedBy");
+
+                if (entityType.FindProperty("CreatedAt") is null)
+                    entity.Property<DateTime>("CreatedAt").HasDefaultValueSql("GETUTCDATE()");
+
+                if (entityType.FindProperty("UpdatedBy") is null)
+                    entity.Property<int?>("UpdatedBy");
+
+                if (entityType.FindProperty("UpdatedAt") is null)
+                    entity.Property<DateTime?>("UpdatedAt");
+
+                // rowversion — SQL Server เป็นคนเพิ่มค่าเองทุกครั้งที่ row ถูกแก้
+                entity.Property<byte[]>("VersionNumber").IsRowVersion();
+            }
+
+            // ==========================================
+            // ปิด cascade delete ที่ EF ใส่ให้อัตโนมัติกับ FK แบบ required
+            // SQL Server ไม่ยอมให้ตารางเดียวถูก cascade ถึงได้หลายเส้นทาง (error 1785)
+            // ความสัมพันธ์แบบ parent-child จริงๆ ถูกตั้ง Cascade กลับด้านล่างอีกที
+            // ==========================================
+            foreach (var fk in modelBuilder.Model.GetEntityTypes().SelectMany(e => e.GetForeignKeys()))
+                fk.DeleteBehavior = DeleteBehavior.Restrict;
+
+            // ==========================================
+            // STRING LENGTHS
+            // SQL Server สร้าง index บน nvarchar(max) ไม่ได้ คอลัมน์ที่ถูก index จึงต้องมีความยาว
+            // JSON payload / Notes / Message / QuestionText / Address ปล่อยเป็น nvarchar(max) ตามเดิม
+            // ==========================================
+            modelBuilder.Entity<User>(e =>
+            {
+                e.Property(x => x.Username).HasMaxLength(100);
+                e.Property(x => x.PasswordHash).HasMaxLength(200);
+                e.Property(x => x.FullName).HasMaxLength(200);
+                e.Property(x => x.BranchScope).HasMaxLength(20);
+                e.Property(x => x.BrandScope).HasMaxLength(20);
+            });
+
+            modelBuilder.Entity<Role>(e =>
+            {
+                e.Property(x => x.Code).HasMaxLength(50);
+                e.Property(x => x.Name).HasMaxLength(200);
+            });
+
+            modelBuilder.Entity<Permission>(e =>
+            {
+                e.Property(x => x.Code).HasMaxLength(100);
+                e.Property(x => x.Name).HasMaxLength(200);
+                e.Property(x => x.Module).HasMaxLength(50);
+            });
+
+            modelBuilder.Entity<LocationType>(e =>
+            {
+                e.Property(x => x.Code).HasMaxLength(50);
+                e.Property(x => x.Name).HasMaxLength(200);
+            });
+
+            modelBuilder.Entity<Location>(e =>
+            {
+                e.Property(x => x.Code).HasMaxLength(50);
+                e.Property(x => x.Name).HasMaxLength(200);
+                e.Property(x => x.Region).HasMaxLength(100);
+                e.Property(x => x.BrandName).HasMaxLength(200);
+                e.Property(x => x.Phone).HasMaxLength(50);
+            });
+
+            modelBuilder.Entity<Brand>(e =>
+            {
+                e.Property(x => x.Code).HasMaxLength(50);
+                e.Property(x => x.Name).HasMaxLength(200);
+            });
+
+            modelBuilder.Entity<SurveyForm>(e =>
+            {
+                e.Property(x => x.Title).HasMaxLength(300);
+                e.Property(x => x.TargetingMode).HasMaxLength(30);
+                e.Property(x => x.Version).HasMaxLength(20);
+            });
+
+            modelBuilder.Entity<SurveySection>()
+                .Property(x => x.Title).HasMaxLength(300);
+
+            modelBuilder.Entity<SurveyItem>(e =>
+            {
+                e.Property(x => x.QuestionType).HasMaxLength(20);
+                e.Property(x => x.CategoryCode).HasMaxLength(20);
+                e.Property(x => x.CategoryName).HasMaxLength(100);
+            });
+
+            modelBuilder.Entity<AuditSchedule>(e =>
+            {
+                e.Property(x => x.Time).HasMaxLength(20);
+                e.Property(x => x.AuditType).HasMaxLength(20);
+                e.Property(x => x.Status).HasMaxLength(20);
+            });
+
+            modelBuilder.Entity<AuditRecord>(e =>
+            {
+                e.Property(x => x.AuditeeNameText).HasMaxLength(200);
+                e.Property(x => x.AuditType).HasMaxLength(20);
+                e.Property(x => x.AuditorSignatureUrl).HasMaxLength(500);
+                e.Property(x => x.AuditeeSignatureUrl).HasMaxLength(500);
+            });
+
+            modelBuilder.Entity<AuditResponse>()
+                .Property(x => x.CategoryName).HasMaxLength(100);
+
+            modelBuilder.Entity<AuditResponseImage>()
+                .Property(x => x.ImageUrl).HasMaxLength(500);
+
+            modelBuilder.Entity<CapTask>(e =>
+            {
+                e.Property(x => x.IssueItem).HasMaxLength(300);
+                e.Property(x => x.Status).HasMaxLength(30);
+            });
+
+            modelBuilder.Entity<CapTaskImage>(e =>
+            {
+                e.Property(x => x.Phase).HasMaxLength(20);
+                e.Property(x => x.ImageUrl).HasMaxLength(500);
+            });
+
+            modelBuilder.Entity<CapTaskComment>(e =>
+            {
+                e.Property(x => x.SenderRole).HasMaxLength(20);
+                e.Property(x => x.ImageUrl).HasMaxLength(500);
+            });
+
+            // ==========================================
             // DATABASE INDEXES STRATEGY (10+ Indexes)
             // ==========================================
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
                 .IsUnique();
 
-            modelBuilder.Entity<UserLocation>()
-                .HasIndex(ul => ul.UserId);
-
+            // index เดี่ยวบน UserId / LocationId ไม่ต้องมี เพราะเป็น prefix ของ composite ด้านล่างอยู่แล้ว
             modelBuilder.Entity<UserLocation>()
                 .HasIndex(ul => new { ul.UserId, ul.LocationId })
                 .IsUnique();
 
             modelBuilder.Entity<UserBrand>()
-                .HasIndex(ub => ub.UserId);
-
-            modelBuilder.Entity<UserBrand>()
                 .HasIndex(ub => new { ub.UserId, ub.BrandId })
                 .IsUnique();
 
-            // 🌟 กันผูก Location-Brand ซ้ำคู่เดิม + query .Any() เร็วขึ้นด้วย index เดี่ยว
+            // 🌟 กันผูก Location-Brand ซ้ำคู่เดิม
             modelBuilder.Entity<LocationBrand>()
                 .HasIndex(lb => new { lb.LocationId, lb.BrandId })
                 .IsUnique();
 
-            modelBuilder.Entity<LocationBrand>()
-                .HasIndex(lb => lb.LocationId);
-
+            // ค้นจากฝั่ง Brand ต้องมี index ของตัวเอง composite ข้างบนขึ้นต้นด้วย LocationId
             modelBuilder.Entity<LocationBrand>()
                 .HasIndex(lb => lb.BrandId);
 
@@ -133,6 +265,92 @@ namespace QSC.Api.Data
 
             modelBuilder.Entity<CapTask>()
                 .HasIndex(c => c.AuditRecordId);
+
+            // 🌟 หา draft ที่ผู้ตรวจค้างไว้ (ตารางนี้เดิมไม่มี index เลยสักตัว)
+            modelBuilder.Entity<AuditDraft>()
+                .HasIndex(d => new { d.AuditorId, d.LocationId, d.SurveyFormId });
+
+            modelBuilder.Entity<AuditRecord>()
+                .HasIndex(r => r.SurveyFormId);
+
+            // งานตรวจรายผู้ตรวจ เรียงตามวันที่ (AuditController.GetAuditRecords)
+            modelBuilder.Entity<AuditRecord>()
+                .HasIndex(r => new { r.PrimaryAuditorId, r.AuditDate });
+
+            // GET /api/cap เรียงตาม CreatedAt ภายใต้สาขาที่มีสิทธิ์
+            modelBuilder.Entity<CapTask>()
+                .HasIndex(c => new { c.LocationId, c.CreatedAt });
+
+            // รายการสาขา เรียง IsActive แล้วตาม Code (LocationController)
+            modelBuilder.Entity<Location>()
+                .HasIndex(l => new { l.IsActive, l.Code });
+
+            // จัดอันดับสาขาตามคะแนนบน dashboard
+            modelBuilder.Entity<Location>()
+                .HasIndex(l => new { l.IsActive, l.LastScore });
+
+            modelBuilder.Entity<SurveySection>()
+                .HasIndex(s => s.SurveyFormId);
+
+            // composite เดิมขึ้นต้นด้วย SurveyFormId จึงใช้ค้นจาก LocationId ไม่ได้
+            modelBuilder.Entity<SurveyFormTargetLocation>()
+                .HasIndex(t => t.LocationId);
+
+            modelBuilder.Entity<SurveyForm>()
+                .HasIndex(f => new { f.IsActive, f.IsLatest });
+
+            modelBuilder.Entity<AuditSchedule>()
+                .HasIndex(s => new { s.Status, s.ScheduledDate });
+
+            modelBuilder.Entity<CapTask>()
+                .HasIndex(c => new { c.Status, c.SubmissionDeadline });
+
+            modelBuilder.Entity<Location>().HasIndex(l => l.Code);
+            modelBuilder.Entity<Brand>().HasIndex(b => b.Code);
+            modelBuilder.Entity<Role>().HasIndex(r => r.Code);
+            modelBuilder.Entity<Permission>().HasIndex(p => p.Code);
+            modelBuilder.Entity<LocationType>().HasIndex(t => t.Code);
+
+            // ==========================================
+            // ผูก navigation property เข้ากับคอลัมน์ FK ที่มีอยู่จริง
+            // ชื่อ nav ไม่ตรง convention (Assignee vs AssignedTo) EF จึงเคยสร้างคอลัมน์เงา
+            // AssigneeId/VerifierId/UploaderId/CreatorId ที่ไม่มีใครเขียนค่า ทำให้ nav เป็น null ตลอด
+            // ==========================================
+            modelBuilder.Entity<SurveyForm>()
+                .HasOne(f => f.Creator)
+                .WithMany()
+                .HasForeignKey(f => f.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AuditSchedule>()
+                .HasOne(s => s.Creator)
+                .WithMany()
+                .HasForeignKey(s => s.CreatedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AuditResponseImage>()
+                .HasOne(img => img.Uploader)
+                .WithMany()
+                .HasForeignKey(img => img.UploadedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CapTask>()
+                .HasOne(t => t.Assignee)
+                .WithMany()
+                .HasForeignKey(t => t.AssignedTo)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CapTask>()
+                .HasOne(t => t.Verifier)
+                .WithMany()
+                .HasForeignKey(t => t.VerifiedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<CapTaskImage>()
+                .HasOne(img => img.Uploader)
+                .WithMany()
+                .HasForeignKey(img => img.UploadedBy)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // ==========================================
             // RELATIONSHIPS & CONSTRAINTS
@@ -209,11 +427,13 @@ namespace QSC.Api.Data
                 .HasForeignKey(t => t.AuditRecordId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Restrict ไม่ใช่ SetNull เพราะ AuditRecord ลบถึง CapTask ได้ 2 ทาง
+            // (ตรงๆ และผ่าน AuditResponse) ซึ่ง SQL Server ไม่ยอม
             modelBuilder.Entity<CapTask>()
                 .HasOne(t => t.AuditResponse)
                 .WithMany()
                 .HasForeignKey(t => t.AuditResponseId)
-                .OnDelete(DeleteBehavior.SetNull);
+                .OnDelete(DeleteBehavior.Restrict);
 
             modelBuilder.Entity<CapTaskImage>()
                 .HasOne(img => img.CapTask)
