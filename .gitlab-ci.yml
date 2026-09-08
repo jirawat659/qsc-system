@@ -1,0 +1,62 @@
+include:
+  - project: "au-inventory/ci-templates"
+    ref: "master"
+    file: "/.gitlab-ci.yml"
+
+variables:
+  # default branch ของ repo นี้คือ "main" ไม่ใช่ "master" ตามค่า default ของ template
+  MAIN_BRANCH: "main"
+
+  # ENV_FILE (GitLab CI/CD variable, Type: File, สร้างแยก scope ละ 1 อัน คือ
+  # "staging" กับ "production") ต้องเป็น backend/QSC.Api/appsettings.json ฉบับเต็ม
+  # (ConnectionStrings/Jwt/Cors/AI/Logging ครบ) เพราะ template จะ copy ทับไฟล์นี้
+  # "ทั้งไฟล์" ก่อน build ไม่ใช่ merge แบบ layered config ของ ASP.NET Core
+  ENV_FILE_DEST: "backend\\QSC.Api\\appsettings.json"
+
+  BUILD_COMMAND: >
+    dotnet publish backend\QSC.Api\QSC.Api.csproj -c Release -r win-x64 --self-contained false -p:SatelliteResourceLanguages=en -o publish\backend &&
+    cd frontend && npm install --no-audit --no-fund && npm run build && cd .. &&
+    xcopy frontend\dist publish\frontend /E /I /Y /Q
+
+  ARTIFACT_PATHS: "publish"
+
+  # /E (ไม่ใช่ /MIR): ห้ามลบไฟล์ปลายทางที่ไม่ได้มากับ publish output
+  # สำคัญมากฝั่ง backend — wwwroot/uploads (ลายเซ็น, รูปตรวจ, รูป CAP) เก็บอยู่ที่
+  # ปลายทางจริงเท่านั้น ไม่ได้อยู่ใน build ทุกครั้งเลย ถ้าใช้ /MIR รูปที่ user
+  # อัปโหลดไว้จะถูกลบทิ้งทุกครั้งที่ deploy
+  DEPLOY_COMMAND_STAGING: >
+    powershell -Command "
+    Import-Module WebAdministration;
+    Stop-WebAppPool 'qsc-apppool' -ErrorAction SilentlyContinue;
+    Start-Sleep -Seconds 3;
+    robocopy publish\backend 'E:\Website\QSC Service\backend' /E /R:3 /W:5;
+    if ($$LASTEXITCODE -ge 8) { Start-WebAppPool 'qsc-apppool'; exit $$LASTEXITCODE };
+    Start-WebAppPool 'qsc-apppool';
+    robocopy publish\frontend 'E:\Website\QSC Service\frontend' /E /R:3 /W:5;
+    if ($$LASTEXITCODE -ge 8) { exit $$LASTEXITCODE };
+    exit 0
+    "
+
+  DEPLOY_COMMAND_PRODUCTION: >
+    powershell -Command "
+    Import-Module WebAdministration;
+    Stop-WebAppPool 'qsc-apppool' -ErrorAction SilentlyContinue;
+    Start-Sleep -Seconds 3;
+    robocopy publish\backend 'G:\Website\QSC Service\backend' /E /R:3 /W:5;
+    if ($$LASTEXITCODE -ge 8) { Start-WebAppPool 'qsc-apppool'; exit $$LASTEXITCODE };
+    Start-WebAppPool 'qsc-apppool';
+    robocopy publish\frontend 'G:\Website\QSC Service\frontend' /E /R:3 /W:5;
+    if ($$LASTEXITCODE -ge 8) { exit $$LASTEXITCODE };
+    exit 0
+    "
+
+# Tag string ต้องตรงกับ runner ที่ลงทะเบียนจริงเป๊ะ (รวม typo "stagging")
+# ยืนยันจาก GitLab API แล้วว่ามี runner online ติด tag นี้จริงทั้งคู่
+build:
+  tags: ["stagging 2.19"]
+
+deploy_staging:
+  tags: ["stagging 2.19"]
+
+deploy_production:
+  tags: ["prod 20.5"]
