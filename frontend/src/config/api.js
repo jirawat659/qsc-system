@@ -8,10 +8,13 @@ import axios from 'axios';
 // ผ่าน https (รวมถึง self-signed cert บน staging ที่ยังไม่มี SSL จริง) แล้วยิง API เป็น http
 // เปล่าๆ เบราว์เซอร์จะบล็อกเป็น mixed content ทันที — ส่วนใบ cert เองยังต้องกดยอมรับที่
 // เบราว์เซอร์ครั้งแรกอยู่ดี (โค้ดฝั่งนี้ทำแทนไม่ได้ เป็นเรื่อง TLS trust ของเบราว์เซอร์)
-const envApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+let envApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+while (envApiBaseUrl?.endsWith('/')) {
+  envApiBaseUrl = envApiBaseUrl.slice(0, -1);
+}
 const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:';
 const hostname = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}:5082`;
+export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}`;
 export const API_BASE_URL = `${SERVER_BASE_URL}/api`;
 
 // 🖼️ URL Resolver: แปลง relative path (/uploads/...) เป็น full backend URL
