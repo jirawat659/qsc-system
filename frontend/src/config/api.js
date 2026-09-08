@@ -1,8 +1,17 @@
 import axios from 'axios';
 
-// 🌐 Dynamic Host Detection: ตรวจจับ Hostname จาก Browser โดยอัตโนมัติ (รองรับทั้ง localhost และ Wi-Fi IP มือถือ)
+// 🌐 API Host Config: ใช้ VITE_API_BASE_URL จาก .env ถ้ามี (เช่น backend คนละ host/port จริงตอน deploy)
+// ถ้าไม่ตั้งไว้ fallback เป็นการตรวจจับ Hostname จาก Browser อัตโนมัติแบบเดิม
+// (รองรับทั้ง localhost และ Wi-Fi IP มือถือ โดยสมมติว่า backend อยู่ host เดียวกัน พอร์ต 5082)
+//
+// Protocol ใช้ตาม window.location.protocol เสมอ (ไม่ hardcode http:) เพราะถ้าหน้าเว็บถูกเปิด
+// ผ่าน https (รวมถึง self-signed cert บน staging ที่ยังไม่มี SSL จริง) แล้วยิง API เป็น http
+// เปล่าๆ เบราว์เซอร์จะบล็อกเป็น mixed content ทันที — ส่วนใบ cert เองยังต้องกดยอมรับที่
+// เบราว์เซอร์ครั้งแรกอยู่ดี (โค้ดฝั่งนี้ทำแทนไม่ได้ เป็นเรื่อง TLS trust ของเบราว์เซอร์)
+const envApiBaseUrl = import.meta.env.VITE_API_BASE_URL;
+const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'https:' : 'http:';
 const hostname = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
-export const SERVER_BASE_URL = `http://${hostname}:5082`;
+export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}:5082`;
 export const API_BASE_URL = `${SERVER_BASE_URL}/api`;
 
 // 🖼️ URL Resolver: แปลง relative path (/uploads/...) เป็น full backend URL
