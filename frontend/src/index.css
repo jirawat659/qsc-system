@@ -1,0 +1,253 @@
+@import "tailwindcss";
+
+/* =========================================================
+   🌟 QSC UNIFIED SYSTEM TYPOGRAPHY STANDARDS (ระบบมาตรฐานขนาดตัวอักษร)
+   ========================================================= */
+@layer base {
+  html {
+    font-size: 16px; /* Base scale: 1rem = 16px */
+  }
+
+  body {
+    font-family: 'Prompt', 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #F8FAFC;
+    color: #0F172A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+  }
+
+  /* มาตรฐานหัวข้อ (Headings Hierarchy) - สัดส่วนอ่านง่ายสบายตา */
+  h1 {
+    font-size: 1.35rem; /* ~21.6px */
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
+  }
+
+  h2 {
+    font-size: 1.2rem; /* ~19.2px */
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: -0.015em;
+  }
+
+  h3 {
+    font-size: 1.075rem; /* ~17.2px */
+    font-weight: 700;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+
+  h4, h5, h6 {
+    font-size: 0.95rem; /* ~15.2px */
+    font-weight: 600;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+  }
+
+  p, span, label, button, input, select, textarea {
+    font-family: inherit;
+    letter-spacing: -0.005em;
+  }
+
+  /* ป้องกัน Double-tap to zoom บนหน้าจอสัมผัส และเพิ่มความเร็วในการตอบสนองการกด */
+  button, input, select, textarea, a {
+    touch-action: manipulation;
+  }
+
+  /* 🍎 iOS Safari Normalization: ป้องกัน Safari บีบ Dropdown ให้เป็นปุ่มสีเทาจิ๋วแบบดั้งเดิม */
+  select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
+  /* ขนาดเริ่มต้นบนมือถือเพื่อช่วยให้อ่านง่าย แต่เปิดให้คลาส text-xs / text-sm ปรับลดขนาดได้ */
+  @media screen and (max-width: 639px) {
+    input:not([type="checkbox"]):not([type="radio"]),
+    select,
+    textarea {
+      font-size: 15px;
+    }
+  }
+
+  /* ปรับแต่ง input type="date" และ type="time" */
+  input[type="date"],
+  input[type="time"] {
+    min-height: 50px;
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+  }
+
+  /* ซ่อน native indicator สีดำที่ลอยเกะกะ เพื่อแสดงไอคอน Calendar ของระบบที่ชิดขวาอย่างสวยงาม */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+}
+
+/* 🎯 ควบคุมมาตรฐานขนาดตัวหนังสือ (Unified Font Size Scale - อ่านง่าย ชัดเจน สบายตา) */
+.text-2xs, .text-\[10px\], .text-\[9px\] {
+  font-size: 0.6875rem !important; /* ~11px */
+  line-height: 1rem;
+}
+
+.text-\[11px\] {
+  font-size: 0.75rem !important; /* ~12px */
+  line-height: 1.1rem;
+}
+
+.text-xs {
+  font-size: 0.8125rem; /* ~13px */
+  line-height: 1.25rem;
+}
+
+.text-sm {
+  font-size: 0.9375rem; /* ~15px */
+  line-height: 1.375rem;
+}
+
+.text-base {
+  font-size: 1.0625rem; /* ~17px */
+  line-height: 1.5rem;
+}
+
+.text-lg {
+  font-size: 1.1875rem; /* ~19px */
+  line-height: 1.6rem;
+}
+
+.text-xl {
+  font-size: 1.35rem; /* ~21.6px */
+  line-height: 1.7rem;
+}
+
+.text-2xl {
+  font-size: 1.55rem; /* ~24.8px */
+  line-height: 1.85rem;
+}
+
+/* จำกัดขนาดตัวเลข KPI / สถิติ ไม่ให้ใหญ่เกินจนล้นการ์ดหรือจอ */
+.text-3xl {
+  font-size: 1.75rem; /* ~26.25px */
+  line-height: 1.85rem;
+}
+
+.text-4xl, .text-5xl {
+  font-size: 2rem; /* ~30px */
+  line-height: 2.1rem;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* Horizontal tab scrollbar indicator for mobile/small screens */
+.custom-tab-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #0F6659 #E2E8F0;
+}
+.custom-tab-scrollbar::-webkit-scrollbar {
+  height: 5px;
+}
+.custom-tab-scrollbar::-webkit-scrollbar-track {
+  background: #E2E8F0;
+  border-radius: 9999px;
+  margin: 0 10px;
+}
+.custom-tab-scrollbar::-webkit-scrollbar-thumb {
+  background: #0F6659;
+  border-radius: 9999px;
+}
+.custom-tab-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #0B4E44;
+}
+
+/* Silky Smooth Page & Screen Transition Animations */
+@keyframes pageFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modalPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.page-transition {
+  animation: pageFadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform;
+}
+
+.modal-transition {
+  animation: modalPopIn 0.26s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: opacity, transform;
+}
+
+/* Liquid Droplet Animation */
+@keyframes dropletBounce {
+  0% {
+    transform: translateY(4px) scale(0.85);
+    opacity: 0.8;
+  }
+  60% {
+    transform: translateY(-2px) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.droplet-bubble {
+  animation: dropletBounce 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Error Shake Animation */
+@keyframes errorShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-5px); }
+  40%, 80% { transform: translateX(5px); }
+}
+
+.animate-shake {
+  animation: errorShake 0.38s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
