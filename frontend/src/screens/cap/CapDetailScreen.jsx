@@ -1,6 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Camera, Send, X, AlertTriangle, Info, CheckCircle2, Sparkles, FileText, Loader2 } from "lucide-react";
+import { 
+  MessageSquare, Camera, Send, X, AlertTriangle, Info, CheckCircle2, 
+  Sparkles, FileText, Loader2, RotateCcw, Image, Check, Plus, AlertCircle 
+} from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { CAP_STATUS_MAP } from "../../config/constants";
@@ -47,6 +50,19 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
   const [actionError, setActionError] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, type: null, title: '', message: '' });
   const [showAiCapModal, setShowAiCapModal] = useState(false);
+
+  // 🌟 Approval Request & Rejection Modals State
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [submitMessage, setSubmitMessage] = useState("");
+  const [submitPhotos, setSubmitPhotos] = useState([]);
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const submitFileInputRef = useRef(null);
+
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isRejecting, setIsRejecting] = useState(false);
+  const [rejectError, setRejectError] = useState(null);
   
   const fileInputRef = useRef(null);
   const chatContainerRef = useRef(null);
@@ -71,7 +87,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     // 🌟 Join defect-isolated SignalR room (cap_{capTaskId})
     signalrService.joinCapRoom(parsedId);
 
-    // 🌟 Listen for live incoming messages (SILENT MODE: Zero audio alerts, live visual UI stream only)
+    // 🌟 Listen for live incoming messages
     const unsubMessage = signalrService.onReceiveCapMessage((comment) => {
       if (comment.capTaskId === parsedId) {
         setTimeline((prev) => {
@@ -94,21 +110,15 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
           return [...prev, newEntry];
         });
 
-        // Silent auto-scroll to bottom on new message
         setTimeout(() => {
           if (chatContainerRef.current) {
             chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
           }
         }, 50);
-        setTimeout(() => {
-          if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-          }
-        }, 250);
       }
     });
 
-    // 🌟 Listen for live status updates (Instant UI lock on CLOSED status without page reload)
+    // 🌟 Listen for live status updates
     const unsubStatus = signalrService.onCapStatusUpdated((statusUpdate) => {
       if (statusUpdate.capTaskId === parsedId) {
         const newStatus = (statusUpdate.status || "").toUpperCase();
@@ -179,13 +189,74 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     }
   };
 
+  // 🌟 Handle Store Manager Submitting Remediation for Approval (Requires at least 1 photo)
+  const handleSubmitApproval = async (e) => {
+    if (e) e.preventDefault();
+    if (submitPhotos.length === 0) {
+      setSubmitError("กรุณาแนบรูปภาพหลักฐานหลังการแก้ไขอย่างน้อย 1 รูป เพื่อขออนุมัติ");
+      return;
+    }
+
+    setIsSubmittingApproval(true);
+    setSubmitError(null);
+
+    try {
+      const parsedId = typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id;
+      if (parsedId) {
+        await api.post(`/cap/${parsedId}/submit`, {
+          message: submitMessage.trim() || "ส่งมอบหลักฐานและขออนุมัติการแก้ไข",
+          imageUrls: submitPhotos
+        });
+        setLocalStatus("SUBMITTED");
+        setShowSubmitModal(false);
+        setSubmitMessage("");
+        setSubmitPhotos([]);
+        if (refreshData) refreshData();
+        await loadCapDetail();
+      }
+    } catch (err) {
+      setSubmitError(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการส่งขออนุมัติ");
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  };
+
+  // 🌟 Handle Auditor Rejecting & Requesting Re-do
+  const handleRejectRemediation = async (e) => {
+    if (e) e.preventDefault();
+    if (!rejectReason.trim()) {
+      setRejectError("กรุณาระบุเหตุผลและสิ่งที่สาขาต้องแก้ไขเพิ่มเติม");
+      return;
+    }
+
+    setIsRejecting(true);
+    setRejectError(null);
+
+    try {
+      const parsedId = typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id;
+      if (parsedId) {
+        await api.post(`/cap/${parsedId}/reject`, {
+          reason: rejectReason.trim()
+        });
+        setLocalStatus("REJECTED");
+        setShowRejectModal(false);
+        setRejectReason("");
+        if (refreshData) refreshData();
+        await loadCapDetail();
+      }
+    } catch (err) {
+      setRejectError(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการส่งกลับแก้ไข");
+    } finally {
+      setIsRejecting(false);
+    }
+  };
+
   // Sync API comments and photos into timeline when capDetail arrives
   useEffect(() => {
     if (capDetail) {
       const apiTimeline = [];
 
       const initialTime = new Date(capDetail.createdAt).getTime() || 0;
-      // Automated system notification for defect ticket creation (NO fake auditor message)
       apiTimeline.push({
         id: "init_system_notice",
         isSystem: true,
@@ -201,12 +272,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       // Comments from API
       if (capDetail.comments && Array.isArray(capDetail.comments)) {
         capDetail.comments.forEach((c) => {
-          const isSenderMe = c.senderId === currentUser?.id || 
-            (c.senderName && (c.senderName === currentUser?.fullName || c.senderName === currentUser?.name));
-
           const cTime = new Date(c.createdAt).getTime() || Date.now();
-
-          // Attached photo directly from comment
           let attachedPhoto = c.imageUrl ? getFullImageUrl(c.imageUrl) : null;
           if (c.imageUrl) {
             usedImgUrls.add(c.imageUrl);
@@ -246,7 +312,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
         }
       });
 
-      // Sort timeline chronologically by timestamp
       apiTimeline.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
       if (apiTimeline.length > 1 || (apiTimeline.length === 1 && timeline.length <= 1)) {
@@ -255,15 +320,16 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     }
   }, [capDetail]);
 
-  const currentStatus = (capDetail?.status || localStatus || item.statusRaw || item.status || "OPEN").toLowerCase();
-  const isClosed = currentStatus === "closed" || currentStatus === "approved" || currentStatus === "done";
-  const st = CAP_STATUS_MAP[currentStatus] || (isClosed ? CAP_STATUS_MAP.done : CAP_STATUS_MAP.pending);
+  const currentStatus = (capDetail?.status || localStatus || item.statusRaw || item.status || "OPEN").toUpperCase();
+  const isClosed = currentStatus === "CLOSED" || currentStatus === "APPROVED" || currentStatus === "DONE";
+  const isSubmitted = currentStatus === "SUBMITTED";
+  const isRejected = currentStatus === "REJECTED";
+  const st = CAP_STATUS_MAP[currentStatus.toLowerCase()] || (isClosed ? CAP_STATUS_MAP.done : CAP_STATUS_MAP.pending);
 
   const send = async () => {
     if (isClosed || (!reply.trim() && !hasPhoto)) return;
     setIsSending(true);
 
-    const senderName = currentUser?.fullName || currentUser?.name || (role === "AUDITEE" ? "ผู้จัดการสาขา" : "ผู้ตรวจ/QA");
     const sentReply = reply.trim();
     const sentPhoto = hasPhoto ? photoBase64 : null;
 
@@ -274,7 +340,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     try {
       const parsedId = typeof item.id === 'string' ? parseInt(item.id.replace(/\D/g, '')) : item.id;
       if (parsedId) {
-        // Try real-time SignalR hub first
         try {
           await signalrService.sendCapMessage(parsedId, sentReply, sentPhoto);
         } catch (sigErr) {
@@ -304,7 +369,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     }
   };
 
-  // Ensure page stays at top on load, and scroll ONLY inside the chat container
   useEffect(() => {
     window.scrollTo(0, 0);
     if (chatContainerRef.current) {
@@ -327,13 +391,136 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     ? `ข้อที่ ${questionNo} · ${locationDisplayName}`
     : `${locationDisplayName}`;
 
+  // Extract Before & After Photos
+  const beforePhotoList = useMemo(() => {
+    const rawList = Array.isArray(capDetail?.beforeImages) && capDetail.beforeImages.length > 0
+      ? capDetail.beforeImages
+      : Array.isArray(item.beforeImages) && item.beforeImages.length > 0
+        ? item.beforeImages
+        : (capDetail?.beforeImages?.[0] || item.beforeImageUrl || item.imageUrl)
+          ? [capDetail?.beforeImages?.[0] || item.beforeImageUrl || item.imageUrl]
+          : [];
+
+    return rawList
+      .map(b => (typeof b === 'string' ? b : b?.imageUrl || b?.url))
+      .filter(Boolean);
+  }, [capDetail, item]);
+
+  const afterPhotoList = useMemo(() => {
+    if (Array.isArray(capDetail?.afterImages) && capDetail.afterImages.length > 0) {
+      return capDetail.afterImages.map(img => typeof img === 'string' ? img : img.imageUrl).filter(Boolean);
+    }
+    if (Array.isArray(item.afterImages) && item.afterImages.length > 0) {
+      return item.afterImages.map(img => typeof img === 'string' ? img : img.imageUrl).filter(Boolean);
+    }
+    return [];
+  }, [capDetail, item]);
+
+  // 🖼️ Reusable Visual Before vs After Component
+  const renderBeforeAfterComparison = () => (
+    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+      <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+        <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+          <Image size={14} className="text-[#0F6659]" />
+          <span>เปรียบเทียบรูปภาพ ก่อน - หลังแก้ไข (Before / After)</span>
+        </span>
+        {isSubmitted && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+            รอตรวจสอบหลักฐาน
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* 🔴 ก่อนแก้ไข (Before / Audit Finding) */}
+        <div className="space-y-1.5 p-2.5 rounded-xl bg-rose-50/50 border border-rose-200/70">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-rose-800 flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span>ก่อนแก้ไข (ตอนตรวจพบ)</span>
+            </span>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-rose-200 text-rose-700">
+              {beforePhotoList.length} รูป
+            </span>
+          </div>
+
+          {beforePhotoList.length > 0 ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {beforePhotoList.map((url, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setViewingPhoto(url)}
+                  className="aspect-square rounded-xl overflow-hidden border border-rose-200/80 bg-white cursor-pointer group relative shadow-2xs"
+                >
+                  <img
+                    src={getFullImageUrl(url)}
+                    alt={`Before #${idx + 1}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold">
+                    ขยายรูป
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="aspect-video rounded-xl border border-dashed border-rose-200 bg-white/70 flex flex-col items-center justify-center p-3 text-center text-rose-400">
+              <Camera size={18} className="text-rose-300 mb-1" />
+              <span className="text-[11px] font-bold">ไม่มีรูปตอนตรวจพบ</span>
+            </div>
+          )}
+        </div>
+
+        {/* 🟢 หลังแก้ไข (After / Remediation Evidence) */}
+        <div className="space-y-1.5 p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-200/70">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-[#0F6659] flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-600" />
+              <span>หลังแก้ไข (หลักฐานจากสาขา)</span>
+            </span>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white border border-emerald-200 text-[#0F6659]">
+              {afterPhotoList.length} รูป
+            </span>
+          </div>
+
+          {afterPhotoList.length > 0 ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {afterPhotoList.map((url, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setViewingPhoto(url)}
+                  className="aspect-square rounded-xl overflow-hidden border border-emerald-300 bg-white cursor-pointer group relative shadow-2xs"
+                >
+                  <img
+                    src={getFullImageUrl(url)}
+                    alt={`After #${idx + 1}`}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-bold">
+                    ขยายรูป
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="aspect-video rounded-xl border border-dashed border-emerald-200 bg-white/70 flex flex-col items-center justify-center p-3 text-center text-emerald-600">
+              <Camera size={18} className="text-emerald-400 mb-1" />
+              <span className="text-[11px] font-bold">ยังไม่ส่งรูปหลังแก้ไข</span>
+              <span className="text-[10px] text-slate-400 mt-0.5">รอสาขาแนบรูปขอนุมัติ</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   // Reusable Defect Summary Panel Content
   const renderDefectDetails = () => (
     <div className="space-y-4">
       {/* Status & ID Badge */}
       <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
         <span className="text-xs font-mono font-bold text-slate-500">
-          ข้อที่ {questionNo}
+          ข้อที่ {questionNo || "-"}
         </span>
         <span
           className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1 rounded-full border shadow-2xs"
@@ -366,14 +553,13 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             const issueTitle = (capDetail?.issueItem || item.issueItem || item.title || "").trim();
             if (!descText || descText === "-" || descText === issueTitle) return null;
             
-            // ถ้าเป็นข้อความ auto-fallback "ไม่ผ่านเกณฑ์การประเมิน: [ชื่อข้อ]" ไม่ต้องแสดงซ้ำ
             if (descText.startsWith("ไม่ผ่านเกณฑ์การประเมิน:") && descText.replace("ไม่ผ่านเกณฑ์การประเมิน:", "").trim() === issueTitle) {
               return null;
             }
 
             return (
               <p className="text-xs text-slate-700 font-medium leading-relaxed pt-1.5 border-t border-amber-200/60">
-                <span className="font-bold text-amber-900">💬 บันทึกผู้ตรวจ:</span> {descText}
+                <span className="font-bold text-amber-900">💬 บันทึกคำแนะนำ:</span> {descText}
               </p>
             );
           })()}
@@ -417,98 +603,27 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
         </div>
       </div>
 
-      {/* Defect Photo Found during Audit */}
-      {(() => {
-        const rawList = Array.isArray(capDetail?.beforeImages) && capDetail.beforeImages.length > 0
-          ? capDetail.beforeImages
-          : Array.isArray(item.beforeImages) && item.beforeImages.length > 0
-            ? item.beforeImages
-            : (capDetail?.beforeImages?.[0] || item.beforeImageUrl || item.imageUrl)
-              ? [capDetail?.beforeImages?.[0] || item.beforeImageUrl || item.imageUrl]
-              : [];
-
-        const beforeList = rawList
-          .map(b => (typeof b === 'string' ? b : b?.imageUrl || b?.url))
-          .filter(Boolean);
-
-        return (
-          <div className="space-y-1.5 pt-1">
-            <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Camera size={14} className="text-slate-400" />
-                <span>รูปถ่ายตอนตรวจพบปัญหา (Audit Finding)</span>
-              </div>
-              {beforeList.length > 0 && (
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                  {beforeList.length} รูป
-                </span>
-              )}
-            </div>
-            {beforeList.length > 0 ? (
-              beforeList.length === 1 ? (
-                <div 
-                  onClick={() => setViewingPhoto(beforeList[0])}
-                  className="rounded-2xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100 shadow-2xs"
-                >
-                  <img 
-                    src={getFullImageUrl(beforeList[0])} 
-                    alt="ภาพตอนตรวจพบปัญหา" 
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
-                    <Camera size={15} /> แตะเพื่อดูรูปขยาย
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {beforeList.map((photoUrl, pIdx) => (
-                    <div 
-                      key={pIdx}
-                      onClick={() => setViewingPhoto(photoUrl)}
-                      className="rounded-xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100 shadow-2xs"
-                    >
-                      <img 
-                        src={getFullImageUrl(photoUrl)} 
-                        alt={`ภาพตอนตรวจพบปัญหา #${pIdx + 1}`} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-bold">
-                        แตะดูรูป #{pIdx + 1}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )
-            ) : (
-              <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400 font-medium space-y-1">
-                <div className="font-bold text-slate-500">ไม่มีรูปถ่ายตอนตรวจพบปัญหา</div>
-                <div className="text-[11px] text-slate-400">ผู้ตรวจไม่ได้แนบรูปถ่ายในข้อนี้ขณะทำการตรวจหน้าร้าน (Live Audit)</div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-
+      {/* 🖼️ Visual Before/After Comparison */}
+      {renderBeforeAfterComparison()}
     </div>
   );
 
   return (
     <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[94%] mx-auto pb-28 lg:pb-12">
-      {/* 🌟 1. TOP HEADER BAR (Mobile synced via TopBarContext, Desktop rendered cleanly) */}
+      {/* 🌟 1. TOP HEADER BAR */}
       <Header 
         title={item.title || item.issueItem || "งานแก้ไข CAP"} 
         subtitle={headerSubtitle} 
         onBack={onBack} 
       />
 
-      {/* 🌟 3. SPLIT LAYOUT (DESKTOP 2-COLUMN / MOBILE FULL CHAT) */}
+      {/* 🌟 2. SPLIT LAYOUT (DESKTOP 2-COLUMN / MOBILE FULL CHAT) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5 items-start">
         
-        {/* 👈 LEFT / MAIN: FULL-HEIGHT CHAT ROOM (lg:col-span-8) */}
+        {/* 👈 LEFT / MAIN: FULL-HEIGHT CHAT ROOM (lg:col-span-7 xl:col-span-8) */}
         <div className="lg:col-span-7 xl:col-span-8 bg-white rounded-3xl p-4 sm:p-5 border border-slate-200 shadow-2xs space-y-3 flex flex-col min-h-[560px] lg:min-h-[620px]">
           
-          {/* 🌟 CHAT STREAM HEADER (WITH DETAILS BUTTON AT TOP RIGHT) */}
+          {/* 🌟 CHAT STREAM HEADER */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 px-1 gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-2xl bg-emerald-100 text-[#0F6659] flex items-center justify-center font-bold shrink-0">
@@ -524,44 +639,65 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
               </div>
             </div>
 
-            {/* 🌟 Top Right Corner: Details Button & Message Count */}
+            {/* Top Right Corner: Details Button */}
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowInfoDrawer(true)}
-                className="lg:hidden px-3.5 py-2 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-2xs"
+                className="lg:hidden px-3 py-1.5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-2xs"
               >
-                <Info size={15} />
+                <Info size={14} />
                 <span>รายละเอียด</span>
               </button>
-
-              <span className="hidden sm:inline-block text-xs font-extrabold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-                {timeline.length} ข้อความ
-              </span>
             </div>
           </div>
+
+          {/* 🌟 AUDITEE CALLOUT BANNER: WHEN OPEN OR REJECTED (Prompt to submit approval with mandatory photos) */}
+          {role === "AUDITEE" && !isClosed && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50/80 border border-emerald-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+              <div className="space-y-0.5 min-w-0 flex-1">
+                <div className="text-xs font-extrabold text-[#0F6659] flex items-center gap-1.5">
+                  <Camera size={15} />
+                  <span>{isRejected ? "⚠️ งานถูกส่งกลับให้แก้ไขใหม่" : "ขั้นตอนส่งมอบงานแก้ไข"}</span>
+                </div>
+                <p className="text-[11px] text-emerald-800 font-medium">
+                  {isRejected 
+                    ? "กรุณาอ่านความคิดเห็นของผู้ตรวจ แนบรูปถ่ายหลังปรับปรุงใหม่ แล้วกดขออนุมัติอีกครั้ง"
+                    : "เมื่อดำเนินการปรับปรุงหน้างานเสร็จแล้ว ให้กดปุ่มเพื่อแนบรูปถ่ายหลักฐานและส่งขออนุมัติ"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSubmitModal(true)}
+                className="px-4 py-2.5 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs font-bold shrink-0 cursor-pointer shadow-sm active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Camera size={14} />
+                <span>แนบรูปขออนุมัติแก้ไข</span>
+              </button>
+            </div>
+          )}
 
           {/* Chat Stream Messages (Scrollable) */}
           <div 
             ref={chatContainerRef}
-            className="flex-1 overflow-y-auto space-y-4 p-3 sm:p-4 rounded-2xl bg-slate-50/70 border border-slate-200/60 custom-tab-scrollbar min-h-[360px] max-h-[440px] lg:max-h-[500px]"
+            className="flex-1 overflow-y-auto space-y-4 p-3 sm:p-4 rounded-2xl bg-slate-50/70 border border-slate-200/60 custom-tab-scrollbar min-h-[340px] max-h-[440px] lg:max-h-[480px]"
           >
             {timeline.map((tl, i) => {
               if (tl.isSystem) {
                 return (
-                  <div key={tl.id || i} className="flex flex-col items-center my-2.5 w-full animate-in fade-in">
-                    <div className="w-full max-w-[96%] sm:max-w-[90%] rounded-2xl bg-amber-50/90 border border-amber-200/90 p-3.5 sm:p-4 text-center space-y-2 shadow-2xs">
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold">
-                        <Sparkles size={13} className="text-amber-700" />
-                        <span>ระบบ Q.S.C. · แจ้งเตือนบันทึกงานแก้ไขอัตโนมัติ</span>
+                  <div key={tl.id || i} className="flex flex-col items-center my-2 w-full animate-in fade-in">
+                    <div className="w-full max-w-[96%] sm:max-w-[90%] rounded-2xl bg-amber-50/90 border border-amber-200/90 p-3 sm:p-3.5 text-center space-y-1.5 shadow-2xs">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-extrabold">
+                        <Sparkles size={12} className="text-amber-700" />
+                        <span>ระบบ Q.S.C. · แจ้งเตือนบันทึกงานแก้ไข</span>
                       </div>
                       <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed whitespace-pre-wrap">
                         {tl.text}
                       </p>
-                      <div className="flex items-center justify-center flex-wrap gap-2 text-[11px] text-amber-800 font-semibold pt-1 border-t border-amber-200/60">
+                      <div className="flex items-center justify-center flex-wrap gap-2 text-[10.5px] text-amber-800 font-semibold pt-1 border-t border-amber-200/60">
                         <span>🕒 บันทึกเมื่อ: {tl.time}</span>
                         {capDetail?.submissionDeadline && (
-                          <span>· 📅 กำหนดส่งแก้ไข: {new Date(capDetail.submissionDeadline).toLocaleDateString('th-TH')}</span>
+                          <span>· 📅 กำหนดส่ง: {new Date(capDetail.submissionDeadline).toLocaleDateString('th-TH')}</span>
                         )}
                       </div>
                     </div>
@@ -569,10 +705,9 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                 );
               }
 
-              const effectiveUser = currentUser || authStorage.getUser() || {};
-              const currentUserId = effectiveUser?.id;
-              const currentFullName = (effectiveUser?.fullName || effectiveUser?.name || "").trim();
-              const currentUsername = (effectiveUser?.username || "").trim();
+              const currentUserId = currentUser?.id;
+              const currentFullName = (currentUser?.fullName || currentUser?.name || "").trim();
+              const currentUsername = (currentUser?.username || "").trim();
 
               const isMe = Boolean(
                 (tl.senderId && currentUserId && Number(tl.senderId) === Number(currentUserId)) ||
@@ -592,7 +727,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
               );
               cleanSenderName = cleanSenderName.replace(/\s*\([^)]*\)/g, '').trim();
 
-              const myRoleText = (role === "AUDITEE" || effectiveUser?.role === "AUDITEE") ? "สาขา" : "ผู้ตรวจ/QA";
+              const myRoleText = (role === "AUDITEE" || currentUser?.role === "AUDITEE") ? "สาขา" : "ผู้ตรวจ/QA";
               const senderDisplayName = `${cleanSenderName} (${isMe ? myRoleText : senderRoleText})`;
 
               return (
@@ -620,7 +755,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                       <p className="whitespace-pre-wrap">{tl.text}</p>
                     ) : null}
 
-                    {/* Attached Photo inside Bubble (Preserves natural aspect ratio without cropping) */}
+                    {/* Attached Photo inside Bubble */}
                     {tl.photo && (
                       <div 
                         onClick={() => setViewingPhoto(tl.photo)}
@@ -632,11 +767,6 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                           <img 
                             src={getFullImageUrl(tl.photo)} 
                             alt="หลักฐานประกอบ" 
-                            onLoad={() => {
-                              if (chatContainerRef.current) {
-                                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-                              }
-                            }}
                             className="w-full max-h-72 sm:max-h-80 object-contain rounded-lg group-hover:scale-102 transition-transform duration-200" 
                           />
                         </div>
@@ -657,7 +787,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             })}
           </div>
 
-          {/* Hidden File Input */}
+          {/* Hidden File Input for regular chat attachment */}
           <input
             type="file"
             accept="image/*"
@@ -704,7 +834,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                   ? 'bg-emerald-100 text-[#0F6659] border-emerald-400 shadow-xs cursor-pointer active:scale-95' 
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-800 cursor-pointer active:scale-95'
               }`}
-              title={isClosed ? "รายการนี้อนุมัติและปิดงานแล้ว ไม่สามารถแนบรูปถ่ายได้" : "ถ่ายรูปหรือเลือกรูปจากเครื่อง"}
+              title={isClosed ? "รายการนี้อนุมัติและปิดงานแล้ว" : "ถ่ายรูปหรือเลือกรูปจากเครื่อง"}
             >
               <Camera size={20} />
             </button>
@@ -734,28 +864,43 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             )}
           </div>
 
-
-          {/* 🌟 ACTION BAR: QA / AUDITOR / ADMIN (Approve & Close) */}
+          {/* 🌟 AUDITOR REVIEW ACTIONS BAR: (Approve OR Reject Decision) */}
           {role !== "AUDITEE" && !isClosed && (
-            <div className="pt-2 border-t border-slate-100 space-y-2">
-              <button 
-                type="button"
-                onClick={() => setConfirmModal({
-                  isOpen: true,
-                  type: 'approve',
-                  title: 'ยืนยันการอนุมัติและปิดงาน (Approve & Close)',
-                  message: 'คุณต้องการอนุมัติและปิดงานแก้ไข (CAP) นี้ให้สมบูรณ์ใช่หรือไม่? เมื่ออนุมัติแล้ว งานนี้จะเปลี่ยนสถานะเป็นเสร็จสมบูรณ์ทันที'
-                })}
-                className="w-full py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer text-white active:scale-98 bg-[#0F6659] hover:bg-[#0B4E44] transition-all shadow-md"
-              >
-                <CheckCircle2 size={18} />
-                <span>อนุมัติและปิดงาน (Approve & Close)</span>
-              </button>
-              {currentStatus === "submitted" && (
-                <div className="text-center text-[11px] text-emerald-700 font-bold">
-                  กรุณาตรวจสอบรูปภาพและข้อความก่อนอนุมัติ
-                </div>
-              )}
+            <div className="pt-3 border-t border-slate-100 space-y-2.5">
+              <div className="flex items-center justify-between">
+                {isSubmitted && (
+                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                    🟡 สาขาส่งขออนุมัติแล้ว
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
+                {/* 1. 🟢 Approve & Close Button (Left) */}
+                <button 
+                  type="button"
+                  onClick={() => setConfirmModal({
+                    isOpen: true,
+                    type: 'approve',
+                    title: 'ยืนยันการอนุมัติและปิดงาน (Approve & Close)',
+                    message: 'คุณได้ตรวจสอบรูปถ่ายหลักฐานเปรียบเทียบก่อน-หลัง และต้องการอนุมัติปิดงานแก้ไขนี้ใช่หรือไม่?'
+                  })}
+                  className="w-full py-2.5 sm:py-3 px-2 sm:px-4 rounded-2xl text-[11px] sm:text-sm font-bold flex items-center justify-center gap-1.5 cursor-pointer text-white active:scale-98 bg-[#0F6659] hover:bg-[#0B4E44] transition-all shadow-md truncate"
+                >
+                  <CheckCircle2 size={16} className="shrink-0" />
+                  <span className="truncate">อนุมัติและปิดงาน</span>
+                </button>
+
+                {/* 2. 🔴 Reject & Request Re-do Button (Right) */}
+                <button 
+                  type="button"
+                  onClick={() => setShowRejectModal(true)}
+                  className="w-full py-2.5 sm:py-3 px-2 sm:px-4 rounded-2xl text-[11px] sm:text-sm font-bold flex items-center justify-center gap-1.5 cursor-pointer text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 active:scale-98 transition-all shadow-2xs truncate"
+                >
+                  <RotateCcw size={16} className="shrink-0" />
+                  <span className="truncate">ส่งกลับแก้ไข</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -770,7 +915,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
           )}
         </div>
 
-        {/* 👉 RIGHT COLUMN: PERMANENT DEFECT SUMMARY (lg:col-span-4 / Hidden on mobile) */}
+        {/* 👉 RIGHT COLUMN: PERMANENT DEFECT SUMMARY & BEFORE/AFTER (lg:col-span-5 xl:col-span-4) */}
         <div className="hidden lg:block lg:col-span-5 xl:col-span-4 bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs sticky top-20">
           <div className="flex items-center gap-2 pb-3 mb-3 border-b border-slate-100">
             <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
@@ -783,28 +928,297 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
         </div>
       </div>
 
-      {/* 📱 MOBILE SLIDE DRAWER / MODAL FOR DEFECT DETAILS */}
+      {/* 📱 MOBILE SLIDE DRAWER / MODAL FOR DEFECT DETAILS & BEFORE/AFTER */}
       {showInfoDrawer && (
         <ModalWrapper onClose={() => setShowInfoDrawer(false)} maxWidth="max-w-lg">
-          <div className="p-5 space-y-4 max-h-[80dvh] overflow-y-auto overscroll-contain">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
+          <div className="flex flex-col max-h-[85dvh] overflow-hidden">
+            {/* 📌 Pinned Header (ไม่เลื่อนตาม) */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between shrink-0 bg-white z-10">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold shrink-0">
                   <Info size={16} />
                 </div>
-                <h3 className="text-base font-extrabold text-slate-800">รายละเอียดข้อบกพร่อง</h3>
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-800 truncate">
+                  รายละเอียดและการเปรียบเทียบรูปภาพ
+                </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setShowInfoDrawer(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center cursor-pointer"
+                className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+                title="ปิดหน้าต่าง"
               >
                 <X size={16} />
               </button>
             </div>
 
-            {renderDefectDetails()}
+            {/* 📜 Scrollable Body */}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto overscroll-contain flex-1 custom-tab-scrollbar">
+              {renderDefectDetails()}
+            </div>
           </div>
+        </ModalWrapper>
+      )}
+
+      {/* 📸 MODAL FOR STORE MANAGER TO SUBMIT REMEDIATION FOR APPROVAL (Mandatory Photos) */}
+      {showSubmitModal && (
+        <ModalWrapper onClose={() => !isSubmittingApproval && setShowSubmitModal(false)} maxWidth="max-w-lg">
+          <div className="p-4 border-b flex items-center justify-between shrink-0 bg-slate-50 border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-[#0F6659] shrink-0 font-bold">
+                <Camera size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">ส่งหลักฐานและขออนุมัติการแก้ไข</h3>
+                <p className="text-[11px] text-slate-500">แนบรูปถ่ายหลังปรับปรุงเพื่อให้ผู้ตรวจพิจารณาอนุมัติ</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSubmitModal(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmitApproval} className="p-4 sm:p-5 space-y-4 max-h-[75dvh] overflow-y-auto custom-tab-scrollbar">
+            {submitError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+                <span>{submitError}</span>
+              </div>
+            )}
+
+            {/* 1. Mandatory Photos Upload */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Camera size={14} className="text-[#0F6659]" />
+                  <span>รูปภาพหลักฐานหลังการแก้ไข (After Photos) <span className="text-rose-500 font-black">*</span></span>
+                </label>
+                {submitPhotos.length > 0 && (
+                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    แนบแล้ว {submitPhotos.length} รูป
+                  </span>
+                )}
+              </div>
+
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                ref={submitFileInputRef}
+                onChange={async (e) => {
+                  const files = e.target.files;
+                  if (!files || files.length === 0) return;
+                  try {
+                    const fileList = Array.from(files);
+                    const compressedUrls = await Promise.all(fileList.map(f => compressImageFile(f)));
+                    setSubmitPhotos(prev => [...prev, ...compressedUrls]);
+                    if (submitError) setSubmitError(null);
+                  } catch (err) {
+                    Array.from(files).forEach(file => {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        setSubmitPhotos(prev => [...prev, ev.target.result]);
+                        if (submitError) setSubmitError(null);
+                      };
+                      reader.readAsDataURL(file);
+                    });
+                  }
+                  e.target.value = "";
+                }}
+                className="hidden"
+              />
+
+              {submitPhotos.length > 0 ? (
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                    {submitPhotos.map((img, idx) => (
+                      <div
+                        key={idx}
+                        className="relative aspect-square rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-2xs group"
+                      >
+                        <img
+                          src={img}
+                          alt={`Evidence ${idx + 1}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30 pointer-events-none" />
+
+                        <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold font-mono">
+                          #{idx + 1}
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setSubmitPhotos(prev => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-all shadow-sm active:scale-90"
+                          title="ลบรูปนี้"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                    ))}
+
+                    {/* Add More Tile */}
+                    <button
+                      type="button"
+                      onClick={() => submitFileInputRef.current?.click()}
+                      className="aspect-square rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/40 bg-slate-50 flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-[#0F6659] cursor-pointer transition-all active:scale-95 group"
+                    >
+                      <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 transition-colors shadow-2xs">
+                        <Plus size={16} className="text-slate-500 group-hover:text-[#0F6659]" />
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-600 group-hover:text-[#0F6659]">เพิ่มรูป</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-0.5">
+                    <span>รูปถ่ายนี้จะแสดงในฝั่งหลังแก้ไข (After) ให้ผู้ตรวจเปรียบเทียบ</span>
+                    <button
+                      type="button"
+                      onClick={() => setSubmitPhotos([])}
+                      className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                    >
+                      ลบทั้งหมด
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => submitFileInputRef.current?.click()}
+                  className="w-full p-5 rounded-2xl border-2 border-dashed border-emerald-300 hover:border-[#0F6659] bg-emerald-50/40 hover:bg-emerald-50/70 flex flex-col items-center justify-center gap-2 text-emerald-800 transition-all cursor-pointer group"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-white border border-emerald-300 flex items-center justify-center group-hover:scale-105 transition-all shadow-2xs text-[#0F6659]">
+                    <Camera size={24} />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs sm:text-sm font-bold text-[#0F6659]">
+                      แตะเพื่อถ่ายรูปหรือเลือกรูปภาพหลักฐานหลังแก้ไข *
+                    </div>
+                    <div className="text-[11px] text-emerald-700 mt-0.5">
+                      บังคับต้องแนบรูปภาพอย่างน้อย 1 รูป เพื่อยืนยันการแก้ไข
+                    </div>
+                  </div>
+                </button>
+              )}
+            </div>
+
+            {/* 2. Action / Remediation Notes */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">
+                รายละเอียดการดำเนินการแก้ไข (Action Description)
+              </label>
+              <textarea
+                value={submitMessage}
+                rows={3}
+                onChange={(e) => setSubmitMessage(e.target.value)}
+                placeholder="ระบุสิ่งที่สาขาได้ปรับปรุงแก้ไข เช่น ได้ทำการขัดล้างทำความสะอาดและตรวจสอบความเรียบร้อยตามมาตรฐานแล้ว..."
+                className="w-full p-3 rounded-2xl border border-slate-200 text-xs sm:text-sm font-medium bg-white text-slate-800 placeholder:text-slate-400 focus:border-[#0F6659] outline-none shadow-2xs leading-relaxed"
+              />
+            </div>
+
+            {/* Modal Submit Footer */}
+            <div className="pt-2">
+              <button
+                type="button"
+                disabled={isSubmittingApproval || submitPhotos.length === 0}
+                onClick={handleSubmitApproval}
+                className="w-full py-3.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md bg-[#0F6659] hover:bg-emerald-800 text-white transition-all active:scale-[0.99] disabled:opacity-50"
+              >
+                {isSubmittingApproval ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>กำลังส่งข้อมูลและรูปภาพ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check size={16} />
+                    <span>ยืนยันส่งหลักฐานและขออนุมัติ</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+        </ModalWrapper>
+      )}
+
+      {/* 🔴 MODAL FOR AUDITOR TO REJECT AND REQUEST RE-DO */}
+      {showRejectModal && (
+        <ModalWrapper onClose={() => !isRejecting && setShowRejectModal(false)} maxWidth="max-w-md">
+          <div className="p-4 border-b flex items-center justify-between shrink-0 bg-rose-50/70 border-rose-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0 font-bold">
+                <RotateCcw size={16} />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">ส่งกลับให้สาขาแก้ไขใหม่ (Reject)</h3>
+                <p className="text-[11px] text-slate-500">ระบุเหตุผลและสิ่งที่สาขาต้องปรับปรุงเพิ่มเติม</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRejectModal(false)}
+              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          <form onSubmit={handleRejectRemediation} className="p-4 sm:p-5 space-y-4">
+            {rejectError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
+                <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+                <span>{rejectError}</span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">
+                เหตุผลและสิ่งที่ต้องแก้ไขเพิ่มเติม <span className="text-rose-500 font-black">*</span>
+              </label>
+              <textarea
+                required
+                rows={3}
+                value={rejectReason}
+                onChange={(e) => {
+                  setRejectReason(e.target.value);
+                  if (rejectError) setRejectError(null);
+                }}
+                placeholder="เช่น รูปถ่ายยังไม่ชัดเจน หรือยังมีคราบไขมันตกค้าง ให้ขัดล้างเพิ่มเติมและถ่ายรูปส่งใหม่..."
+                className="w-full p-3 rounded-2xl border border-rose-300 focus:border-rose-500 text-xs sm:text-sm font-medium bg-white text-slate-800 placeholder:text-slate-400 outline-none shadow-2xs leading-relaxed"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isRejecting}
+                onClick={() => setShowRejectModal(false)}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 cursor-pointer transition-all"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={isRejecting || !rejectReason.trim()}
+                onClick={handleRejectRemediation}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 cursor-pointer shadow-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+              >
+                {isRejecting ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    <span>กำลังบันทึก...</span>
+                  </>
+                ) : (
+                  <span>ส่งกลับให้แก้ไขใหม่</span>
+                )}
+              </button>
+            </div>
+          </form>
         </ModalWrapper>
       )}
 
@@ -815,7 +1229,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             <div className="flex items-center justify-between">
               <span className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
                 <Camera size={16} className="text-[#0F6659]" />
-                <span>รูปถ่ายหลักฐานการแก้ไข (Evidence Photo)</span>
+                <span>รูปถ่ายหลักฐาน (Photo Evidence)</span>
               </span>
               <button 
                 type="button" 
@@ -825,7 +1239,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                 <X size={16} />
               </button>
             </div>
-            <img src={getFullImageUrl(viewingPhoto)} alt="ขยายรูปภาพ" className="w-full h-80 sm:h-96 object-cover rounded-2xl border" />
+            <img src={getFullImageUrl(viewingPhoto)} alt="ขยายรูปภาพ" className="w-full max-h-[75dvh] object-contain rounded-2xl border bg-black/5" />
           </div>
         </ModalWrapper>
       )}
@@ -870,11 +1284,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                 type="button"
                 disabled={isActionProcessing}
                 onClick={handleConfirmAction}
-                className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm transition-all flex items-center justify-center gap-1.5 ${
-                  confirmModal.type === 'reject'
-                    ? 'bg-rose-600 hover:bg-rose-700'
-                    : 'bg-[#0F6659] hover:bg-emerald-800'
-                }`}
+                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm transition-all flex items-center justify-center gap-1.5 bg-[#0F6659] hover:bg-emerald-800"
               >
                 {isActionProcessing ? (
                   <>
@@ -882,7 +1292,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                     <span>กำลังบันทึก...</span>
                   </>
                 ) : (
-                  <span>ยืนยันดำเนินการ</span>
+                  <span>ยืนยันอนุมัติและปิดงาน</span>
                 )}
               </button>
             </div>

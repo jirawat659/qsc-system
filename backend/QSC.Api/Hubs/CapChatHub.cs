@@ -40,8 +40,8 @@ namespace QSC.Api.Hubs
 
             try
             {
-                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                var dir = Path.Combine(webRoot, "uploads", subfolder);
+                var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
+                var dir = Path.Combine(uploadsRoot, subfolder);
                 Directory.CreateDirectory(dir);
 
                 var base64Clean = input;
@@ -60,9 +60,9 @@ namespace QSC.Api.Hubs
                     return $"/uploads/{subfolder}/{fileName}";
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback
+                Console.WriteLine($"[CapChatHub] Base64 image conversion error ({prefix}): {ex.Message}");
             }
             return input;
         }

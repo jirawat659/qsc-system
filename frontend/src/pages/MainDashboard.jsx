@@ -378,7 +378,8 @@ export default function MainDashboard({ onLogout }) {
                   const existingIdx = list.findIndex(d => 
                     d && (
                       (d.id && draft.id && d.id === draft.id) || 
-                      (d.locationId && draft.locationId && d.locationId === draft.locationId && 
+                      (d.auditScheduleId && draft.auditScheduleId && d.auditScheduleId === draft.auditScheduleId) ||
+                      (!d.id && !draft.id && !d.auditScheduleId && !draft.auditScheduleId && d.locationId === draft.locationId && 
                         (d.surveyFormId === draft.formId || d.formId === draft.formId || d.surveyFormId === draft.surveyFormId))
                     )
                   );

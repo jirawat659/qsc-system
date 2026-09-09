@@ -203,6 +203,8 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] ScheduleSaveDto dto)
         {
+            var (currentUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
             if (formValidationError != null)
             {
@@ -216,6 +218,8 @@ namespace QSC.Api.Controllers
                     return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
             }
 
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
             var schedule = new AuditSchedule
             {
                 LocationId = dto.LocationId,
@@ -225,7 +229,7 @@ namespace QSC.Api.Controllers
                 AuditType = dto.AuditType,
                 Status = "pending",
                 Notes = dto.Notes,
-                CreatedBy = dto.CreatedBy > 0 ? dto.CreatedBy : 1,
+                CreatedBy = currentUserId > 0 ? currentUserId : (dto.CreatedBy > 0 ? dto.CreatedBy : 1),
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -245,7 +249,6 @@ namespace QSC.Api.Controllers
                     });
                     isLead = false;
                 }
-                await _context.SaveChangesAsync();
             }
 
             // 📌 Link & update pending CAP recommendations for this branch to USED
@@ -260,8 +263,10 @@ namespace QSC.Api.Controllers
                     cap.FollowUpStatus = "USED";
                     cap.FollowUpScheduleId = schedule.Id;
                 }
-                await _context.SaveChangesAsync();
             }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(schedule);
         }

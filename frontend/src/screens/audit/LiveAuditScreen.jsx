@@ -339,16 +339,25 @@ export default function LiveAuditScreen({
   const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
   const targetFormId = preselectedPlan?.surveyFormId;
 
-  // 🎯 Find draft strictly matching THIS branch (locationId) and form
+  // 🎯 Find draft strictly matching THIS branch (locationId) and form or specific Draft ID
   const matchedDraftRecord = useMemo(() => {
     if (preselectedPlan?.isNewAudit) return null; // New audit NEVER uses existing draft
 
-    // If preselectedPlan itself is the draft and explicitly requested resume
-    if (preselectedPlan?.isResume && (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers)) {
-      return preselectedPlan;
+    const allDrafts = activeDrafts && activeDrafts.length > 0 ? activeDrafts : (activeDraft ? [activeDraft] : []);
+
+    // 1. If explicit resume with specific draft ID (e.g. from AllAuditHistory list)
+    if (preselectedPlan?.isResume) {
+      const explicitDraftId = preselectedPlan.originalId || preselectedPlan.id;
+      if (explicitDraftId && typeof explicitDraftId === 'number') {
+        const foundById = allDrafts.find(d => d.id === explicitDraftId);
+        if (foundById) return foundById;
+      }
+      if (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers) {
+        return preselectedPlan;
+      }
     }
 
-    // If this is not a resume request (e.g. user clicked "เริ่มตรวจตามแผนงาน" on a fresh plan), do NOT load draft
+    // 2. If this is not a resume request (e.g. user clicked "เริ่มตรวจตามแผนงาน" on a fresh plan), do NOT load draft
     if (preselectedPlan && !preselectedPlan.isResume) {
       return null;
     }
@@ -357,7 +366,12 @@ export default function LiveAuditScreen({
       return null;
     }
 
-    const allDrafts = activeDrafts && activeDrafts.length > 0 ? activeDrafts : (activeDraft ? [activeDraft] : []);
+    // 3. Match by schedule ID if scheduled
+    if (preselectedPlan?.id && typeof preselectedPlan.id === 'number') {
+      const foundBySched = allDrafts.find(d => d.auditScheduleId === preselectedPlan.id);
+      if (foundBySched) return foundBySched;
+    }
+
     const found = allDrafts.find(d => {
       const dLocId = d.locationId || d.location?.id || d.unit?.id;
       const dLocName = d.locationName || d.locationFullName || d.unit?.name || d.unit?.fullName;
@@ -967,17 +981,23 @@ export default function LiveAuditScreen({
 
       const draftPayloadJson = JSON.stringify(payload);
 
-      // 1. Instant localStorage cache specifically scoped to THIS location & form
-      try {
-        localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
-      } catch (e) { }
-
       const effectiveSchedId = (preselectedPlan?.id && Number(preselectedPlan.id) > 0) 
         ? Number(preselectedPlan.id) 
         : (preselectedPlan?.scheduleId ? Number(preselectedPlan.scheduleId) : null);
 
-      // 2. Persist to SQLite Backend
       const effectiveDraftId = draftIdRef.current || draftId;
+
+      // 1. Instant localStorage cache specifically scoped to THIS session
+      try {
+        if (effectiveSchedId) {
+          localStorage.setItem(`qsc_draft_sched_${effectiveSchedId}`, draftPayloadJson);
+        } else if (effectiveDraftId) {
+          localStorage.setItem(`qsc_draft_id_${effectiveDraftId}`, draftPayloadJson);
+        }
+        localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
+      } catch (e) { }
+
+      // 2. Persist to SQLite Backend
       const res = await api.put('/audit/draft', {
         id: effectiveDraftId,
         locationId: currentUnit.id,
@@ -1496,13 +1516,17 @@ export default function LiveAuditScreen({
         ? new Date(backdatedEndDate).toISOString()
         : new Date().toISOString();
 
+      const effectiveDraftId = draftIdRef.current || draftId;
+      const effectiveSchedId = (preselectedPlan?.id && Number(preselectedPlan.id) > 0) ? Number(preselectedPlan.id) : null;
+
       const payload = {
+        draftId: effectiveDraftId || null,
         locationId: Number(unit.id),
         surveyFormId: Number(selectedForm?.id || 1),
         primaryAuditorId: currentUser?.id ? Number(currentUser.id) : null,
         auditeeUserId: (unit.managerUserId && Number(unit.managerUserId) > 0) ? Number(unit.managerUserId) : null,
         auditeeNameText: auditeeSignName || unit.managerName || "-",
-        auditScheduleId: (preselectedPlan?.id && Number(preselectedPlan.id) > 0) ? Number(preselectedPlan.id) : null,
+        auditScheduleId: effectiveSchedId,
         staffCount: Number(staffCount) || 0,
         auditType: auditType || "announced",
         notes: extraNote || "",
@@ -1527,6 +1551,8 @@ export default function LiveAuditScreen({
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (unit?.id) localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
+        if (effectiveSchedId) localStorage.removeItem(`qsc_draft_sched_${effectiveSchedId}`);
+        if (effectiveDraftId) localStorage.removeItem(`qsc_draft_id_${effectiveDraftId}`);
       } catch (e) { }
       if (refreshData) await refreshData();
 

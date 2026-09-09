@@ -30,6 +30,9 @@ namespace QSC.Api.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AuditScheduleId")
+                        .HasColumnType("int");
+
                     b.Property<int>("AuditorId")
                         .HasColumnType("int");
 
@@ -81,6 +84,8 @@ namespace QSC.Api.Migrations
                         .HasColumnType("rowversion");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AuditScheduleId");
 
                     b.HasIndex("LocationId");
 
@@ -168,9 +173,6 @@ namespace QSC.Api.Migrations
 
                     b.Property<DateTime?>("SignedAt")
                         .HasColumnType("datetime2");
-
-                    b.Property<int>("StaffCount")
-                        .HasColumnType("int");
 
                     b.Property<double?>("StartLatitude")
                         .HasColumnType("float");
@@ -548,7 +550,7 @@ namespace QSC.Api.Migrations
                     b.Property<int?>("AssignedTo")
                         .HasColumnType("int");
 
-                    b.Property<int>("AuditRecordId")
+                    b.Property<int?>("AuditRecordId")
                         .HasColumnType("int");
 
                     b.Property<int?>("AuditResponseId")
@@ -570,6 +572,13 @@ namespace QSC.Api.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("FollowUpScheduleId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("FollowUpStatus")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("IssueItem")
                         .IsRequired()
                         .HasMaxLength(300)
@@ -577,6 +586,9 @@ namespace QSC.Api.Migrations
 
                     b.Property<int>("LocationId")
                         .HasColumnType("int");
+
+                    b.Property<string>("NextAuditNote")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -738,11 +750,6 @@ namespace QSC.Api.Migrations
                     b.Property<string>("Address")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("BrandName")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -1490,6 +1497,11 @@ namespace QSC.Api.Migrations
 
             modelBuilder.Entity("QSC.Api.Models.AuditDraft", b =>
                 {
+                    b.HasOne("QSC.Api.Models.AuditSchedule", "AuditSchedule")
+                        .WithMany()
+                        .HasForeignKey("AuditScheduleId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("QSC.Api.Models.User", "Auditor")
                         .WithMany()
                         .HasForeignKey("AuditorId")
@@ -1507,6 +1519,8 @@ namespace QSC.Api.Migrations
                         .HasForeignKey("SurveyFormId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("AuditSchedule");
 
                     b.Navigation("Auditor");
 
@@ -1669,8 +1683,7 @@ namespace QSC.Api.Migrations
                     b.HasOne("QSC.Api.Models.AuditRecord", "AuditRecord")
                         .WithMany()
                         .HasForeignKey("AuditRecordId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("QSC.Api.Models.AuditResponse", "AuditResponse")
                         .WithMany()

@@ -149,14 +149,14 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         onBack={onBack}
       />
 
-      {/* 🌟 ปุ่มส่งงานแก้ไขใหม่ (อยู่บนช่องค้นหา) */}
+      {/* 🌟 ปุ่มสร้างงานแก้ไขใหม่ (มอบหมายให้ผู้จัดการร้าน/สาขา) */}
       <div className="flex justify-end sm:justify-start">
         <button
           type="button"
           onClick={() => setShowNewModal(true)}
           className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold cursor-pointer shadow-sm hover:bg-emerald-800 active:scale-[0.98] transition-all text-white bg-[#0F6659]"
         >
-          <Plus size={18} /> ส่งงานแก้ไขใหม่
+          <Plus size={18} /> {role === "AUDITEE" ? "แจ้งรายการแก้ไขใหม่" : "สร้างงานแก้ไขใหม่ (มอบหมายสาขา)"}
         </button>
       </div>
 
@@ -316,25 +316,8 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           locations={visibleLocations}
           currentUser={currentUser}
           onClose={() => setShowNewModal(false)}
-          onSubmit={async (createdData) => {
-            try {
-              if (createdData?.locationId) {
-                const res = await api.post('/cap', {
-                  locationId: createdData.locationId,
-                  issueItem: createdData.issueItem || "ข้อบกพร่องจากการตรวจ",
-                  description: createdData.desc || "",
-                  assignedTo: currentUser?.id || 1
-                });
-                const allPhotos = createdData.photos || createdData.images || (createdData.photo ? [createdData.photo] : []);
-                if (res.data?.id && allPhotos.length > 0) {
-                  await api.post(`/cap/${res.data.id}/submit`, {
-                    message: createdData.desc || "ส่งหลักฐานการแก้ไขเพิ่มเติมเรียบร้อยแล้ว",
-                    imageUrls: allPhotos
-                  });
-                }
-              }
-              if (refreshData) await refreshData();
-            } catch (err) {}
+          onSuccess={async () => {
+            if (refreshData) await refreshData();
           }}
         />
       )}

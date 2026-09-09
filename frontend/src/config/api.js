@@ -27,17 +27,15 @@ if (!isDevMode && envApiBaseUrl && protocol === 'https:' && envApiBaseUrl.starts
 export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}`;
 export const API_BASE_URL = `${SERVER_BASE_URL}/api`;
 
-// 🖼️ URL Resolver: แปลง relative path (/uploads/...) เป็น full backend URL
+// 🖼️ URL Resolver: ดึงไฟล์รูปภาพตรงจาก frontend/public/uploads หรือ data URL
 export const getFullImageUrl = (url) => {
   if (!url) return '';
   if (typeof url !== 'string') return '';
   if (url.startsWith('data:image/') || url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
     return url;
   }
-  if (url.startsWith('/')) {
-    return `${SERVER_BASE_URL}${url}`;
-  }
-  return `${SERVER_BASE_URL}/${url}`;
+  // เสิร์ฟโดยตรงจาก Frontend public path
+  return url.startsWith('/') ? url : `/${url}`;
 };
 
 // 🚀 สร้าง Axios Instance สำหรับเรียกใช้ทั่วทั้งโปรเจกต์

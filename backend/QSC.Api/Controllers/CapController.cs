@@ -43,8 +43,8 @@ namespace QSC.Api.Controllers
 
             try
             {
-                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                var dir = Path.Combine(webRoot, "uploads", subfolder);
+                var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
+                var dir = Path.Combine(uploadsRoot, subfolder);
                 Directory.CreateDirectory(dir);
 
                 var base64Clean = input;
@@ -63,9 +63,9 @@ namespace QSC.Api.Controllers
                     return $"/uploads/{subfolder}/{fileName}";
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback
+                Console.WriteLine($"[CapController] Base64 image conversion error ({prefix}): {ex.Message}");
             }
             return input;
         }
@@ -211,7 +211,7 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            // Fetch BEFORE images directly from AuditResponseImage
+            // Fetch BEFORE images directly from AuditResponseImage + CapTaskImages (Phase == BEFORE)
             var beforeImages = new List<string>();
             if (task.AuditResponseId.HasValue)
             {
@@ -221,6 +221,8 @@ namespace QSC.Api.Controllers
                     .Select(img => img.ImageUrl)
                     .ToListAsync();
             }
+            var beforeTaskImages = task.Images.Where(img => img.Phase == "BEFORE").Select(img => img.ImageUrl).ToList();
+            beforeImages.AddRange(beforeTaskImages);
 
             return Ok(new
             {
@@ -249,7 +251,7 @@ namespace QSC.Api.Controllers
                 closedAt = task.ClosedAt,
                 createdAt = task.CreatedAt,
                 beforeImages = beforeImages,
-                afterImages = task.Images.Select(img => new
+                afterImages = task.Images.Where(img => img.Phase == "AFTER").Select(img => new
                 {
                     id = img.Id,
                     imageUrl = img.ImageUrl,
@@ -281,6 +283,7 @@ namespace QSC.Api.Controllers
             public string Description { get; set; } = string.Empty;
             public DateTime? SubmissionDeadline { get; set; }
             public int? AssignedTo { get; set; }
+            public List<string>? ImageUrls { get; set; } // Defect / Before images
         }
 
         [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
@@ -314,8 +317,8 @@ namespace QSC.Api.Controllers
                 LocationId = dto.LocationId,
                 AuditRecordId = dto.AuditRecordId,
                 AuditResponseId = null, // Manual
-                IssueItem = dto.IssueItem,
-                Description = dto.Description,
+                IssueItem = dto.IssueItem.Trim(),
+                Description = dto.Description.Trim(),
                 SubmissionDeadline = dto.SubmissionDeadline ?? DateTime.UtcNow.AddDays(7),
                 Status = "OPEN",
                 AssignedTo = dto.AssignedTo,
@@ -324,6 +327,25 @@ namespace QSC.Api.Controllers
 
             _context.CapTasks.Add(task);
             await _context.SaveChangesAsync();
+
+            // Save defect / before images if provided
+            if (dto.ImageUrls != null && dto.ImageUrls.Any())
+            {
+                foreach (var url in dto.ImageUrls)
+                {
+                    if (string.IsNullOrWhiteSpace(url)) continue;
+                    var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "defect");
+                    _context.CapTaskImages.Add(new CapTaskImage
+                    {
+                        CapTaskId = task.Id,
+                        Phase = "BEFORE",
+                        ImageUrl = savedUrl,
+                        UploadedBy = currentUserId,
+                        UploadedAt = DateTime.UtcNow
+                    });
+                }
+                await _context.SaveChangesAsync();
+            }
 
             return Ok(task);
         }
@@ -359,7 +381,13 @@ namespace QSC.Api.Controllers
 
             if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
             {
-                return BadRequest(new { message = "งานแก้ไขนี้ถูกปิดแล้ว ไม่สามารถส่งข้อมูลเพิ่มเติมได้ (Cannot submit remediation to a closed CAP task)" });
+                return BadRequest(new { message = "งานแก้ไขนี้ถูกปิดแล้ว ไม่สามารถส่งข้อมูลเพิ่มเติมได้" });
+            }
+
+            // Require at least one evidence image
+            if (dto.ImageUrls == null || !dto.ImageUrls.Any(u => !string.IsNullOrWhiteSpace(u)))
+            {
+                return BadRequest(new { message = "กรุณาแนบรูปภาพหลักฐานหลังการแก้ไขอย่างน้อย 1 รูป เพื่อขออนุมัติ" });
             }
 
             task.Status = "SUBMITTED";
@@ -375,6 +403,7 @@ namespace QSC.Api.Controllers
             {
                 foreach (var url in dto.ImageUrls)
                 {
+                    if (string.IsNullOrWhiteSpace(url)) continue;
                     var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "cap");
                     if (firstSavedImageUrl == null && !string.IsNullOrWhiteSpace(savedUrl))
                     {
@@ -392,52 +421,49 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            // Add Chat Comment (with or without image attachment)
-            if (!string.IsNullOrWhiteSpace(dto.Message) || !string.IsNullOrWhiteSpace(firstSavedImageUrl))
-            {
-                var comment = new CapTaskComment
-                {
-                    CapTaskId = id,
-                    SenderId = currentUserId,
-                    SenderRole = role,
-                    Message = dto.Message ?? string.Empty,
-                    ImageUrl = firstSavedImageUrl,
-                    CreatedAt = now
-                };
-                _context.CapTaskComments.Add(comment);
-                await _context.SaveChangesAsync();
+            // Add Chat Comment with formatted request note
+            var messageText = string.IsNullOrWhiteSpace(dto.Message)
+                ? "📸 ส่งมอบหลักฐานและขออนุมัติการแก้ไขเรียบร้อยแล้ว"
+                : $"📸 [ขออนุมัติการแก้ไข] {dto.Message.Trim()}";
 
-                // Broadcast via SignalR
-                var commentPayload = new
-                {
-                    id = comment.Id,
-                    capTaskId = id,
-                    userId = currentUserId,
-                    userName = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
-                    userRole = user?.Role?.Code ?? role,
-                    comment = comment.Message,
-                    message = comment.Message,
-                    imageUrl = comment.ImageUrl,
-                    isAuditorComment = false,
-                    createdAt = comment.CreatedAt
-                };
-                await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
-            }
-            else
+            var comment = new CapTaskComment
             {
-                await _context.SaveChangesAsync();
-            }
+                CapTaskId = id,
+                SenderId = currentUserId,
+                SenderRole = role,
+                Message = messageText,
+                ImageUrl = firstSavedImageUrl,
+                CreatedAt = now
+            };
+            _context.CapTaskComments.Add(comment);
+            await _context.SaveChangesAsync();
+
+            // Broadcast via SignalR
+            var commentPayload = new
+            {
+                id = comment.Id,
+                capTaskId = id,
+                userId = currentUserId,
+                userName = user?.FullName ?? user?.Username ?? "ผู้จัดการสาขา",
+                userRole = user?.Role?.Code ?? role,
+                comment = comment.Message,
+                message = comment.Message,
+                imageUrl = comment.ImageUrl,
+                isAuditorComment = false,
+                createdAt = comment.CreatedAt
+            };
+            await _hubContext.Clients.Group($"cap_{id}").SendAsync("ReceiveCapMessage", commentPayload);
 
             // Broadcast real-time status update
             await _hubContext.Clients.Group($"cap_{id}").SendAsync("CapStatusUpdated", new
             {
                 capTaskId = id,
                 status = task.Status,
-                updatedBy = user?.FullName ?? user?.Username ?? "ผู้ใช้งาน",
+                updatedBy = user?.FullName ?? user?.Username ?? "ผู้จัดการสาขา",
                 updatedAt = task.CompletedAt
             });
 
-            return Ok(new { message = "ส่งมอบงานแก้ไขเรียบร้อยแล้ว", status = task.Status });
+            return Ok(new { message = "ส่งมอบหลักฐานและขออนุมัติการแก้ไขเรียบร้อยแล้ว", status = task.Status });
         }
 
         public class CloseCapDto
@@ -766,8 +792,8 @@ namespace QSC.Api.Controllers
         {
             if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest("No image data");
 
-            var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var dir = Path.Combine(webRoot, "uploads", "cap_images");
+            var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
+            var dir = Path.Combine(uploadsRoot, "cap_images");
             Directory.CreateDirectory(dir);
 
             var fileName = $"cap_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.webp";

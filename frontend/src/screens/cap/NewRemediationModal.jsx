@@ -1,30 +1,27 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { Camera, Check, Trash2, X, AlertTriangle, Wrench, ChevronDown, MapPin, Store, ChevronRight, Plus } from "lucide-react";
+import React, { useState, useMemo, useRef } from "react";
+import { Camera, Check, X, AlertTriangle, Wrench, MapPin, Store, ChevronRight, Plus, Calendar, FileText, Loader2 } from "lucide-react";
 
-
-import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE } from "../../config/roles";
-import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
-import { TopBarContext } from "../../context/TopBarContext";
-import { DataContext } from "../../context/DataContext";
-import { exportToExcel } from "../../utils/exportToExcel";
-
+import { c, sans, mono } from "../../config/theme";
 import ModalWrapper from "../../shared/ModalWrapper";
-import Header from "../../shared/Header";
-import Section from "../../shared/Section";
-import ScoreRing from "../../shared/ScoreRing";
-import HistoryList from "../../shared/HistoryList";
-import ErrorBoundary from "../../shared/ErrorBoundary";
 import { compressImageFile } from "../../utils/imageCompressor";
 import LocationSelectModal from "../../modals/LocationSelectModal";
+import api from "../../config/api";
 
-export default function NewRemediationModal({ onClose, onSubmit, locations = [], currentUser }) {
+export default function NewRemediationModal({ onClose, onSuccess, locations = [], currentUser }) {
   const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || 1);
   const [showLocationSelectModal, setShowLocationSelectModal] = useState(false);
-  const [selectedIssue, setSelectedIssue] = useState("q1");
-  const [remediationNote, setRemediationNote] = useState("");
+  const [issueItem, setIssueItem] = useState("");
+  const [description, setDescription] = useState("");
+  
+  // Default deadline: 7 days from today
+  const [deadlineDate, setDeadlineDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  });
+  
   const [photos, setPhotos] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
   const fileInputRef = useRef(null);
 
@@ -38,7 +35,6 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
       if (formError) setFormError(null);
     } catch (err) {
       console.error("Compression error:", err);
-      // Fallback if compression fails
       Array.from(files).forEach(file => {
         const reader = new FileReader();
         reader.onload = (ev) => {
@@ -59,50 +55,43 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
     return locations.find(l => String(l.id) === String(selectedLocationId)) || locations[0];
   }, [locations, selectedLocationId]);
 
-  const availableIssues = [
-    { id: "q1", title: "ข้อ 1: พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน" },
-    { id: "q2", title: "ข้อ 2: พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน" },
-    { id: "q7", title: "ข้อ 7: อุณหภูมิตู้แช่เย็นวัตถุดิบไม่เกินเกณฑ์กำหนด (≤ 4.0°C)" },
-  ];
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedLoc?.id) {
+      setFormError("กรุณาเลือกสาขาที่ต้องการมอบหมายงานแก้ไข");
+      return;
+    }
+    if (!issueItem.trim()) {
+      setFormError("กรุณาระบุหัวข้อข้อบกพร่องหรือปัญหาที่ตรวจพบ");
+      return;
+    }
+    if (!description.trim()) {
+      setFormError("กรุณาระบุรายละเอียดและคำแนะนำสิ่งที่สาขาต้องดำเนินการแก้ไข");
+      return;
+    }
 
-  const handleSubmit = () => {
-    if (!remediationNote.trim()) {
-      setFormError("กรุณากรอกรายละเอียดการแก้ไข");
-      return;
-    }
-    if (photos.length === 0) {
-      setFormError("กรุณาแนบรูปภาพหลักฐานหลังแก้ไขอย่างน้อย 1 รูป");
-      return;
-    }
+    setIsSubmitting(true);
     setFormError(null);
-    onSubmit({
-      id: "CAP-" + Date.now().toString().slice(-3),
-      locationId: selectedLoc?.id || 1,
-      title: availableIssues.find(x => x.id === selectedIssue)?.title.split(":")[1]?.trim() || "งานแก้ไขสุขอนามัย",
-      unit: selectedLoc?.name || selectedLoc?.fullName || "สาขาสยาม",
-      status: "submitted",
-      due: "รอผู้ตรวจอนุมัติ",
-      overdue: false,
-      issueItem: availableIssues.find(x => x.id === selectedIssue)?.title,
-      desc: remediationNote,
-      photo: photos[0],
-      photos: photos,
-      images: photos,
-      assignedTo: currentUser?.name || "ผู้จัดการสาขา",
-      deadline: "24 ส.ค. 2569",
-      auditScore: 76,
-      timeline: [
-        { 
-          who: `${currentUser?.name || "ผู้จัดการสาขา"} (${selectedLoc?.name || "สาขา"})`, 
-          text: remediationNote, 
-          photo: photos[0],
-          photos: photos,
-          time: "เมื่อสักครู่",
-          isMe: true
-        }
-      ]
-    });
-    onClose();
+
+    try {
+      const deadlineIso = deadlineDate ? new Date(`${deadlineDate}T23:59:59.000Z`).toISOString() : null;
+      
+      const payload = {
+        locationId: selectedLoc.id,
+        issueItem: issueItem.trim(),
+        description: description.trim(),
+        submissionDeadline: deadlineIso,
+        imageUrls: photos
+      };
+
+      const res = await api.post("/cap", payload);
+      if (onSuccess) onSuccess(res.data);
+      onClose();
+    } catch (err) {
+      setFormError(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการสร้างงานแก้ไข");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -114,8 +103,8 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
             <Wrench size={16} />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-800">ส่งมอบงานแก้ไขใหม่ (Manual CAP)</h3>
-            <p className="text-[11px] text-slate-500">สำหรับสาขาที่ต้องการส่งหลักฐานแก้ไขเพิ่มเติม</p>
+            <h3 className="text-sm font-bold text-slate-800">สร้างงานแก้ไขใหม่ให้สาขา (Assign CAP Task)</h3>
+            <p className="text-[11px] text-slate-500">มอบหมายข้อบกพร่องเพื่อให้ผู้จัดการร้านดำเนินการปรับปรุงแก้ไข</p>
           </div>
         </div>
         <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 cursor-pointer transition-colors">
@@ -124,7 +113,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
       </div>
 
       {/* Scrollable Form Body */}
-      <div className="p-4 sm:p-5 space-y-4 flex-1 overflow-y-auto min-h-0 custom-tab-scrollbar">
+      <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 flex-1 overflow-y-auto min-h-0 custom-tab-scrollbar">
         {formError && (
           <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
             <AlertTriangle size={15} className="shrink-0 text-rose-600" />
@@ -133,13 +122,11 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
         )}
 
         {/* 1. Dedicated Interactive Branch Selector */}
-        <div className="min-w-0 w-full">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <MapPin size={14} className="text-[#0F6659]" />
-              <span>สาขาเป้าหมายที่ต้องเข้าตรวจ</span>
-            </label>
-          </div>
+        <div className="min-w-0 w-full space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <MapPin size={14} className="text-[#0F6659]" />
+            <span>สาขาที่ต้องการมอบหมายงานแก้ไข <span className="text-rose-500">*</span></span>
+          </label>
 
           <div
             onClick={() => setShowLocationSelectModal(true)}
@@ -186,43 +173,64 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
           </div>
         </div>
 
-        <div>
-          <label className="text-xs font-bold text-slate-700 block mb-1.5">ข้อบกพร่องที่ต้องการแก้ไข</label>
-          <div className="relative">
-            <select
-              value={selectedIssue}
-              onChange={(e) => setSelectedIssue(e.target.value)}
-              className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
-            >
-              {availableIssues.map(issue => (
-                <option key={issue.id} value={issue.id}>{issue.title}</option>
-              ))}
-            </select>
-            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-              <ChevronDown size={18} />
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs font-bold text-slate-700 block mb-1.5">รายละเอียดการดำเนินการแก้ไข</label>
-          <textarea
-            value={remediationNote}
+        {/* 2. Issue Title / Defect Subject */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <FileText size={14} className="text-[#0F6659]" />
+            <span>หัวข้อข้อบกพร่อง / ปัญหาที่ตรวจพบ <span className="text-rose-500">*</span></span>
+          </label>
+          <input
+            type="text"
+            required
+            value={issueItem}
             onChange={(e) => {
-              setRemediationNote(e.target.value);
+              setIssueItem(e.target.value);
               if (formError) setFormError(null);
             }}
-            placeholder="อธิบายสิ่งที่สาขาได้ดำเนินการปรับปรุงแก้ไข..."
-            rows={3}
-            className="w-full p-3 rounded-2xl border border-slate-200 text-xs sm:text-sm font-medium bg-white text-slate-800 placeholder-slate-400 focus:border-[#0F6659] outline-none shadow-2xs"
+            placeholder="เช่น ความสะอาดบริเวณเตาปรุงอาหาร, อุณหภูมิตู้แช่เย็นไม่ได้มาตรฐาน..."
+            className="w-full text-xs sm:text-sm px-3.5 py-3 rounded-2xl bg-white border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] transition-all shadow-2xs placeholder:text-slate-400"
           />
         </div>
 
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
+        {/* 3. Description & Correction Guidelines */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 block">
+            รายละเอียดสิ่งที่ต้องปรับปรุงแก้ไข (คำแนะนำแก่สาขา) <span className="text-rose-500">*</span>
+          </label>
+          <textarea
+            value={description}
+            required
+            rows={3}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              if (formError) setFormError(null);
+            }}
+            placeholder="ระบุสิ่งที่ควรปรับปรุงแก้ไข"
+            className="w-full p-3 rounded-2xl border border-slate-200 text-xs sm:text-sm font-medium bg-white text-slate-800 placeholder:text-slate-400 focus:border-[#0F6659] outline-none shadow-2xs leading-relaxed"
+          />
+        </div>
+
+        {/* 4. Submission Deadline */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Calendar size={14} className="text-[#0F6659]" />
+            <span>กำหนดส่งมอบงานแก้ไข (Deadline) <span className="text-rose-500">*</span></span>
+          </label>
+          <input
+            type="date"
+            required
+            value={deadlineDate}
+            onChange={(e) => setDeadlineDate(e.target.value)}
+            className="w-full text-xs sm:text-sm p-3 rounded-2xl bg-white border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] transition-all shadow-2xs cursor-pointer"
+          />
+        </div>
+
+        {/* 5. Defect Photos Found during Audit (Optional Before Photos) */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <span>รูปภาพหลักฐานหลังแก้ไข</span>
-              <span className="text-red-500">*</span>
+              <Camera size={14} className="text-slate-500" />
+              <span>แนบรูปถ่ายปัญหาตอนตรวจพบ (Audit Finding Photo - ถ้ามี)</span>
             </label>
             {photos.length > 0 && (
               <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
@@ -250,7 +258,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
                   >
                     <img
                       src={img}
-                      alt={`Evidence ${idx + 1}`}
+                      alt={`Defect ${idx + 1}`}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30 pointer-events-none" />
@@ -284,7 +292,7 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
               </div>
 
               <div className="flex items-center justify-between text-[11px] text-slate-400 px-0.5">
-                <span>เลือกเพิ่มได้หลายรูปพร้อมกัน</span>
+                <span>รูปถ่ายนี้จะแสดงเป็นภาพก่อนแก้ไข (Before) ให้สาขาเห็น</span>
                 <button
                   type="button"
                   onClick={() => setPhotos([])}
@@ -298,32 +306,42 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full p-4 sm:p-5 rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] bg-slate-50 hover:bg-emerald-50/40 flex flex-col items-center justify-center gap-2 text-slate-600 transition-all cursor-pointer group"
+              className="w-full p-3.5 sm:p-4 rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] bg-slate-50 hover:bg-emerald-50/40 flex flex-col items-center justify-center gap-1.5 text-slate-600 transition-all cursor-pointer group"
             >
-              <div className="w-11 h-11 rounded-2xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 group-hover:scale-105 transition-all shadow-2xs">
-                <Camera size={22} className="text-slate-400 group-hover:text-[#0F6659]" />
+              <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 group-hover:scale-105 transition-all shadow-2xs">
+                <Camera size={20} className="text-slate-400 group-hover:text-[#0F6659]" />
               </div>
               <div className="text-center">
                 <div className="text-xs sm:text-sm font-bold text-slate-700 group-hover:text-[#0F6659] transition-colors">
-                  แตะเพื่อถ่ายรูปหรือเลือกรูปหลักฐาน (เลือกได้หลายรูป)
+                  แตะเพื่อแนบรูปถ่ายปัญหาตอนตรวจพบ
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  รองรับไฟล์ภาพ JPG, PNG พร้อมบีบอัดให้อัตโนมัติ
+                  (ไม่บังคับ) สาขาจะเห็นรูปนี้เป็นภาพตั้งต้นก่อนแก้ไข
                 </div>
               </div>
             </button>
           )}
         </div>
-      </div>
+      </form>
 
       {/* Pinned Bottom Action Footer */}
       <div className="p-4 border-t border-slate-100 bg-white shrink-0">
         <button
           type="button"
+          disabled={isSubmitting}
           onClick={handleSubmit}
-          className="w-full py-3.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md bg-[#0F6659] hover:bg-emerald-800 text-white transition-all active:scale-[0.99]"
+          className="w-full py-3.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md bg-[#0F6659] hover:bg-emerald-800 text-white transition-all active:scale-[0.99] disabled:opacity-60"
         >
-          <Check size={16} /> <span>ส่งรายงานและหลักฐานการแก้งาน</span>
+          {isSubmitting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              <span>กำลังบันทึกและมอบหมายงาน...</span>
+            </>
+          ) : (
+            <>
+              <Check size={16} /> <span>มอบหมายงานแก้ไขให้สาขา</span>
+            </>
+          )}
         </button>
       </div>
 

@@ -14,8 +14,7 @@ namespace QSC.Api.Data
         public static void Initialize(AppDbContext context, IWebHostEnvironment env, bool forceRecreate = false)
         {
             // 1. Ensure upload directories exist
-            var webRoot = env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-            var uploadsDir = Path.Combine(webRoot, "uploads");
+            var uploadsDir = UploadHelper.GetUploadsRootPath(env);
             Directory.CreateDirectory(Path.Combine(uploadsDir, "signatures"));
             Directory.CreateDirectory(Path.Combine(uploadsDir, "audit_images"));
             Directory.CreateDirectory(Path.Combine(uploadsDir, "cap_images"));

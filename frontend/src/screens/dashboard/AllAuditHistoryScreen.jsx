@@ -146,26 +146,15 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       });
     }
 
-    // 2. Drafts (ฉบับร่างค้างตรวจ) - ป้องกันรายการซ้ำซ้อนตามสาขาและแบบฟอร์ม
+    // 2. Drafts (ฉบับร่างค้างตรวจ)
     if (activeDrafts && activeDrafts.length > 0) {
-      const uniqueDrafts = [];
-      const seenDraftKeys = new Set();
       const sortedDrafts = [...activeDrafts].sort((a, b) => {
         const timeA = new Date(a.updatedAt || a.createdAt || a.startedAt || 0).getTime();
         const timeB = new Date(b.updatedAt || b.createdAt || b.startedAt || 0).getTime();
         return (timeB - timeA) || ((b.id || 0) - (a.id || 0));
       });
 
-      sortedDrafts.forEach(d => {
-        const fId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id || 0;
-        const key = `${d.locationId || 0}_${fId}`;
-        if (!seenDraftKeys.has(key)) {
-          seenDraftKeys.add(key);
-          uniqueDrafts.push(d);
-        }
-      });
-
-      uniqueDrafts.forEach((d) => {
+      sortedDrafts.forEach((d) => {
         const branchName = d.locationName || d.location?.name || "-";
         const branchFullName = d.locationFullName || d.locationName || d.location?.fullName || d.location?.name || "-";
         const rawDate = d.updatedAt || d.createdAt || d.startedAt || null;
@@ -270,11 +259,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const directForm = s.surveyFormTitle || s.formTitle || s.surveyForm?.title || s.formName || s.form;
         const formVal = resolveFormTitle(formId, directForm);
 
-        // Check if there is already an active draft for this schedule/location
+        // Check if there is already an active draft for this schedule
         const existingDraft = (activeDrafts || []).find(d => 
           (d.auditScheduleId && Number(d.auditScheduleId) === Number(s.id)) ||
-          (d.scheduleId && Number(d.scheduleId) === Number(s.id)) || 
-          (d.locationId && Number(d.locationId) === Number(s.locationId))
+          (d.scheduleId && Number(d.scheduleId) === Number(s.id))
         );
         if (existingDraft) return; // already represented in activeDrafts
 

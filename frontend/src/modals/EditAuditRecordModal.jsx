@@ -1,10 +1,189 @@
-import React, { useState, useMemo, useContext, useEffect } from "react";
+import React, { useState, useMemo, useContext, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2, ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock, SlidersHorizontal, ChevronDown, Camera, Plus } from "lucide-react";
+import {
+  X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2,
+  ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock,
+  SlidersHorizontal, ChevronDown, Camera, Plus, MapPin, PenTool, RotateCcw,
+  Navigation, CheckSquare, Trash2, ExternalLink, Check
+} from "lucide-react";
 import api, { getFullImageUrl } from "../config/api";
 import { compressImageFile } from "../utils/imageCompressor";
 import { mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
+
+// ✍️ Digital Signature Pad Modal (High-DPI Touch & Mouse)
+function SignaturePadModal({ title, onDone, onCancel }) {
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSigned, setHasSigned] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.strokeStyle = "#0F6659";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+  }, []);
+
+  const getCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    if (e.touches && e.touches[0]) {
+      return {
+        x: e.touches[0].clientX - rect.left,
+        y: e.touches[0].clientY - rect.top,
+      };
+    }
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  };
+
+  const startDrawing = (e) => {
+    setIsDrawing(true);
+    const { x, y } = getCoordinates(e);
+    const ctx = canvasRef.current?.getContext("2d");
+    if (ctx) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const { x, y } = getCoordinates(e);
+    const ctx = canvasRef.current?.getContext("2d");
+    if (ctx) {
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      setHasSigned(true);
+    }
+  };
+
+  const stopDrawing = () => {
+    if (isDrawing) setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const dpr = window.devicePixelRatio || 1;
+    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    setHasSigned(false);
+  };
+
+  const confirmSign = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasSigned) return;
+    onDone(canvas.toDataURL("image/png"));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100000] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="w-full max-w-md bg-white rounded-3xl p-5 space-y-3.5 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            <PenTool size={16} className="text-[#0F6659]" />
+            <span>{title || "เซ็นชื่อลงในกรอบ"}</span>
+          </h3>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center cursor-pointer text-slate-500 transition-colors"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="relative border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50/50 overflow-hidden touch-none">
+          <canvas
+            ref={canvasRef}
+            onMouseDown={startDrawing}
+            onMouseMove={draw}
+            onMouseUp={stopDrawing}
+            onMouseLeave={stopDrawing}
+            onTouchStart={startDrawing}
+            onTouchMove={draw}
+            onTouchEnd={stopDrawing}
+            className="w-full h-52 cursor-crosshair block bg-white"
+          />
+          {!hasSigned && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium gap-1.5 select-none">
+              <Edit3 size={14} />
+              <span>ใช้นิ้วหรือเมาส์ลากเพื่อเซ็นชื่อ</span>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2.5 pt-1">
+          <button
+            type="button"
+            onClick={clearCanvas}
+            className="flex-1 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
+          >
+            <RotateCcw size={13} />
+            <span>ล้างลายเซ็น</span>
+          </button>
+          <button
+            type="button"
+            onClick={confirmSign}
+            disabled={!hasSigned}
+            className="flex-1 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <CheckCircle2 size={14} />
+            <span>ยืนยันลายเซ็น</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const toDatetimeLocal = (isoDateStr) => {
+  if (!isoDateStr) return "";
+  try {
+    const d = new Date(isoDateStr);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    const year = d.getFullYear();
+    const month = pad(d.getMonth() + 1);
+    const day = pad(d.getDate());
+    const hours = pad(d.getHours());
+    const minutes = pad(d.getMinutes());
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  } catch {
+    return "";
+  }
+};
+
+const getAuditDurationText = (startStr, endStr) => {
+  if (!startStr || !endStr) return null;
+  try {
+    const s = new Date(startStr);
+    const e = new Date(endStr);
+    const diffMs = e.getTime() - s.getTime();
+    if (isNaN(diffMs) || diffMs < 0) return null;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    if (hours > 0) {
+      return `${hours} ชม. ${mins > 0 ? `${mins} นาที` : ""}`;
+    }
+    return `${mins} นาที`;
+  } catch {
+    return null;
+  }
+};
 
 export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSuccess }) {
   const { forms = [] } = useContext(DataContext) || {};
@@ -18,12 +197,32 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [isUploadingPhoto, setIsUploadingPhoto] = useState({});
   const [previewModalPhoto, setPreviewModalPhoto] = useState(null);
 
-  // Sync record prop to currentRecord
+  // Time States
+  const [startedAt, setStartedAt] = useState("");
+  const [submittedAt, setSubmittedAt] = useState("");
+
+  // Signatures
+  const [auditorSignature, setAuditorSignature] = useState(null);
+  const [auditeeSignature, setAuditeeSignature] = useState(null);
+  const [auditorNameText, setAuditorNameText] = useState("");
+  const [auditeeNameText, setAuditeeNameText] = useState("");
+  const [activeSignModal, setActiveSignModal] = useState(null); // 'auditor' | 'auditee' | null
+
+  // GPS Locations: เริ่มตรวจ (Start GPS) & หลังตรวจ (End GPS)
+  const [startLatitude, setStartLatitude] = useState("");
+  const [startLongitude, setStartLongitude] = useState("");
+  const [endLatitude, setEndLatitude] = useState("");
+  const [endLongitude, setEndLongitude] = useState("");
+  const [isFetchingStartGps, setIsFetchingStartGps] = useState(false);
+  const [isFetchingEndGps, setIsFetchingEndGps] = useState(false);
+  const [gpsSuccess, setGpsSuccess] = useState({ start: false, end: false });
+
+  // Sync record prop
   useEffect(() => {
     setCurrentRecord(record);
   }, [record]);
 
-  // When modal opens, fetch latest record from API to ensure fresh answers
+  // Fetch latest record from API
   useEffect(() => {
     if (!isOpen || !record?.id) return;
     api.get(`/audit/${record.id}`)
@@ -35,7 +234,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       .catch(() => {});
   }, [isOpen, record?.id]);
 
-  // Load and resolve form metadataConfig
+  // Load form metadataConfig if available
   useEffect(() => {
     if (currentRecord?.surveyForm?.metadataConfig || currentRecord?.surveyForm?.metadataConfigJson) return;
     const matched = forms.find(f => f.id === currentRecord?.surveyFormId);
@@ -56,77 +255,43 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
   }, [currentRecord?.surveyFormId, currentRecord?.surveyForm, forms]);
 
-  const formMetaFields = useMemo(() => {
+  const activeMetadataFields = useMemo(() => {
+    let fields = null;
     const direct = currentRecord?.surveyForm?.metadataConfig;
-    if (Array.isArray(direct) && direct.length > 0) return direct;
-
-    if (currentRecord?.surveyForm?.metadataConfigJson) {
+    if (Array.isArray(direct) && direct.length > 0) fields = direct;
+    else if (currentRecord?.surveyForm?.metadataConfigJson) {
       try {
         const parsed = JSON.parse(currentRecord.surveyForm.metadataConfigJson);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) fields = parsed;
       } catch (e) {}
+    } else {
+      const fromContext = forms.find(f => f.id === currentRecord?.surveyFormId || String(f.id) === String(currentRecord?.surveyFormId));
+      if (Array.isArray(fromContext?.metadataConfig) && fromContext.metadataConfig.length > 0) {
+        fields = fromContext.metadataConfig;
+      } else if (fromContext?.metadataConfigJson) {
+        try {
+          const parsed = JSON.parse(fromContext.metadataConfigJson);
+          if (Array.isArray(parsed) && parsed.length > 0) fields = parsed;
+        } catch (e) {}
+      } else if (Array.isArray(fetchedFormConfig) && fetchedFormConfig.length > 0) {
+        fields = fetchedFormConfig;
+      }
     }
 
-    const fromContext = forms.find(f => f.id === currentRecord?.surveyFormId);
-    if (Array.isArray(fromContext?.metadataConfig) && fromContext.metadataConfig.length > 0) {
-      return fromContext.metadataConfig;
-    }
-    if (fromContext?.metadataConfigJson) {
-      try {
-        const parsed = JSON.parse(fromContext.metadataConfigJson);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      } catch (e) {}
+    if (!fields || fields.length === 0) {
+      fields = [
+        { id: "audit_type", label: "ประเภทการตรวจ (Audit Type)", type: "select", options: ["ตามกำหนดการ (Announced)", "นอกกำหนดการ (Spot)", "ตรวจแบบไม่เปิดเผยตัว (Undercover)"], required: true, enabled: true, isSystem: true },
+        { id: "staff_count", label: "จำนวนพนักงานขณะตรวจ", type: "number", unit: "คน", min: 0, required: true, enabled: true, isSystem: true },
+        { id: "general_notes", label: "หมายเหตุภาพรวมการตรวจ", type: "text", placeholder: "ระบุหมายเหตุเพิ่มเติม (ถ้ามี)...", required: false, enabled: true }
+      ];
     }
 
-    if (Array.isArray(fetchedFormConfig) && fetchedFormConfig.length > 0) {
-      return fetchedFormConfig;
-    }
-
-    return null;
+    return fields.filter(f => f && f.enabled !== false);
   }, [currentRecord, forms, fetchedFormConfig]);
 
-  const [metadataValues, setMetadataValues] = useState(() => {
-    let initial = {};
-    if (record?.metadataValues && typeof record.metadataValues === "object") {
-      initial = { ...record.metadataValues };
-    } else if (record?.metadataValuesJson) {
-      try {
-        const parsed = JSON.parse(record.metadataValuesJson);
-        if (parsed && typeof parsed === "object") initial = { ...parsed };
-      } catch (e) {}
-    }
+  const [metadataValues, setMetadataValues] = useState({});
 
-    if (initial.staff_count === undefined && record?.staffCount) {
-      initial.staff_count = record.staffCount;
-    }
-    return initial;
-  });
-
-  useEffect(() => {
-    if (!currentRecord) return;
-    let initial = {};
-    if (currentRecord.metadataValues && typeof currentRecord.metadataValues === "object") {
-      initial = { ...currentRecord.metadataValues };
-    } else if (currentRecord.metadataValuesJson) {
-      try {
-        const parsed = JSON.parse(currentRecord.metadataValuesJson);
-        if (parsed && typeof parsed === "object") initial = { ...parsed };
-      } catch (e) {}
-    }
-    if (initial.staff_count === undefined && currentRecord.staffCount) {
-      initial.staff_count = currentRecord.staffCount;
-    }
-    setMetadataValues(initial);
-  }, [currentRecord]);
-
-  const handleMetaValueChange = (fieldId, val) => {
-    setMetadataValues(prev => ({ ...prev, [fieldId]: val }));
-    if (fieldId === "staff_count" || fieldId === "staffCount") {
-      setStaffCount(Number(val) || 0);
-    }
-  };
-
-  // Match form schema from DataContext or currentRecord
+  // Match form schema
   const matchedForm = useMemo(() => {
     return (forms || []).find(f => 
       (currentRecord?.surveyFormId && (f.id === currentRecord.surveyFormId || String(f.id) === String(currentRecord.surveyFormId))) ||
@@ -135,18 +300,17 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     );
   }, [forms, currentRecord]);
 
-  // Build complete questions list matching responses
+  // Build checklist questions
   const checklistQuestions = useMemo(() => {
     if (!currentRecord) return [];
 
     const resList = currentRecord.responses || [];
 
-    // 1. If form schema has sections & items, match questions through form
     if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
       const itemsList = [];
       let runningNum = 1;
 
-      matchedForm.sections.forEach((sec) => {
+      matchedForm.sections.forEach((sec, secIdx) => {
         (sec.items || []).forEach((item) => {
           let res = resList.find(r => 
             (r.surveyItemId && Number(r.surveyItemId) === Number(item.id)) ||
@@ -175,6 +339,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             questionType: qType,
             fullScore: fullScore,
             isCritical: isCrit,
+            sectionId: sec.id || `sec_${secIdx}`,
+            sectionTitle: sec.title || `หมวดที่ ${secIdx + 1}`,
             originalRes: res
           });
         });
@@ -183,13 +349,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       if (itemsList.length > 0) return itemsList;
     }
 
-    // 2. Otherwise map responses directly from currentRecord
     return resList.map((res, idx) => {
       const itemId = res.surveyItemId || res.id || `item_${idx + 1}`;
       const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
       const qType = (res.questionType || res.surveyItem?.questionType || "yesno").toLowerCase();
       const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
       const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
+      const secTitle = res.surveyItem?.surveySection?.title || "รายการตรวจประเมิน";
 
       return {
         runningNum: idx + 1,
@@ -198,21 +364,48 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         questionType: qType,
         fullScore: fullScore,
         isCritical: isCrit,
+        sectionId: `sec_0`,
+        sectionTitle: secTitle,
         originalRes: res
       };
     });
   }, [currentRecord, matchedForm]);
 
-  // Helper to parse answer status accurately from response
+  // Group questions by section/category
+  const groupedSections = useMemo(() => {
+    if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+      return matchedForm.sections.map((sec, secIdx) => {
+        const items = checklistQuestions.filter(q => q.sectionTitle === sec.title || q.sectionId === sec.id);
+        return {
+          id: `sec-cat-${secIdx}`,
+          title: sec.title || `หมวดที่ ${secIdx + 1}`,
+          description: sec.description || "",
+          items: items.length > 0 ? items : []
+        };
+      }).filter(s => s.items.length > 0);
+    }
+
+    const map = {};
+    checklistQuestions.forEach(q => {
+      const cat = q.sectionTitle || "รายการตรวจประเมิน";
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(q);
+    });
+
+    return Object.keys(map).map((cat, idx) => ({
+      id: `sec-cat-${idx}`,
+      title: cat,
+      items: map[cat]
+    }));
+  }, [matchedForm, checklistQuestions]);
+
   const parseResponseAnswer = (q) => {
     const res = q.originalRes || {};
     const qType = (q.questionType || "yesno").toLowerCase();
     const fullScore = Number(q.fullScore || 10);
 
-    // Is N/A
     const isNa = res.isNa === true || res.isNa === 1 || res.isNa === "true" || res.rawAnswer === "na" || res.answerValue === "na";
 
-    // Is Passed
     let isPassed = true;
     if (isNa) {
       isPassed = false;
@@ -228,7 +421,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       isPassed = true;
     }
 
-    // Scale Score (1 to 5)
     let scaleScore = null;
     if (qType === "scale") {
       if (res.scaleScore !== undefined && res.scaleScore !== null) {
@@ -242,7 +434,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       }
     }
 
-    // Score Given
     let scoreGiven = 0;
     if (isNa) {
       scoreGiven = 0;
@@ -280,12 +471,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return map;
   };
 
-  // State
   const [answersState, setAnswersState] = useState(buildInitialState);
   const [initialAnswers, setInitialAnswers] = useState(buildInitialState);
   const [expandedNotes, setExpandedNotes] = useState({});
 
-  // 🔄 Sync state whenever modal opens, currentRecord changes, or questions change
+  // Initialize/Sync all state on open
   useEffect(() => {
     if (!isOpen || !currentRecord) return;
     const initialMap = {};
@@ -295,23 +485,164 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setAnswersState(initialMap);
     setInitialAnswers(initialMap);
     setReason("");
-    setGeneralNotes(currentRecord?.notes || "");
+
+    const rawNotes = currentRecord?.notes || "";
+    setGeneralNotes(rawNotes.includes("????") ? "" : rawNotes);
+
     setStaffCount(currentRecord?.staffCount || 0);
+
+    // Times
+    setStartedAt(toDatetimeLocal(currentRecord?.startedAt || currentRecord?.auditDate || new Date().toISOString()));
+    setSubmittedAt(toDatetimeLocal(currentRecord?.submittedAt || currentRecord?.signedAt || currentRecord?.auditDate || new Date().toISOString()));
+
+    // Signatures
+    setAuditorSignature(currentRecord?.auditorSignatureUrl || null);
+    setAuditeeSignature(currentRecord?.auditeeSignatureUrl || null);
+    setAuditorNameText(currentRecord?.primaryAuditor?.fullName || currentRecord?.auditorName || "");
+    setAuditeeNameText(currentRecord?.auditeeUser?.fullName || currentRecord?.auditeeNameText || currentRecord?.auditeeName || "ผู้จัดการสาขา");
+
+    // GPS เริ่มตรวจ (Start GPS) & หลังตรวจ (End GPS)
+    setStartLatitude(currentRecord?.startLatitude !== undefined && currentRecord?.startLatitude !== null ? String(currentRecord.startLatitude) : "");
+    setStartLongitude(currentRecord?.startLongitude !== undefined && currentRecord?.startLongitude !== null ? String(currentRecord.startLongitude) : "");
+    setEndLatitude(currentRecord?.endLatitude !== undefined && currentRecord?.endLatitude !== null ? String(currentRecord.endLatitude) : "");
+    setEndLongitude(currentRecord?.endLongitude !== undefined && currentRecord?.endLongitude !== null ? String(currentRecord.endLongitude) : "");
+
+    // Metadata
+    let initialMeta = {};
+    if (currentRecord.metadataValues && typeof currentRecord.metadataValues === "object") {
+      initialMeta = { ...currentRecord.metadataValues };
+    } else if (currentRecord.metadataValuesJson) {
+      try {
+        const parsed = JSON.parse(currentRecord.metadataValuesJson);
+        if (parsed && typeof parsed === "object") initialMeta = { ...parsed };
+      } catch (e) {}
+    }
+
+    if (initialMeta.staff_count === undefined && currentRecord.staffCount !== undefined) {
+      initialMeta.staff_count = currentRecord.staffCount;
+    }
+    if (initialMeta.audit_type === undefined && currentRecord.auditType) {
+      const at = currentRecord.auditType.toLowerCase();
+      if (at === "spot" || at === "unannounced") initialMeta.audit_type = "นอกกำหนดการ (Spot)";
+      else if (at === "undercover") initialMeta.audit_type = "ตรวจแบบไม่เปิดเผยตัว (Undercover)";
+      else initialMeta.audit_type = "ตามกำหนดการ (Announced)";
+    }
+    if (initialMeta.general_notes === undefined && rawNotes) {
+      initialMeta.general_notes = rawNotes;
+    }
+
+    setMetadataValues(initialMeta);
+
     setExpandedNotes({});
     setIsUploadingPhoto({});
     setPreviewModalPhoto(null);
     setError(null);
   }, [isOpen, currentRecord?.id, checklistQuestions]);
 
+  // 📍 ดึงพิกัด GPS ปัจจุบันมากรอกอัตโนมัติ — แยกอิสระตาม targetType ("start" หรือ "end")
+  // (จุดที่แก้จากของเดิม: เดิมปุ่มของแต่ละช่วงเรียก fetchCurrentCoordinates("both") เหมือนกันหมด
+  // ทำให้กดปุ่ม "พิกัดเริ่มตรวจ" แล้วดันไปทับพิกัด "หลังตรวจ" ด้วยโดยไม่ตั้งใจ)
+  const fetchCurrentCoordinates = (targetType) => {
+    const isStart = targetType === "start";
+    const isEnd = targetType === "end";
+    if (!isStart && !isEnd) return;
+
+    if (isStart) setIsFetchingStartGps(true);
+    if (isEnd) setIsFetchingEndGps(true);
+    setError(null);
+
+    if (!navigator.geolocation) {
+      if (isStart) setIsFetchingStartGps(false);
+      if (isEnd) setIsFetchingEndGps(false);
+      setError("อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับการดึงพิกัด GPS");
+      return;
+    }
+
+    const applyLocation = (coords) => {
+      if (!coords?.latitude || !coords?.longitude) {
+        if (isStart) setIsFetchingStartGps(false);
+        if (isEnd) setIsFetchingEndGps(false);
+        setError("ไม่พบข้อมูลพิกัดละติจูด/ลองจิจูดจากอุปกรณ์");
+        return;
+      }
+      const latStr = String(Number(coords.latitude).toFixed(6));
+      const lngStr = String(Number(coords.longitude).toFixed(6));
+
+      if (isStart) {
+        setStartLatitude(latStr);
+        setStartLongitude(lngStr);
+        setIsFetchingStartGps(false);
+      }
+      if (isEnd) {
+        setEndLatitude(latStr);
+        setEndLongitude(lngStr);
+        setIsFetchingEndGps(false);
+      }
+
+      setGpsSuccess({ start: isStart, end: isEnd });
+
+      setTimeout(() => {
+        setGpsSuccess({ start: false, end: false });
+      }, 3000);
+    };
+
+    // Stage 1: High accuracy GPS
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        applyLocation(pos.coords);
+      },
+      (err1) => {
+        if (err1.code === 1) {
+          if (isStart) setIsFetchingStartGps(false);
+          if (isEnd) setIsFetchingEndGps(false);
+          setError("เบราว์เซอร์ปฏิเสธการเข้าถึงตำแหน่ง กรุณากด 'อนุญาต (Allow Location)' ในเบราว์เซอร์");
+          return;
+        }
+
+        // Stage 2: Fallback without high accuracy for faster response / network location
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            applyLocation(pos.coords);
+          },
+          (err2) => {
+            if (isStart) setIsFetchingStartGps(false);
+            if (isEnd) setIsFetchingEndGps(false);
+            if (err2.code === 1) {
+              setError("กรุณาอนุญาต (Allow Location) ในการเข้าถึงพิกัด");
+            } else if (err2.code === 2) {
+              setError("ไม่สามารถระบุพิกัดตำแหน่งได้ (Position Unavailable) กรุณากรอกพิกัดด้วยตนเอง");
+            } else if (err2.code === 3) {
+              setError("การค้นหาตำแหน่งใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้งหรือกรอกพิกัดด้วยตนเอง");
+            } else {
+              setError("ไม่สามารถดึงพิกัดได้ กรุณากรอกพิกัดด้วยตนเอง");
+            }
+          },
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+        );
+      },
+      { enableHighAccuracy: true, timeout: 4000, maximumAge: 0 }
+    );
+  };
+
+  const handleFetchStartGps = () => fetchCurrentCoordinates("start");
+  const handleFetchEndGps = () => fetchCurrentCoordinates("end");
+
+  const handleMetaValueChange = (fieldId, val) => {
+    setMetadataValues(prev => ({ ...prev, [fieldId]: val }));
+    if (fieldId === "staff_count" || fieldId === "staffCount") {
+      setStaffCount(Number(val) || 0);
+    }
+    if (fieldId === "general_notes" || fieldId === "notes") {
+      setGeneralNotes(val);
+    }
+  };
+
   const toggleExpandNote = (itemId) => {
     setExpandedNotes((prev) => {
       const isCurrentlyOpen = prev[itemId] !== undefined
         ? prev[itemId]
         : (isQuestionEdited(itemId) || !!(answersState[itemId]?.notes && answersState[itemId].notes.trim()));
-      return {
-        ...prev,
-        [itemId]: !isCurrentlyOpen
-      };
+      return { ...prev, [itemId]: !isCurrentlyOpen };
     });
   };
 
@@ -319,11 +650,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const orig = initialAnswers[itemId];
     const curr = answersState[itemId];
     if (!orig || !curr) return false;
-
     if (orig.isNa !== curr.isNa) return true;
     if (orig.isPassed !== curr.isPassed) return true;
     if (curr.type === "scale" && orig.scaleScore !== curr.scaleScore) return true;
-
     return false;
   };
 
@@ -331,18 +660,21 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const orig = initialAnswers[itemId];
     const curr = answersState[itemId];
     if (!orig || !curr) return false;
-
     const origPhotos = orig.imageUrls || [];
     const currPhotos = curr.imageUrls || [];
     if (origPhotos.length !== currPhotos.length) return true;
     return origPhotos.some((p, i) => p !== currPhotos[i]);
   };
 
-  const isQuestionEdited = (itemId) => {
-    return isScoreEdited(itemId) || isPhotosEdited(itemId);
+  const isNoteEdited = (itemId) => {
+    const orig = initialAnswers[itemId];
+    const curr = answersState[itemId];
+    if (!orig || !curr) return false;
+    return (orig.notes || "").trim() !== (curr.notes || "").trim();
   };
 
-  // Calculate live preview score
+  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId);
+
   const liveScoring = useMemo(() => {
     let earned = 0;
     let max = 0;
@@ -351,17 +683,12 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     checklistQuestions.forEach((q) => {
       const state = answersState[q.surveyItemId];
       if (!state) return;
-
       const full = state.fullScore || 10;
-      if (state.isNa) {
-        // N/A: excluded from total
-        return;
-      }
+      if (state.isNa) return;
 
       max += full;
       if (state.type === "scale") {
-        const sc = ((state.scaleScore || 5) / 5) * full;
-        earned += sc;
+        earned += ((state.scaleScore || 5) / 5) * full;
       } else {
         if (state.isPassed) earned += full;
       }
@@ -380,27 +707,18 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   if (!isOpen || !currentRecord) return null;
 
   const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
+  const auditDurationText = getAuditDurationText(startedAt, submittedAt);
 
   const handleToggleYesNo = (itemId, choice) => {
     setAnswersState((prev) => {
       const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
       if (choice === "na") {
-        return {
-          ...prev,
-          [itemId]: { ...current, isNa: true, isPassed: false, scoreGiven: 0 }
-        };
+        return { ...prev, [itemId]: { ...current, isNa: true, isPassed: false, scoreGiven: 0 } };
       }
       if (choice === "yes") {
-        return {
-          ...prev,
-          [itemId]: { ...current, isNa: false, isPassed: true, scoreGiven: current.fullScore }
-        };
+        return { ...prev, [itemId]: { ...current, isNa: false, isPassed: true, scoreGiven: current.fullScore } };
       }
-      // choice === "no"
-      return {
-        ...prev,
-        [itemId]: { ...current, isNa: false, isPassed: false, scoreGiven: 0 }
-      };
+      return { ...prev, [itemId]: { ...current, isNa: false, isPassed: false, scoreGiven: 0 } };
     });
     setExpandedNotes(prev => ({ ...prev, [itemId]: true }));
   };
@@ -408,7 +726,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const handleSetScale = (itemId, val) => {
     setAnswersState((prev) => {
       const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
-      const score = (val / 5) * current.fullScore;
       return {
         ...prev,
         [itemId]: {
@@ -416,7 +733,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           isNa: false,
           isPassed: val >= 3,
           scaleScore: val,
-          scoreGiven: score
+          scoreGiven: (val / 5) * current.fullScore
         }
       };
     });
@@ -441,10 +758,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         const existing = Array.isArray(current.imageUrls) ? current.imageUrls : [];
         return {
           ...prev,
-          [itemId]: {
-            ...current,
-            imageUrls: [...existing, ...compressedUrls]
-          }
+          [itemId]: { ...current, imageUrls: [...existing, ...compressedUrls] }
         };
       });
     } catch (e) {
@@ -458,13 +772,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setAnswersState((prev) => {
       const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
       const existing = Array.isArray(current.imageUrls) ? current.imageUrls : [];
-      const updated = existing.filter((_, i) => i !== photoIdx);
       return {
         ...prev,
-        [itemId]: {
-          ...current,
-          imageUrls: updated
-        }
+        [itemId]: { ...current, imageUrls: existing.filter((_, i) => i !== photoIdx) }
       };
     });
   };
@@ -476,7 +786,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       return;
     }
 
-    // 🌟 ตรวจสอบว่าข้อที่มีการแก้ไขคะแนน ถูกระบุคอมเมนต์ครบทุกข้อหรือไม่
     const invalidEditedItems = checklistQuestions.filter((q) => {
       const itemId = q.surveyItemId;
       if (!isScoreEdited(itemId)) return false;
@@ -485,18 +794,12 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     });
 
     if (invalidEditedItems.length > 0) {
-      // บังคับเปิดแถบคอมเมนต์ของทุกข้อที่ยังไม่ได้ระบุ
       setExpandedNotes((prev) => {
         const next = { ...prev };
-        invalidEditedItems.forEach((q) => {
-          next[q.surveyItemId] = true;
-        });
+        invalidEditedItems.forEach((q) => { next[q.surveyItemId] = true; });
         return next;
       });
-
-      setError(`กรุณาระบุคอมเมนต์สำหรับทุกข้อที่มีการแก้ไข (${invalidEditedItems.length} ข้อที่ยังไม่ได้ระบุ) ก่อนบันทึก`);
-
-      // เลื่อนจอไปโฟกัสข้อแรกที่ยังไม่ระบุคอมเมนต์
+      setError(`กรุณาระบุคอมเมนต์สำหรับทุกข้อที่มีการแก้ไข (${invalidEditedItems.length} ข้อ) ก่อนบันทึก`);
       const firstInvalidId = invalidEditedItems[0].surveyItemId;
       setTimeout(() => {
         const el = document.getElementById(`note-input-${firstInvalidId}`);
@@ -528,10 +831,18 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       const payload = {
         reason: reason.trim(),
         auditeeUserId: currentRecord.auditeeUserId || null,
-        auditeeNameText: currentRecord.auditeeNameText || currentRecord.auditeeName || null,
+        auditeeNameText: auditeeNameText.trim() || null,
         staffCount: Number(metadataValues.staff_count ?? staffCount) || 0,
         auditType: metadataValues.audit_type || currentRecord.auditType || "announced",
         notes: generalNotes || null,
+        startedAt: startedAt ? new Date(startedAt).toISOString() : null,
+        submittedAt: submittedAt ? new Date(submittedAt).toISOString() : null,
+        auditorSignatureUrl: auditorSignature || null,
+        auditeeSignatureUrl: auditeeSignature || null,
+        startLatitude: startLatitude ? parseFloat(startLatitude) : null,
+        startLongitude: startLongitude ? parseFloat(startLongitude) : null,
+        endLatitude: endLatitude ? parseFloat(endLatitude) : null,
+        endLongitude: endLongitude ? parseFloat(endLongitude) : null,
         metadataValuesJson: JSON.stringify(metadataValues),
         responses: payloadResponses
       };
@@ -547,25 +858,30 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   };
 
   const modalContent = (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="w-full max-w-2xl max-h-[90dvh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="w-full max-w-3xl max-h-[92dvh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 relative"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-slate-100 bg-slate-50/90 shrink-0 space-y-1">
-          {/* Top Row: Icon + Title + Score Preview (เก่า / ใหม่) + Close Button */}
+          {/* Top Row: Icon + Title + Score Preview + Close Button */}
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-xl bg-emerald-100/80 border border-emerald-300/70 flex items-center justify-center text-[#0F6659] shadow-2xs shrink-0">
                 <Edit3 size={16} />
               </div>
-              <h3 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight truncate">
-                แก้ไขบันทึกผลการตรวจ
-              </h3>
+              <div className="min-w-0">
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight truncate">
+                  แก้ไขบันทึกผลการตรวจ
+                </h3>
+                <p className="text-xs text-slate-500 font-medium truncate">
+                  {currentRecord?.location?.name || currentRecord?.locationName || "สาขา"} {currentRecord?.surveyForm?.title ? `• ${currentRecord.surveyForm.title}` : ""}
+                </p>
+              </div>
             </div>
 
-            {/* 🌟 คะแนนเก่า / ใหม่ แสดงบนแถบบนขวา (เปลี่ยนเป็นสีเหลืองถ้าตก) */}
+            {/* Live Score Preview Badge */}
             <div className="flex items-center gap-2 shrink-0">
               <div 
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl shadow-2xs text-xs font-bold transition-all border ${
@@ -594,17 +910,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
               </button>
             </div>
           </div>
-
-          {/* Sub Row: Details (Branch Name + Record ID) */}
-          <div className="pl-10.5">
-            <p className="text-xs text-slate-500 font-medium truncate">
-              {currentRecord?.location?.name || currentRecord?.locationName || "สาขา"} · ID: #{currentRecord?.id}
-            </p>
-          </div>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-5">
+        <form
+          onSubmit={handleSubmit}
+          className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-5 custom-tab-scrollbar scroll-smooth"
+        >
           {error && (
             <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
               <AlertTriangle size={15} className="shrink-0" />
@@ -612,431 +924,692 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
           )}
 
-          {/* Mandatory Reason Box */}
-          <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
-            <label className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
-              <MessageSquare size={13} className="text-amber-700" />
-              <span>เหตุผลในการแก้ไขผลตรวจ <span className="text-rose-600 font-bold">*</span></span>
-            </label>
-            <textarea
-              required
-              rows={2}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="ระบุเหตุผลในการแก้ไข เช่น ปรับคะแนนข้อความสะอาดตู้เย็นเนื่องจากภาพถ่ายเพิ่มเติม..."
-              className="w-full text-xs p-3 rounded-xl bg-white border border-amber-300 focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder-slate-400 transition-all font-sans"
-            />
-          </div>
-
-          {/* 🌟 Form Metadata Details Fields (ดึงมาจากแบบฟอร์ม: ตัวเลข, อุณหภูมิ, ปฏิทิน, คำอธิบาย ฯลฯ) */}
-          <div className="space-y-2">
-            <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
-              <span className="flex items-center gap-1.5">
-                <span>ข้อมูลและรายละเอียดการตรวจ (Audit Form Details)</span>
-              </span>
-              <span className="text-[11px] text-slate-400 font-medium">ตามที่กำหนดในแบบฟอร์ม</span>
+          {/* 🌟 1. เหตุผลการแก้ไข & เวลาเริ่ม-สิ้นสุดตรวจ */}
+          <div id="sec-reason-time" className="space-y-3">
+            {/* Mandatory Reason Box */}
+            <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2 shadow-2xs">
+              <label className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
+                <MessageSquare size={13} className="text-amber-700" />
+                <span>เหตุผลในการแก้ไขผลตรวจ <span className="text-rose-600 font-bold">*</span></span>
+              </label>
+              <textarea
+                required
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="ระบุเหตุผลในการแก้ไข เช่น ปรับคะแนนข้อความสะอาดตู้เย็นเนื่องจากตรวจสอบภาพถ่ายเพิ่มเติม..."
+                className="w-full text-xs p-3 rounded-xl bg-white border border-amber-300 focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder-slate-400 transition-all font-sans"
+              />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {formMetaFields && formMetaFields.filter(f => f.enabled !== false && f.type !== 'auditor').length > 0 ? (
-                formMetaFields
-                  .filter(f => f.enabled !== false && f.type !== 'auditor')
-                  .map((field) => {
-                    const val = metadataValues[field.id] ?? (field.id === 'staff_count' ? staffCount : '');
-                    const isTemp = field.unit?.includes('°') || field.label?.includes('อุณหภูมิ');
+            {/* ⏱️ ปรับเวลาเริ่มตรวจ และสิ้นสุดตรวจ */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                  <Clock size={14} className="text-[#0F6659]" />
+                  <span>เวลาการตรวจประเมิน</span>
+                </label>
+                {auditDurationText && (
+                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-[#0F6659] border border-emerald-200 shadow-2xs">
+                    เวลาตรวจ {auditDurationText}
+                  </span>
+                )}
+              </div>
 
-                    if (field.type === 'number') {
-                      return (
-                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            {isTemp ? <Thermometer size={13} className="text-amber-500" /> : <Users size={13} className="text-slate-500" />}
-                            <span>{field.label} {field.unit ? `(${field.unit})` : ''}</span>
-                            {field.required && <span className="text-rose-500">*</span>}
-                          </label>
-                          <div className="relative flex items-center">
-                            <input
-                              type="number"
-                              min={field.min !== undefined ? field.min : -50}
-                              max={field.max !== undefined ? field.max : 999999}
-                              value={val}
-                              onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
-                              placeholder={field.placeholder || `ระบุ${field.label}`}
-                              className="w-full text-xs p-2 pr-12 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
-                            />
-                            {field.unit && (
-                              <span className="absolute right-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 select-none border border-slate-200">
-                                {field.unit}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    if (field.type === 'date') {
-                      return (
-                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <Calendar size={13} className="text-emerald-600" />
-                            <span>{field.label}</span>
-                            {field.required && <span className="text-rose-500">*</span>}
-                          </label>
-                          <input
-                            type="date"
-                            value={val}
-                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
-                            className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (field.type === 'time') {
-                      return (
-                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <Clock size={13} className="text-emerald-600" />
-                            <span>{field.label}</span>
-                            {field.required && <span className="text-rose-500">*</span>}
-                          </label>
-                          <input
-                            type="time"
-                            value={val}
-                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
-                            className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
-                          />
-                        </div>
-                      );
-                    }
-
-                    if (field.type === 'select') {
-                      return (
-                        <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                          <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                            <SlidersHorizontal size={13} className="text-slate-500" />
-                            <span>{field.label}</span>
-                            {field.required && <span className="text-rose-500">*</span>}
-                          </label>
-                          <div className="relative">
-                            <select
-                              value={val}
-                              onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
-                              className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
-                            >
-                              <option value="">-- เลือก --</option>
-                              {(field.options || []).map((opt, i) => (
-                                <option key={i} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                              <ChevronDown size={18} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    // Default text / textarea
-                    return (
-                      <div key={field.id} className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
-                        <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
-                          <FileText size={13} className="text-slate-400" />
-                          <span>{field.label}</span>
-                          {field.required && <span className="text-rose-500">*</span>}
-                        </label>
-                        <input
-                          type="text"
-                          value={val}
-                          onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
-                          placeholder={field.placeholder || `ระบุ${field.label}`}
-                          className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] text-slate-800 font-medium"
-                        />
-                      </div>
-                    );
-                  })
-              ) : (
-                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
                   <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                    <Users size={12} className="text-slate-400" />
-                    <span>จำนวนพนักงานขณะตรวจ (คน)</span>
+                    <Calendar size={12} className="text-[#0F6659]" />
+                    <span>เวลาเริ่มตรวจ</span>
                   </label>
                   <input
-                    type="number"
-                    min={0}
-                    value={staffCount}
-                    onChange={(e) => {
-                      setStaffCount(e.target.value);
-                      handleMetaValueChange('staff_count', e.target.value);
-                    }}
-                    className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800"
+                    type="datetime-local"
+                    value={startedAt}
+                    onChange={(e) => setStartedAt(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0F6659] font-medium text-slate-800 shadow-2xs"
                   />
                 </div>
-              )}
 
-              {/* หมายเหตุภาพรวมการตรวจ */}
-              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-1 sm:col-span-2">
-                <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                  <FileText size={12} className="text-slate-400" />
-                  <span>หมายเหตุภาพรวมการตรวจ</span>
-                </label>
-                <input
-                  type="text"
-                  value={generalNotes}
-                  onChange={(e) => setGeneralNotes(e.target.value)}
-                  placeholder="ระบุหมายเหตุเพิ่มเติม (ถ้ามี)"
-                  className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] text-slate-800"
-                />
+                <div className="space-y-1">
+                  <label className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                    <Clock size={12} className="text-[#0F6659]" />
+                    <span>เวลาสิ้นสุดตรวจ</span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={submittedAt}
+                    onChange={(e) => setSubmittedAt(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0F6659] font-medium text-slate-800 shadow-2xs"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Questions Checklist */}
-          <div className="space-y-3">
-            <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
-              <span>รายการคำตอบข้อตรวจประเมิน</span>
-              <span className="text-[11px] text-slate-400 font-medium">ปรับคำตอบได้ทีละข้อ</span>
-            </div>
+          {/* 🌟 2. ข้อมูลและรายละเอียดการตรวจ (Audit Details / Metadata) */}
+          {activeMetadataFields && activeMetadataFields.length > 0 && (
+            <div id="sec-meta" className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
+              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                  <FileText size={14} className="text-[#0F6659]" />
+                  <span>ข้อมูลและรายละเอียดการตรวจ (Audit Details)</span>
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium">ดึงข้อมูลเดิมจากผลตรวจ</span>
+              </div>
 
-            <div className="space-y-3">
-              {checklistQuestions.map((q, idx) => {
-                const itemId = q.surveyItemId;
-                const state = answersState[itemId] || parseResponseAnswer(q);
-                const qText = q.questionText;
-                const isCrit = q.isCritical;
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {activeMetadataFields.map((field) => {
+                  let val = metadataValues[field.id];
+                  if (val === undefined || val === null) {
+                    if (field.id === 'staff_count' || field.id === 'staffCount') val = staffCount;
+                    else if (field.id === 'audit_type' || field.id === 'auditType') val = currentRecord?.auditType || '';
+                    else if (field.id === 'general_notes' || field.id === 'notes') val = generalNotes;
+                    else val = '';
+                  }
 
-                const isEdited = isQuestionEdited(itemId);
-                const isNoteMissing = isEdited && (!state.notes || !state.notes.trim());
-                const shouldShowNote = isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim());
+                  const isTemp = field.unit?.includes('°') || field.label?.includes('อุณหภูมิ');
 
-                return (
-                  <div 
-                    key={itemId || idx}
-                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs space-y-3 ${
-                      isNoteMissing
-                        ? 'border-rose-300 bg-rose-50/15 ring-1 ring-rose-400/20'
-                        : isEdited 
-                        ? 'border-[#0F6659]/60 bg-emerald-50/25 ring-1 ring-[#0F6659]/20' 
-                        : 'border-slate-200/80 bg-white hover:border-slate-300'
-                    }`}
-                  >
-                    {/* 🌟 1. แถวบนสุด: เลขข้อทางซ้าย / ปุ่มเปิดปิดคอมเม้นทางขวา */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-mono text-xs font-bold border border-slate-200/60 shadow-2xs">
-                          #{idx + 1}
-                        </span>
-                        {isCrit && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
-                            Critical
-                          </span>
-                        )}
-                      </div>
-
-                      {/* ปุ่มทางขวา: ปุ่มคอมเมนต์ และ ปุ่มแนบรูปถ่าย */}
-                      <div className="flex items-center gap-1.5">
-                        {/* ปุ่มเปิดปิดคอมเมนต์ */}
-                        <button
-                          type="button"
-                          onClick={() => toggleExpandNote(itemId)}
-                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
-                            isNoteMissing
-                              ? 'bg-rose-50 text-rose-700 border-rose-300'
-                              : shouldShowNote
-                              ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                              : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
-                          }`}
-                          title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
-                        >
-                          <MessageSquare size={13} />
-                          {state.notes && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-                          )}
-                        </button>
-
-                        {/* 📷 ปุ่มแนบรูปถ่ายหลักฐาน (เหมือนเวลาตรวจจริง) */}
-                        <label
-                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
-                            (state.imageUrls?.length || 0) > 0
-                              ? 'bg-emerald-50 text-[#0F6659] border-emerald-300 shadow-2xs'
-                              : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
-                          }`}
-                          title="แนบรูปถ่ายหลักฐาน"
-                        >
+                  if (field.type === 'number') {
+                    return (
+                      <div key={field.id} className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                          {isTemp ? <Thermometer size={12} className="text-amber-500" /> : <Users size={12} className="text-slate-500" />}
+                          <span>{field.label} {field.unit ? `(${field.unit})` : ''}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <div className="relative flex items-center">
                           <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              handlePhotoUpload(itemId, e.target.files);
-                              e.target.value = '';
-                            }}
+                            type="number"
+                            min={field.min !== undefined ? field.min : -50}
+                            max={field.max !== undefined ? field.max : 999999}
+                            value={val}
+                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                            placeholder={field.placeholder || `ระบุ${field.label}`}
+                            className="w-full text-xs p-2.5 pr-12 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800 shadow-2xs"
                           />
-                          {isUploadingPhoto[itemId] ? (
-                            <Loader2 size={13} className="animate-spin text-[#0F6659]" />
-                          ) : (
-                            <Camera size={13} />
-                          )}
-                          {(state.imageUrls?.length || 0) > 0 && (
-                            <span className="text-[11px] font-mono font-bold text-[#0F6659]">
-                              {state.imageUrls.length}
+                          {field.unit && (
+                            <span className="absolute right-2 text-[10px] font-bold px-1.5 py-0.5 rounded-lg bg-slate-100 text-slate-600 select-none border border-slate-200">
+                              {field.unit}
                             </span>
                           )}
-                        </label>
+                        </div>
                       </div>
-                    </div>
+                    );
+                  }
 
-                    {/* 🌟 2. ต่อมา: คำถามของข้อจะเรียงยาวจากซ้ายไปขวา */}
-                    <div className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed">
-                      {qText}
-                    </div>
-
-                    {/* 📸 แกลเลอรีรูปถ่ายของข้อนี้ (เหมือนเวลาตรวจจริง) */}
-                    {state.imageUrls && state.imageUrls.length > 0 && (
-                      <div className="flex items-center gap-2 overflow-x-auto py-1 custom-tab-scrollbar">
-                        {state.imageUrls.map((imgUrl, imgIdx) => (
-                          <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group bg-slate-100">
-                            <img
-                              src={getFullImageUrl(imgUrl)}
-                              alt={`Evidence ${imgIdx + 1}`}
-                              className="h-16 sm:h-20 w-22 sm:w-28 object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                              onClick={() => setPreviewModalPhoto(getFullImageUrl(imgUrl))}
-                            />
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handlePhotoDelete(itemId, imgIdx);
-                              }}
-                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
-                              title="ลบรูปภาพนี้"
-                            >
-                              ✕
-                            </button>
-                            <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
-                              #{imgIdx + 1}
-                            </span>
-                          </div>
-                        ))}
-
-                        {/* ปุ่มเพิ่มรูปด่วนในแกลเลอรี */}
-                        <label className="h-16 sm:h-20 w-16 sm:w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-[#0F6659] cursor-pointer transition-all">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              handlePhotoUpload(itemId, e.target.files);
-                              e.target.value = '';
-                            }}
-                          />
-                          <Plus size={16} />
-                          <span className="text-[9px] font-bold">เพิ่มรูป</span>
+                  if (field.type === 'date') {
+                    return (
+                      <div key={field.id} className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                          <Calendar size={12} className="text-emerald-600" />
+                          <span>{field.label}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
                         </label>
-                      </div>
-                    )}
-
-                    {/* 🌟 3. ลงมาล่างอีก: คำตอบเอาไว้สำหรับแก้ */}
-                    <div>
-                      {state.type === "scale" ? (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {[5, 4, 3, 2, 1].map((num) => (
-                            <button
-                              key={num}
-                              type="button"
-                              onClick={() => handleSetScale(itemId, num)}
-                              className={`flex-1 min-w-[42px] py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                                state.scaleScore === num
-                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                                  : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
-                              }`}
-                            >
-                              {num}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleYesNo(itemId, "yes")}
-                            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
-                              !state.isNa && state.isPassed
-                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs ring-2 ring-emerald-600/20'
-                                : 'bg-slate-50 hover:bg-emerald-50 text-slate-700 border-slate-200 hover:border-emerald-200'
-                            }`}
-                          >
-                            <CheckCircle2 size={14} />
-                            <span>ผ่าน</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleYesNo(itemId, "no")}
-                            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
-                              !state.isNa && !state.isPassed
-                                ? 'bg-rose-600 text-white border-rose-600 shadow-2xs ring-2 ring-rose-600/20'
-                                : 'bg-slate-50 hover:bg-rose-50 text-slate-700 border-slate-200 hover:border-rose-200'
-                            }`}
-                          >
-                            <XCircle size={14} />
-                            <span>ตก</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleToggleYesNo(itemId, "na")}
-                            className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
-                              state.isNa
-                                ? 'bg-slate-700 text-white border-slate-700 shadow-2xs ring-2 ring-slate-700/20'
-                                : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200'
-                            }`}
-                            title="ไม่ประเมิน / ยกเว้นข้อนี้"
-                          >
-                            <MinusCircle size={14} />
-                            <span>N/A</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 🌟 4. ถ้ามีกดปุ่มคอมเม้นจะแสดงแถบล่างมาให้ใส่คอมเม้นเพิ่ม (เด้งขึ้นมาอัตโนมัติเมื่อแก้) */}
-                    {shouldShowNote && (
-                      <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                            <MessageSquare size={12} className={isEdited ? "text-amber-600" : "text-[#0F6659]"} />
-                            <span>{isEdited ? "เหตุผล " : "คอมเมนต์ "}</span>
-                            {isEdited && (
-                              <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็น)</span>
-                            )}
-                          </div>
-                        </div>
                         <input
-                          id={`note-input-${itemId}`}
-                          type="text"
-                          value={state.notes || ""}
-                          onChange={(e) => handleNoteChange(itemId, e.target.value)}
-                          placeholder={isEdited ? "พิมพ์เหตุผลที่แก้ไขข้อนี้ (จำเป็นต้องระบุ)..." : "พิมพ์หมายเหตุเพิ่มเติมสำหรับข้อนี้..."}
-                          className={`w-full text-xs px-3.5 py-2.5 rounded-xl border font-sans outline-none transition-all shadow-2xs ${
-                            isNoteMissing
-                              ? 'border-rose-400 bg-rose-50/20 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-slate-800 placeholder:text-rose-400'
-                              : 'border-emerald-300 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20 text-slate-800 placeholder:text-slate-400'
-                          }`}
-                          autoFocus={isEdited}
+                          type="date"
+                          value={val}
+                          onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                          className="w-full text-xs p-2.5 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800 shadow-2xs"
                         />
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  }
+
+                  if (field.type === 'time') {
+                    return (
+                      <div key={field.id} className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                          <Clock size={12} className="text-emerald-600" />
+                          <span>{field.label}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <input
+                          type="time"
+                          value={val}
+                          onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                          className="w-full text-xs p-2.5 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800 shadow-2xs"
+                        />
+                      </div>
+                    );
+                  }
+
+                  if (field.type === 'select') {
+                    return (
+                      <div key={field.id} className="space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                          <SlidersHorizontal size={12} className="text-slate-500" />
+                          <span>{field.label}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={val}
+                            onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                            className="w-full text-xs pl-3 pr-8 py-2.5 rounded-xl bg-white border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] appearance-none shadow-2xs"
+                          >
+                            <option value="">-- เลือก --</option>
+                            {(field.options || []).map((opt, i) => (
+                              <option key={i} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                          <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                            <ChevronDown size={14} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div key={field.id} className="space-y-1">
+                      <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                        <FileText size={12} className="text-slate-400" />
+                        <span>{field.label}</span>
+                        {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <input
+                        type="text"
+                        value={val}
+                        onChange={(e) => handleMetaValueChange(field.id, e.target.value)}
+                        placeholder={field.placeholder || `ระบุ${field.label}`}
+                        className="w-full text-xs p-2.5 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] text-slate-800 font-medium shadow-2xs"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          )}
+
+          {/* 🌟 3. ตำแหน่งและพิกัดที่ตั้ง (GPS Coordinates: เริ่มตรวจ & หลังตรวจ) */}
+          <div id="sec-gps" className="space-y-3">
+            <div className="flex items-center gap-1.5 border-b border-slate-100 pb-2">
+              <MapPin size={14} className="text-[#0F6659]" />
+              <span className="text-xs font-extrabold text-slate-800">ตำแหน่งพิกัดที่ตั้ง (GPS)</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              {/* พิกัดตอนเริ่มตรวจ */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-[#0F6659]"></span>
+                    <span>พิกัดเริ่มตรวจ</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleFetchStartGps}
+                    disabled={isFetchingStartGps}
+                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50 border ${
+                      gpsSuccess.start
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                        : "bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border-emerald-200"
+                    }`}
+                  >
+                    {isFetchingStartGps ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : gpsSuccess.start ? (
+                      <Check size={11} className="text-white" />
+                    ) : (
+                      <Navigation size={11} />
+                    )}
+                    <span>{gpsSuccess.start ? "ดึงพิกัดแล้ว!" : "พิกัดปัจจุบัน"}</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ละติจูด (Latitude)</label>
+                    <input
+                      type="text"
+                      value={startLatitude}
+                      onChange={(e) => setStartLatitude(e.target.value)}
+                      placeholder="เช่น 13.756331"
+                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ลองจิจูด (Longitude)</label>
+                    <input
+                      type="text"
+                      value={startLongitude}
+                      onChange={(e) => setStartLongitude(e.target.value)}
+                      placeholder="เช่น 100.501762"
+                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                {startLatitude && startLongitude && (
+                  <div className="pt-0.5 text-right">
+                    <a
+                      href={`https://www.google.com/maps?q=${startLatitude},${startLongitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#0F6659] hover:underline font-bold text-[11px] inline-flex items-center gap-1"
+                    >
+                      <span>เปิดใน Google Maps</span>
+                      <ExternalLink size={10} />
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* พิกัดตอนหลังตรวจ / สิ้นสุดการตรวจ */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                    <span>พิกัดหลังตรวจ</span>
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={handleFetchEndGps}
+                    disabled={isFetchingEndGps}
+                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50 border ${
+                      gpsSuccess.end
+                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                        : "bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border-emerald-200"
+                    }`}
+                  >
+                    {isFetchingEndGps ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : gpsSuccess.end ? (
+                      <Check size={11} className="text-white" />
+                    ) : (
+                      <Navigation size={11} />
+                    )}
+                    <span>{gpsSuccess.end ? "ดึงพิกัดแล้ว!" : "พิกัดปัจจุบัน"}</span>
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ละติจูด (Latitude)</label>
+                    <input
+                      type="text"
+                      value={endLatitude}
+                      onChange={(e) => setEndLatitude(e.target.value)}
+                      placeholder="เช่น 13.756331"
+                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-500">ลองจิจูด (Longitude)</label>
+                    <input
+                      type="text"
+                      value={endLongitude}
+                      onChange={(e) => setEndLongitude(e.target.value)}
+                      placeholder="เช่น 100.501762"
+                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                {endLatitude && endLongitude && (
+                  <div className="pt-0.5 text-right">
+                    <a
+                      href={`https://www.google.com/maps?q=${endLatitude},${endLongitude}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#0F6659] hover:underline font-bold text-[11px] inline-flex items-center gap-1"
+                    >
+                      <span>เปิดใน Google Maps</span>
+                      <ExternalLink size={10} />
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 🌟 4. การแก้ไขลายเซ็นดิจิทัล (Digital Signatures) */}
+          <div id="sec-signatures" className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4 shadow-2xs">
+            <div className="border-b border-slate-200/60 pb-2">
+              <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                <PenTool size={14} className="text-[#0F6659]" />
+                <span>ลายเซ็นรับรองผลการตรวจ (Digital Signatures)</span>
+              </label>
+            </div>
+
+            <div className="space-y-4">
+              {/* 1. ผู้รับการตรวจ / ผจก.สาขา */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <PenTool size={13} className="text-[#0F6659]" />
+                    <span>1. ผู้รับการตรวจ / ผจก.สาขา ({currentRecord?.location?.name || currentRecord?.locationName || "สาขา"})</span>
+                  </span>
+                  {auditeeSignature && (
+                    <button
+                      type="button"
+                      onClick={() => setAuditeeSignature(null)}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw size={11} />
+                      <span>ล้างลายเซ็น</span>
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveSignModal('auditee')}
+                  className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/60 hover:bg-emerald-50/20 transition-all shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer group"
+                >
+                  {auditeeSignature ? (
+                    <img src={getFullImageUrl(auditeeSignature)} alt="Auditee Signature" className="max-h-full max-w-full object-contain p-2" />
+                  ) : (
+                    <div className="flex items-center justify-center text-slate-400 group-hover:text-[#0F6659] text-xs font-medium gap-1.5 select-none transition-colors">
+                      <Edit3 size={14} />
+                      <span>แตะเพื่อเซ็นชื่อ</span>
+                    </div>
+                  )}
+                </button>
+              </div>
+
+              {/* 2. ผู้ตรวจประเมิน */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <PenTool size={13} className="text-[#0F6659]" />
+                    <span>2. ผู้ตรวจประเมิน ({auditorNameText || currentRecord?.primaryAuditor?.fullName || "ผู้ตรวจประเมิน"})</span>
+                  </span>
+                  {auditorSignature && (
+                    <button
+                      type="button"
+                      onClick={() => setAuditorSignature(null)}
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RotateCcw size={11} />
+                      <span>ล้างลายเซ็น</span>
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveSignModal('auditor')}
+                  className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/60 hover:bg-emerald-50/20 transition-all shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer group"
+                >
+                  {auditorSignature ? (
+                    <img src={getFullImageUrl(auditorSignature)} alt="Auditor Signature" className="max-h-full max-w-full object-contain p-2" />
+                  ) : (
+                    <div className="flex items-center justify-center text-slate-400 group-hover:text-[#0F6659] text-xs font-medium gap-1.5 select-none transition-colors">
+                      <Edit3 size={14} />
+                      <span>แตะเพื่อเซ็นชื่อ</span>
+                    </div>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 🌟 5. รายการคำตอบข้อตรวจประเมิน แยกตามหมวด */}
+          <div className="space-y-4 pt-1">
+            <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
+              <span className="flex items-center gap-1.5">
+                <CheckSquare size={14} className="text-[#0F6659]" />
+                <span>รายการคำตอบข้อตรวจประเมิน</span>
+              </span>
+            </div>
+
+            {groupedSections.map((sec, secIdx) => (
+              <div key={sec.id || secIdx} id={sec.id} className="space-y-3">
+                {/* Header หมวด */}
+                <div className="px-3.5 py-2 rounded-xl bg-slate-100/80 border border-slate-200 flex items-center justify-between">
+                  <h4 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[#0F6659]" />
+                    <span>{sec.title}</span>
+                  </h4>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-slate-600 border border-slate-200">
+                    {sec.items.length} ข้อ
+                  </span>
+                </div>
+
+                {/* ข้อตรวจในหมวดนี้ */}
+                <div className="space-y-3">
+                  {sec.items.map((q, qIdx) => {
+                    const itemId = q.surveyItemId;
+                    const state = answersState[itemId] || parseResponseAnswer(q);
+                    const qText = q.questionText;
+                    const isCrit = q.isCritical;
+                    const isScoreChanged = isScoreEdited(itemId);
+                    const isEdited = isQuestionEdited(itemId);
+                    const isNoteMissing = isScoreChanged && (!state.notes || !state.notes.trim());
+                    const shouldShowNote = isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim());
+
+                    return (
+                      <div 
+                        key={itemId || qIdx}
+                        className={`p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs space-y-3 ${
+                          isNoteMissing
+                            ? 'border-rose-300 bg-rose-50/15 ring-1 ring-rose-400/20'
+                            : isEdited 
+                            ? 'border-[#0F6659]/60 bg-emerald-50/25 ring-1 ring-[#0F6659]/20' 
+                            : 'border-slate-200/80 bg-white hover:border-slate-300'
+                        }`}
+                      >
+                        {/* แถวบน: เลขข้อ / ปุ่มคอมเมนต์ / ปุ่มกล้อง */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-mono text-xs font-bold border border-slate-200/60 shadow-2xs">
+                              #{q.runningNum || qIdx + 1}
+                            </span>
+                            {isCrit && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
+                                Critical
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {/* ปุ่มคอมเมนต์ */}
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandNote(itemId)}
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
+                                isNoteMissing
+                                  ? 'bg-rose-50 text-rose-700 border-rose-300'
+                                  : shouldShowNote
+                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
+                              }`}
+                              title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
+                            >
+                              <MessageSquare size={13} />
+                              {state.notes && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                              )}
+                            </button>
+
+                            {/* ปุ่มแนบรูป */}
+                            <label
+                              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
+                                (state.imageUrls?.length || 0) > 0
+                                  ? 'bg-emerald-50 text-[#0F6659] border-emerald-300 shadow-2xs'
+                                  : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
+                              }`}
+                              title="แนบรูปถ่ายหลักฐาน"
+                            >
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  handlePhotoUpload(itemId, e.target.files);
+                                  e.target.value = '';
+                                }}
+                              />
+                              {isUploadingPhoto[itemId] ? (
+                                <Loader2 size={13} className="animate-spin text-[#0F6659]" />
+                              ) : (
+                                <Camera size={13} />
+                              )}
+                              {(state.imageUrls?.length || 0) > 0 && (
+                                <span className="text-[11px] font-mono font-bold text-[#0F6659]">
+                                  {state.imageUrls.length}
+                                </span>
+                              )}
+                            </label>
+                          </div>
+                        </div>
+
+                        {/* คำถาม */}
+                        <div className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed">
+                          {qText}
+                        </div>
+
+                        {/* แกลเลอรีรูปถ่าย */}
+                        {state.imageUrls && state.imageUrls.length > 0 && (
+                          <div className="flex items-center gap-2 overflow-x-auto py-1 custom-tab-scrollbar">
+                            {state.imageUrls.map((imgUrl, imgIdx) => (
+                              <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group bg-slate-100">
+                                <img
+                                  src={getFullImageUrl(imgUrl)}
+                                  alt={`Evidence ${imgIdx + 1}`}
+                                  className="h-16 sm:h-20 w-22 sm:w-28 object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                                  onClick={() => setPreviewModalPhoto(getFullImageUrl(imgUrl))}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePhotoDelete(itemId, imgIdx);
+                                  }}
+                                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
+                                  title="ลบรูปภาพนี้"
+                                >
+                                  ✕
+                                </button>
+                                <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
+                                  #{imgIdx + 1}
+                                </span>
+                              </div>
+                            ))}
+
+                            <label className="h-16 sm:h-20 w-16 sm:w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-0.5 text-slate-400 hover:text-[#0F6659] cursor-pointer transition-all">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  handlePhotoUpload(itemId, e.target.files);
+                                  e.target.value = '';
+                                }}
+                              />
+                              <Plus size={16} />
+                              <span className="text-[9px] font-bold">เพิ่มรูป</span>
+                            </label>
+                          </div>
+                        )}
+
+                        {/* ตัวเลือกแก้ไขคำตอบ */}
+                        <div>
+                          {state.type === "scale" ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {[5, 4, 3, 2, 1].map((num) => (
+                                <button
+                                  key={num}
+                                  type="button"
+                                  onClick={() => handleSetScale(itemId, num)}
+                                  className={`flex-1 min-w-[42px] py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                                    state.scaleScore === num
+                                      ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  {num}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-3 gap-2 sm:gap-2.5">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleYesNo(itemId, "yes")}
+                                className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
+                                  !state.isNa && state.isPassed
+                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs ring-2 ring-emerald-600/20'
+                                    : 'bg-slate-50 hover:bg-emerald-50 text-slate-700 border-slate-200 hover:border-emerald-200'
+                                }`}
+                              >
+                                <CheckCircle2 size={14} />
+                                <span>ผ่าน</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleYesNo(itemId, "no")}
+                                className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
+                                  !state.isNa && !state.isPassed
+                                    ? 'bg-rose-600 text-white border-rose-600 shadow-2xs ring-2 ring-rose-600/20'
+                                    : 'bg-slate-50 hover:bg-rose-50 text-slate-700 border-slate-200 hover:border-rose-200'
+                                }`}
+                              >
+                                <XCircle size={14} />
+                                <span>ตก</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleYesNo(itemId, "na")}
+                                className={`py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95 border ${
+                                  state.isNa
+                                    ? 'bg-slate-700 text-white border-slate-700 shadow-2xs ring-2 ring-slate-700/20'
+                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-500 border-slate-200'
+                                }`}
+                                title="ไม่ประเมิน / ยกเว้นข้อนี้"
+                              >
+                                <MinusCircle size={14} />
+                                <span>N/A</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* กล่องคอมเมนต์/เหตุผลประจำข้อ */}
+                        {shouldShowNote && (
+                          <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
+                                <MessageSquare size={12} className={isScoreChanged ? "text-amber-600" : isEdited ? "text-[#0F6659]" : "text-slate-400"} />
+                                <span>{isScoreChanged ? "เหตุผลที่แก้ไข " : isEdited ? "คอมเมนต์ที่แก้ไข " : "คอมเมนต์ "}</span>
+                                {isScoreChanged && (
+                                  <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็น)</span>
+                                )}
+                              </div>
+                            </div>
+                            <input
+                              id={`note-input-${itemId}`}
+                              type="text"
+                              value={state.notes || ""}
+                              onChange={(e) => handleNoteChange(itemId, e.target.value)}
+                              placeholder={isScoreChanged ? "พิมพ์เหตุผลที่แก้ไขข้อนี้ (จำเป็นต้องระบุ)..." : "พิมพ์หมายเหตุ/คอมเมนต์เพิ่มเติม..."}
+                              className={`w-full text-xs px-3.5 py-2.5 rounded-xl border font-sans outline-none transition-all shadow-2xs ${
+                                isNoteMissing
+                                  ? 'border-rose-400 bg-rose-50/20 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-slate-800 placeholder:text-rose-400'
+                                  : 'border-emerald-300 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20 text-slate-800 placeholder:text-slate-400'
+                              }`}
+                              autoFocus={isScoreChanged}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </form>
 
         {/* Footer Buttons */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between shrink-0">
+        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0 z-10">
           <button
             type="button"
             onClick={onClose}
@@ -1067,7 +1640,23 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         </div>
       </div>
 
-      {/* 🔍 MODAL ขยายรูปภาพขนาดเต็ม */}
+      {/* ✍️ Signature Drawing Pad Modal */}
+      {activeSignModal && (
+        <SignaturePadModal
+          title={activeSignModal === 'auditor' ? 'เซ็นชื่อผู้ตรวจประเมิน' : 'เซ็นชื่อผู้รับการตรวจ / ผจก.สาขา'}
+          onDone={(sigDataUrl) => {
+            if (activeSignModal === 'auditor') {
+              setAuditorSignature(sigDataUrl);
+            } else {
+              setAuditeeSignature(sigDataUrl);
+            }
+            setActiveSignModal(null);
+          }}
+          onCancel={() => setActiveSignModal(null)}
+        />
+      )}
+
+      {/* 🔍 Lightbox Preview Photo */}
       {previewModalPhoto && (
         <div 
           className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in"
@@ -1095,4 +1684,3 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
   return typeof document !== "undefined" ? createPortal(modalContent, document.body) : null;
 }
-
