@@ -9,6 +9,7 @@ import { TopBarContext } from "../context/TopBarContext";
 import { DataContext } from "../context/DataContext";
 import authStorage from "../config/storage";
 import api from "../config/api";
+import signalRService from "../services/signalrService";
 
 import ErrorBoundary from "../shared/ErrorBoundary";
 import Breadcrumbs from "../shared/Breadcrumbs";
@@ -131,27 +132,39 @@ export default function MainDashboard({ onLogout }) {
   useEffect(() => {
     refreshData();
 
-    // 🔄 Auto-sync on Window Focus (ดึงข้อมูลล่าสุดอัตโนมัติเมื่อสลับกลับมาที่แท็บ หากเกิน 30 วินาที)
+    // 🔄 Auto-sync on Window Focus (ดึงข้อมูลล่าสุดอัตโนมัติเมื่อสลับกลับมาที่แท็บ หากเกิน 60 วินาที)
     const handleFocus = () => {
-      if (Date.now() - lastRefreshTimeRef.current > 30000) {
+      if (Date.now() - lastRefreshTimeRef.current > 60000) {
         refreshData(true);
       }
     };
 
-    // 🔄 Background periodic sync ทุก 60 วินาทีแบบเงียบๆ
+    // 🔄 Background periodic sync ทุก 3 นาที (180,000 ms) แบบเงียบๆ เพื่อประหยัดทรัพยากรเซิร์ฟเวอร์
     const interval = setInterval(() => {
       refreshData(true);
-    }, 60000);
+    }, 180000);
+
+    // 📡 Real-time SignalR Event: รีเฟรชข้อมูลอัตโนมัติเฉพาะเมื่อมีผลตรวจใหม่เข้ามาจริงๆ
+    let unsubscribeAudit = null;
+    signalRService.getConnection()
+      .then(() => {
+        unsubscribeAudit = signalRService.onAuditCreated(() => {
+          refreshData(true);
+        });
+      })
+      .catch(() => {});
 
     window.addEventListener('focus', handleFocus);
     return () => {
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
+      if (unsubscribeAudit) unsubscribeAudit();
     };
   }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('qsc_selected_brand_id');
+    signalRService.disconnect();
     if (onLogout) {
       onLogout();
     } else {

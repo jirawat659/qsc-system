@@ -5,9 +5,11 @@ import authStorage from "../config/storage";
 class SignalRService {
   constructor() {
     this.connection = null;
+    this.connectedToken = null;
     this.joinedRooms = new Set();
     this.messageHandlers = new Set();
     this.statusHandlers = new Set();
+    this.auditHandlers = new Set();
     this.isConnecting = false;
   }
 
@@ -15,6 +17,18 @@ class SignalRService {
    * Initializes or returns active SignalR connection
    */
   async getConnection() {
+    const currentToken = authStorage.getToken() || "";
+
+    // 🛡️ If user switched accounts or token changed, disconnect old connection immediately
+    if (this.connection && this.connectedToken !== currentToken) {
+      try {
+        await this.connection.stop();
+      } catch (e) {}
+      this.connection = null;
+      this.connectedToken = null;
+      this.joinedRooms.clear();
+    }
+
     if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
       return this.connection;
     }
@@ -45,6 +59,7 @@ class SignalRService {
         .configureLogging(signalR.LogLevel.Warning);
 
       this.connection = builder.build();
+      this.connectedToken = currentToken;
 
       // Register server event listeners
       this.connection.on("ReceiveCapMessage", (comment) => {
@@ -59,6 +74,14 @@ class SignalRService {
         this.statusHandlers.forEach((handler) => {
           try {
             handler(statusUpdate);
+          } catch (e) {}
+        });
+      });
+
+      this.connection.on("AuditCreated", (auditPayload) => {
+        this.auditHandlers.forEach((handler) => {
+          try {
+            handler(auditPayload);
           } catch (e) {}
         });
       });
@@ -152,6 +175,18 @@ class SignalRService {
   }
 
   /**
+   * Subscribes to AuditCreated event (Returns unsubscribe function)
+   * @param {Function} handler
+   * @returns {Function} unsubscribe
+   */
+  onAuditCreated(handler) {
+    this.auditHandlers.add(handler);
+    return () => {
+      this.auditHandlers.delete(handler);
+    };
+  }
+
+  /**
    * Disconnects the SignalR connection
    */
   async disconnect() {
@@ -160,6 +195,7 @@ class SignalRService {
         await this.connection.stop();
       } catch (e) {}
       this.connection = null;
+      this.connectedToken = null;
       this.joinedRooms.clear();
     }
   }

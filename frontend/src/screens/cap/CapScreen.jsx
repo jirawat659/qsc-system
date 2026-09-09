@@ -64,6 +64,9 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         statusRaw: t.status,
         deadline: deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.toLocaleDateString('th-TH') : "-",
         createdAt: createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleDateString('th-TH') : "-",
+        auditor: t.auditorName || t.verifierName || "-",
+        auditorName: t.auditorName || t.verifierName || "-",
+        auditScore: t.auditScore,
         deadlineTime,
         createdTime,
         raw: t

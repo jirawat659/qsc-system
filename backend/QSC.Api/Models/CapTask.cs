@@ -24,6 +24,11 @@ namespace QSC.Api.Models
         public DateTime? ClosedAt { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        // 📌 Next Audit Recommendation Follow-Up
+        public string? NextAuditNote { get; set; }
+        public string FollowUpStatus { get; set; } = "NONE"; // NONE, PENDING, USED
+        public int? FollowUpScheduleId { get; set; }
+
         public List<CapTaskImage> Images { get; set; } = new();
         public List<CapTaskComment> Comments { get; set; } = new();
     }

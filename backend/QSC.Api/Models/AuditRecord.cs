@@ -23,7 +23,6 @@ namespace QSC.Api.Models
         public double PercentageScore { get; set; }
         public bool IsPassed { get; set; }
         public bool HasCriticalDefect { get; set; } = false;
-        public int StaffCount { get; set; } = 0;
         public string AuditType { get; set; } = "announced";
         public string? Notes { get; set; }
         public string? MetadataValuesJson { get; set; }

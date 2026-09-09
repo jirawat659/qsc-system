@@ -28,20 +28,31 @@ namespace QSC.Api.Helpers
 
             var role = user.Role?.Code ?? string.Empty;
 
-            // ADMIN, STANDARD, and EXEC have global organization visibility (unless STANDARD has SPECIFIC branch scope)
+            // AUDITEE (Store Manager) is ALWAYS strictly restricted to assigned branches
+            if (role == "AUDITEE" || user.BranchScope == "SPECIFIC")
+            {
+                var allowedIds = await context.UserLocations
+                    .AsNoTracking()
+                    .Where(ul => ul.UserId == user.Id)
+                    .Select(ul => ul.LocationId)
+                    .ToListAsync();
+
+                return (user.Id, role, allowedIds);
+            }
+
+            // ADMIN, STANDARD, AUDITOR, and EXEC have global organization visibility when BranchScope is ALL
             if (role == "ADMIN" || role == "EXEC" || (role == "STANDARD" && user.BranchScope != "SPECIFIC") || user.BranchScope == "ALL")
             {
                 return (user.Id, role, null); // null means access to ALL branches
             }
 
-            // AUDITEE and SPECIFIC scope -> strictly restricted to assigned branches
-            var allowedIds = await context.UserLocations
+            var defaultAllowedIds = await context.UserLocations
                 .AsNoTracking()
                 .Where(ul => ul.UserId == user.Id)
                 .Select(ul => ul.LocationId)
                 .ToListAsync();
 
-            return (user.Id, role, allowedIds);
+            return (user.Id, role, defaultAllowedIds);
         }
 
         public static async Task<(int UserId, String Role, List<int>? AllowedBrandIds)> GetUserBrandScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
@@ -64,20 +75,31 @@ namespace QSC.Api.Helpers
 
             var role = user.Role?.Code ?? string.Empty;
 
-            // ADMIN, STANDARD, and EXEC have global organization visibility (unless STANDARD has SPECIFIC brand scope)
-            if (role == "ADMIN" || role == "EXEC" || (role == "STANDARD" && user.BrandScope != "SPECIFIC") || user.BrandScope == "ALL")
+            // AUDITEE (Store Manager) is ALWAYS strictly restricted to assigned brands
+            if (role == "AUDITEE" || user.BrandScope == "SPECIFIC")
             {
-                return (user.Id, role, null); // null means access to ALL brandes
+                var allowedBrandIds = await context.UserBrands
+                    .AsNoTracking()
+                    .Where(ul => ul.UserId == user.Id)
+                    .Select(ul => ul.BrandId)
+                    .ToListAsync();
+
+                return (user.Id, role, allowedBrandIds);
             }
 
-            // AUDITEE and SPECIFIC scope -> strictly restricted to assigned brandes
-            var allowedBrandIds = await context.UserBrands
+            // ADMIN, STANDARD, AUDITOR, and EXEC have global organization visibility when BrandScope is ALL
+            if (role == "ADMIN" || role == "EXEC" || (role == "STANDARD" && user.BrandScope != "SPECIFIC") || user.BrandScope == "ALL")
+            {
+                return (user.Id, role, null); // null means access to ALL brands
+            }
+
+            var defaultAllowedBrandIds = await context.UserBrands
                 .AsNoTracking()
                 .Where(ul => ul.UserId == user.Id)
                 .Select(ul => ul.BrandId)
                 .ToListAsync();
 
-            return (user.Id, role, allowedBrandIds);
+            return (user.Id, role, defaultAllowedBrandIds);
         }
 
         // ใช้ร่วมกันในทุก controller ที่คืนรายการ Location

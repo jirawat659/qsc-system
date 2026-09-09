@@ -287,7 +287,10 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
             onSignChange(dataUrl);
             try {
               setIsUploading(true);
-              const res = await api.post('/audit/upload-signature', { base64Data: dataUrl });
+              const res = await api.post('/audit/upload-signature', { 
+                base64Data: dataUrl,
+                previousUrl: signatureUrl
+              });
               if (res.data?.url) {
                 // บันทึก Path URL จากเซิร์ฟเวอร์
                 onSignChange(res.data.url);
@@ -1439,19 +1442,31 @@ export default function LiveAuditScreen({
         (sec.items || []).forEach(q => {
           const ans = answers[q.id];
           const isNa = (ans === "na");
-          let isPassed = true;
-          let scoreGiven = q.fullScore || 10;
+          const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+          let isPassed = false;
+          let scoreGiven = 0;
+          let rawAnswer = String(ans !== undefined ? ans : "yes");
 
           if (isNa) {
             isPassed = true;
             scoreGiven = 0;
-          } else if (q.questionType === "yesno" || q.type === "yesno" || !q.questionType) {
-            isPassed = (ans === "yes" || ans === true);
-            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
-          } else if (q.questionType === "scale" || q.type === "scale") {
-            const num = Number(ans) || 5;
+            rawAnswer = "na";
+          } else if (qType === "scale") {
+            // 🐛 FIX: previously defaulted to 5 (full score / pass) whenever the answer
+            // was missing or not a valid number, so an unanswered/invalid scale question
+            // was silently submitted and saved as "ผ่าน" with 5 คะแนน. Must default to 0
+            // (fail) to match the live on-screen score preview (scoreAnalysis above) and
+            // to fail-safe instead of fail-open.
+            const parsedNum = Number(ans);
+            const num = Number.isFinite(parsedNum) ? parsedNum : 0;
             isPassed = num >= 3;
-            scoreGiven = (num / 5) * (q.fullScore || 10);
+            scoreGiven = Math.round(((num / 5) * (q.fullScore || 10)) * 100) / 100;
+            rawAnswer = String(num);
+          } else {
+            // YESNO type
+            isPassed = (ans === "yes" || ans === true || ans === "true" || ans === 1);
+            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
+            rawAnswer = isPassed ? "yes" : "no";
           }
 
           const rawPhotos = photos[q.id];
@@ -1461,9 +1476,9 @@ export default function LiveAuditScreen({
 
           responses.push({
             surveyItemId: q.id,
-            rawAnswer: String(ans !== undefined ? ans : "yes"),
-            answerValue: String(ans !== undefined ? ans : "yes"),
-            scaleScore: typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : null),
+            rawAnswer,
+            answerValue: rawAnswer,
+            scaleScore: qType === "scale" ? (typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : 0)) : null,
             scoreGiven,
             isPassed,
             isNa,
@@ -1491,7 +1506,10 @@ export default function LiveAuditScreen({
         staffCount: Number(staffCount) || 0,
         auditType: auditType || "announced",
         notes: extraNote || "",
-        metadataValuesJson: JSON.stringify(metadataValues),
+        metadataValuesJson: JSON.stringify({
+          ...metadataValues,
+          ...(staffCount !== "" && staffCount !== undefined ? { staff_count: staffCount } : {})
+        }),
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
@@ -2160,6 +2178,7 @@ export default function LiveAuditScreen({
 
                 // System field: Staff Count
                 if (field.id === "staff_count") {
+                  const currentStaffVal = staffCount !== "" ? staffCount : (metadataValues.staff_count ?? "");
                   return (
                     <div key={field.id} className="w-full">
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -2169,11 +2188,13 @@ export default function LiveAuditScreen({
                         <input
                           type="number"
                           min="0"
-                          value={staffCount}
+                          value={currentStaffVal}
                           onChange={(e) => {
                             const val = e.target.value;
                             setStaffCount(val);
-                            performSaveDraft({ staffCount: val });
+                            const nextMeta = { ...metadataValues, staff_count: val };
+                            setMetadataValues(nextMeta);
+                            performSaveDraft({ staffCount: val, metadataValues: nextMeta });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
@@ -2633,7 +2654,7 @@ export default function LiveAuditScreen({
 
                           {isScale && (
                             <div className="flex gap-1.5 items-center">
-                              {[1, 2, 3, 4, 5].map((n) => (
+                              {[5, 4, 3, 2, 1].map((n) => (
                                 <button key={n} type="button" onClick={() => handleAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answers[q.id] === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
                                   {n}
                                 </button>

@@ -181,7 +181,12 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: false);
+        // Seed check (use --seed-fresh argument or SEED_FORCE_RECREATE env var if full reseed needed)
+        bool shouldRecreate = builder.Configuration.GetValue<bool>("Seed:ForceRecreate", false)
+            || Environment.GetEnvironmentVariable("SEED_FORCE_RECREATE") == "true"
+            || args.Contains("--seed-fresh");
+
+        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: shouldRecreate);
         Console.WriteLine("✅ Database migration and enterprise seeding checked successfully!");
     }
     catch (Exception ex)

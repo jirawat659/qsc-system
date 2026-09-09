@@ -34,7 +34,12 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetSchedules([FromQuery] int? auditorId, [FromQuery] int? locationId)
+        public async Task<IActionResult> GetSchedules(
+            [FromQuery] int? auditorId,
+            [FromQuery] int? locationId,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
+            [FromQuery] int? limit)
         {
             var (userId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -91,12 +96,29 @@ namespace QSC.Api.Controllers
                 query = query.Where(s => s.LocationId == locationId.Value);
             }
             
-            if (allowedBrandIds != null)
+            if (startDate.HasValue)
             {
-                query = query.Where(s => s.Location != null && s.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                query = query.Where(s => s.ScheduledDate >= startDate.Value);
             }
 
-            var schedules = await query.OrderByDescending(s => s.ScheduledDate).ToListAsync();
+            if (endDate.HasValue)
+            {
+                query = query.Where(s => s.ScheduledDate <= endDate.Value);
+            }
+
+            query = query.OrderByDescending(s => s.ScheduledDate);
+
+            if (limit.HasValue)
+            {
+                query = query.Take(Math.Clamp(limit.Value, 1, 500));
+            }
+            else
+            {
+                // Default safety ceiling: prevent dumping unlimited historical schedules
+                query = query.Take(300);
+            }
+
+            var schedules = await query.ToListAsync();
 
             var result = schedules.Select(s => new
             {
@@ -226,6 +248,21 @@ namespace QSC.Api.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            // 📌 Link & update pending CAP recommendations for this branch to USED
+            var pendingCaps = await _context.CapTasks
+                .Where(c => c.LocationId == dto.LocationId && c.FollowUpStatus == "PENDING")
+                .ToListAsync();
+
+            if (pendingCaps.Any())
+            {
+                foreach (var cap in pendingCaps)
+                {
+                    cap.FollowUpStatus = "USED";
+                    cap.FollowUpScheduleId = schedule.Id;
+                }
+                await _context.SaveChangesAsync();
+            }
+
             return Ok(schedule);
         }
 
@@ -297,6 +334,17 @@ namespace QSC.Api.Controllers
             if (schedule.Status == "completed")
             {
                 return BadRequest(new { message = "ไม่สามารถลบนัดหมายที่ตรวจเสร็จสมบูรณ์แล้วได้ (ล็อกถาวร)" });
+            }
+
+            // 📌 Revert any linked CAP recommendations back to PENDING
+            var linkedCaps = await _context.CapTasks
+                .Where(c => c.FollowUpScheduleId == id && c.FollowUpStatus == "USED")
+                .ToListAsync();
+
+            foreach (var cap in linkedCaps)
+            {
+                cap.FollowUpStatus = "PENDING";
+                cap.FollowUpScheduleId = null;
             }
 
             _context.AuditSchedules.Remove(schedule);

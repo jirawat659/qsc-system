@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
 using QSC.Api.Models;
 using QSC.Api.Helpers;
+using QSC.Api.Hubs;
 
 namespace QSC.Api.Controllers
 {
@@ -15,12 +17,14 @@ namespace QSC.Api.Controllers
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<AuditController> _logger;
+        private readonly IHubContext<CapChatHub> _hubContext;
 
-        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger)
+        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext)
         {
             _context = context;
             _env = env;
             _logger = logger;
+            _hubContext = hubContext;
         }
 
         private static bool IsValidImageSignature(byte[] bytes)
@@ -80,7 +84,7 @@ namespace QSC.Api.Controllers
         // 1. LIVE AUDIT DRAFTS & AUTO-SYNC
         // ==========================================
         [HttpGet("draft")]
-        public async Task<IActionResult> GetDraft([FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId)
+        public async Task<IActionResult> GetDraft([FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId, [FromQuery] int? scheduleId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -111,6 +115,11 @@ namespace QSC.Api.Controllers
 
             if (surveyFormId.HasValue && surveyFormId.Value > 0)
                 query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
+
+            // 🐛 FIX: same schedule-scoping as SaveDraft — without this, a location/form pair with
+            // more than one scheduled draft could return the wrong (or a merged) one.
+            if (scheduleId.HasValue && scheduleId.Value > 0)
+                query = query.Where(d => d.AuditScheduleId == scheduleId.Value);
 
             var draft = await query.OrderByDescending(d => d.UpdatedAt).FirstOrDefaultAsync();
 
@@ -154,9 +163,13 @@ namespace QSC.Api.Controllers
 
             var allDrafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
 
-            // Deduplicate drafts by (LocationId, SurveyFormId) ensuring only the latest draft is returned
+            // Deduplicate drafts by (LocationId, SurveyFormId, AuditScheduleId) — keep only the
+            // latest per group. 🐛 FIX: previously grouped by (LocationId, SurveyFormId) only,
+            // so if the same branch/form had two different scheduled audits each with their own
+            // draft, this list silently dropped one of them (and SaveDraft could then merge them
+            // into a single row — see the AuditScheduleId fix in SaveDraft above).
             var drafts = allDrafts
-                .GroupBy(d => new { d.LocationId, d.SurveyFormId })
+                .GroupBy(d => new { d.LocationId, d.SurveyFormId, d.AuditScheduleId })
                 .Select(g => g.First())
                 .ToList();
 
@@ -229,9 +242,20 @@ namespace QSC.Api.Controllers
 
             if (draft == null)
             {
-                // Find any existing draft(s) for this location and form
+                // Find any existing draft(s) for this location, form AND schedule occurrence.
+                // 🐛 FIX: this used to match on (LocationId, SurveyFormId, AuditorId) only, with
+                // no AuditScheduleId filter. When a branch has more than one scheduled audit
+                // using the same form (e.g. this month's and last month's recurring checklist),
+                // starting a brand-new audit for the new schedule would silently find and hijack
+                // the *other* schedule's still-open/abandoned draft row on the very first
+                // autosave — overwriting its answers instead of creating a new draft. Scoping by
+                // AuditScheduleId keeps each scheduled session's draft independent; ad-hoc audits
+                // with no schedule (AuditScheduleId == null) still resume/merge with each other
+                // as before.
                 var existingDrafts = await _context.AuditDrafts
-                    .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && (d.AuditorId == effectiveAuditorId || d.AuditorId == currentUserId))
+                    .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId
+                        && (d.AuditorId == effectiveAuditorId || d.AuditorId == currentUserId)
+                        && d.AuditScheduleId == effectiveScheduleId)
                     .OrderByDescending(d => d.UpdatedAt)
                     .ToListAsync();
 
@@ -306,6 +330,12 @@ namespace QSC.Api.Controllers
 
                 if (surveyFormId.HasValue && surveyFormId.Value > 0)
                     query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
+
+                // 🐛 FIX: without this, discarding by (locationId, surveyFormId) alone — with no
+                // explicit draft id — could delete a *different* schedule occurrence's draft for
+                // the same location/form. Scope to the specific schedule when one is given.
+                if (scheduleId.HasValue && scheduleId.Value > 0)
+                    query = query.Where(d => d.AuditScheduleId == scheduleId.Value);
             }
 
             if (allowedLocationIds != null)
@@ -383,6 +413,7 @@ namespace QSC.Api.Controllers
         {
             public string Base64Data { get; set; } = string.Empty;
             public string FileName { get; set; } = "upload.webp";
+            public string? PreviousUrl { get; set; }
         }
 
         [HttpPost("upload-image")]
@@ -394,7 +425,18 @@ namespace QSC.Api.Controllers
             var dir = Path.Combine(webRoot, "uploads", "audit_images");
             Directory.CreateDirectory(dir);
 
-            var fileName = $"audit_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.webp";
+            // Clean previous image if exists
+            if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/audit_images/"))
+            {
+                try
+                {
+                    var oldFile = Path.Combine(dir, Path.GetFileName(dto.PreviousUrl));
+                    if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
+                }
+                catch { }
+            }
+
+            var fileName = $"img_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.webp";
             var filePath = Path.Combine(dir, fileName);
 
             var base64Clean = dto.Base64Data;
@@ -425,6 +467,17 @@ namespace QSC.Api.Controllers
             var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
             var dir = Path.Combine(webRoot, "uploads", "signatures");
             Directory.CreateDirectory(dir);
+
+            // Clean previous signature file to prevent disk clutter
+            if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/signatures/"))
+            {
+                try
+                {
+                    var oldFile = Path.Combine(dir, Path.GetFileName(dto.PreviousUrl));
+                    if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
+                }
+                catch { }
+            }
 
             var fileName = $"sig_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.webp";
             var filePath = Path.Combine(dir, fileName);
@@ -554,7 +607,25 @@ namespace QSC.Api.Controllers
                 }
                 else
                 {
-                    bool isYes = raw == "yes" || raw == "true" || raw == "1" || respDto.IsPassed;
+                    bool isYes;
+                    if (raw == "no" || raw == "false" || raw == "0")
+                    {
+                        isYes = false;
+                    }
+                    else if (raw == "yes" || raw == "true" || raw == "1")
+                    {
+                        isYes = true;
+                    }
+                    else
+                    {
+                        // 🐛 FIX: this used to fall back to the client-supplied IsPassed flag,
+                        // which defeats the whole point of recomputing scores server-side
+                        // ("ห้ามเชื่อคะแนนจาก client" per the comment on ComputeScoring above).
+                        // A raw answer that isn't a recognized yes/no token is fail-closed
+                        // (treated as ไม่ผ่าน) instead of trusting the client's verdict.
+                        isYes = false;
+                    }
+
                     scoreGiven = isYes ? item.FullScore : 0.0;
                     isPassed = isYes;
 
@@ -705,7 +776,6 @@ namespace QSC.Api.Controllers
                     PercentageScore = percentageScore,
                     IsPassed = isOverallPassed,
                     HasCriticalDefect = hasCriticalDefect,
-                    StaffCount = dto.StaffCount,
                     AuditType = dto.AuditType,
                     Notes = dto.Notes,
                     MetadataValuesJson = dto.MetadataValuesJson,
@@ -820,6 +890,23 @@ namespace QSC.Api.Controllers
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
+                // 📡 Broadcast real-time event to clients: new audit completed!
+                try
+                {
+                    await _hubContext.Clients.All.SendAsync("AuditCreated", new
+                    {
+                        auditRecordId = record.Id,
+                        locationId = record.LocationId,
+                        percentageScore = percentageScore,
+                        isPassed = isOverallPassed,
+                        auditDate = record.AuditDate
+                    });
+                }
+                catch (Exception hubEx)
+                {
+                    _logger.LogWarning(hubEx, "Failed to broadcast AuditCreated SignalR event");
+                }
+
                 return Ok(new
                 {
                     auditRecordId = record.Id,
@@ -849,7 +936,9 @@ namespace QSC.Api.Controllers
             [FromQuery] int? locationId,
             [FromQuery] int? auditorId,
             [FromQuery] int? limit,
-            [FromQuery] int? brandId)
+            [FromQuery] int? brandId,
+            [FromQuery] int? page,
+            [FromQuery] int? pageSize)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -862,11 +951,6 @@ namespace QSC.Api.Controllers
                 .Include(r => r.SurveyForm)
                 .Include(r => r.PrimaryAuditor)
                 .Include(r => r.AuditeeUser)
-                .Include(r => r.Responses)
-                    .ThenInclude(res => res.SurveyItem)
-                        .ThenInclude(item => item!.SurveySection)
-                .Include(r => r.Responses)
-                    .ThenInclude(res => res.Images)
                 .AsQueryable();
 
             if (role == "AUDITEE")
@@ -921,7 +1005,22 @@ namespace QSC.Api.Controllers
 
             query = query.OrderByDescending(r => r.AuditDate);
 
-            if (limit.HasValue) query = query.Take(limit.Value);
+            // 🚀 Pagination support: If page or pageSize is specified, apply pagination
+            if (page.HasValue || pageSize.HasValue)
+            {
+                int currentPage = Math.Max(1, page ?? 1);
+                int currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
+                query = query.Skip((currentPage - 1) * currentPageSize).Take(currentPageSize);
+            }
+            else if (limit.HasValue)
+            {
+                query = query.Take(Math.Clamp(limit.Value, 1, 500));
+            }
+            else
+            {
+                // Default safety ceiling: prevent dumping endless records in one single request
+                query = query.Take(300);
+            }
 
             var records = await query.ToListAsync();
 
@@ -958,7 +1057,6 @@ namespace QSC.Api.Controllers
                 percentageScore = r.PercentageScore,
                 isPassed = r.IsPassed,
                 hasCriticalDefect = r.HasCriticalDefect,
-                staffCount = r.StaffCount,
                 auditType = r.AuditType,
                 notes = r.Notes,
                 metadataValuesJson = r.MetadataValuesJson,
@@ -971,30 +1069,7 @@ namespace QSC.Api.Controllers
                 endLongitude = r.EndLongitude,
                 startedAt = r.StartedAt,
                 submittedAt = r.SubmittedAt,
-                isBackdated = r.IsBackdated,
-                responses = r.Responses?.Select(res => new
-                {
-                    id = res.Id,
-                    surveyItemId = res.SurveyItemId,
-                    questionText = res.SurveyItem?.QuestionText,
-                    questionType = res.SurveyItem?.QuestionType,
-                    fullScore = res.SurveyItem?.FullScore,
-                    isCritical = res.SurveyItem?.IsCritical,
-                    orderIndex = res.SurveyItem?.OrderIndex,
-                    surveySectionId = res.SurveyItem?.SurveySectionId,
-                    sectionTitle = res.SurveyItem?.SurveySection?.Title,
-                    sectionOrderIndex = res.SurveyItem?.SurveySection?.OrderIndex,
-                    scoreGiven = res.ScoreGiven,
-                    isPassed = res.IsPassed,
-                    isNa = res.IsNa,
-                    notes = res.Notes,
-                    images = res.Images?.Select(img => new
-                    {
-                        id = img.Id,
-                        imageUrl = img.ImageUrl,
-                        uploadedAt = img.UploadedAt
-                    }).ToList()
-                }).ToList()
+                isBackdated = r.IsBackdated
             });
 
             return Ok(result);
@@ -1071,7 +1146,6 @@ namespace QSC.Api.Controllers
                 percentageScore = r.PercentageScore,
                 isPassed = r.IsPassed,
                 hasCriticalDefect = r.HasCriticalDefect,
-                staffCount = r.StaffCount,
                 auditType = r.AuditType,
                 notes = r.Notes,
                 metadataValuesJson = r.MetadataValuesJson,
@@ -1196,7 +1270,6 @@ namespace QSC.Api.Controllers
                 record.PercentageScore,
                 record.IsPassed,
                 record.HasCriticalDefect,
-                record.StaffCount,
                 record.AuditType,
                 record.Notes
             };
@@ -1216,7 +1289,6 @@ namespace QSC.Api.Controllers
                 // เพราะเป็นหลักฐานเวลา/สถานที่จริงตอนลงพื้นที่ — ถ้าต้องการแก้ ให้แจ้งเพิ่มทีหลังได้)
                 record.AuditeeUserId = validAuditeeUserId;
                 record.AuditeeNameText = dto.AuditeeNameText;
-                record.StaffCount = dto.StaffCount;
                 record.AuditType = dto.AuditType;
                 record.Notes = dto.Notes;
                 record.MetadataValuesJson = dto.MetadataValuesJson;
@@ -1298,7 +1370,6 @@ namespace QSC.Api.Controllers
                             record.PercentageScore,
                             record.IsPassed,
                             record.HasCriticalDefect,
-                            record.StaffCount,
                             record.AuditType,
                             record.Notes
                         }

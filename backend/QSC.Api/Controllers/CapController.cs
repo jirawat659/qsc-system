@@ -71,7 +71,12 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetCapTasks([FromQuery] int? locationId, [FromQuery] int? assignedTo, [FromQuery] string? status)
+        public async Task<IActionResult> GetCapTasks(
+            [FromQuery] int? locationId,
+            [FromQuery] int? auditRecordId,
+            [FromQuery] int? assignedTo,
+            [FromQuery] string? status,
+            [FromQuery] int? limit)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -82,6 +87,10 @@ namespace QSC.Api.Controllers
                 .Include(t => t.Assignee)
                 .Include(t => t.Verifier)
                 .Include(t => t.AuditRecord)
+                    .ThenInclude(ar => ar!.PrimaryAuditor)
+                .Include(t => t.AuditResponse)
+                    .ThenInclude(resp => resp!.SurveyItem)
+                .Include(t => t.Images)
                 .AsQueryable();
 
             if (role == "AUDITEE")
@@ -108,6 +117,7 @@ namespace QSC.Api.Controllers
                 }
                 query = query.Where(t => t.LocationId == locationId.Value);
             }
+            if (auditRecordId.HasValue) query = query.Where(t => t.AuditRecordId == auditRecordId.Value);
             if (assignedTo.HasValue) query = query.Where(t => t.AssignedTo == assignedTo.Value);
             if (!string.IsNullOrEmpty(status)) query = query.Where(t => t.Status == status);
             if (allowedBrandIds != null)
@@ -115,7 +125,19 @@ namespace QSC.Api.Controllers
                 query = query.Where(t => t.Location != null && t.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
-            var tasks = await query.OrderByDescending(t => t.CreatedAt).ToListAsync();
+            query = query.OrderByDescending(t => t.CreatedAt);
+
+            if (limit.HasValue)
+            {
+                query = query.Take(Math.Clamp(limit.Value, 1, 500));
+            }
+            else
+            {
+                // Default safety ceiling: prevent pulling excessive historical CAPs in one go
+                query = query.Take(300);
+            }
+
+            var tasks = await query.ToListAsync();
 
             var result = tasks.Select(t => new
             {
@@ -133,6 +155,15 @@ namespace QSC.Api.Controllers
                 assigneeName = t.Assignee?.FullName,
                 verifiedBy = t.VerifiedBy,
                 verifierName = t.Verifier?.FullName,
+                auditorName = t.AuditRecord?.PrimaryAuditor?.FullName ?? t.Verifier?.FullName ?? "-",
+                auditScore = t.AuditRecord?.PercentageScore,
+                questionNumber = t.AuditResponse?.SurveyItem?.OrderIndex,
+                afterImages = t.Images.Where(img => img.Phase == "AFTER").Select(img => new
+                {
+                    id = img.Id,
+                    imageUrl = img.ImageUrl,
+                    uploadedAt = img.UploadedAt
+                }).ToList(),
                 completedAt = t.CompletedAt,
                 closedAt = t.ClosedAt,
                 createdAt = t.CreatedAt
@@ -152,6 +183,10 @@ namespace QSC.Api.Controllers
                 .Include(t => t.Location)
                 .Include(t => t.Assignee)
                 .Include(t => t.Verifier)
+                .Include(t => t.AuditRecord)
+                    .ThenInclude(ar => ar!.PrimaryAuditor)
+                .Include(t => t.AuditResponse)
+                    .ThenInclude(resp => resp!.SurveyItem)
                 .Include(t => t.Images)
                     .ThenInclude(img => img.Uploader)
                         .ThenInclude(u => u!.Role)
@@ -203,6 +238,13 @@ namespace QSC.Api.Controllers
                 assigneeName = task.Assignee?.FullName,
                 verifiedBy = task.VerifiedBy,
                 verifierName = task.Verifier?.FullName,
+                auditorName = task.AuditRecord?.PrimaryAuditor?.FullName ?? task.Verifier?.FullName ?? "-",
+                auditScore = task.AuditRecord?.PercentageScore,
+                questionNumber = task.AuditResponse?.SurveyItem?.OrderIndex,
+                questionText = task.AuditResponse?.SurveyItem?.QuestionText ?? task.IssueItem,
+                categoryName = task.AuditResponse?.SurveyItem?.CategoryName ?? task.AuditResponse?.CategoryName,
+                scoreGiven = task.AuditResponse?.ScoreGiven,
+                fullScore = task.AuditResponse?.SurveyItem?.FullScore ?? 10.0,
                 completedAt = task.CompletedAt,
                 closedAt = task.ClosedAt,
                 createdAt = task.CreatedAt,
@@ -225,7 +267,9 @@ namespace QSC.Api.Controllers
                     message = c.Message,
                     imageUrl = c.ImageUrl,
                     createdAt = c.CreatedAt
-                }).ToList()
+                }).ToList(),
+                nextAuditNote = task.NextAuditNote,
+                followUpStatus = task.FollowUpStatus
             });
         }
 
@@ -747,6 +791,58 @@ namespace QSC.Api.Controllers
 
             var relativeUrl = $"/uploads/cap_images/{fileName}";
             return Ok(new { url = relativeUrl });
+        }
+
+        public class SaveNextAuditNoteDto
+        {
+            public string? Note { get; set; }
+        }
+
+        [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
+        [HttpPost("{id}/next-audit-note")]
+        public async Task<IActionResult> SaveNextAuditNote(int id, [FromBody] SaveNextAuditNoteDto dto)
+        {
+            var task = await _context.CapTasks.FindAsync(id);
+            if (task == null) return NotFound(new { message = "ไม่พบงาน CAP ที่ระบุ" });
+
+            if (string.IsNullOrWhiteSpace(dto.Note))
+            {
+                task.NextAuditNote = null;
+                task.FollowUpStatus = "NONE";
+            }
+            else
+            {
+                task.NextAuditNote = dto.Note.Trim();
+                task.FollowUpStatus = "PENDING";
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new
+            {
+                message = "บันทึกคำแนะนำสำหรับรอบตรวจถัดไปเรียบร้อยแล้ว",
+                nextAuditNote = task.NextAuditNote,
+                followUpStatus = task.FollowUpStatus
+            });
+        }
+
+        [HttpGet("pending-recommendations")]
+        public async Task<IActionResult> GetPendingRecommendations([FromQuery] int locationId)
+        {
+            var recommendations = await _context.CapTasks
+                .AsNoTracking()
+                .Where(c => c.LocationId == locationId && c.FollowUpStatus == "PENDING" && !string.IsNullOrWhiteSpace(c.NextAuditNote))
+                .OrderByDescending(c => c.CreatedAt)
+                .Select(c => new
+                {
+                    id = c.Id,
+                    issueItem = c.IssueItem,
+                    description = c.Description,
+                    nextAuditNote = c.NextAuditNote,
+                    createdAt = c.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(recommendations);
         }
     }
 }

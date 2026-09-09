@@ -62,7 +62,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const passedCount = passedBranches.length;
   const avgScore = totalBranches > 0 ? Math.round(activeLocations.reduce((acc, l) => acc + (l.lastScore || 0), 0) / totalBranches) : 0;
   const pendingCapCount = (capTasks && capTasks.length > 0) 
-    ? capTasks.filter(c => c.status !== 'approved' && c.status !== 'CLOSED').length 
+    ? capTasks.filter(c => {
+        const s = (c.status || '').toUpperCase();
+        return s !== 'APPROVED' && s !== 'CLOSED' && s !== 'DONE';
+      }).length 
     : 0;
 
   // 🌟 Map logs from Live Database if available, otherwise from mocks
@@ -728,9 +731,23 @@ const handleTriggerAudit = (record) => {
               <span className="text-xs font-extrabold text-slate-400">คะแนนเฉลี่ยภาพรวม</span>
               <span className="text-xs font-black text-slate-900 font-mono">{avgScore}%</span>
             </div>
-            <div className="text-xs font-bold text-emerald-800 mt-0.5 truncate">
-              ✓ ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
-            </div>
+            {totalBranches === 0 ? (
+              <div className="text-xs font-bold text-slate-400 mt-0.5 truncate">
+                ยังไม่มีข้อมูลสาขา
+              </div>
+            ) : auditedCount === 0 ? (
+              <div className="text-xs font-bold text-slate-400 mt-0.5 truncate">
+                ยังไม่มีการตรวจประเมิน (0 จาก {totalBranches} สาขา)
+              </div>
+            ) : avgScore >= 85 ? (
+              <div className="text-xs font-bold text-emerald-800 mt-0.5 truncate">
+                ✓ ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
+              </div>
+            ) : (
+              <div className="text-xs font-bold text-rose-600 mt-0.5 truncate">
+                ✕ ไม่ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
+              </div>
+            )}
           </div>
         </div>
 
@@ -743,7 +760,7 @@ const handleTriggerAudit = (record) => {
             <div>
               <div className="text-[11px] font-bold text-slate-400">ตรวจแล้ว</div>
               <div className="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5 font-mono">
-                {auditedCount} / {totalBranches} สาขา
+                {auditedCount} รายการ
               </div>
             </div>
             <div>

@@ -205,7 +205,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const [editingId, setEditingId] = useState(null);
   const [editingSecIdx, setEditingSecIdx] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'section' | 'item', secIdx, itemId?, title?, text?, itemIdx? }
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'form' | 'section' | 'item' | 'metaField' | 'scoringCategory', secIdx?, itemId?, fieldId?, catName?, count?, label?, title?, text?, itemIdx?, idx? }
   const [warningModal, setWarningModal] = useState({ isOpen: false, title: '', message: '' });
   const toastTimerRef = useRef(null);
 
@@ -355,6 +355,26 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       return;
     }
 
+    if (deleteTarget.type === "metaField") {
+      setMetadataConfig(prev => prev.filter(f => f.id !== deleteTarget.fieldId));
+      showToast("ลบฟิลด์ข้อมูลเรียบร้อยแล้ว");
+      setDeleteTarget(null);
+      return;
+    }
+
+    if (deleteTarget.type === "scoringCategory") {
+      const catName = deleteTarget.catName;
+      setCategories(prev => prev.filter(c => c !== catName));
+      const fallbackCat = categories.find(c => c !== catName) || DEFAULT_CATEGORIES[0];
+      setSections(prev => prev.map(s => ({
+        ...s,
+        items: (s.items || []).map(item => (item.category === catName || item.categoryName === catName) ? { ...item, category: fallbackCat, categoryName: fallbackCat, categoryCode: CATEGORY_CODE_MAP[fallbackCat] || "GEN" } : item)
+      })));
+      showToast(`ลบหมวดคะแนน "${catName}" เรียบร้อยแล้ว`);
+      setDeleteTarget(null);
+      return;
+    }
+
     if (deleteTarget.type === "section") {
       setSections(prev => prev.filter((_, idx) => idx !== deleteTarget.secIdx));
       //showToast("ลบหมวดหมู่ออกเรียบร้อยแล้ว");
@@ -428,22 +448,6 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     showToast(`เพิ่มหมวดคะแนน "${trimmed}" เรียบร้อย`);
   };
 
-  // Remove custom scoring category
-  const handleRemoveCategory = (catName) => {
-    if (categories.length <= 1) {
-      showToast("ต้องมีหมวดคะแนนอย่างน้อย 1 หมวด");
-      return;
-    }
-    setCategories(prev => prev.filter(c => c !== catName));
-    // Re-assign items that had this category to the first available category
-    const fallbackCat = categories.find(c => c !== catName) || DEFAULT_CATEGORIES[0];
-    setSections(prev => prev.map(s => ({
-      ...s,
-      items: (s.items || []).map(item => (item.category === catName || item.categoryName === catName) ? { ...item, category: fallbackCat, categoryName: fallbackCat, categoryCode: CATEGORY_CODE_MAP[fallbackCat] || "GEN" } : item)
-    })));
-    showToast(`ลบหมวดคะแนน "${catName}" เรียบร้อย`);
-  };
-
   const categoryCounts = useMemo(() => {
     const counts = {};
     categories.forEach(c => { counts[c] = 0; });
@@ -455,6 +459,24 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     });
     return counts;
   }, [categories, sections]);
+
+  // Remove custom scoring category (open confirmation popup)
+  const handleRemoveCategory = (catName) => {
+    if (categories.length <= 1) {
+      setWarningModal({
+        isOpen: true,
+        title: "ไม่สามารถลบหมวดคะแนนได้",
+        message: "แบบฟอร์มต้องมีหมวดคะแนนอย่างน้อย 1 หมวด เพื่อใช้ในการประเมินและจัดกลุ่มสถิติ"
+      });
+      return;
+    }
+    const count = categoryCounts[catName] || 0;
+    setDeleteTarget({
+      type: "scoringCategory",
+      catName,
+      count
+    });
+  };
 
   // Toggle Critical Failure Flag
   const toggleItemCritical = (secIdx, itemId) => {
@@ -725,9 +747,24 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     setMetadataConfig(prev => prev.map(f => f.id === id ? { ...f, enabled: f.enabled === false ? true : false } : f));
   };
 
+  const handleRequestRemoveMetaField = (field, idx) => {
+    setDeleteTarget({
+      type: "metaField",
+      fieldId: field.id,
+      label: field.label,
+      idx: idx + 1
+    });
+  };
+
   const deleteMetaField = (id) => {
-    setMetadataConfig(prev => prev.filter(f => f.id !== id));
-    showToast("ลบฟิลด์ข้อมูลเรียบร้อย");
+    const field = metadataConfig.find(f => f.id === id);
+    const idx = metadataConfig.findIndex(f => f.id === id);
+    if (field) {
+      handleRequestRemoveMetaField(field, idx >= 0 ? idx : 0);
+    } else {
+      setMetadataConfig(prev => prev.filter(f => f.id !== id));
+      showToast("ลบฟิลด์ข้อมูลเรียบร้อยแล้ว");
+    }
   };
 
   const openAddMetaField = () => {
@@ -1726,7 +1763,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
                             <button
                               type="button"
-                              onClick={() => deleteMetaField(field.id)}
+                              onClick={() => handleRequestRemoveMetaField(field, idx)}
                               className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer shadow-2xs transition-colors"
                               title="ลบฟิลด์นี้"
                             >
@@ -1741,7 +1778,16 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       <div className="pt-0.5 space-y-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="text-sm font-bold text-slate-900">{field.label}</h4>
-                          {field.required && (
+                          {field.enabled === false ? (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-200 text-slate-600">
+                              ✕ ปิดใช้งาน (Disabled)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                              ✓ เปิดใช้งาน (Enabled)
+                            </span>
+                          )}
+                          {field.required && field.enabled !== false && (
                             <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-rose-100 text-rose-700">
                               * บังคับกรอก
                             </span>
@@ -2027,6 +2073,24 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 </div>
               )}
 
+              {/* Enabled / Visible Toggle */}
+              <label className="flex items-center gap-2.5 sm:gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none">
+                <input
+                  type="checkbox"
+                  checked={metaFieldForm.enabled !== false}
+                  onChange={(e) => setMetaFieldForm({ ...metaFieldForm, enabled: e.target.checked })}
+                  className="w-4 h-4 sm:w-4.5 sm:h-4.5 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] shrink-0 cursor-pointer"
+                />
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs sm:text-sm font-bold text-slate-800 block leading-tight">
+                    เปิดใช้งานฟิลด์นี้ (Enabled)
+                  </span>
+                  <span className="text-[10px] sm:text-[11px] text-slate-400 font-normal block mt-0.5">
+                    หากปิดใช้งาน ฟิลด์นี้จะไม่แสดงให้ผู้ตรวจเห็นในแบบฟอร์ม
+                  </span>
+                </div>
+              </label>
+
               {/* Required Toggle */}
               <label className="flex items-center gap-2.5 sm:gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors select-none">
                 <input
@@ -2090,6 +2154,10 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                   ? (form?.usedCount > 0 || form?.scheduledCount > 0 ? "คำเตือน: แบบฟอร์มนี้มีการใช้งานอยู่!" : "ยืนยันการลบแบบฟอร์มนี้?")
                   : deleteTarget.type === "section"
                   ? "ยืนยันการลบหมวดหมู่?"
+                  : deleteTarget.type === "metaField"
+                  ? "ยืนยันการลบฟิลด์ข้อมูลการตรวจ?"
+                  : deleteTarget.type === "scoringCategory"
+                  ? "ยืนยันการลบหมวดคะแนน?"
                   : "ยืนยันการลบข้อคำถาม?"}
               </h3>
               <p className="text-xs sm:text-sm text-slate-600 leading-relaxed max-w-sm mx-auto">
@@ -2100,6 +2168,19 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 ) : deleteTarget.type === "section" ? (
                   <>
                     คุณต้องการลบหมวดหมู่ <strong className="text-slate-800">"{deleteTarget.title}"</strong> ใช่หรือไม่? ข้อคำถามทั้งหมด <strong className="text-rose-600 font-bold">{deleteTarget.itemCount} ข้อ</strong> ในหมวดนี้จะถูกลบออกด้วย
+                  </>
+                ) : deleteTarget.type === "metaField" ? (
+                  <>
+                    คุณต้องการลบฟิลด์ข้อมูล <strong className="text-slate-800">"{deleteTarget.label || `ข้อ ${deleteTarget.idx}`}"</strong> (ข้อ {deleteTarget.idx}) ออกจากข้อมูลการตรวจใช่หรือไม่?
+                  </>
+                ) : deleteTarget.type === "scoringCategory" ? (
+                  <>
+                    คุณต้องการลบหมวดคะแนน <strong className="text-slate-800">"{deleteTarget.catName}"</strong> ใช่หรือไม่?
+                    {deleteTarget.count > 0 && (
+                      <span className="block mt-2 text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-left leading-relaxed">
+                        ⚠️ มีข้อคำถามที่ผูกกับหมวดนี้อยู่ <strong className="font-bold text-rose-600">{deleteTarget.count} ข้อ</strong> โดยระบบจะย้ายข้อคำถามเหล่านี้ไปยังหมวดคะแนนอื่นโดยอัตโนมัติ
+                      </span>
+                    )}
                   </>
                 ) : (
                   <>

@@ -128,11 +128,12 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
   // Initial timeline from item
   const [timeline, setTimeline] = useState(() => [
     {
-      who: `${item.unit || "ผู้ตรวจ"} (ผู้ตรวจ)`,
-      senderRole: "AUDITOR",
-      text: item.issueItem || item.title || item.desc || "ตรวจพบข้อบกพร่องตามมาตรฐาน Q.S.C. กรุณาดำเนินการแก้ไขและส่งหลักฐาน",
+      id: "init_system_notice",
+      isSystem: true,
+      text: item.issueItem || item.title || item.desc || "ตรวจพบข้อบกพร่องตามเกณฑ์มาตรฐาน Q.S.C. ระบบได้เปิดรายการแก้ไข (CAP) ให้อัตโนมัติ",
       time: item.createdAt || "วันนี้",
-      photo: null
+      photo: null,
+      timestamp: 0
     }
   ]);
 
@@ -184,12 +185,12 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       const apiTimeline = [];
 
       const initialTime = new Date(capDetail.createdAt).getTime() || 0;
-      // Initial task issue item as first message (Pure defect notice, NO evidence photo)
+      // Automated system notification for defect ticket creation (NO fake auditor message)
       apiTimeline.push({
-        who: `${capDetail.verifierName || capDetail.assigneeName || "ผู้ตรวจ/ระบบ"} (ผู้ตรวจ)`,
-        text: capDetail.issueItem || capDetail.description || item.desc || "ตรวจพบข้อบกพร่องตามมาตรฐาน Q.S.C. กรุณาดำเนินการแก้ไขและส่งหลักฐาน",
+        id: "init_system_notice",
+        isSystem: true,
+        text: capDetail.issueItem || capDetail.description || item.desc || "ตรวจพบข้อบกพร่องตามเกณฑ์มาตรฐาน Q.S.C. ระบบได้เปิดรายการแก้ไข (CAP) ให้อัตโนมัติ",
         time: formatThaiTime(capDetail.createdAt),
-        isMe: false,
         photo: null,
         timestamp: initialTime
       });
@@ -205,21 +206,9 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
 
           const cTime = new Date(c.createdAt).getTime() || Date.now();
 
-          // Look for attached photo directly from comment or from afterImgs
+          // Attached photo directly from comment
           let attachedPhoto = c.imageUrl ? getFullImageUrl(c.imageUrl) : null;
-          if (!attachedPhoto) {
-            const matchingImg = afterImgs.find(img => {
-              if (usedImgUrls.has(img.imageUrl)) return false;
-              const imgTime = new Date(img.uploadedAt).getTime() || 0;
-              const isUploader = (img.uploadedBy === c.senderId) || isSenderMe;
-              return isUploader && Math.abs(imgTime - cTime) < 20000;
-            });
-
-            if (matchingImg) {
-              attachedPhoto = getFullImageUrl(matchingImg.imageUrl);
-              usedImgUrls.add(matchingImg.imageUrl);
-            }
-          } else if (c.imageUrl) {
+          if (c.imageUrl) {
             usedImgUrls.add(c.imageUrl);
           }
 
@@ -332,13 +321,19 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
     }
   }, [timeline]);
 
+  const questionNo = capDetail?.questionNumber ?? item.orderIndex ?? item.questionNumber;
+  const locationDisplayName = capDetail?.locationName || item.unit || item.locationName || "-";
+  const headerSubtitle = questionNo 
+    ? `ข้อที่ ${questionNo} · ${locationDisplayName}`
+    : `${locationDisplayName}`;
+
   // Reusable Defect Summary Panel Content
   const renderDefectDetails = () => (
     <div className="space-y-4">
       {/* Status & ID Badge */}
       <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
-        <span className="text-xs font-mono font-bold text-slate-400">
-          ข้อ {item.id} · {item.unit}
+        <span className="text-xs font-mono font-bold text-slate-500">
+          ข้อที่ {questionNo}
         </span>
         <span
           className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1 rounded-full border shadow-2xs"
@@ -351,17 +346,37 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
 
       {/* Defect Description */}
       <div className="space-y-2">
-        <div className="flex items-center gap-2 text-xs font-extrabold text-amber-900">
-          <AlertTriangle size={15} className="text-amber-600 shrink-0" />
-          <span>หัวข้อข้อบกพร่องที่ต้องแก้ไข</span>
+        <div className="flex items-center justify-between gap-2 text-xs font-extrabold text-amber-900">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+            <span>หัวข้อข้อบกพร่องที่ต้องแก้ไข</span>
+          </div>
+          {(capDetail?.categoryName || item.categoryName) && (
+            <span className="px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[10px] font-bold">
+              {capDetail?.categoryName || item.categoryName}
+            </span>
+          )}
         </div>
-        <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-1">
+        <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-1.5">
           <h4 className="text-sm font-extrabold text-slate-900 leading-snug">
-            {item.issueItem || item.title}
+            {capDetail?.issueItem || item.issueItem || item.title || "ข้อบกพร่องที่ตรวจพบ"}
           </h4>
-          <p className="text-xs text-slate-600 font-medium leading-relaxed">
-            {item.desc || item.notes || item.actionPlan || "-"}
-          </p>
+          {(() => {
+            const descText = (capDetail?.description || item.desc || item.notes || item.actionPlan || "").trim();
+            const issueTitle = (capDetail?.issueItem || item.issueItem || item.title || "").trim();
+            if (!descText || descText === "-" || descText === issueTitle) return null;
+            
+            // ถ้าเป็นข้อความ auto-fallback "ไม่ผ่านเกณฑ์การประเมิน: [ชื่อข้อ]" ไม่ต้องแสดงซ้ำ
+            if (descText.startsWith("ไม่ผ่านเกณฑ์การประเมิน:") && descText.replace("ไม่ผ่านเกณฑ์การประเมิน:", "").trim() === issueTitle) {
+              return null;
+            }
+
+            return (
+              <p className="text-xs text-slate-700 font-medium leading-relaxed pt-1.5 border-t border-amber-200/60">
+                <span className="font-bold text-amber-900">💬 บันทึกผู้ตรวจ:</span> {descText}
+              </p>
+            );
+          })()}
         </div>
       </div>
 
@@ -369,48 +384,105 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       <div className="grid grid-cols-2 gap-2.5">
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">สาขาที่ตรวจ</div>
-          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">{item.unit || "-"}</div>
+          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate" title={locationDisplayName}>
+            {locationDisplayName}
+          </div>
         </div>
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">กำหนดส่งงาน</div>
-          <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5 truncate">{item.deadline || (item.dueDate ? new Date(item.dueDate).toLocaleDateString('th-TH') : "-")}</div>
+          <div className="text-xs sm:text-sm font-extrabold text-rose-700 mt-0.5 truncate">
+            {(() => {
+              const dl = capDetail?.submissionDeadline || item.dueDate || item.submissionDeadline;
+              return dl ? new Date(dl).toLocaleDateString('th-TH') : (item.deadline || "-");
+            })()}
+          </div>
         </div>
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
           <div className="text-[11px] font-bold text-slate-400">ผู้ตรวจประเมิน</div>
-          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">{item.auditor || item.auditorName || item.createdBy || "-"}</div>
+          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate" title={capDetail?.auditorName || item.auditor || item.auditorName || item.verifierName || "-"}>
+            {capDetail?.auditorName || item.auditor || item.auditorName || item.verifierName || "-"}
+          </div>
         </div>
         <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/80">
-          <div className="text-[11px] font-bold text-slate-400">คะแนนรอบตรวจ</div>
-          <div className="text-xs sm:text-sm font-extrabold text-amber-800 mt-0.5">{item.auditScore !== undefined ? `${item.auditScore}%` : "-"}</div>
+          <div className="text-[11px] font-bold text-slate-400">คะแนนข้อ</div>
+          <div className="text-xs sm:text-sm font-extrabold text-slate-800 mt-0.5 truncate">
+            {(() => {
+              const sc = capDetail?.scoreGiven !== undefined && capDetail?.scoreGiven !== null
+                ? capDetail.scoreGiven
+                : item.scoreGiven;
+              const full = capDetail?.fullScore || item.fullScore || 10;
+              return sc !== undefined && sc !== null ? `${sc}/${full}` : "-";
+            })()}
+          </div>
         </div>
       </div>
 
       {/* Defect Photo Found during Audit */}
       {(() => {
-        const findingPhoto = capDetail?.beforeImages?.[0]?.imageUrl || item.beforeImageUrl || item.imageUrl || null;
+        const rawList = Array.isArray(capDetail?.beforeImages) && capDetail.beforeImages.length > 0
+          ? capDetail.beforeImages
+          : Array.isArray(item.beforeImages) && item.beforeImages.length > 0
+            ? item.beforeImages
+            : (capDetail?.beforeImages?.[0] || item.beforeImageUrl || item.imageUrl)
+              ? [capDetail?.beforeImages?.[0] || item.beforeImageUrl || item.imageUrl]
+              : [];
+
+        const beforeList = rawList
+          .map(b => (typeof b === 'string' ? b : b?.imageUrl || b?.url))
+          .filter(Boolean);
+
         return (
           <div className="space-y-1.5 pt-1">
-            <div className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5">
-              <Camera size={14} className="text-slate-400" />
-              <span>รูปถ่ายตอนตรวจพบปัญหา (Audit Finding)</span>
-            </div>
-            {findingPhoto ? (
-              <div 
-                onClick={() => setViewingPhoto(findingPhoto)}
-                className="rounded-2xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100"
-              >
-                <img 
-                  src={getFullImageUrl(findingPhoto)} 
-                  alt="ภาพตอนตรวจพบปัญหา" 
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
-                  <Camera size={15} /> แตะเพื่อดูรูปขยาย
-                </div>
+            <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Camera size={14} className="text-slate-400" />
+                <span>รูปถ่ายตอนตรวจพบปัญหา (Audit Finding)</span>
               </div>
+              {beforeList.length > 0 && (
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
+                  {beforeList.length} รูป
+                </span>
+              )}
+            </div>
+            {beforeList.length > 0 ? (
+              beforeList.length === 1 ? (
+                <div 
+                  onClick={() => setViewingPhoto(beforeList[0])}
+                  className="rounded-2xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100 shadow-2xs"
+                >
+                  <img 
+                    src={getFullImageUrl(beforeList[0])} 
+                    alt="ภาพตอนตรวจพบปัญหา" 
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-bold gap-1.5">
+                    <Camera size={15} /> แตะเพื่อดูรูปขยาย
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {beforeList.map((photoUrl, pIdx) => (
+                    <div 
+                      key={pIdx}
+                      onClick={() => setViewingPhoto(photoUrl)}
+                      className="rounded-xl overflow-hidden border border-slate-200 cursor-pointer relative group aspect-video bg-slate-100 shadow-2xs"
+                    >
+                      <img 
+                        src={getFullImageUrl(photoUrl)} 
+                        alt={`ภาพตอนตรวจพบปัญหา #${pIdx + 1}`} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-bold">
+                        แตะดูรูป #{pIdx + 1}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
             ) : (
-              <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400 font-medium">
-                ไม่มีรูปถ่ายตอนตรวจพบปัญหา
+              <div className="rounded-2xl border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400 font-medium space-y-1">
+                <div className="font-bold text-slate-500">ไม่มีรูปถ่ายตอนตรวจพบปัญหา</div>
+                <div className="text-[11px] text-slate-400">ผู้ตรวจไม่ได้แนบรูปถ่ายในข้อนี้ขณะทำการตรวจหน้าร้าน (Live Audit)</div>
               </div>
             )}
           </div>
@@ -426,7 +498,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
       {/* 🌟 1. TOP HEADER BAR (Mobile synced via TopBarContext, Desktop rendered cleanly) */}
       <Header 
         title={item.title || item.issueItem || "งานแก้ไข CAP"} 
-        subtitle={`ข้อ ${item.id} · ${item.unit}`} 
+        subtitle={headerSubtitle} 
         onBack={onBack} 
       />
 
@@ -475,16 +547,53 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             className="flex-1 overflow-y-auto space-y-4 p-3 sm:p-4 rounded-2xl bg-slate-50/70 border border-slate-200/60 custom-tab-scrollbar min-h-[360px] max-h-[440px] lg:max-h-[500px]"
           >
             {timeline.map((tl, i) => {
-              const isMe = (tl.senderId && currentUser?.id && tl.senderId === currentUser.id) ||
-                (tl.senderRole && role && tl.senderRole.toUpperCase() === role.toUpperCase()) ||
-                (tl.senderName && currentUser?.fullName && tl.senderName === currentUser.fullName) ||
-                (tl.senderName && currentUser?.name && tl.senderName === currentUser.name) ||
-                (tl.isMe === true);
+              if (tl.isSystem) {
+                return (
+                  <div key={tl.id || i} className="flex flex-col items-center my-2.5 w-full animate-in fade-in">
+                    <div className="w-full max-w-[96%] sm:max-w-[90%] rounded-2xl bg-amber-50/90 border border-amber-200/90 p-3.5 sm:p-4 text-center space-y-2 shadow-2xs">
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-100 text-amber-900 text-xs font-extrabold">
+                        <Sparkles size={13} className="text-amber-700" />
+                        <span>ระบบ Q.S.C. · แจ้งเตือนบันทึกงานแก้ไขอัตโนมัติ</span>
+                      </div>
+                      <p className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed whitespace-pre-wrap">
+                        {tl.text}
+                      </p>
+                      <div className="flex items-center justify-center flex-wrap gap-2 text-[11px] text-amber-800 font-semibold pt-1 border-t border-amber-200/60">
+                        <span>🕒 บันทึกเมื่อ: {tl.time}</span>
+                        {capDetail?.submissionDeadline && (
+                          <span>· 📅 กำหนดส่งแก้ไข: {new Date(capDetail.submissionDeadline).toLocaleDateString('th-TH')}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
 
-              const senderRoleText = (tl.senderRole === 'AUDITEE' || tl.role === 'AUDITEE') ? 'สาขา' : 'ผู้ตรวจ/QA';
-              const senderDisplayName = isMe 
-                ? `${currentUser?.fullName || currentUser?.name || tl.senderName || tl.who || "คุณ"} (${role === "AUDITEE" ? "สาขา" : "ผู้ตรวจ/QA"})`
-                : `${tl.senderName || tl.who || "ผู้ใช้งาน"} (${senderRoleText})`;
+              const effectiveUser = currentUser || authStorage.getUser() || {};
+              const currentUserId = effectiveUser?.id;
+              const currentFullName = (effectiveUser?.fullName || effectiveUser?.name || "").trim();
+              const currentUsername = (effectiveUser?.username || "").trim();
+
+              const isMe = Boolean(
+                (tl.senderId && currentUserId && Number(tl.senderId) === Number(currentUserId)) ||
+                (tl.userId && currentUserId && Number(tl.userId) === Number(currentUserId)) ||
+                (tl.senderName && currentFullName && tl.senderName.trim() === currentFullName) ||
+                (tl.who && currentFullName && tl.who.trim() === currentFullName) ||
+                (tl.senderName && currentUsername && tl.senderName.trim() === currentUsername) ||
+                tl.isMe === true
+              );
+
+              const isAuditee = (tl.senderRole === 'AUDITEE' || tl.role === 'AUDITEE' || tl.userRole === 'AUDITEE');
+              const senderRoleText = isAuditee ? 'สาขา' : 'ผู้ตรวจ/QA';
+
+              let cleanSenderName = (isMe 
+                ? (currentFullName || tl.senderName || "คุณ")
+                : (tl.senderName || tl.who || "ผู้ใช้งาน")
+              );
+              cleanSenderName = cleanSenderName.replace(/\s*\([^)]*\)/g, '').trim();
+
+              const myRoleText = (role === "AUDITEE" || effectiveUser?.role === "AUDITEE") ? "สาขา" : "ผู้ตรวจ/QA";
+              const senderDisplayName = `${cleanSenderName} (${isMe ? myRoleText : senderRoleText})`;
 
               return (
                 <div 
@@ -595,7 +704,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                   ? 'bg-emerald-100 text-[#0F6659] border-emerald-400 shadow-xs cursor-pointer active:scale-95' 
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-800 cursor-pointer active:scale-95'
               }`}
-              title={isClosed ? "ตั๋วงานนี้ปิดแล้ว ไม่สามารถแนบรูปถ่ายได้" : "ถ่ายรูปหรือเลือกรูปจากเครื่อง"}
+              title={isClosed ? "รายการนี้อนุมัติและปิดงานแล้ว ไม่สามารถแนบรูปถ่ายได้" : "ถ่ายรูปหรือเลือกรูปจากเครื่อง"}
             >
               <Camera size={20} />
             </button>
@@ -605,7 +714,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
               disabled={isClosed}
               onChange={(e) => setReply(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && !isClosed) send(); }}
-              placeholder={isClosed ? "ตั๋วงานนี้ได้รับการอนุมัติและปิดงานเรียบร้อยแล้ว (ไม่สามารถส่งข้อความได้)" : "พิมพ์ข้อความตอบกลับหรือรายงานผล..."}
+              placeholder={isClosed ? "รายการนี้ได้รับการอนุมัติและปิดงานเรียบร้อยแล้ว" : "พิมพ์ข้อความตอบกลับหรือรายงานผล..."}
               className={`flex-1 text-xs sm:text-sm px-4 py-3.5 rounded-2xl outline-none font-bold border shadow-2xs transition-all ${
                 isClosed
                   ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed placeholder:text-slate-400"
@@ -625,9 +734,10 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             )}
           </div>
 
-          {/* 🌟 ONLY 1 BUTTON: APPROVE & CLOSE CAP (Visible only for QA / Admin / Standard when NOT closed) */}
+
+          {/* 🌟 ACTION BAR: QA / AUDITOR / ADMIN (Approve & Close) */}
           {role !== "AUDITEE" && !isClosed && (
-            <div className="pt-2 border-t border-slate-100">
+            <div className="pt-2 border-t border-slate-100 space-y-2">
               <button 
                 type="button"
                 onClick={() => setConfirmModal({
@@ -641,6 +751,11 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
                 <CheckCircle2 size={18} />
                 <span>อนุมัติและปิดงาน (Approve & Close)</span>
               </button>
+              {currentStatus === "submitted" && (
+                <div className="text-center text-[11px] text-emerald-700 font-bold">
+                  กรุณาตรวจสอบรูปภาพและข้อความก่อนอนุมัติ
+                </div>
+              )}
             </div>
           )}
 
@@ -649,7 +764,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             <div className="pt-2 border-t border-slate-100">
               <div className="w-full py-3.5 px-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-2xs">
                 <CheckCircle2 size={18} className="text-emerald-600" />
-                <span>ตั๋วงานนี้ได้รับการอนุมัติและปิดงานเรียบร้อยแล้ว</span>
+                <span>รายการนี้ได้รับการอนุมัติและปิดงานเรียบร้อยแล้ว</span>
               </div>
             </div>
           )}
@@ -661,7 +776,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
             <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
               <FileText size={16} />
             </div>
-            <h3 className="text-sm font-extrabold text-slate-800">ข้อมูลและสถานะตั๋วงาน</h3>
+            <h3 className="text-sm font-extrabold text-slate-800">ข้อมูลและสถานะงานแก้ไข</h3>
           </div>
 
           {renderDefectDetails()}

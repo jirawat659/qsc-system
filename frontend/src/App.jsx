@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import MainDashboard from './pages/MainDashboard';
 import authStorage from './config/storage';
+import signalRService from './services/signalrService';
 
 function App() {
   const [token, setToken] = useState(() => authStorage.getToken());
@@ -16,6 +17,7 @@ function App() {
 
   const handleLogout = () => {
     authStorage.clearSession();
+    signalRService.disconnect();
     setToken(null);
   };
 

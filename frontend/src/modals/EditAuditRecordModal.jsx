@@ -941,7 +941,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                     <div>
                       {state.type === "scale" ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          {[1, 2, 3, 4, 5].map((num) => (
+                          {[5, 4, 3, 2, 1].map((num) => (
                             <button
                               key={num}
                               type="button"
