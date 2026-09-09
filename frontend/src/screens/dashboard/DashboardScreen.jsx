@@ -125,10 +125,18 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
   );
 }
 
-// 🌟 Global memory cache for AI dashboard insights to prevent redundant API calls on tab switching
-let cachedAiInsights = null;
-let lastAiFetchTimestamp = 0;
-const AI_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes cache TTL
+const DASHBOARD_AI_CACHE_KEY = "qsc_ai_dashboard_cache";
+const DASHBOARD_COOLDOWN_KEY = "qsc_ai_cooldown_dashboard";
+
+const getRemainingDashboardCooldown = () => {
+  try {
+    const expiry = parseInt(sessionStorage.getItem(DASHBOARD_COOLDOWN_KEY) || "0", 10);
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    return remaining > 0 ? remaining : 0;
+  } catch {
+    return 0;
+  }
+};
 
 export default function DashboardScreen({ role, isDesktop }) {
   const { locations: visibleLocations, auditRecords, capTasks, currentUser } = React.useContext(DataContext);
@@ -137,53 +145,86 @@ export default function DashboardScreen({ role, isDesktop }) {
   const userRole = (role || currentUser?.role || currentUser?.roleCode || '').toUpperCase();
   const isBranchManager = userRole === "AUDITEE" || userRole === "BRANCH_MANAGER" || currentUser?.branchScope === "SPECIFIC";
   
-  const [periodFilter, setPeriodFilter] = useState("month");
-  const [aiInsightsData, setAiInsightsData] = useState(() => {
-    if (cachedAiInsights && (Date.now() - lastAiFetchTimestamp < AI_CACHE_TTL_MS)) {
-      return cachedAiInsights;
-    }
-    return null;
-  });
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [aiCooldown, setAiCooldown] = useState(() => {
-    const elapsed = Date.now() - lastAiFetchTimestamp;
-    if (elapsed < 30000 && lastAiFetchTimestamp > 0) {
-      return Math.ceil((30000 - elapsed) / 1000);
-    }
-    return 0;
-  });
+  const dashboardCacheKey = useMemo(() => `qsc_ai_dashboard_cache_${currentUser?.id || 'default'}`, [currentUser?.id]);
+  const dashboardCooldownKey = useMemo(() => `qsc_ai_cooldown_dashboard_${currentUser?.id || 'default'}`, [currentUser?.id]);
 
-  useEffect(() => {
-    if (aiCooldown > 0) {
-      const timer = setInterval(() => {
-        setAiCooldown(prev => (prev > 1 ? prev - 1 : 0));
-      }, 1000);
-      return () => clearInterval(timer);
+  const getRemainingDashboardCooldown = () => {
+    try {
+      const expiry = parseInt(sessionStorage.getItem(dashboardCooldownKey) || "0", 10);
+      const remaining = Math.ceil((expiry - Date.now()) / 1000);
+      return remaining > 0 ? remaining : 0;
+    } catch {
+      return 0;
     }
-  }, [aiCooldown]);
+  };
+
+  const [periodFilter, setPeriodFilter] = useState("month");
+  const [aiInsightsData, setAiInsightsData] = useState(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [justUpdated, setJustUpdated] = useState(false);
+  const [aiCooldown, setAiCooldown] = useState(0);
+
+  // ⏳ Keep countdown alive based on real wall-clock time even when navigating away & back
+  useEffect(() => {
+    const updateCountdown = () => {
+      const remaining = getRemainingDashboardCooldown();
+      setAiCooldown(remaining);
+      return remaining;
+    };
+
+    updateCountdown();
+    const timer = setInterval(() => {
+      const remaining = updateCountdown();
+      if (remaining <= 0) {
+        setAiCooldown(0);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [dashboardCooldownKey]);
+
+  const setCooldownSeconds = (seconds) => {
+    try {
+      const expiry = Date.now() + seconds * 1000;
+      sessionStorage.setItem(dashboardCooldownKey, expiry.toString());
+    } catch (e) {}
+    setAiCooldown(seconds);
+  };
 
   const fetchAiDashboardInsights = async (isManual = false) => {
-    const now = Date.now();
-    // 🌟 If cache is fresh and not a manual user click, reuse cache without making any HTTP request!
-    if (!isManual && cachedAiInsights && (now - lastAiFetchTimestamp < AI_CACHE_TTL_MS)) {
-      setAiInsightsData(cachedAiInsights);
-      return;
+    // 🌟 If automatic call and already cached in this session for this user, use cache without calling API!
+    if (!isManual) {
+      try {
+        const cached = sessionStorage.getItem(dashboardCacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.highlight) {
+            setAiInsightsData(parsed);
+            return;
+          }
+        }
+      } catch (e) {}
     }
 
-    if (isAiLoading || (isManual && aiCooldown > 0)) return;
+    if (isAiLoading || (isManual && getRemainingDashboardCooldown() > 0)) return;
     setIsAiLoading(true);
     try {
       const res = await api.get('/ai/dashboard-insights');
       if (res.data) {
-        cachedAiInsights = res.data;
-        lastAiFetchTimestamp = Date.now();
+        try {
+          sessionStorage.setItem(dashboardCacheKey, JSON.stringify(res.data));
+        } catch (e) {}
         setAiInsightsData(res.data);
-        if (isManual) setAiCooldown(15);
+        if (isManual) {
+          setCooldownSeconds(15);
+          setJustUpdated(true);
+          setTimeout(() => setJustUpdated(false), 3500);
+        }
       }
     } catch (err) {
       if (err?.response?.status === 429) {
         console.warn('AI Rate Limit reached, using smart analytics engine fallback.');
-        if (isManual) setAiCooldown(30);
+        if (isManual) setCooldownSeconds(30);
       } else {
         console.warn('AI dashboard insights unavailable, using smart analytics fallback:', err?.message || err);
       }
@@ -194,7 +235,7 @@ export default function DashboardScreen({ role, isDesktop }) {
 
   useEffect(() => {
     fetchAiDashboardInsights(false);
-  }, []);
+  }, [dashboardCacheKey]);
 
   const periodFilteredData = useMemo(() => {
     const now = new Date();
@@ -288,7 +329,13 @@ export default function DashboardScreen({ role, isDesktop }) {
     const totalCount = activeLocations.length || 1;
     const passDenominator = auditedCountInPeriod > 0 ? auditedCountInPeriod : totalCount;
     const passRateInPeriod = Math.round((passedInPeriod / passDenominator) * 100);
-    const pendingCapInPeriod = filteredCaps.length > 0 ? filteredCaps.filter(c => c.status !== 'approved' && c.status !== 'done').length : (capTasks?.length || 0);
+    const isClosedStatus = (status) => {
+      if (!status) return false;
+      const s = String(status).trim().toUpperCase();
+      return s === "CLOSED" || s === "APPROVED" || s === "DONE";
+    };
+    const capList = filteredCaps.length > 0 ? filteredCaps : (capTasks || []);
+    const pendingCapInPeriod = capList.filter(c => !isClosedStatus(c.status)).length;
 
     return {
       filteredAudits: effectiveAudits, filteredCaps, branchStats, totalBranches: activeLocations.length,
@@ -617,9 +664,16 @@ export default function DashboardScreen({ role, isDesktop }) {
 
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-            <Sparkles size={16} className="text-[#0F6659]" /> AI Insights
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+              <Sparkles size={16} className="text-[#0F6659]" /> AI Insights
+            </h3>
+            {justUpdated && (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 animate-in fade-in flex items-center gap-1 shadow-2xs">
+                <CheckCircle2 size={12} className="text-emerald-600" /> อัปเดตข้อมูล
+              </span>
+            )}
+          </div>
           <button
             onClick={() => fetchAiDashboardInsights(true)}
             disabled={isAiLoading || aiCooldown > 0}
@@ -633,17 +687,64 @@ export default function DashboardScreen({ role, isDesktop }) {
             <span>{isAiLoading ? "กำลังวิเคราะห์..." : aiCooldown > 0 ? `รอ ${aiCooldown} วิ` : "วิเคราะห์ด้วย AI"}</span>
           </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {aiInsightsList.map((ins) => (
-            <div key={ins.type} className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 ${ins.bgClass}`}>
+
+        {isAiLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Skeleton 1: จุดเด่น */}
+            <div className="rounded-2xl p-4 shadow-sm border border-emerald-200/80 bg-emerald-50/40 animate-pulse flex flex-col gap-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-lg">{ins.icon}</span>
-                <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
+                <div className="w-6 h-6 rounded-full bg-emerald-200/90 shrink-0" />
+                <div className="h-3.5 w-28 rounded-md bg-emerald-200/90" />
               </div>
-              <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
+              <div className="space-y-1.5 pt-1">
+                <div className="h-3 w-full rounded bg-emerald-200/50" />
+                <div className="h-3 w-4/5 rounded bg-emerald-200/40" />
+                <div className="h-3 w-2/3 rounded bg-emerald-200/30" />
+              </div>
             </div>
-          ))}
-        </div>
+
+            {/* Skeleton 2: จุดเฝ้าระวัง */}
+            <div className="rounded-2xl p-4 shadow-sm border border-amber-200/80 bg-amber-50/40 animate-pulse flex flex-col gap-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-amber-200/90 shrink-0" />
+                <div className="h-3.5 w-28 rounded-md bg-amber-200/90" />
+              </div>
+              <div className="space-y-1.5 pt-1">
+                <div className="h-3 w-full rounded bg-amber-200/50" />
+                <div className="h-3 w-4/5 rounded bg-amber-200/40" />
+                <div className="h-3 w-2/3 rounded bg-amber-200/30" />
+              </div>
+            </div>
+
+            {/* Skeleton 3: ข้อเสนอแนะ */}
+            <div className="rounded-2xl p-4 shadow-sm border border-teal-200/80 bg-teal-50/40 animate-pulse flex flex-col gap-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-teal-200/90 shrink-0" />
+                <div className="h-3.5 w-28 rounded-md bg-teal-200/90" />
+              </div>
+              <div className="space-y-1.5 pt-1">
+                <div className="h-3 w-full rounded bg-teal-200/50" />
+                <div className="h-3 w-4/5 rounded bg-teal-200/40" />
+                <div className="h-3 w-2/3 rounded bg-teal-200/30" />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {aiInsightsList.map((ins) => (
+              <div
+                key={ins.type}
+                className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 transition-all duration-300 ${ins.bgClass}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{ins.icon}</span>
+                  <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
+                </div>
+                <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {showExportModal && <ExcelExportModal onClose={() => setShowExportModal(false)} />}

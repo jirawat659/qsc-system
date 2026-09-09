@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
+using QSC.Api.Helpers;
 using QSC.Api.Models;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -108,6 +110,18 @@ namespace QSC.Api.Services
         [JsonPropertyName("readinessToClose")]
         public string ReadinessToClose { get; set; } = "PENDING_PROOF"; // "READY_TO_REVIEW", "PENDING_PROOF", "REJECT_SUGGESTED"
 
+        [JsonPropertyName("confidencePercent")]
+        public int ConfidencePercent { get; set; } = 88;
+
+        [JsonPropertyName("nextAuditAdvice")]
+        public string? NextAuditAdvice { get; set; }
+
+        [JsonPropertyName("savedNextAuditNote")]
+        public string? SavedNextAuditNote { get; set; }
+
+        [JsonPropertyName("followUpStatus")]
+        public string FollowUpStatus { get; set; } = "NONE";
+
         [JsonPropertyName("disclaimer")]
         public string Disclaimer { get; set; } = "คำแนะนำนี้ประมวลผลโดย AI เพื่อช่วยผู้ประเมินประกอบการพิจารณา ผู้ตรวจยังคงเป็นผู้ตัดสินใจขั้นสุดท้าย";
     }
@@ -141,29 +155,55 @@ namespace QSC.Api.Services
 
         private string GetModel()
         {
-            return _config["AI:Model"] ?? "gemini-1.5-flash";
+            return _config["AI:Model"] ?? "gemini-flash-latest";
         }
 
         // DASHBOARD
-        public async Task<DashboardAiInsightsDto> GetDashboardInsightsAsync(DateTime? targetMonth = null)
+        public async Task<DashboardAiInsightsDto> GetDashboardInsightsAsync(ClaimsPrincipal user, DateTime? targetMonth = null)
         {
+            var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(user, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(user, _context);
+
             var month = targetMonth ?? DateTime.UtcNow;
             var startOfMonth = new DateTime(month.Year, month.Month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddTicks(-1);
 
-            var monthRecords = await _context.AuditRecords
+            var monthRecordsQuery = _context.AuditRecords
                 .AsNoTracking()
                 .Include(r => r.Location)
                 .Include(r => r.Responses)
                     .ThenInclude(res => res.SurveyItem)
                         .ThenInclude(item => item!.SurveySection)
                 .Where(r => r.AuditDate >= startOfMonth && r.AuditDate <= endOfMonth)
-                .ToListAsync();
+                .AsQueryable();
 
-            var pendingCaps = await _context.CapTasks
+            if (allowedLocationIds != null)
+            {
+                monthRecordsQuery = monthRecordsQuery.Where(r => allowedLocationIds.Contains(r.LocationId));
+            }
+            if (allowedBrandIds != null)
+            {
+                monthRecordsQuery = monthRecordsQuery.Where(r => r.Location != null && r.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
+
+            var monthRecords = await monthRecordsQuery.ToListAsync();
+
+            var pendingCapsQuery = _context.CapTasks
                 .AsNoTracking()
+                .Include(c => c.Location)
                 .Where(c => c.Status != "CLOSED" && c.Status != "closed")
-                .ToListAsync();
+                .AsQueryable();
+
+            if (allowedLocationIds != null)
+            {
+                pendingCapsQuery = pendingCapsQuery.Where(c => allowedLocationIds.Contains(c.LocationId));
+            }
+            if (allowedBrandIds != null)
+            {
+                pendingCapsQuery = pendingCapsQuery.Where(c => c.Location != null && c.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
+
+            var pendingCaps = await pendingCapsQuery.ToListAsync();
 
             var totalAudits = monthRecords.Count;
             var avgScore = totalAudits > 0 ? Math.Round(monthRecords.Average(r => r.PercentageScore), 1) : 0;
@@ -198,11 +238,16 @@ namespace QSC.Api.Services
                     var prompt = $@"
 คุณคือ AI ผู้เชี่ยวชาญด้านระบบควบคุมคุณภาพมาตรฐานร้านอาหาร (QSC)
 ให้สรุปสถิติประจำเดือนแบบสั้น กระชับ ตรงประเด็น (ความยาวไม่เกิน 1 ประโยคสั้นๆ ต่อหัวข้อ)
+คำแนะนำในการใช้ภาษา:
+- ให้ใช้สำนวนภาษาไทยที่เป็นธรรมชาติ สลับคำเกริ่นและคำเชื่อมให้มีความสดใหม่ในแต่ละรอบ โดยคงตัวเลขสถิติตามข้อมูลจริงไว้อย่างแม่นยำ 100%
+- highlight: สรุปภาพรวมคะแนน ({avgScore}%) และอัตราผ่าน ({passRate}%) ให้อ่านง่าย เช่น สถิติผลตรวจเฉลี่ย หรือภาพรวมมาตรฐานรอบนี้
+- attention: ระบุเรื่องที่ต้องเฝ้าระวัง เช่น งาน CAP ที่ค้าง ({pendingCaps.Count} รายการ) หรือจุดบกพร่องที่พบบ่อย ({topDefectShort})
+- action: ข้อเสนอแนะเชิงปฏิบัติการที่กระชับ ตรงประเด็น 1 ประโยค
 ตอบเป็น JSON:
 {{
-  ""highlight"": ""ประโยคสั้นมาก 1 ประโยค เช่น คะแนนเฉลี่ยภาพรวม {avgScore}% ผ่านเกณฑ์ {passRate}%"",
-  ""attention"": ""ประโยคสั้นมาก 1 ประโยค ระบุงาน CAP ค้าง {pendingCaps.Count} รายการ หรือข้อบกพร่องสั้นๆ"",
-  ""action"": ""ประโยคสั้นมาก 1 ประโยค ข้อเสนอแนะสั้นๆ กระชับ""
+  ""highlight"": ""ข้อความสรุปจุดเด่นสั้นๆ 1 ประโยค"",
+  ""attention"": ""ข้อความจุดเฝ้าระวังสั้นๆ 1 ประโยค"",
+  ""action"": ""ข้อความข้อเสนอแนะสั้นๆ 1 ประโยค""
 }}
 ข้อมูลจริง: รอบตรวจ {totalAudits} ครั้ง, คะแนนเฉลี่ย {avgScore}%, ผ่านเกณฑ์ {passRate}%, งาน CAP ค้าง {pendingCaps.Count} รายการ, ตกบ่อยสุด: {topDefectShort}
 ตอบเฉพาะ JSON ล้วนๆ
@@ -243,16 +288,31 @@ namespace QSC.Api.Services
         }
 
         // SCHEDULE
-        public async Task<ScheduleAiRecommendationsDto> GetScheduleRecommendationsAsync()
+        public async Task<ScheduleAiRecommendationsDto> GetScheduleRecommendationsAsync(ClaimsPrincipal user)
         {
+            var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(user, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(user, _context);
+
             var now = DateTime.UtcNow;
             var startOfMonth = new DateTime(now.Year, now.Month, 1);
             var endOfMonth = startOfMonth.AddMonths(1).AddTicks(-1);
 
-            var locations = await _context.Locations
+            var locationsQuery = _context.Locations
                 .AsNoTracking()
+                .Include(l => l.LocationBrands).ThenInclude(lb => lb.Brand)
                 .Where(l => l.IsActive)
-                .ToListAsync();
+                .AsQueryable();
+
+            if (allowedLocationIds != null)
+            {
+                locationsQuery = locationsQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            }
+            if (allowedBrandIds != null)
+            {
+                locationsQuery = locationsQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
+
+            var locations = await locationsQuery.ToListAsync();
 
             var audits = await _context.AuditRecords
                 .AsNoTracking()
@@ -288,35 +348,35 @@ namespace QSC.Api.Services
 
                 if (!auditedThisMonth)
                 {
-                    reasons.Add("ยังไม่ได้รับการตรวจในเดือนนี้ (เกณฑ์อย่างน้อย 1 ครั้ง/เดือน)");
+                    reasons.Add("ยังไม่ได้ตรวจรอบเดือนนี้");
                 }
 
                 if (lastScore.HasValue && lastScore.Value < 70)
                 {
                     priority = "CRITICAL";
-                    reasons.Add($"คะแนนรอบล่าสุดวิกฤต ({lastScore.Value}%)");
+                    reasons.Add($"คะแนนวิกฤต ({lastScore.Value}%)");
                 }
                 else if (lastScore.HasValue && lastScore.Value < 85)
                 {
                     priority = priority == "CRITICAL" ? "CRITICAL" : "HIGH";
-                    reasons.Add($"คะแนนรอบล่าสุดต่ำกว่าเกณฑ์มาตรฐาน ({lastScore.Value}%)");
+                    reasons.Add($"คะแนนตกเกณฑ์ ({lastScore.Value}%)");
                 }
 
                 if (pendingCaps > 0)
                 {
                     priority = "HIGH";
-                    reasons.Add($"มีงานแก้ไข CAP ค้างอยู่ {pendingCaps} รายการ");
+                    reasons.Add($"CAP ค้าง {pendingCaps} รายการ");
                 }
 
                 if (daysSince >= 45 && daysSince < 999)
                 {
-                    reasons.Add($"ไม่ได้เข้าตรวจมาแล้ว {daysSince} วัน");
+                    reasons.Add($"ไม่ได้ตรวจมาแล้ว {daysSince} วัน");
                 }
 
                 if (lastAudit == null)
                 {
                     priority = "HIGH";
-                    reasons.Add("ยังไม่เคยมีประวัติการเข้าตรวจประเมิน");
+                    reasons.Add("ยังไม่มีประวัติตรวจ");
                 }
 
                 // แนะนำผู้ตรวจ
@@ -339,7 +399,7 @@ namespace QSC.Api.Services
                 {
                     LocationId = loc.Id,
                     LocationName = loc.Name,
-                    BrandName = loc.BrandName,
+                    BrandName = string.Join(", ", loc.LocationBrands.OrderByDescending(lb => lb.IsPrimary).Select(lb => lb.Brand.Name)),
                     Region = loc.Region,
                     PriorityLevel = priority,
                     LastScore = lastScore,
@@ -371,22 +431,26 @@ namespace QSC.Api.Services
                 try
                 {
                     var branchesInfo = string.Join("\n", ranked.Select((b, idx) => 
-                        $"{idx+1}. {b.LocationName} ({b.BrandName}): คะแนนล่าสุด {b.LastScore?.ToString() ?? "ไม่มี"}%, ไม่ได้ตรวจ {b.DaysSinceLastAudit} วัน, ตรวจเดือนนี้={b.HasAuditedThisMonth}, CAPค้าง={b.PendingCapCount}"));
+                        $"{idx+1}. {b.LocationName} ({b.BrandName}): คะแนนล่าสุด {(b.LastScore.HasValue ? b.LastScore + "%" : "ยังไม่เคยตรวจ")}, ประวัติ={(b.DaysSinceLastAudit >= 999 ? "ยังไม่เคยตรวจ" : "ตรวจล่าสุดเมื่อ " + b.DaysSinceLastAudit + " วันก่อน")}, ตรวจเดือนนี้={b.HasAuditedThisMonth}, CAPค้าง={b.PendingCapCount}"));
 
+                    var branchCount = ranked.Count;
                     var prompt = $@"
-คุณคือ AI ผู้ช่วยวางแผนตารางตรวจมาตรฐาน QSC
-องค์กรมีกฎบังคับ: 'ทุกสาขาต้องได้รับการตรวจอย่างน้อย 1 ครั้งต่อเดือน'
-จงวิเคราะห์สาขาที่จัดอันดับความสำคัญเร่งด่วน 3 อันดับแรกนี้ และสรุปคำแนะนำในรูปแบบ JSON:
+คุณคือ AI ผู้ช่วยวางแผนตารางตรวจมาตรฐาน QSC (เน้นคำตอบสั้น กระชับ ตรงประเด็น ผู้บริหารอ่านเข้าใจทันที)
+กฎองค์กร: ทุกสาขาต้องได้รับการตรวจอย่างน้อย 1 ครั้งต่อเดือน
+
+จงวิเคราะห์ข้อมูลสาขาความเสี่ยงสูงจำนวน {branchCount} สาขานี้ (วิเคราะห์เฉพาะสาขาที่ให้มาเท่านั้น ห้ามคิดสาขาอื่นเพิ่ม) และตอบเป็น JSON สั้นกระชับตามเงื่อนไข:
+1. summary: สรุปภาพรวมสั้นมาก 1 ประโยค (ความยาวไม่เกิน 20 คำ โดยสลับสำนวนหรือคำเกริ่นให้หลากหลายในแต่ละรอบ)
+2. reasons: เหตุผลของแต่ละสาขาแบบ 'สั้นกระชับมาก 1 ประโยค' (ความยาวไม่เกิน 15 คำต่อสาขา ใช้สำนวนตรงไปตรงมา ห้ามใส่ชื่อสาขาซ้ำในเหตุผล และห้ามพูดถึง 999 วัน) โดยมีจำนวนข้อในอาร์เรย์ reasons เท่ากับ {branchCount} ข้อพอดี
+
+รูปแบบ JSON:
 {{
-  ""summary"": ""ข้อความสรุปภาพรวมแผนการตรวจของเดือน 2-3 ประโยค แนะนำภาพรวมทีม Auditor"",
+  ""summary"": ""ข้อความสรุปใจความสำคัญสั้นกระชับ 1 ประโยค"",
   ""reasons"": [
-     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 1"",
-     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 2"",
-     ""เหตุผลวิเคราะห์สั้นๆ เจาะจงสำหรับสาขาที่ 3""
+     ""เหตุผลสั้นๆ สำหรับสาขาที่ให้มาในรายการ""
   ]
 }}
 
-ข้อมูลสาขาที่จัดอันดับ:
+ข้อมูลสาขา:
 {branchesInfo}
 ตอบเฉพาะ JSON ล้วนๆ
 ";
@@ -410,7 +474,7 @@ namespace QSC.Api.Services
 
                         return new ScheduleAiRecommendationsDto
                         {
-                            Summary = summary ?? $"พบ {totalPendingMonthly} สาขาที่ยังไม่ได้รับการตรวจในเดือนนี้ แนะนำให้ทีมผู้ตรวจจัดตารางลงตรวจ 3 สาขาความเสี่ยงสูงนี้เป็นลำดับแรก",
+                            Summary = summary ?? (totalPendingMonthly > 0 ? $"แนะนำเร่งจัดตารางตรวจ {totalPendingMonthly} สาขาความเสี่ยงสูงที่ยังไม่ได้รับการตรวจในเดือนนี้" : "สาขาได้รับการตรวจตามรอบมาตรฐานเรียบร้อยแล้ว"),
                             Recommendations = ranked,
                             TotalBranchesPendingMonthlyAudit = totalPendingMonthly,
                             GeneratedBy = "Gemini AI"
@@ -425,7 +489,7 @@ namespace QSC.Api.Services
 
             return new ScheduleAiRecommendationsDto
             {
-                Summary = $"พบ {totalPendingMonthly} สาขาที่ยังไม่ได้รับการตรวจในเดือนนี้ แนะนำให้ทีมผู้ตรวจจัดตารางลงตรวจ 5 สาขาด้านล่างเป็นลำดับแรกตามเกณฑ์ความเสี่ยงและรอบ SLA",
+                Summary = $"แนะนำเร่งจัดตารางตรวจ {totalPendingMonthly} สาขาความเสี่ยงสูงที่ยังไม่ได้รับการตรวจในเดือนนี้",
                 Recommendations = ranked,
                 TotalBranchesPendingMonthlyAudit = totalPendingMonthly,
                 GeneratedBy = "Smart Analytics Engine"
@@ -433,8 +497,12 @@ namespace QSC.Api.Services
         }
 
         // CAP CHAT & EVIDENCE ANALYSIS
-        public async Task<CapAiAnalysisDto> AnalyzeCapTaskAsync(int capTaskId)
+        // Returns null when the caller has no access to this CAP task's location/brand (controller should respond 403).
+        public async Task<CapAiAnalysisDto?> AnalyzeCapTaskAsync(ClaimsPrincipal user, int capTaskId)
         {
+            var (currentUserId, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(user, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(user, _context);
+
             var task = await _context.CapTasks
                 .AsNoTracking()
                 .Include(t => t.Location)
@@ -453,6 +521,22 @@ namespace QSC.Api.Services
                 };
             }
 
+            // Same ownership rule already enforced in CapController: must have location access
+            // (or be the assignee) and, if brand-scoped, the location must carry an allowed brand.
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(task.LocationId) && task.AssignedTo != currentUserId)
+            {
+                return null;
+            }
+            if (allowedBrandIds != null)
+            {
+                var brandOk = await _context.LocationBrands
+                    .AnyAsync(lb => lb.LocationId == task.LocationId && allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk)
+                {
+                    return null;
+                }
+            }
+
             var beforeImgs = task.Images.Where(i => i.Phase == "BEFORE").ToList();
             var afterImgs = task.Images.Where(i => i.Phase == "AFTER").ToList();
             var comments = task.Comments.OrderBy(c => c.CreatedAt).ToList();
@@ -469,6 +553,7 @@ namespace QSC.Api.Services
                     var prompt = $@"
 คุณคือ AI ผู้ช่วยผู้ประเมินมาตรฐานคุณภาพ (QSC Lead Auditor Assistant)
 หน้าที่ของคุณคือ อ่านข้อมูลข้อบกพร่อง รูปภาพ และประวัติการแชทพูดคุยระหว่างสาขากับผู้ตรวจ เพื่อช่วยแนะนำผู้ประเมินว่าควรพิจารณาอย่างไร (ผู้ประเมินเป็นผู้ตัดสินใจจริง)
+ให้ใช้สำนวนภาษาไทยอย่างเป็นธรรมชาติ มีความสดใหม่และสร้างสรรค์ในข้อเสนอแนะ ไม่ใช้ประโยคซ้ำเดิม
 
 ข้อมูลงาน CAP:
 - สาขา: {task.Location?.Name}
@@ -484,9 +569,11 @@ namespace QSC.Api.Services
 {{
   ""issueSummary"": ""สรุปปัญหาและสิ่งที่สาขาต้องทำสั้นๆ 1 ประโยค"",
   ""progressStatus"": ""สรุปสถานะความคืบหน้าปัจจุบันตามที่สาขาแจ้งในแชท 1 ประโยค"",
-  ""strengthPoints"": [""จุดที่สาขาทำได้ดี/แก้ไขตรงประเด็น 1-2 ข้อ""],
-  ""areasToVerify"": [""จุดที่ผู้ประเมินควรตรวจสอบหรือขอหลักฐานเพิ่ม 1-2 ข้อ""],
-  ""auditorAdvice"": ""คำแนะนำชัดเจนสำหรับผู้ตรวจประเมิน (เช่น ควรอนุมัติ / ควรขอรูปมุมกว้างเพิ่ม / ควรสุ่มตรวจหน้างานซ้ำ)"",
+  ""strengthPoints"": [""จุดที่ดี / ข้อดีที่สาขาทำได้ตรงเกณฑ์ 1-2 ข้อ""],
+  ""areasToVerify"": [""จุดที่ควรดูเพิ่ม / จุดที่ต้องระวังหรือสังเกตเพิ่มเติม 1-2 ข้อ""],
+  ""nextAuditAdvice"": ""คำแนะนำสำหรับการตรวจรอบถัดไป (เช่น จุดที่ควรสุ่มตรวจซ้ำ หรือปล่อยว่าง null หากไม่มีข้อแนะนำพิเศษ)"",
+  ""confidencePercent"": 92,
+  ""auditorAdvice"": ""คำแนะนำชัดเจนสำหรับผู้ตรวจประเมิน"",
   ""readinessToClose"": ""READY_TO_REVIEW"" หรือ ""PENDING_PROOF"" หรือ ""REJECT_SUGGESTED""
 }}
 ตอบเฉพาะ JSON ล้วนๆ
@@ -498,6 +585,9 @@ namespace QSC.Api.Services
                         if (parsed != null)
                         {
                             parsed.TaskId = capTaskId;
+                            parsed.SavedNextAuditNote = task.NextAuditNote;
+                            parsed.FollowUpStatus = task.FollowUpStatus;
+                            if (parsed.ConfidencePercent <= 0) parsed.ConfidencePercent = 90;
                             return parsed;
                         }
                     }
@@ -516,14 +606,18 @@ namespace QSC.Api.Services
             var toVerify = new List<string>();
             string advice;
             string readiness;
+            int confidence = 78;
+            string? nextAdvice = null;
 
             if (hasAfter && hasChat)
             {
                 strengths.Add("สาขาได้ส่งรูปภาพหลักฐานหลังการแก้ไขเรียบร้อยแล้ว");
                 strengths.Add("มีการชี้แจงรายละเอียดการแก้ไขผ่านระบบแชท");
                 toVerify.Add("ตรวจสอบว่ารูปภาพหลังแก้ครอบคลุมจุดบกพร่องเดิมอย่างชัดเจน");
+                nextAdvice = "สุ่มตรวจจุดนี้ซ้ำในรอบถัดไปเพื่อติดตามว่ายังคงรักษามาตรฐานได้ต่อเนื่องหรือไม่";
                 advice = "หลักฐานเบื้องต้นครบถ้วน แนะนำให้ผู้ประเมินตรวจสอบความคมชัดของรูปภาพก่อนกดอนุมัติปิดงาน";
                 readiness = "READY_TO_REVIEW";
+                confidence = 94;
             }
             else if (hasChat && !hasAfter)
             {
@@ -531,12 +625,14 @@ namespace QSC.Api.Services
                 toVerify.Add("สาขายังไม่ได้แนบรูปถ่ายหลักฐานยืนยันหลังการปรับปรุงแก้ไข");
                 advice = "สาขารายงานข้อความแล้วแต่ยังขาดรูปถ่ายจริง แนะนำให้ผู้ตรวจพิมพ์ขอรูปภาพ Before/After เพิ่มเติมก่อนพิจารณาปิดงาน";
                 readiness = "PENDING_PROOF";
+                confidence = 86;
             }
             else
             {
                 toVerify.Add("ยังไม่พบการตอบกลับหรือส่งหลักฐานจากทางสาขา");
                 advice = "ยังไม่มีความคืบหน้า แนะนำให้ผู้ตรวจส่งข้อความติดตามผลผ่านแชทก่อนถึงกำหนดเวลา SLA";
                 readiness = "PENDING_PROOF";
+                confidence = 80;
             }
 
             return new CapAiAnalysisDto
@@ -546,18 +642,89 @@ namespace QSC.Api.Services
                 ProgressStatus = hasChat ? "สาขาได้เริ่มดำเนินการและแจ้งข้อมูลในแชทแล้ว" : "อยู่ระหว่างรอสาขาดำเนินการ",
                 StrengthPoints = strengths,
                 AreasToVerify = toVerify,
+                NextAuditAdvice = nextAdvice,
+                ConfidencePercent = confidence,
                 AuditorAdvice = advice,
-                ReadinessToClose = readiness
+                ReadinessToClose = readiness,
+                SavedNextAuditNote = task.NextAuditNote,
+                FollowUpStatus = task.FollowUpStatus
             };
         }
 
+        // ── 💬 INTERACTIVE Q&A FOR SCHEDULE ADVISOR ──
+        public async Task<string> AskScheduleQuestionAsync(ClaimsPrincipal user, string question)
+        {
+            if (string.IsNullOrWhiteSpace(question)) return "กรุณาระบุคำถามที่ต้องการถาม AI ครับ";
+
+            var scheduleData = await GetScheduleRecommendationsAsync(user);
+            var branchesSummary = string.Join("\n", scheduleData.Recommendations.Select((b, i) =>
+                $"- อันดับ {i + 1}: สาขา {b.LocationName} ({b.BrandName}), เขต {b.Region}, ความเร่งด่วน {b.PriorityLevel}, ตรวจเดือนนี้={(b.HasAuditedThisMonth ? "ตรวจแล้ว" : "ยังไม่ตรวจ")}, เหตุผล: {b.Reason}, ผู้ตรวจแนะนำ: {b.SuggestedAuditorName} ({b.AuditorReason})"));
+
+            var apiKey = GetApiKey();
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                try
+                {
+                    var prompt = $@"
+คุณคือ AI ผู้ช่วยวางแผนตารางตรวจมาตรฐาน QSC ขององค์กร (ให้คำตอบสั้น กระชับ ตรงประเด็น เป็นกันเองและสุภาพ)
+ข้อมูลการจัดอันดับสาขาเร่งด่วน:
+{branchesSummary}
+
+สถิติภาพรวม:
+- สาขาค้างตรวจในเดือนนี้: {scheduleData.TotalBranchesPendingMonthlyAudit} สาขา
+
+คำถามของผู้ใช้: ""{question}""
+
+คำแนะนำในการตอบ:
+- ตอบเป็นภาษาไทย ความยาวสั้นกระชับ 2-3 ประโยค
+- อธิบายเหตุผลหรือผู้ตรวจที่เหมาะสมให้ชัดเจนตามข้อมูลจริง
+- ตอบเป็นข้อความธรรมดา ไม่ต้องมี JSON
+";
+                    var answer = await CallGeminiRestApiAsync(prompt, apiKey, GetModel(), isJson: false);
+                    if (!string.IsNullOrWhiteSpace(answer))
+                    {
+                        return answer.Trim();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Gemini API call failed for AskScheduleQuestion.");
+                }
+            }
+
+            // Fallback smart rule-based reply
+            if (question.Contains("ทำไม") || question.Contains("เร่งด่วน") || question.Contains("สาขาแรก"))
+            {
+                var top = scheduleData.Recommendations.FirstOrDefault();
+                if (top != null)
+                {
+                    return $"สาขา {top.LocationName} ถูกจัดเป็นอันดับแรกเนื่องจาก {top.Reason} และยังไม่ได้รับการตรวจในรอบเดือนนี้ จึงมีความเสี่ยงต่อมาตรฐาน QSC สูงที่สุดครับ";
+                }
+            }
+
+            if (question.Contains("ใคร") || question.Contains("ผู้ตรวจ") || question.Contains("Auditor"))
+            {
+                var top = scheduleData.Recommendations.FirstOrDefault();
+                if (top != null)
+                {
+                    return $"สำหรับสาขา {top.LocationName} แนะนำให้ {top.SuggestedAuditorName} เป็นผู้เข้าตรวจ เนื่องจาก {top.AuditorReason} ครับ";
+                }
+            }
+
+            return $"จากข้อมูลล่าสุด มีสาขาค้างตรวจในเดือนนี้ {scheduleData.TotalBranchesPendingMonthlyAudit} สาขา โดยแนะนำให้จัดทีมลงตรวจสาขาความเสี่ยงสูง 3 อันดับแรกก่อน เพื่อรักษามาตรฐาน QSC ประจำเดือนครับ";
+        }
+
         // ── 🌐 GEMINI REST API CALL HELPER ──
-        private async Task<string?> CallGeminiRestApiAsync(string prompt, string apiKey, string model)
+        private async Task<string?> CallGeminiRestApiAsync(string prompt, string apiKey, string model, bool isJson = true)
         {
             var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(15);
+            client.Timeout = TimeSpan.FromSeconds(8);
 
             var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+
+            object generationConfig = isJson
+                ? new { responseMimeType = "application/json", temperature = 0.6, topP = 0.95 }
+                : new { temperature = 0.7, topP = 0.95 };
 
             var requestBody = new
             {
@@ -571,11 +738,7 @@ namespace QSC.Api.Services
                         }
                     }
                 },
-                generationConfig = new
-                {
-                    responseMimeType = "application/json",
-                    temperature = 0.2
-                }
+                generationConfig
             };
 
             var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");

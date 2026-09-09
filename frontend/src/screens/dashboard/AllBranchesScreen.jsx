@@ -37,13 +37,25 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
     let list = [...activeLocations];
 
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      list = list.filter(u =>
-        u.name.toLowerCase().includes(q) ||
-        (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-        u.region.toLowerCase().includes(q) ||
-        (u.history && u.history[0]?.auditor?.toLowerCase().includes(q))
-      );
+      const q = searchTerm.toLowerCase().trim();
+      list = list.filter(u => {
+        const matchName = u.name?.toLowerCase().includes(q);
+        const matchFullName = u.fullName?.toLowerCase().includes(q);
+        const matchCode = u.code?.toLowerCase().includes(q);
+        const matchRegion = u.region?.toLowerCase().includes(q);
+        const matchAuditor = u.history && u.history[0]?.auditor?.toLowerCase().includes(q);
+        const matchBrand = (u.locationBrands || []).some(lb =>
+          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+        ) || (u.brand?.name || u.brandName || "").toLowerCase().includes(q) || (u.brand?.code || "").toLowerCase().includes(q);
+        const matchType = (
+          u.locationType?.name ||
+          u.locationType?.code ||
+          (typeof u.locationType === 'string' ? u.locationType : '')
+        ).toLowerCase().includes(q);
+
+        return matchName || matchFullName || matchCode || matchRegion || matchAuditor || matchBrand || matchType;
+      });
     }
 
     if (filterCategory === "passed") {
@@ -191,7 +203,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="ค้นหาชื่อสาขา, ภูมิภาค หรือชื่อผู้ตรวจ..."
+            placeholder="ค้นหาชื่อสาขา, แบรนด์, ภูมิภาค หรือผู้ตรวจ..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors"
@@ -331,6 +343,20 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                           <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
                             {u.fullName || u.region}
                           </div>
+                          {(() => {
+                            const brands = (u.locationBrands || []).map(lb => lb.brand?.name || lb.brandName).filter(Boolean);
+                            if (brands.length === 0 && (u.brand?.name || u.brandName)) brands.push(u.brand?.name || u.brandName);
+                            if (!brands.length) return null;
+                            return (
+                              <div className="flex items-center gap-1 mt-1 flex-wrap">
+                                {brands.map((b, bi) => (
+                                  <span key={bi} className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-teal-50 text-teal-800 border border-teal-200/70">
+                                    🏷️ {b}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </td>

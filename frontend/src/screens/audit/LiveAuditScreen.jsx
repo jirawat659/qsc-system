@@ -6,7 +6,7 @@ import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { getDistanceInMeters, formatDistance, DEFAULT_USER_COORDS } from "../../utils/geo";
-import api from "../../config/api";
+import api, { getFullImageUrl } from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -15,6 +15,7 @@ import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import { compressImageFile } from "../../utils/imageCompressor";
+import { isFormApplicableToLocation } from "../../utils/formMatching";
 
 const QuestionCommentInput = ({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -225,6 +226,7 @@ function SignaturePadCanvas({ onDone, onCancel }) {
 
 function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม...", signatureUrl }) {
   const [showModal, setShowModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const hasSigned = Boolean(signatureUrl);
 
   return (
@@ -251,8 +253,13 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         onClick={() => setShowModal(true)}
         className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/50 transition-colors shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer"
       >
-        {hasSigned ? (
-          <img src={signatureUrl} alt={label} className="max-h-full max-w-full object-contain" />
+        {isUploading ? (
+          <div className="flex items-center justify-center gap-2 text-slate-500 text-xs font-semibold">
+            <Loader2 size={16} className="animate-spin text-[#0F6659]" />
+            <span>กำลังบันทึกลายเซ็น...</span>
+          </div>
+        ) : hasSigned ? (
+          <img src={getFullImageUrl(signatureUrl)} alt={label} className="max-h-full max-w-full object-contain" />
         ) : (
           <div className="flex items-center justify-center text-slate-400 text-xs font-medium gap-1.5 select-none">
             <Edit3 size={14} />
@@ -274,9 +281,25 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
       {showModal && typeof document !== "undefined" && createPortal(
         <SignaturePadCanvas
           onCancel={() => setShowModal(false)}
-          onDone={(dataUrl) => {
-            onSignChange(dataUrl);
+          onDone={async (dataUrl) => {
             setShowModal(false);
+            // แสดงผลชั่วคราวให้ผู้ใช้เห็นทันที
+            onSignChange(dataUrl);
+            try {
+              setIsUploading(true);
+              const res = await api.post('/audit/upload-signature', { 
+                base64Data: dataUrl,
+                previousUrl: signatureUrl
+              });
+              if (res.data?.url) {
+                // บันทึก Path URL จากเซิร์ฟเวอร์
+                onSignChange(res.data.url);
+              }
+            } catch (err) {
+              console.warn("Upload signature to server failed, keeping dataUrl:", err);
+            } finally {
+              setIsUploading(false);
+            }
           }}
         />,
         document.body
@@ -400,13 +423,25 @@ export default function LiveAuditScreen({
     }
 
     if (searchBranch.trim()) {
-      const q = searchBranch.toLowerCase();
-      list = list.filter(u =>
-        u.name?.toLowerCase().includes(q) ||
-        (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-        u.region?.toLowerCase().includes(q) ||
-        (u.address && u.address.toLowerCase().includes(q))
-      );
+      const q = searchBranch.toLowerCase().trim();
+      list = list.filter(u => {
+        const matchName = u.name?.toLowerCase().includes(q);
+        const matchFullName = u.fullName?.toLowerCase().includes(q);
+        const matchCode = u.code?.toLowerCase().includes(q);
+        const matchRegion = u.region?.toLowerCase().includes(q);
+        const matchAddress = u.address?.toLowerCase().includes(q);
+        const matchBrand = (u.locationBrands || []).some(lb =>
+          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+        ) || (u.brand?.name || u.brandName || "").toLowerCase().includes(q) || (u.brand?.code || "").toLowerCase().includes(q);
+        const matchType = (
+          u.locationType?.name ||
+          u.locationType?.code ||
+          (typeof u.locationType === 'string' ? u.locationType : '')
+        ).toLowerCase().includes(q);
+
+        return matchName || matchFullName || matchCode || matchRegion || matchAddress || matchBrand || matchType;
+      });
     }
 
     // Sort by GPS distance ascending (น้อย ➔ มาก)
@@ -463,10 +498,20 @@ export default function LiveAuditScreen({
     return null;
   });
 
+  // 🌟 Filter forms strictly applicable to the currently selected unit (Brand + Location Type + Specific Targets)
+  const applicableForms = useMemo(() => {
+    if (!unit) return formList;
+    return formList.filter(f => isFormApplicableToLocation(f, unit));
+  }, [formList, unit]);
+
   const [selectedForm, setSelectedForm] = useState(() => {
     const targetFId = (isResumeDraft && parsedDraftPayload?.formId) ? parsedDraftPayload.formId : (preselectedPlan?.surveyFormId || targetFormId);
     if (targetFId) {
       return formList.find(f => f.id === targetFId) || formList[0];
+    }
+    if (unit) {
+      const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
+      if (matched.length > 0) return matched[0];
     }
     return formList[0];
   });
@@ -569,14 +614,34 @@ export default function LiveAuditScreen({
   const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
   const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
 
+  const initialDraftId = useMemo(() => {
+    if (isResumeDraft && matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') {
+      return matchedDraftRecord.id;
+    }
+    if (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan.id).startsWith('schedule')) {
+      return preselectedPlan.id;
+    }
+    return null;
+  }, [isResumeDraft, matchedDraftRecord, preselectedPlan]);
+
+  const [draftId, setDraftId] = useState(initialDraftId);
+  const draftIdRef = useRef(initialDraftId);
+
+  useEffect(() => {
+    if (initialDraftId) {
+      setDraftId(initialDraftId);
+      draftIdRef.current = initialDraftId;
+    }
+  }, [initialDraftId]);
+
   // Auto-sync status indicator
   const [syncStatus, setSyncStatus] = useState("idle"); // 'idle' | 'saving' | 'synced' // 'synced' | 'saving'
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
   const [highlightedQuestionId, setHighlightedQuestionId] = useState(null);
-  const [auditeeSignature, setAuditeeSignature] = useState(null);
-  const [auditorSignature, setAuditorSignature] = useState(null);
-  const [auditeeSignName, setAuditeeSignName] = useState(unit?.managerName || "ผู้จัดการสาขา");
+  const [auditeeSignature, setAuditeeSignature] = useState(() => parsedDraftPayload?.auditeeSignature || preselectedPlan?.auditeeSignature || null);
+  const [auditorSignature, setAuditorSignature] = useState(() => parsedDraftPayload?.auditorSignature || preselectedPlan?.auditorSignature || null);
+  const [auditeeSignName, setAuditeeSignName] = useState(() => parsedDraftPayload?.auditeeSignName || preselectedPlan?.auditeeSignName || unit?.managerName || "ผู้จัดการสาขา");
   const [auditStartedAt, setAuditStartedAt] = useState(() => parsedDraftPayload?.startedAt || new Date().toISOString());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
@@ -626,18 +691,70 @@ export default function LiveAuditScreen({
   }, []);
 
   // 📍 Automatic Draft Hydration Effect (Runs ONCE when draft data arrives for this specific branch)
+  // 🛡️ Includes form version validation: if the form was updated since the draft was saved,
+  //    discard stale answers whose SurveyItemIds no longer exist in the current form.
   const hasHydratedDraftRef = useRef(false);
   useEffect(() => {
     if (parsedDraftPayload && !hasHydratedDraftRef.current && isResumeDraft) {
       hasHydratedDraftRef.current = true;
+
+      // 🛡️ Form Version Validation: check that draft answer keys still exist in the current form
+      const currentForm = selectedForm || formList.find(f => f.id === parsedDraftPayload.formId);
+      const currentItemIds = new Set();
+      if (currentForm?.sections) {
+        for (const sec of currentForm.sections) {
+          for (const item of (sec.items || [])) {
+            currentItemIds.add(String(item.id));
+          }
+        }
+      }
+
       if (parsedDraftPayload.answers && Object.keys(parsedDraftPayload.answers).length > 0) {
-        setAnswers(parsedDraftPayload.answers);
+        if (currentItemIds.size > 0) {
+          // Filter out answers whose SurveyItemId no longer exists in the current form
+          const validAnswers = {};
+          const staleKeys = [];
+          for (const [key, val] of Object.entries(parsedDraftPayload.answers)) {
+            if (currentItemIds.has(String(key))) {
+              validAnswers[key] = val;
+            } else {
+              staleKeys.push(key);
+            }
+          }
+          if (staleKeys.length > 0) {
+            console.warn(`[Draft] ⚠️ Discarded ${staleKeys.length} stale answer(s) — form was updated since draft was saved`);
+          }
+          setAnswers(validAnswers);
+        } else {
+          setAnswers(parsedDraftPayload.answers);
+        }
       }
       if (parsedDraftPayload.photos && Object.keys(parsedDraftPayload.photos).length > 0) {
-        setPhotos(parsedDraftPayload.photos);
+        // Also filter photos by valid item IDs
+        if (currentItemIds.size > 0) {
+          const validPhotos = {};
+          for (const [key, val] of Object.entries(parsedDraftPayload.photos)) {
+            if (currentItemIds.has(String(key))) {
+              validPhotos[key] = val;
+            }
+          }
+          setPhotos(validPhotos);
+        } else {
+          setPhotos(parsedDraftPayload.photos);
+        }
       }
       if (parsedDraftPayload.comments && Object.keys(parsedDraftPayload.comments).length > 0) {
-        setComments(parsedDraftPayload.comments);
+        if (currentItemIds.size > 0) {
+          const validComments = {};
+          for (const [key, val] of Object.entries(parsedDraftPayload.comments)) {
+            if (currentItemIds.has(String(key))) {
+              validComments[key] = val;
+            }
+          }
+          setComments(validComments);
+        } else {
+          setComments(parsedDraftPayload.comments);
+        }
       }
       if (parsedDraftPayload.staffCount) {
         setStaffCount(parsedDraftPayload.staffCount);
@@ -653,6 +770,15 @@ export default function LiveAuditScreen({
       }
       if (parsedDraftPayload.backdatedEndDate) {
         setBackdatedEndDate(parsedDraftPayload.backdatedEndDate);
+      }
+      if (parsedDraftPayload.auditeeSignature) {
+        setAuditeeSignature(parsedDraftPayload.auditeeSignature);
+      }
+      if (parsedDraftPayload.auditorSignature) {
+        setAuditorSignature(parsedDraftPayload.auditorSignature);
+      }
+      if (parsedDraftPayload.auditeeSignName) {
+        setAuditeeSignName(parsedDraftPayload.auditeeSignName);
       }
       if (parsedDraftPayload.auditType) {
         const t = parsedDraftPayload.auditType.toLowerCase();
@@ -774,9 +900,11 @@ export default function LiveAuditScreen({
       Boolean(isBackdated) ||
       Boolean(backdatedStartDate) ||
       Boolean(backdatedEndDate) ||
+      Boolean(auditeeSignature) ||
+      Boolean(auditorSignature) ||
       Object.keys(metadataValues).length > 0
     );
-  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate]);
+  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate, auditeeSignature, auditorSignature]);
 
   const performSaveDraft = async (overrideData = {}) => {
     try {
@@ -795,6 +923,9 @@ export default function LiveAuditScreen({
       const currentIsBackdated = overrideData.isBackdated !== undefined ? overrideData.isBackdated : isBackdated;
       const currentBackdatedStartDate = overrideData.backdatedStartDate !== undefined ? overrideData.backdatedStartDate : backdatedStartDate;
       const currentBackdatedEndDate = overrideData.backdatedEndDate !== undefined ? overrideData.backdatedEndDate : backdatedEndDate;
+      const currentAuditeeSignature = overrideData.auditeeSignature !== undefined ? overrideData.auditeeSignature : auditeeSignature;
+      const currentAuditorSignature = overrideData.auditorSignature !== undefined ? overrideData.auditorSignature : auditorSignature;
+      const currentAuditeeSignName = overrideData.auditeeSignName !== undefined ? overrideData.auditeeSignName : auditeeSignName;
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
@@ -803,8 +934,8 @@ export default function LiveAuditScreen({
 
       const totalAnswered = Object.keys(currentAnswers).length;
 
-      // 🎯 Only persist draft when the auditor has answered at least 1 question
-      if (totalAnswered === 0) {
+      // 🎯 Only persist draft when the auditor has answered at least 1 question OR has provided signatures
+      if (totalAnswered === 0 && !currentAuditeeSignature && !currentAuditorSignature) {
         setSyncStatus("idle");
         return;
       }
@@ -824,6 +955,9 @@ export default function LiveAuditScreen({
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
+        auditeeSignature: currentAuditeeSignature,
+        auditorSignature: currentAuditorSignature,
+        auditeeSignName: currentAuditeeSignName,
         startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
       };
 
@@ -838,11 +972,18 @@ export default function LiveAuditScreen({
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
       } catch (e) { }
 
+      const effectiveSchedId = (preselectedPlan?.id && Number(preselectedPlan.id) > 0) 
+        ? Number(preselectedPlan.id) 
+        : (preselectedPlan?.scheduleId ? Number(preselectedPlan.scheduleId) : null);
+
       // 2. Persist to SQLite Backend
-      await api.put('/audit/draft', {
+      const effectiveDraftId = draftIdRef.current || draftId;
+      const res = await api.put('/audit/draft', {
+        id: effectiveDraftId,
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
         auditorId: currentUser?.id || 1,
+        auditScheduleId: effectiveSchedId,
         draftPayloadJson: draftPayloadJson,
         currentSectionIdx: currentSectionIdx,
         totalAnswered,
@@ -852,9 +993,15 @@ export default function LiveAuditScreen({
         startedAt: payload.startedAt
       });
 
+      if (res?.data?.id) {
+        draftIdRef.current = res.data.id;
+        setDraftId(res.data.id);
+      }
+
       setSyncStatus("synced");
 
       const draftObj = {
+        id: res?.data?.id || effectiveDraftId,
         unit: currentUnit,
         formId: currentForm.id,
         sectionIdx: currentSectionIdx,
@@ -869,6 +1016,9 @@ export default function LiveAuditScreen({
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
+        auditeeSignature: currentAuditeeSignature,
+        auditorSignature: currentAuditorSignature,
+        auditeeSignName: currentAuditeeSignName,
         locationId: currentUnit.id,
         locationName: currentUnit.name,
         locationFullName: currentUnit.fullName,
@@ -924,6 +1074,9 @@ export default function LiveAuditScreen({
     isBackdated,
     backdatedStartDate,
     backdatedEndDate,
+    auditeeSignature,
+    auditorSignature,
+    auditeeSignName,
     step,
     currentUser
   ]);
@@ -1289,19 +1442,31 @@ export default function LiveAuditScreen({
         (sec.items || []).forEach(q => {
           const ans = answers[q.id];
           const isNa = (ans === "na");
-          let isPassed = true;
-          let scoreGiven = q.fullScore || 10;
+          const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+          let isPassed = false;
+          let scoreGiven = 0;
+          let rawAnswer = String(ans !== undefined ? ans : "yes");
 
           if (isNa) {
             isPassed = true;
             scoreGiven = 0;
-          } else if (q.questionType === "yesno" || q.type === "yesno" || !q.questionType) {
-            isPassed = (ans === "yes" || ans === true);
-            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
-          } else if (q.questionType === "scale" || q.type === "scale") {
-            const num = Number(ans) || 5;
+            rawAnswer = "na";
+          } else if (qType === "scale") {
+            // 🐛 FIX: previously defaulted to 5 (full score / pass) whenever the answer
+            // was missing or not a valid number, so an unanswered/invalid scale question
+            // was silently submitted and saved as "ผ่าน" with 5 คะแนน. Must default to 0
+            // (fail) to match the live on-screen score preview (scoreAnalysis above) and
+            // to fail-safe instead of fail-open.
+            const parsedNum = Number(ans);
+            const num = Number.isFinite(parsedNum) ? parsedNum : 0;
             isPassed = num >= 3;
-            scoreGiven = (num / 5) * (q.fullScore || 10);
+            scoreGiven = Math.round(((num / 5) * (q.fullScore || 10)) * 100) / 100;
+            rawAnswer = String(num);
+          } else {
+            // YESNO type
+            isPassed = (ans === "yes" || ans === true || ans === "true" || ans === 1);
+            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
+            rawAnswer = isPassed ? "yes" : "no";
           }
 
           const rawPhotos = photos[q.id];
@@ -1311,9 +1476,9 @@ export default function LiveAuditScreen({
 
           responses.push({
             surveyItemId: q.id,
-            rawAnswer: String(ans !== undefined ? ans : "yes"),
-            answerValue: String(ans !== undefined ? ans : "yes"),
-            scaleScore: typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : null),
+            rawAnswer,
+            answerValue: rawAnswer,
+            scaleScore: qType === "scale" ? (typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : 0)) : null,
             scoreGiven,
             isPassed,
             isNa,
@@ -1341,7 +1506,10 @@ export default function LiveAuditScreen({
         staffCount: Number(staffCount) || 0,
         auditType: auditType || "announced",
         notes: extraNote || "",
-        metadataValuesJson: JSON.stringify(metadataValues),
+        metadataValuesJson: JSON.stringify({
+          ...metadataValues,
+          ...(staffCount !== "" && staffCount !== undefined ? { staff_count: staffCount } : {})
+        }),
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
@@ -1397,15 +1565,24 @@ export default function LiveAuditScreen({
   // 🗑️ Discard Draft & Reset (ลบแบบร่างถาวรและกลับหน้าหลัก)
   const confirmDiscardDraft = async () => {
     try {
+      const targetDraftId = draftIdRef.current || draftId || ((matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') 
+        ? matchedDraftRecord.id 
+        : (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan?.id).startsWith('schedule'))
+          ? preselectedPlan.id
+          : null);
+      const targetScheduleId = preselectedPlan?.scheduleId || (preselectedPlan?.type === 'schedule' ? (preselectedPlan.originalId || preselectedPlan.id) : null) || matchedDraftRecord?.auditScheduleId;
       const targetLocId = unit?.id || preselectedPlan?.locationId;
       const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || 1;
       const targetAuditorId = currentUser?.id || 1;
 
-      if (targetLocId) {
-        await api.delete(`/audit/draft?locationId=${targetLocId}&surveyFormId=${targetFormId}&auditorId=${targetAuditorId}`);
-      } else {
-        await api.delete(`/audit/draft?auditorId=${targetAuditorId}`);
-      }
+      const params = new URLSearchParams();
+      if (targetDraftId) params.append('id', String(targetDraftId));
+      if (targetLocId) params.append('locationId', String(targetLocId));
+      if (targetFormId) params.append('surveyFormId', String(targetFormId));
+      if (targetAuditorId) params.append('auditorId', String(targetAuditorId));
+      if (targetScheduleId) params.append('scheduleId', String(targetScheduleId));
+
+      await api.delete(`/audit/draft?${params.toString()}`);
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (targetLocId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
@@ -1417,9 +1594,13 @@ export default function LiveAuditScreen({
     }
 
     // เคลียร์ State ฟอร์ม
+    draftIdRef.current = null;
+    setDraftId(null);
     setAnswers({});
     setPhotos({});
     setComments({});
+    setAuditeeSignature(null);
+    setAuditorSignature(null);
     setSectionIdx(0);
     setIsBackdated(false);
     setBackdatedStartDate("");
@@ -1427,9 +1608,13 @@ export default function LiveAuditScreen({
     setSyncStatus("idle");
     setShowDiscardConfirmModal(false);
 
-    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขา (select-unit)
+    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขาหรือรายการหลัก
     if (setUnit) setUnit(null);
-    setStep("select-unit");
+    if (preselectedPlan && onClearPlan) {
+      onClearPlan();
+    } else {
+      setStep("select-unit");
+    }
   };
 
   const handleDiscardDraft = () => {
@@ -1465,7 +1650,7 @@ export default function LiveAuditScreen({
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="ค้นหาชื่อสาขา, โรงงาน หรือสำนักงาน..."
+            placeholder="ค้นหาชื่อสาขา, แบรนด์, โรงงาน หรือสำนักงาน..."
             value={searchBranch}
             onChange={(e) => setSearchBranch(e.target.value)}
             className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal"
@@ -1483,55 +1668,97 @@ export default function LiveAuditScreen({
         </div>
 
         {/* Branch Cards List */}
-        <div className="flex flex-col gap-3">
-          {paginatedBranchList.map((u) => {
-            const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
-            const distLabel = formatDistance(distMeters);
-            const isPassed = u.lastScore >= 85;
-
-            return (
+        {sortedBranchList.length === 0 ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center shadow-2xs space-y-3 my-2">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <Search size={22} />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-800">ไม่พบสาขาที่ค้นหา</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                ไม่พบสาขาที่ตรงกับคำค้นหา "{searchBranch}" กรุณาลองค้นหาด้วยชื่อสาขา แบรนด์ หรือภูมิภาคอื่น
+              </p>
+            </div>
+            {searchBranch && (
               <button
-                key={u.id || u.name}
                 type="button"
-                onClick={() => {
-                  setUnit(u);
-                  setStep("select-form");
-                }}
-                className="w-full rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 bg-white border-slate-200 hover:border-emerald-500"
+                onClick={() => setSearchBranch("")}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-colors bg-emerald-50 text-[#0F6659] border-emerald-200 group-hover:bg-[#0F6659] group-hover:text-white">
-                    <Store size={24} />
-                  </div>
-
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
-                        {u.fullName || u.name}
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <span className="text-xs font-medium px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
-                        {((u.locationType?.code === 'Office' || u.locationType === 'Office') ? '🏢 สำนักงาน' : (u.locationType?.code === 'Plant' || u.locationType === 'Plant') ? '🏭 โรงงาน' : '🏪 สาขา')} · {u.region}
-                      </span>
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                        <Navigation size={11} /> {distLabel}
-                      </span>
-                      <span className={`text-xs font-bold px-2.5 py-0.5 rounded-xl ${isPassed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                        คะแนนล่าสุด {u.lastScore}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <ChevronRight size={20} className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-1 transition-all" />
-                </div>
+                ล้างคำค้นหา
               </button>
-            );
-          })}
-          {totalBranchPages > 1 && (
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {paginatedBranchList.map((u) => {
+              const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
+              const distLabel = formatDistance(distMeters);
+              const isPassed = u.lastScore >= 85;
+
+              return (
+                <button
+                  key={u.id || u.name}
+                  type="button"
+                  onClick={() => {
+                    setUnit(u);
+                    const matchedForms = formList.filter(f => isFormApplicableToLocation(f, u));
+                    if (matchedForms.length > 0) {
+                      setSelectedForm(matchedForms[0]);
+                    }
+                    setStep("select-form");
+                  }}
+                  className="w-full rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 bg-white border-slate-200 hover:border-emerald-500"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-colors bg-emerald-50 text-[#0F6659] border-emerald-200 group-hover:bg-[#0F6659] group-hover:text-white">
+                      <Store size={24} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
+                          {u.fullName || u.name}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {/* Brand badges */}
+                        {(() => {
+                          const brands = (u.locationBrands || [])
+                            .map(lb => lb.brand?.name || lb.brandName)
+                            .filter(Boolean);
+                          if (brands.length === 0 && (u.brand?.name || u.brandName)) {
+                            brands.push(u.brand?.name || u.brandName);
+                          }
+                          if (brands.length === 0) return null;
+                          return (
+                            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-xl bg-teal-50 text-teal-800 border border-teal-200/80">
+                              🏷️ {brands.join(", ")}
+                            </span>
+                          );
+                        })()}
+
+                        <span className="text-xs font-medium px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
+                          {((u.locationType?.code === 'Office' || u.locationType === 'Office') ? '🏢 สำนักงาน' : (u.locationType?.code === 'Plant' || u.locationType === 'Plant') ? '🏭 โรงงาน' : '🏪 สาขา')} · {u.region}
+                        </span>
+                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-emerald-100 text-emerald-800 flex items-center gap-1">
+                          <Navigation size={11} /> {distLabel}
+                        </span>
+                        <span className={`text-xs font-bold px-2.5 py-0.5 rounded-xl ${isPassed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                          คะแนนล่าสุด {u.lastScore}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <ChevronRight size={20} className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-1 transition-all" />
+                  </div>
+                </button>
+              );
+            })}
+            {totalBranchPages > 1 && (
             <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-200 text-xs font-semibold text-slate-600 mt-2 shadow-2xs">
               <span>หน้า {branchPage} จาก {totalBranchPages} ({sortedBranchList.length} สาขา)</span>
               <div className="flex items-center gap-1.5">
@@ -1573,61 +1800,99 @@ export default function LiveAuditScreen({
             </div>
           )}
         </div>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
   // ════════════════════════════════════════════════════════════════════════════
   // STEP 2: SELECT FORM
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "select-form") {
+    const unitTypeName = unit?.locationType?.name || (typeof unit?.locationType === 'string' ? unit.locationType : "สาขาหน้าร้าน");
+    const unitBrands = unit?.locationBrands?.map(lb => lb.brand?.name || lb.brandName).filter(Boolean).join(", ") || "";
+
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto">
-        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+        {/* 🌟 In-page Breadcrumb */}
         <div className="space-y-1">
           <Breadcrumbs
             items={[
               { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
-              { label: "เลือกสาขา", onClick: () => setStep("select-unit") },
+              { label: `เลือกสาขา (${unit?.name || 'สาขา'})`, onClick: () => setStep("select-unit") },
               { label: "เลือกฟอร์ม" },
             ]}
           />
-          <p className="text-xs text-slate-500 font-medium px-1">เลือกฟอร์มเพื่อเริ่มตรวจประเมินคุณภาพ</p>
+          <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+            <p className="text-xs text-slate-500 font-medium">
+              แบบฟอร์มที่เปิดให้ใช้งานสำหรับสาขา <strong className="text-slate-800">{unit?.fullName || unit?.name}</strong>
+              <span className="text-slate-400 font-normal"> ({unitTypeName}{unitBrands ? ` · แบรนด์ ${unitBrands}` : ''})</span>
+            </p>
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200">
+              พบ {applicableForms.length} แบบฟอร์ม
+            </span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {formList.map((f) => (
-            <button
-              key={f.id || f.title}
-              type="button"
-              onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
-              className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
-                }`}
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
-                    เกณฑ์ผ่าน {f.passingScore || 85}%
-                  </span>
-                  <span className="text-xs font-bold text-slate-400">
-                    {(f.sections || []).length} หมวดการตรวจ
-                  </span>
+        {applicableForms.length === 0 ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center shadow-xs space-y-4 my-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto">
+              <AlertCircle size={32} />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">ไม่พบแบบฟอร์มที่ตรงกับสาขานี้</h3>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+                สาขา <strong className="text-slate-700">"{unit?.fullName || unit?.name}"</strong> เป็นประเภทสถานที่ 
+                <span className="font-semibold text-slate-700"> {unitTypeName}</span> 
+                {unitBrands ? <span> (แบรนด์ {unitBrands})</span> : ''} ซึ่งยังไม่มีแบบฟอร์มที่กำหนดไว้สำหรับแบรนด์และประเภทสถานที่นี้
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setStep("select-unit")}
+                className="px-5 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-2"
+              >
+                <ChevronLeft size={16} />
+                <span>เปลี่ยนสาขาที่ต้องการตรวจ</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {applicableForms.map((f) => (
+              <button
+                key={f.id || f.title}
+                type="button"
+                onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
+                className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
+                  }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
+                      เกณฑ์ผ่าน {f.passingScore || 85}%
+                    </span>
+                    <span className="text-xs font-bold text-slate-400">
+                      {(f.sections || []).length} หมวดการตรวจ
+                    </span>
+                  </div>
+                  <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
+                    {f.title}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
+                    {f.description}
+                  </p>
                 </div>
-                <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
-                  {f.title}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
-                  {f.description}
-                </p>
-              </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
-                <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
-              </div>
-            </button>
-          ))}
-        </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
+                  <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -1913,6 +2178,7 @@ export default function LiveAuditScreen({
 
                 // System field: Staff Count
                 if (field.id === "staff_count") {
+                  const currentStaffVal = staffCount !== "" ? staffCount : (metadataValues.staff_count ?? "");
                   return (
                     <div key={field.id} className="w-full">
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -1922,11 +2188,13 @@ export default function LiveAuditScreen({
                         <input
                           type="number"
                           min="0"
-                          value={staffCount}
+                          value={currentStaffVal}
                           onChange={(e) => {
                             const val = e.target.value;
                             setStaffCount(val);
-                            performSaveDraft({ staffCount: val });
+                            const nextMeta = { ...metadataValues, staff_count: val };
+                            setMetadataValues(nextMeta);
+                            performSaveDraft({ staffCount: val, metadataValues: nextMeta });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
@@ -2113,15 +2381,17 @@ export default function LiveAuditScreen({
               })}
 
               {/* Backdated Audit Toggle Card */}
-              <div className="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-200/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock size={16} className="text-[#0F6659]" />
-                    <div>
-                      <span className="text-xs font-extrabold text-slate-800 block">
+              <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50/50 border border-emerald-200/90 space-y-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100/80 text-[#0F6659] flex items-center justify-center shrink-0">
+                      <Clock size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm sm:text-base font-black text-slate-900 block leading-tight">
                         บันทึกผลการตรวจย้อนหลัง
                       </span>
-                      <span className="text-[11px] text-slate-500 font-medium">
+                      <span className="text-xs sm:text-sm text-slate-600 font-medium block mt-0.5">
                         เปิดใช้งานเมื่อต้องการเพิ่มผลตรวจที่ได้ตรวจจริงในอดีต
                       </span>
                     </div>
@@ -2147,8 +2417,8 @@ export default function LiveAuditScreen({
                         performSaveDraft({ isBackdated: next });
                       }
                     }}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                      isBackdated ? "bg-[#0F6659] text-white shadow-2xs" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                    className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer min-h-[38px] flex items-center justify-center shrink-0 active:scale-95 ${
+                      isBackdated ? "bg-[#0F6659] text-white shadow-sm hover:bg-[#0B4E44]" : "bg-slate-200 hover:bg-slate-300 text-slate-700"
                     }`}
                   >
                     {isBackdated ? "เปิด" : "ปิด"}
@@ -2156,10 +2426,10 @@ export default function LiveAuditScreen({
                 </div>
 
                 {isBackdated && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-emerald-100 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-3 border-t border-emerald-200/60 animate-in fade-in duration-200">
                     <div>
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                        <Calendar size={13} className="text-[#0F6659]" />
+                        <Calendar size={14} className="text-[#0F6659]" />
                         <span>เริ่มตรวจจริง</span> <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative flex items-center">
@@ -2171,11 +2441,11 @@ export default function LiveAuditScreen({
                             setBackdatedStartDate(val);
                             performSaveDraft({ backdatedStartDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
-                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedStartDate && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-normal">
                             วว/ดด/ปปปป --:--
                           </div>
                         )}
@@ -2183,7 +2453,7 @@ export default function LiveAuditScreen({
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                        <Calendar size={13} className="text-[#0F6659]" />
+                        <Calendar size={14} className="text-[#0F6659]" />
                         <span>สิ้นสุดตรวจจริง</span> <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative flex items-center">
@@ -2195,11 +2465,11 @@ export default function LiveAuditScreen({
                             setBackdatedEndDate(val);
                             performSaveDraft({ backdatedEndDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
-                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedEndDate && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-normal">
                             วว/ดด/ปปปป --:--
                           </div>
                         )}
@@ -2384,7 +2654,7 @@ export default function LiveAuditScreen({
 
                           {isScale && (
                             <div className="flex gap-1.5 items-center">
-                              {[1, 2, 3, 4, 5].map((n) => (
+                              {[5, 4, 3, 2, 1].map((n) => (
                                 <button key={n} type="button" onClick={() => handleAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answers[q.id] === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
                                   {n}
                                 </button>
@@ -2436,15 +2706,19 @@ export default function LiveAuditScreen({
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
-                  //onNameChange={setAuditeeSignName}
-                  onSignChange={setAuditeeSignature}
+                  onSignChange={(sig) => {
+                    setAuditeeSignature(sig);
+                    performSaveDraft({ auditeeSignature: sig });
+                  }}
                   signatureUrl={auditeeSignature}
-                  //placeholderName="ระบุชื่อ-นามสกุล..."
                 />
 
                 <SignaturePad
                   label={`2. ผู้ตรวจประเมิน (${auditorName || defaultAuditorName})`}
-                  onSignChange={setAuditorSignature}
+                  onSignChange={(sig) => {
+                    setAuditorSignature(sig);
+                    performSaveDraft({ auditorSignature: sig });
+                  }}
                   signatureUrl={auditorSignature}
                 />
               </div>

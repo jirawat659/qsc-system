@@ -144,6 +144,20 @@ namespace QSC.Api.Controllers
                 CreatedAt = DateTime.UtcNow
             };
 
+            if (dto.BranchScope == "SPECIFIC" && dto.LocationIds.Any())
+            {
+                var validLocCount = await _context.Locations.CountAsync(l => dto.LocationIds.Contains(l.Id));
+                if (validLocCount != dto.LocationIds.Distinct().Count())
+                    return BadRequest(new { message = "สาขาบางรายการไม่พบในระบบ" });
+            }
+
+            if (dto.BrandScope == "SPECIFIC" && dto.BrandIds.Any())
+            {
+                var validBrandCount = await _context.Brands.CountAsync(b => dto.BrandIds.Contains(b.Id));
+                if (validBrandCount != dto.BrandIds.Distinct().Count())
+                    return BadRequest(new { message = "แบรนด์บางรายการไม่พบในระบบ" });
+            }
+
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
 
@@ -176,6 +190,20 @@ namespace QSC.Api.Controllers
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
+
+            if (dto.BranchScope == "SPECIFIC" && dto.LocationIds.Any())
+            {
+                var validLocCount = await _context.Locations.CountAsync(l => dto.LocationIds.Contains(l.Id));
+                if (validLocCount != dto.LocationIds.Distinct().Count())
+                    return BadRequest(new { message = "สาขาบางรายการไม่พบในระบบ" });
+            }
+
+            if (dto.BrandScope == "SPECIFIC" && dto.BrandIds.Any())
+            {
+                var validBrandCount = await _context.Brands.CountAsync(b => dto.BrandIds.Contains(b.Id));
+                if (validBrandCount != dto.BrandIds.Distinct().Count())
+                    return BadRequest(new { message = "แบรนด์บางรายการไม่พบในระบบ" });
+            }
 
             user.FullName = dto.FullName;
             user.RoleId = dto.RoleId;

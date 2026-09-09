@@ -34,7 +34,12 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetSchedules([FromQuery] int? auditorId, [FromQuery] int? locationId)
+        public async Task<IActionResult> GetSchedules(
+            [FromQuery] int? auditorId,
+            [FromQuery] int? locationId,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
+            [FromQuery] int? limit)
         {
             var (userId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -91,12 +96,29 @@ namespace QSC.Api.Controllers
                 query = query.Where(s => s.LocationId == locationId.Value);
             }
             
-            if (allowedBrandIds != null)
+            if (startDate.HasValue)
             {
-                query = query.Where(s => s.Location != null && s.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                query = query.Where(s => s.ScheduledDate >= startDate.Value);
             }
 
-            var schedules = await query.OrderByDescending(s => s.ScheduledDate).ToListAsync();
+            if (endDate.HasValue)
+            {
+                query = query.Where(s => s.ScheduledDate <= endDate.Value);
+            }
+
+            query = query.OrderByDescending(s => s.ScheduledDate);
+
+            if (limit.HasValue)
+            {
+                query = query.Take(Math.Clamp(limit.Value, 1, 500));
+            }
+            else
+            {
+                // Default safety ceiling: prevent dumping unlimited historical schedules
+                query = query.Take(300);
+            }
+
+            var schedules = await query.ToListAsync();
 
             var result = schedules.Select(s => new
             {
@@ -127,10 +149,73 @@ namespace QSC.Api.Controllers
             return Ok(result);
         }
 
+        private async Task<string?> ValidateFormForLocationAsync(int locationId, int surveyFormId)
+        {
+            var location = await _context.Locations
+                .Include(l => l.LocationBrands)
+                .FirstOrDefaultAsync(l => l.Id == locationId);
+            if (location == null)
+            {
+                return "ไม่พบสาขาที่ระบุในระบบ";
+            }
+
+            var form = await _context.SurveyForms
+                .Include(f => f.FormBrands)
+                .Include(f => f.TargetLocations)
+                .FirstOrDefaultAsync(f => f.Id == surveyFormId);
+            if (form == null || !form.IsActive)
+            {
+                return "ไม่พบแบบฟอร์มการตรวจหรือแบบฟอร์มถูกปิดการใช้งาน";
+            }
+
+            if (form.LocationTypeId.HasValue && form.LocationTypeId.Value > 0 && form.LocationTypeId.Value != location.LocationTypeId)
+            {
+                return "แบบฟอร์มนี้ไม่ตรงกับประเภทสถานที่ของสาขานี้";
+            }
+
+            if (string.Equals(form.TargetingMode, "SPECIFIC_LOCATIONS", StringComparison.OrdinalIgnoreCase) && form.TargetLocations.Any())
+            {
+                if (!form.TargetLocations.Any(tl => tl.LocationId == location.Id))
+                {
+                    return "แบบฟอร์มนี้ไม่ได้กำหนดให้ใช้กับสาขานี้";
+                }
+            }
+
+            var formBrandIds = form.FormBrands.Select(fb => fb.BrandId).ToList();
+            if (form.BrandId.HasValue && !formBrandIds.Contains(form.BrandId.Value))
+            {
+                formBrandIds.Add(form.BrandId.Value);
+            }
+
+            if (formBrandIds.Any())
+            {
+                var locBrandIds = location.LocationBrands.Select(lb => lb.BrandId).ToList();
+                if (!locBrandIds.Any(lbid => formBrandIds.Contains(lbid)))
+                {
+                    return "แบบฟอร์มนี้ใช้ได้เฉพาะแบรนด์ที่กำหนดไว้เท่านั้น";
+                }
+            }
+
+            return null;
+        }
+
         [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] ScheduleSaveDto dto)
         {
+            var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
+            if (formValidationError != null)
+            {
+                return BadRequest(new { message = formValidationError });
+            }
+
+            if (dto.AuditorIds.Any())
+            {
+                var validAuditorCount = await _context.Users.CountAsync(u => dto.AuditorIds.Contains(u.Id) && u.IsActive);
+                if (validAuditorCount != dto.AuditorIds.Distinct().Count())
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
+            }
+
             var schedule = new AuditSchedule
             {
                 LocationId = dto.LocationId,
@@ -163,6 +248,21 @@ namespace QSC.Api.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            // 📌 Link & update pending CAP recommendations for this branch to USED
+            var pendingCaps = await _context.CapTasks
+                .Where(c => c.LocationId == dto.LocationId && c.FollowUpStatus == "PENDING")
+                .ToListAsync();
+
+            if (pendingCaps.Any())
+            {
+                foreach (var cap in pendingCaps)
+                {
+                    cap.FollowUpStatus = "USED";
+                    cap.FollowUpScheduleId = schedule.Id;
+                }
+                await _context.SaveChangesAsync();
+            }
+
             return Ok(schedule);
         }
 
@@ -175,6 +275,19 @@ namespace QSC.Api.Controllers
                 .FirstOrDefaultAsync(s => s.Id == id);
 
             if (schedule == null) return NotFound();
+
+            var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
+            if (formValidationError != null)
+            {
+                return BadRequest(new { message = formValidationError });
+            }
+
+            if (dto.AuditorIds.Any())
+            {
+                var validAuditorCount = await _context.Users.CountAsync(u => dto.AuditorIds.Contains(u.Id) && u.IsActive);
+                if (validAuditorCount != dto.AuditorIds.Distinct().Count())
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
+            }
 
             if (schedule.Status == "completed")
             {
@@ -221,6 +334,17 @@ namespace QSC.Api.Controllers
             if (schedule.Status == "completed")
             {
                 return BadRequest(new { message = "ไม่สามารถลบนัดหมายที่ตรวจเสร็จสมบูรณ์แล้วได้ (ล็อกถาวร)" });
+            }
+
+            // 📌 Revert any linked CAP recommendations back to PENDING
+            var linkedCaps = await _context.CapTasks
+                .Where(c => c.FollowUpScheduleId == id && c.FollowUpStatus == "USED")
+                .ToListAsync();
+
+            foreach (var cap in linkedCaps)
+            {
+                cap.FollowUpStatus = "PENDING";
+                cap.FollowUpScheduleId = null;
             }
 
             _context.AuditSchedules.Remove(schedule);

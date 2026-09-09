@@ -109,7 +109,6 @@ namespace QSC.Api.Controllers
             existing.Latitude = location.Latitude;
             existing.Longitude = location.Longitude;
             existing.Region = location.Region;
-            existing.BrandName = location.BrandName; // legacy display field เท่านั้น การผูกแบรนด์จริงใช้ endpoint /brands ด้านล่าง
             existing.Address = location.Address;
             existing.Phone = location.Phone;
             existing.IsActive = location.IsActive;

@@ -64,6 +64,9 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         statusRaw: t.status,
         deadline: deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.toLocaleDateString('th-TH') : "-",
         createdAt: createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleDateString('th-TH') : "-",
+        auditor: t.auditorName || t.verifierName || "-",
+        auditorName: t.auditorName || t.verifierName || "-",
+        auditScore: t.auditScore,
         deadlineTime,
         createdTime,
         raw: t
@@ -180,7 +183,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           )}
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+        {<div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
           {[
             { key: "all", label: "ทั้งหมด" },
             { key: "pending", label: "กำลังแก้ไขงาน" },
@@ -199,7 +202,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
               {tab.label}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Long Vertical List (ปุ่มหัวข้อใหญ่ ชัดเจน เน้นๆ ทีละ 10 รายการ) */}

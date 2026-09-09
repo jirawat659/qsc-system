@@ -9,6 +9,7 @@ import { TopBarContext } from "../context/TopBarContext";
 import { DataContext } from "../context/DataContext";
 import authStorage from "../config/storage";
 import api from "../config/api";
+import signalRService from "../services/signalrService";
 
 import ErrorBoundary from "../shared/ErrorBoundary";
 import Breadcrumbs from "../shared/Breadcrumbs";
@@ -79,9 +80,14 @@ export default function MainDashboard({ onLogout }) {
     return capTasks.filter(c => visibleLocationIds.has(c.locationId));
   }, [capTasks, selectedBrandId, visibleLocationIds]);
 
-  const refreshData = async () => {
-    setIsLoadingData(true);
-    setDataFetchError(null);
+  const lastRefreshTimeRef = useRef(Date.now());
+  const isRefreshingRef = useRef(false);
+
+  const refreshData = async (isSilent = false) => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    if (!isSilent) setIsLoadingData(true);
+    if (!isSilent) setDataFetchError(null);
     try {
       const [locRes, schedRes, formRes, draftsRes, capRes, auditRes, brandRes] = await Promise.allSettled([
         api.get('/location'),
@@ -94,7 +100,7 @@ export default function MainDashboard({ onLogout }) {
       ]);
 
       const rejectedCount = [locRes, schedRes, formRes, capRes, auditRes, brandRes].filter(r => r.status === 'rejected').length;
-      if (rejectedCount > 0) {
+      if (rejectedCount > 0 && !isSilent) {
         setDataFetchError(`ไม่สามารถเชื่อมต่อดึงข้อมูลบางส่วนได้ (${rejectedCount} รายการ)`);
       }
 
@@ -112,19 +118,53 @@ export default function MainDashboard({ onLogout }) {
       if (capRes.status === 'fulfilled' && capRes.value.data) setCapTasks(capRes.value.data);
       if (auditRes.status === 'fulfilled' && auditRes.value.data) setAuditRecords(auditRes.value.data);
       if (brandRes.status === 'fulfilled' && brandRes.value.data) setBrands(brandRes.value.data);
+      lastRefreshTimeRef.current = Date.now();
     } catch (err) {
-      
-      setDataFetchError("เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+      if (!isSilent) {
+        setDataFetchError("เกิดข้อผิดพลาดในการเชื่อมต่อกับเซิร์ฟเวอร์");
+      }
     } finally {
-      setIsLoadingData(false);
+      if (!isSilent) setIsLoadingData(false);
+      isRefreshingRef.current = false;
     }
   };
 
   useEffect(() => {
     refreshData();
+
+    // 🔄 Auto-sync on Window Focus (ดึงข้อมูลล่าสุดอัตโนมัติเมื่อสลับกลับมาที่แท็บ หากเกิน 60 วินาที)
+    const handleFocus = () => {
+      if (Date.now() - lastRefreshTimeRef.current > 60000) {
+        refreshData(true);
+      }
+    };
+
+    // 🔄 Background periodic sync ทุก 3 นาที (180,000 ms) แบบเงียบๆ เพื่อประหยัดทรัพยากรเซิร์ฟเวอร์
+    const interval = setInterval(() => {
+      refreshData(true);
+    }, 180000);
+
+    // 📡 Real-time SignalR Event: รีเฟรชข้อมูลอัตโนมัติเฉพาะเมื่อมีผลตรวจใหม่เข้ามาจริงๆ
+    let unsubscribeAudit = null;
+    signalRService.getConnection()
+      .then(() => {
+        unsubscribeAudit = signalRService.onAuditCreated(() => {
+          refreshData(true);
+        });
+      })
+      .catch(() => {});
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+      if (unsubscribeAudit) unsubscribeAudit();
+    };
   }, []);
 
   const handleLogout = () => {
+    localStorage.removeItem('qsc_selected_brand_id');
+    signalRService.disconnect();
     if (onLogout) {
       onLogout();
     } else {

@@ -161,6 +161,16 @@ namespace QSC.Api.Hubs
                 });
             }
 
+            // Auto-advance task status to SUBMITTED if AUDITEE responds on an OPEN or REJECTED task
+            bool statusChanged = false;
+            if (string.Equals(role, "AUDITEE", StringComparison.OrdinalIgnoreCase) &&
+                (string.Equals(task.Status, "OPEN", StringComparison.OrdinalIgnoreCase) || string.Equals(task.Status, "REJECTED", StringComparison.OrdinalIgnoreCase)))
+            {
+                task.Status = "SUBMITTED";
+                task.CompletedAt = DateTime.UtcNow;
+                statusChanged = true;
+            }
+
             await _context.SaveChangesAsync();
 
             bool isAuditorComment = string.Equals(role, "AUDITOR", StringComparison.OrdinalIgnoreCase)
@@ -183,6 +193,17 @@ namespace QSC.Api.Hubs
 
             var groupName = $"cap_{capTaskId}";
             await Clients.Group(groupName).SendAsync("ReceiveCapMessage", commentPayload);
+
+            if (statusChanged)
+            {
+                await Clients.Group(groupName).SendAsync("CapStatusUpdated", new
+                {
+                    capTaskId = capTaskId,
+                    status = task.Status,
+                    updatedBy = user?.FullName ?? user?.Username ?? "สาขา",
+                    updatedAt = task.CompletedAt
+                });
+            }
         }
 
         public async Task UpdateCapStatusRealTime(int capTaskId, string newStatus, string? note)

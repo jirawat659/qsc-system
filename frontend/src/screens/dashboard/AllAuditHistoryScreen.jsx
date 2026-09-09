@@ -14,7 +14,7 @@ import api from "../../config/api";
 import { parseAuditTimestamp } from "../../utils/formatters";
 
 export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
-  const { locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms } = React.useContext(DataContext);
+  const { locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms, refreshData } = React.useContext(DataContext);
   const activeLocations = visibleLocations || [];
   const [trendsData, setTrendsData] = useState([]);
 
@@ -62,7 +62,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const passedCount = passedBranches.length;
   const avgScore = totalBranches > 0 ? Math.round(activeLocations.reduce((acc, l) => acc + (l.lastScore || 0), 0) / totalBranches) : 0;
   const pendingCapCount = (capTasks && capTasks.length > 0) 
-    ? capTasks.filter(c => c.status !== 'approved' && c.status !== 'CLOSED').length 
+    ? capTasks.filter(c => {
+        const s = (c.status || '').toUpperCase();
+        return s !== 'APPROVED' && s !== 'CLOSED' && s !== 'DONE';
+      }).length 
     : 0;
 
   // 🌟 Map logs from Live Database if available, otherwise from mocks
@@ -83,6 +86,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       return "แบบฟอร์มมาตรฐานใหม่";
     };
 
+    const getBrandsForLoc = (locId, directLoc) => {
+      const loc = (directLoc && (directLoc.locationBrands || directLoc.brand)) ? directLoc : (activeLocations || []).find(al => al.id === locId);
+      if (!loc) return "";
+      const brands = (loc.locationBrands || []).map(lb => lb.brand?.name || lb.brandName).filter(Boolean);
+      if (brands.length === 0 && (loc.brand?.name || loc.brandName)) brands.push(loc.brand?.name || loc.brandName);
+      return brands.join(" ");
+    };
+
     // 1. Completed Records
     if (auditRecords && auditRecords.length > 0) {
       auditRecords.forEach((r) => {
@@ -96,6 +107,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
         const directForm = r.surveyFormTitle || r.surveyForm?.title || r.formTitle || r.formName || r.form;
         const formVal = resolveFormTitle(formId, directForm);
+        const brandNames = getBrandsForLoc(r.locationId, r.location);
         
         logs.push({
           id: `completed-${r.id}`,
@@ -103,6 +115,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           type: 'completed',
           unitName: branchName,
           unitFullName: branchFullName,
+          brandNames: brandNames,
           region: r.locationRegion || r.location?.region || "-",
           date: dateFormatted,
           rawDate: rawDate,
@@ -133,9 +146,26 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       });
     }
 
-    // 2. Drafts (ฉบับร่างค้างตรวจ)
+    // 2. Drafts (ฉบับร่างค้างตรวจ) - ป้องกันรายการซ้ำซ้อนตามสาขาและแบบฟอร์ม
     if (activeDrafts && activeDrafts.length > 0) {
-      activeDrafts.forEach((d) => {
+      const uniqueDrafts = [];
+      const seenDraftKeys = new Set();
+      const sortedDrafts = [...activeDrafts].sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || a.startedAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || b.startedAt || 0).getTime();
+        return (timeB - timeA) || ((b.id || 0) - (a.id || 0));
+      });
+
+      sortedDrafts.forEach(d => {
+        const fId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id || 0;
+        const key = `${d.locationId || 0}_${fId}`;
+        if (!seenDraftKeys.has(key)) {
+          seenDraftKeys.add(key);
+          uniqueDrafts.push(d);
+        }
+      });
+
+      uniqueDrafts.forEach((d) => {
         const branchName = d.locationName || d.location?.name || "-";
         const branchFullName = d.locationFullName || d.locationName || d.location?.fullName || d.location?.name || "-";
         const rawDate = d.updatedAt || d.createdAt || d.startedAt || null;
@@ -178,12 +208,15 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           totalCount = Number(d.totalQuestions || d.TotalQuestions) || 0;
         }
         
+        const brandNames = getBrandsForLoc(d.locationId, d.location);
+
         logs.push({
           id: `draft-${d.id}`,
           originalId: d.id,
           type: 'draft',
           unitName: branchName,
           unitFullName: branchFullName,
+          brandNames: brandNames,
           region: d.locationRegion || d.location?.region || "-",
           date: dateFormatted,
           rawDate: rawDate,
@@ -207,6 +240,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             staffCount: parsedPayload?.staffCount || d.staffCount || "",
             auditorName: auditorVal,
             auditType: parsedPayload?.auditType || d.auditType || "announced",
+            auditeeSignature: parsedPayload?.auditeeSignature || d.auditeeSignature || null,
+            auditorSignature: parsedPayload?.auditorSignature || d.auditorSignature || null,
+            auditeeSignName: parsedPayload?.auditeeSignName || d.auditeeSignName || "",
             draftPayloadJson: d.draftPayloadJson
           }
         });
@@ -216,7 +252,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     // 3. Schedules
     if (schedules && schedules.length > 0) {
       schedules.forEach((s) => {
-        if (s.status === 'completed' || s.status === 'in_progress') return; // skip if already in records/drafts
+        if (s.status === 'completed') return; // skip completed schedules
+
         const branchName = s.locationName || s.location?.name || "-";
         const branchFullName = s.locationName || s.location?.fullName || s.location?.name || "-";
         const rawDate = s.scheduledDate || null;
@@ -228,17 +265,76 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         }
         
         const timestamp = parseAuditTimestamp(rawDate, s.id) + 2000000000; // prioritize schedules (future)
-        const auditorVal = s.auditorName || s.primaryAuditor?.fullName || "-";
+        const auditorVal = s.auditorName || s.primaryAuditor?.fullName || (s.auditors?.[0]?.fullName) || "-";
         const formId = s.surveyFormId || s.formId || s.surveyForm?.id;
         const directForm = s.surveyFormTitle || s.formTitle || s.surveyForm?.title || s.formName || s.form;
         const formVal = resolveFormTitle(formId, directForm);
-        
+
+        // Check if there is already an active draft for this schedule/location
+        const existingDraft = (activeDrafts || []).find(d => 
+          (d.auditScheduleId && Number(d.auditScheduleId) === Number(s.id)) ||
+          (d.scheduleId && Number(d.scheduleId) === Number(s.id)) || 
+          (d.locationId && Number(d.locationId) === Number(s.locationId))
+        );
+        if (existingDraft) return; // already represented in activeDrafts
+
+        const brandNames = getBrandsForLoc(s.locationId, s.location);
+
+        // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
+        if (s.status === 'in_progress') {
+          let totalCount = 0;
+          const matchedForm = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
+          if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+            totalCount = matchedForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
+          } else if (s.surveyForm?.sections && Array.isArray(s.surveyForm.sections) && s.surveyForm.sections.length > 0) {
+            totalCount = s.surveyForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
+          }
+
+          logs.push({
+            id: `schedule-progress-${s.id}`,
+            originalId: s.id,
+            type: 'draft',
+            unitName: branchName,
+            unitFullName: branchFullName,
+            brandNames: brandNames,
+            region: s.locationRegion || s.location?.region || s.region || "-",
+            date: dateFormatted,
+            rawDate: rawDate,
+            timestamp: timestamp,
+            score: null,
+            auditor: auditorVal,
+            formName: formVal,
+            auditType: (s.auditType === 'unannounced' || s.auditType === 'spot') ? "นอกกำหนดการ" : (s.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+            status: "draft",
+            progressText: totalCount > 0 ? `ตอบแล้ว 0/${totalCount} ข้อ` : "กำลังดำเนินการตรวจ",
+            record: {
+              ...s,
+              id: s.id,
+              scheduleId: s.id,
+              locationId: s.locationId,
+              locationName: branchName,
+              locationFullName: branchFullName,
+              unit: branchName,
+              surveyFormId: formId || s.surveyFormId || s.formId,
+              surveyFormTitle: formVal,
+              formTitle: formVal,
+              formName: formVal,
+              auditType: s.auditType || "announced",
+              auditorName: auditorVal,
+              scheduledDate: s.scheduledDate,
+              notes: s.notes
+            }
+          });
+          return;
+        }
+
         logs.push({
           id: `schedule-${s.id}`,
           originalId: s.id,
           type: 'schedule',
           unitName: branchName,
           unitFullName: branchFullName,
+          brandNames: brandNames,
           region: s.locationRegion || s.location?.region || "-",
           date: dateFormatted, // scheduled date
           rawDate: rawDate,
@@ -270,6 +366,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     // If no data, use mocks
     if (logs.length === 0) {
       activeLocations.forEach(u => {
+        const uBrandNames = getBrandsForLoc(u.id, u);
         (u.history || []).forEach((h, hIdx) => {
           const timestamp = parseAuditTimestamp(h.date, h.id || hIdx);
           logs.push({
@@ -278,6 +375,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             type: 'completed',
             unitName: u.name,
             unitFullName: u.fullName || u.name,
+            brandNames: uBrandNames,
             region: u.region || "-",
             date: h.date,
             rawDate: h.date,
@@ -334,6 +432,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         return (
           (l.unitName && l.unitName.toLowerCase().includes(q)) ||
           (l.unitFullName && l.unitFullName.toLowerCase().includes(q)) ||
+          (l.brandNames && l.brandNames.toLowerCase().includes(q)) ||
           (l.region && l.region.toLowerCase().includes(q)) ||
           (l.date && l.date.toLowerCase().includes(q)) ||
           (l.auditor && l.auditor.toLowerCase().includes(q)) ||
@@ -449,14 +548,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     let list = [...allBranches];
 
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
+      const q = searchTerm.toLowerCase().trim();
       list = list.filter(l =>
         (l.name && l.name.toLowerCase().includes(q)) ||
         (l.fullName && l.fullName.toLowerCase().includes(q)) ||
         (l.code && l.code.toLowerCase().includes(q)) ||
         (l.region && l.region.toLowerCase().includes(q)) ||
         (l.locationType && l.locationType.toLowerCase().includes(q)) ||
-        (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q))
+        (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q)) ||
+        (l.locationBrands || l.rawLocation?.locationBrands || []).some(lb =>
+          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+        ) ||
+        (l.brand?.name || l.brandName || l.rawLocation?.brand?.name || "").toLowerCase().includes(q)
       );
     }
 
@@ -526,15 +630,24 @@ const handleTriggerAudit = (record) => {
 };
 
   if (activeDirectPlan) {
-  return (
-    <LiveAuditScreen
-      preselectedPlan={activeDirectPlan}
-      onClearPlan={() => setActiveDirectPlan(null)}
-      onBack={() => setActiveDirectPlan(null)} // 👈 เมื่อกดย้อนกลับ จะสั่งเคลียร์ค่าและกลับมาที่ตารางรายงานผลตรวจทันที 100%
-      onCompleteAudit={() => setActiveDirectPlan(null)}
-    />
-  );
-}
+    return (
+      <LiveAuditScreen
+        preselectedPlan={activeDirectPlan}
+        onClearPlan={() => {
+          if (refreshData) refreshData();
+          setActiveDirectPlan(null);
+        }}
+        onBack={() => {
+          if (refreshData) refreshData();
+          setActiveDirectPlan(null);
+        }}
+        onCompleteAudit={() => {
+          if (refreshData) refreshData();
+          setActiveDirectPlan(null);
+        }}
+      />
+    );
+  }
 
   if (selectedBranch) {
     return (
@@ -618,9 +731,23 @@ const handleTriggerAudit = (record) => {
               <span className="text-xs font-extrabold text-slate-400">คะแนนเฉลี่ยภาพรวม</span>
               <span className="text-xs font-black text-slate-900 font-mono">{avgScore}%</span>
             </div>
-            <div className="text-xs font-bold text-emerald-800 mt-0.5 truncate">
-              ✓ ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
-            </div>
+            {totalBranches === 0 ? (
+              <div className="text-xs font-bold text-slate-400 mt-0.5 truncate">
+                ยังไม่มีข้อมูลสาขา
+              </div>
+            ) : auditedCount === 0 ? (
+              <div className="text-xs font-bold text-slate-400 mt-0.5 truncate">
+                ยังไม่มีการตรวจประเมิน (0 จาก {totalBranches} สาขา)
+              </div>
+            ) : avgScore >= 85 ? (
+              <div className="text-xs font-bold text-emerald-800 mt-0.5 truncate">
+                ✓ ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
+              </div>
+            ) : (
+              <div className="text-xs font-bold text-rose-600 mt-0.5 truncate">
+                ✕ ไม่ผ่านเกณฑ์มาตรฐาน ({passedCount} จาก {totalBranches} สาขา)
+              </div>
+            )}
           </div>
         </div>
 
@@ -633,7 +760,7 @@ const handleTriggerAudit = (record) => {
             <div>
               <div className="text-[11px] font-bold text-slate-400">ตรวจแล้ว</div>
               <div className="text-xs sm:text-sm font-extrabold text-slate-900 mt-0.5 font-mono">
-                {auditedCount} / {totalBranches} สาขา
+                {auditedCount} รายการ
               </div>
             </div>
             <div>
@@ -695,7 +822,7 @@ const handleTriggerAudit = (record) => {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="ค้นหาชื่อสาขา, วันที่, ผู้ตรวจ, สถานะ..."
+              placeholder="ค้นหาชื่อสาขา, แบรนด์, วันที่, ผู้ตรวจ, สถานะ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full text-xs sm:text-sm pl-8.5 pr-7 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400 shadow-2xs"

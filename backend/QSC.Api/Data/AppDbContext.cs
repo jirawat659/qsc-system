@@ -123,7 +123,6 @@ namespace QSC.Api.Data
                 e.Property(x => x.Code).HasMaxLength(50);
                 e.Property(x => x.Name).HasMaxLength(200);
                 e.Property(x => x.Region).HasMaxLength(100);
-                e.Property(x => x.BrandName).HasMaxLength(200);
                 e.Property(x => x.Phone).HasMaxLength(50);
             });
 
@@ -425,7 +424,7 @@ namespace QSC.Api.Data
                 .HasOne(t => t.AuditRecord)
                 .WithMany()
                 .HasForeignKey(t => t.AuditRecordId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Restrict ไม่ใช่ SetNull เพราะ AuditRecord ลบถึง CapTask ได้ 2 ทาง
             // (ตรงๆ และผ่าน AuditResponse) ซึ่ง SQL Server ไม่ยอม

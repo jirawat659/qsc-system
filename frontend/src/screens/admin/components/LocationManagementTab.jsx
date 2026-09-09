@@ -132,8 +132,8 @@ export default function LocationManagementTab({
                               <span className="text-xs font-mono font-bold text-slate-400">{loc.code}</span>
                               <div className="font-bold text-slate-800">{loc.name}</div>
                               <div className="text-xs text-slate-400">
-                                {loc.locationBrands?.length ? loc.locationBrands.map(lb => lb.brand?.name).join(', ') : (loc.brandName || '-')
-                              }</div>
+                                {loc.locationBrands?.length ? loc.locationBrands.map(lb => lb.brand?.name).filter(Boolean).join(', ') : '-'}
+                              </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 text-slate-600 text-xs font-medium">
@@ -218,7 +218,9 @@ export default function LocationManagementTab({
                           <h4 className={`text-base font-black leading-snug group-hover:text-[#0F6659] transition-colors ${
                             isActive ? 'text-slate-900' : 'text-slate-600'
                           }`}>{loc.name}</h4>
-                          <p className="text-xs text-slate-500 font-medium mt-0.5">{loc.brandName || "Urban Burger"}</p>
+                          <p className="text-xs text-slate-500 font-medium mt-0.5">
+                            {loc.locationBrands?.length ? loc.locationBrands.map(lb => lb.brand?.name || lb.brandName).filter(Boolean).join(', ') : '-'}
+                          </p>
                         </div>
 
                         <div className="text-xs text-slate-600 space-y-2 pt-2.5 border-t border-slate-100">

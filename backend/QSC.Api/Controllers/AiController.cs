@@ -22,7 +22,7 @@ namespace QSC.Api.Controllers
         [HttpGet("dashboard-insights")]
         public async Task<IActionResult> GetDashboardInsights([FromQuery] DateTime? month)
         {
-            var result = await _aiService.GetDashboardInsightsAsync(month);
+            var result = await _aiService.GetDashboardInsightsAsync(User, month);
             return Ok(result);
         }
 
@@ -30,7 +30,7 @@ namespace QSC.Api.Controllers
         [HttpGet("schedule-recommendations")]
         public async Task<IActionResult> GetScheduleRecommendations()
         {
-            var result = await _aiService.GetScheduleRecommendationsAsync();
+            var result = await _aiService.GetScheduleRecommendationsAsync(User);
             return Ok(result);
         }
 
@@ -38,8 +38,25 @@ namespace QSC.Api.Controllers
         [HttpGet("cap-analysis/{id}")]
         public async Task<IActionResult> GetCapAnalysis(int id)
         {
-            var result = await _aiService.AnalyzeCapTaskAsync(id);
+            var result = await _aiService.AnalyzeCapTaskAsync(User, id);
+            if (result == null)
+            {
+                return Forbid();
+            }
             return Ok(result);
+        }
+
+        public class AskScheduleQuestionDto
+        {
+            public string Question { get; set; } = string.Empty;
+        }
+
+        // 4. 💬 POST /api/ai/ask-schedule
+        [HttpPost("ask-schedule")]
+        public async Task<IActionResult> AskSchedule([FromBody] AskScheduleQuestionDto dto)
+        {
+            var answer = await _aiService.AskScheduleQuestionAsync(User, dto?.Question ?? string.Empty);
+            return Ok(new { answer });
         }
     }
 }

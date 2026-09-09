@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Store, Camera, Send, Trash2, X, AlertTriangle, Wrench } from "lucide-react";
+import { Store, Camera, Send, Trash2, X, AlertTriangle, Wrench, Plus, Loader2 } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../config/theme";
@@ -14,28 +14,41 @@ import { compressImageFile } from "../utils/imageCompressor";
 
 export default function CapSubmissionModal({ question, unitName, onSave, onClose }) {
   const [actionText, setActionText] = useState("");
-  const [photoBase64, setPhotoBase64] = useState(null);
+  const [photos, setPhotos] = useState([]);
+  const [isCompressing, setIsCompressing] = useState(false);
+  const [previewModalPhoto, setPreviewModalPhoto] = useState(null);
   const [responsibleName, setResponsibleName] = useState("ผู้จัดการสาขา (Store Manager)");
   const [dueDate, setDueDate] = useState("ภายใน 24 ชม. (เร่งด่วน)");
   const [formError, setFormError] = useState(null);
   const fileInputRef = useRef(null);
 
   const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsCompressing(true);
     try {
-      const compressed = await compressImageFile(file);
-      setPhotoBase64(compressed);
+      const fileList = Array.from(files);
+      const compressedUrls = await Promise.all(fileList.map((f) => compressImageFile(f)));
+      setPhotos((prev) => [...prev, ...compressedUrls]);
       if (formError) setFormError(null);
     } catch (err) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setPhotoBase64(ev.target.result);
-        if (formError) setFormError(null);
-      };
-      reader.readAsDataURL(file);
+      console.error("Compression error:", err);
+      Array.from(files).forEach((file) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          setPhotos((prev) => [...prev, ev.target.result]);
+          if (formError) setFormError(null);
+        };
+        reader.readAsDataURL(file);
+      });
+    } finally {
+      setIsCompressing(false);
     }
     e.target.value = "";
+  };
+
+  const handleRemovePhoto = (idx) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const handleSubmit = (e) => {
@@ -44,8 +57,8 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
       setFormError("กรุณากรอกรายละเอียดการดำเนินการแก้ไข");
       return;
     }
-    if (!photoBase64) {
-      setFormError("กรุณาแนบรูปถ่ายหลักฐานหลังการแก้ไขก่อนส่งงาน");
+    if (photos.length === 0) {
+      setFormError("กรุณาแนบรูปถ่ายหลักฐานหลังการแก้ไขอย่างน้อย 1 รูป");
       return;
     }
     setFormError(null);
@@ -56,8 +69,10 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
       auditorNote: question.note,
       actionText,
       photoAttached: true,
-      photo: photoBase64,
-      imageUrls: [photoBase64],
+      photo: photos[0],
+      photos: photos,
+      images: photos,
+      imageUrls: photos,
       responsibleName,
       dueDate,
       submittedAt: new Date().toLocaleDateString("th-TH", { day: 'numeric', month: 'short', year: '2-digit' }) + " " + new Date().toLocaleTimeString("th-TH", { hour: '2-digit', minute: '2-digit' }) + " น.",
@@ -67,7 +82,8 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
   };
 
   return (
-    <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
+    <>
+      <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
         {/* Modal Header */}
         <div className="shrink-0 p-4 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
           <div className="flex items-center gap-2.5">
@@ -117,7 +133,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
               required
               value={actionText}
               onChange={(e) => setActionText(e.target.value)}
-              placeholder="ระบุสิ่งที่สาขาได้ดำเนินการแก้ไข เช่น ได้ทำการขัดล้างทำความสะอาดคราบไขมันหลังเตาปรุงอาหารเรียบร้อยแล้ว และตั้งรอบทำความสะอาด Deep Clean ทุกสัปดาห์..."
+              placeholder="ระบุสิ่งที่สาขาได้ดำเนินการแก้ไข เช่น ได้ทำการขัดล้างทำความสะอาดคราบไขมันหลังเตาปรุงอาหารเรียบร้อยแล้ว"
               className="w-full text-xs p-3 rounded-xl border outline-none font-medium text-slate-800 focus:border-emerald-600"
               style={{ borderColor: c.border, background: c.bg }}
             />
@@ -125,60 +141,99 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
 
           {/* Upload After Photo Evidence */}
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 block">
-              2. แนบรูปถ่ายหลักฐานหลังการแก้ไข (After Photo) <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-700 block">
+                2. แนบรูปถ่ายหลักฐานหลังการแก้ไข (After Photo) <span className="text-red-500">*</span>
+              </label>
+              {photos.length > 0 && (
+                <span className="text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                  แนบแล้ว {photos.length} รูป
+                </span>
+              )}
+            </div>
+
             <input
               type="file"
               accept="image/*"
+              multiple
               ref={fileInputRef}
               onChange={handleFileChange}
               className="hidden"
             />
-            {photoBase64 ? (
-              <div className="relative rounded-2xl border border-emerald-300 bg-emerald-50/70 p-3.5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <img
-                    src={photoBase64}
-                    alt="Evidence Preview"
-                    className="w-14 h-14 rounded-xl object-cover border border-emerald-400 shrink-0 shadow-2xs"
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-emerald-950 truncate">แนบรูปถ่ายหลักฐานสำเร็จ</div>
-                    <div className="text-[11px] text-emerald-700 font-medium truncate">พร้อมส่งเพื่อขออนุมัติปิดงาน</div>
-                  </div>
+
+            {photos.length === 0 ? (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="p-5 rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] bg-slate-50 hover:bg-emerald-50/30 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all text-slate-600 active:scale-[0.99] group"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 group-hover:bg-emerald-50 text-slate-400 group-hover:text-[#0F6659] transition-all shadow-2xs">
+                  {isCompressing ? (
+                    <Loader2 size={22} className="animate-spin text-[#0F6659]" />
+                  ) : (
+                    <Camera size={22} />
+                  )}
                 </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-2.5 py-1 text-xs font-bold rounded-2xl border border-emerald-400 bg-white text-emerald-800 hover:bg-emerald-50 cursor-pointer"
-                  >
-                    เปลี่ยนรูป
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPhotoBase64(null)}
-                    className="p-1.5 rounded-xl text-red-600 hover:bg-red-50 cursor-pointer"
-                    title="ลบรูป"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+                <div className="text-center">
+                  <div className="text-xs font-bold text-slate-700 group-hover:text-[#0F6659] transition-colors">
+                    {isCompressing ? "กำลังประมวลผลรูปภาพ..." : "แตะเพื่ออัปโหลดรูปภาพ"}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    รองรับไฟล์ JPG, PNG
+                  </div>
                 </div>
               </div>
             ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="p-4 rounded-2xl border-2 border-dashed border-slate-300 hover:border-emerald-500 bg-slate-50 hover:bg-emerald-50/30 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all text-slate-600"
-              >
-                <Camera size={24} className="text-slate-400" />
-                <div className="text-center">
-                  <div className="text-xs font-bold text-slate-700">
-                    แตะเพื่อถ่ายรูปหรืออัปโหลดหลักฐานหลังแก้ไข
-                  </div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">
-                    รองรับไฟล์ JPG, PNG พร้อมบีบอัดอัตโนมัติ
-                  </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
+                  {photos.map((img, idx) => (
+                    <div
+                      key={idx}
+                      className="relative aspect-square rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-2xs group cursor-pointer"
+                      onClick={() => setPreviewModalPhoto(img)}
+                    >
+                      <img
+                        src={img}
+                        alt={`Evidence ${idx + 1}`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/20 pointer-events-none" />
+
+                      <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold font-mono">
+                        #{idx + 1}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemovePhoto(idx);
+                        }}
+                        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-all shadow-sm active:scale-90"
+                        title="ลบรูปนี้"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add More Tile */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isCompressing}
+                    className="aspect-square rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/40 bg-slate-50 flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-[#0F6659] cursor-pointer transition-all active:scale-95 group disabled:opacity-50"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 transition-colors shadow-2xs">
+                      {isCompressing ? (
+                        <Loader2 size={16} className="animate-spin text-[#0F6659]" />
+                      ) : (
+                        <Plus size={16} className="text-slate-500 group-hover:text-[#0F6659]" />
+                      )}
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-600 group-hover:text-[#0F6659]">
+                      {isCompressing ? "กำลังบีบอัด..." : "เพิ่มรูป"}
+                    </span>
+                  </button>
                 </div>
               </div>
             )}
@@ -218,6 +273,31 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
             </button>
           </div>
         </form>
-    </ModalWrapper>
+      </ModalWrapper>
+
+      {/* 🔍 MODAL ขยายรูปภาพขนาดเต็ม (Lightbox) */}
+      {previewModalPhoto && (
+        <div 
+          className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setPreviewModalPhoto(null)}
+        >
+          <div className="relative max-w-2xl max-h-[85dvh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setPreviewModalPhoto(null)}
+              className="absolute -top-10 right-0 w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center cursor-pointer transition-all shadow-md"
+              title="ปิด"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={previewModalPhoto}
+              alt="Preview"
+              className="max-h-[80dvh] w-auto max-w-full rounded-2xl object-contain shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
