@@ -19,113 +19,167 @@ namespace QSC.Api.Controllers
             _context = context;
         }
 
+        private (DateTime StartUtc, DateTime EndUtc, DateTime PrevStartUtc, DateTime PrevEndUtc) GetPeriodDateRanges(string? period)
+        {
+            var nowUtc = DateTime.UtcNow;
+            var nowBkk = TimezoneHelper.ToBangkokTime(nowUtc);
+            var currentMonthStartBkk = new DateTime(nowBkk.Year, nowBkk.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+            DateTime startBkk, endBkk;
+
+            switch (period?.ToLower())
+            {
+                case "last_month":
+                    startBkk = currentMonthStartBkk.AddMonths(-1);
+                    endBkk = currentMonthStartBkk;
+                    break;
+                case "3m":
+                    startBkk = currentMonthStartBkk.AddMonths(-2);
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+                case "6m":
+                    startBkk = currentMonthStartBkk.AddMonths(-5);
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+                case "ytd":
+                    startBkk = new DateTime(nowBkk.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+                case "month":
+                default:
+                    startBkk = currentMonthStartBkk;
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+            }
+
+            var startUtc = TimezoneHelper.ToUtcFromBangkok(startBkk);
+            var endUtc = TimezoneHelper.ToUtcFromBangkok(endBkk);
+
+            var duration = endUtc - startUtc;
+            var prevEndUtc = startUtc;
+            var prevStartUtc = startUtc - duration;
+
+            return (startUtc, endUtc, prevStartUtc, prevEndUtc);
+        }
+
         [HttpGet("overview")]
-        public async Task<IActionResult> GetOverviewStats()
+        public async Task<IActionResult> GetOverviewStats([FromQuery] string? period = "month", [FromQuery] int? brandId = null)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive).AsQueryable();
+            var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive);
+            if (allowedLocationIds != null) locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            if (brandId.HasValue) locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => lb.BrandId == brandId.Value));
+            else if (allowedBrandIds != null) locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-            if (allowedLocationIds != null)
-            {
-                locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
-            }
+            var targetLocIds = await locQuery.Select(l => l.Id).ToListAsync();
+            int totalBranches = targetLocIds.Count;
 
-            if (allowedBrandIds != null)
-            {
-                locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
-            }
+            var (startUtc, endUtc, prevStartUtc, prevEndUtc) = GetPeriodDateRanges(period);
 
-            var locations = await locQuery.Select(l => new { l.Id, l.LastScore }).ToListAsync();
-            var locIds = locations.Select(l => l.Id).ToList();
-
-            var totalBranches = locations.Count;
-            var passedBranches = locations.Count(l => l.LastScore >= 85);
-            var improveBranches = locations.Count(l => l.LastScore >= 70 && l.LastScore < 85);
-            var criticalBranches = locations.Count(l => l.LastScore < 70);
-
-            var avgScore = locations.Any() ? Math.Round(locations.Average(l => l.LastScore), 1) : 0;
-
-            var totalAuditsCompleted = await _context.AuditRecords
+            var periodAudits = await _context.AuditRecords
                 .AsNoTracking()
-                .Where(r => locIds.Contains(r.LocationId))
-                .CountAsync();
+                .Where(a => targetLocIds.Contains(a.LocationId) && a.AuditDate >= startUtc && a.AuditDate < endUtc)
+                .Select(a => new { a.LocationId, a.PercentageScore, a.IsPassed })
+                .ToListAsync();
 
-            var pendingCaps = await _context.CapTasks
+            var prevPeriodAudits = await _context.AuditRecords
                 .AsNoTracking()
-                .Where(c => locIds.Contains(c.LocationId) && (c.Status == "OPEN" || c.Status == "SUBMITTED" || c.Status == "REJECTED"))
-                .CountAsync();
+                .Where(a => targetLocIds.Contains(a.LocationId) && a.AuditDate >= prevStartUtc && a.AuditDate < prevEndUtc)
+                .Select(a => new { a.PercentageScore })
+                .ToListAsync();
 
-            var upcomingAudits = await _context.AuditSchedules
+            var auditedLocIds = periodAudits.Select(a => a.LocationId).Distinct().ToList();
+            int auditedCount = auditedLocIds.Count;
+            int passedCount = periodAudits.Count(a => a.IsPassed);
+            double passRate = auditedCount > 0 ? Math.Round((double)passedCount / periodAudits.Count * 100.0, 1) : 0.0;
+            double avgScore = periodAudits.Any() ? Math.Round(periodAudits.Average(a => a.PercentageScore), 1) : 0.0;
+
+            double? prevAvgScore = prevPeriodAudits.Any() ? Math.Round(prevPeriodAudits.Average(a => a.PercentageScore), 1) : null;
+            string? trendPercent = (prevAvgScore.HasValue && prevAvgScore.Value > 0)
+                ? (((avgScore - prevAvgScore.Value) / prevAvgScore.Value) * 100.0).ToString("F1")
+                : null;
+
+            int pendingCaps = await _context.CapTasks
                 .AsNoTracking()
-                .Where(s => locIds.Contains(s.LocationId) && s.Status == "pending")
+                .Where(c => targetLocIds.Contains(c.LocationId) && (c.Status == "OPEN" || c.Status == "SUBMITTED" || c.Status == "REJECTED"))
                 .CountAsync();
 
             return Ok(new
             {
                 totalBranches,
-                passedBranches,
-                improveBranches,
-                criticalBranches,
-                passPercentage = totalBranches > 0 ? Math.Round((double)passedBranches / totalBranches * 100, 1) : 0,
+                auditedCount,
+                passedCount,
+                passRate,
                 avgScore,
-                pendingCaps,
-                upcomingAudits,
-                totalAuditsCompleted
+                trendPercent,
+                pendingCaps
             });
         }
 
         [HttpGet("rankings")]
-        public async Task<IActionResult> GetRankings()
+        public async Task<IActionResult> GetRankings([FromQuery] string? period = "month", [FromQuery] int? brandId = null)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var locQuery = _context.Locations.AsNoTracking().Where(l => l.IsActive).AsQueryable();
+            var (startUtc, endUtc, _, _) = GetPeriodDateRanges(period);
+
+            // 🌟 1. กรองผลตรวจ AuditRecords ตามช่วงเวลาที่เลือก (Period) และสิทธิ์สาขา/แบรนด์
+            var auditQuery = _context.AuditRecords
+                .AsNoTracking()
+                .Where(a => a.AuditDate >= startUtc && a.AuditDate < endUtc);
 
             if (allowedLocationIds != null)
-            {
-                locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
-            }
+                auditQuery = auditQuery.Where(a => allowedLocationIds.Contains(a.LocationId));
 
-            if (allowedBrandIds != null)
-            {
-                locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
-            }
+            if (brandId.HasValue)
+                auditQuery = auditQuery.Where(a => a.Location != null && a.Location.LocationBrands.Any(lb => lb.BrandId == brandId.Value));
+            else if (allowedBrandIds != null)
+                auditQuery = auditQuery.Where(a => a.Location != null && a.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-            var topBranches = await locQuery
-                .OrderByDescending(l => l.LastScore)
+            // 🌟 2. จัดอันดับ Top 5 สาขาที่มีผลการตรวจจริงในช่วงเวลาที่เลือก โดยเรียงจากคะแนนสูงสุด
+            var topInPeriod = await auditQuery
+                .GroupBy(a => new { a.LocationId, a.Location!.Code, a.Location.Name, a.Location.Region })
+                .Select(g => new
+                {
+                    Id = g.Key.LocationId,
+                    Code = g.Key.Code,
+                    Name = g.Key.Name,
+                    Region = g.Key.Region,
+                    LastScore = Math.Round(g.OrderByDescending(a => a.AuditDate).Select(a => a.PercentageScore).FirstOrDefault(), 1),
+                    AvgScore = Math.Round(g.Average(a => a.PercentageScore), 1),
+                    AuditCount = g.Count(),
+                    LastAuditDate = g.Max(a => a.AuditDate),
+                    HasAudited = true
+                })
+                .OrderByDescending(x => x.LastScore)
                 .Take(5)
-                .Select(l => new { l.Id, l.Code, l.Name, l.Region, l.LastScore, l.LastAuditDate })
                 .ToListAsync();
 
-            var bottomBranches = await locQuery
-                .OrderBy(l => l.LastScore)
-                .Take(5)
-                .Select(l => new { l.Id, l.Code, l.Name, l.Region, l.LastScore, l.LastAuditDate })
-                .ToListAsync();
-
-            return Ok(new
-            {
-                top5 = topBranches,
-                bottom5 = bottomBranches
-            });
+            return Ok(new { top5 = topInPeriod });
         }
 
+        // 🌟 แก้ไข GetTrends: ใช้ TimezoneHelper ตัดรอบเดือนตามเวลาไทย (UTC+7)
         [HttpGet("trends")]
         public async Task<IActionResult> GetTrends()
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var now = DateTime.UtcNow;
-            var startOf6Months = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-5);
-            var endOfPeriod = new DateTime(now.Year, now.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(1);
+            var nowUtc = DateTime.UtcNow;
+            var nowBkk = TimezoneHelper.ToBangkokTime(nowUtc);
+
+            var currentMonthStartBkk = new DateTime(nowBkk.Year, nowBkk.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+            var startOf6MonthsBkk = currentMonthStartBkk.AddMonths(-5);
+            var endOfPeriodBkk = currentMonthStartBkk.AddMonths(1);
+
+            var startOf6MonthsUtc = TimezoneHelper.ToUtcFromBangkok(startOf6MonthsBkk);
+            var endOfPeriodUtc = TimezoneHelper.ToUtcFromBangkok(endOfPeriodBkk);
 
             var auditQuery = _context.AuditRecords
                 .AsNoTracking()
-                .Where(a => a.AuditDate >= startOf6Months && a.AuditDate < endOfPeriod);
+                .Where(a => a.AuditDate >= startOf6MonthsUtc && a.AuditDate < endOfPeriodUtc);
 
             if (allowedLocationIds != null)
             {
@@ -146,17 +200,20 @@ namespace QSC.Api.Controllers
 
             for (int i = 5; i >= 0; i--)
             {
-                var targetMonth = now.AddMonths(-i);
-                var startOfMonth = new DateTime(targetMonth.Year, targetMonth.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                var endOfMonth = startOfMonth.AddMonths(1);
+                var targetMonthBkk = currentMonthStartBkk.AddMonths(-i);
+                var startOfMonthBkk = new DateTime(targetMonthBkk.Year, targetMonthBkk.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+                var endOfMonthBkk = startOfMonthBkk.AddMonths(1);
+
+                var startOfMonthUtc = TimezoneHelper.ToUtcFromBangkok(startOfMonthBkk);
+                var endOfMonthUtc = TimezoneHelper.ToUtcFromBangkok(endOfMonthBkk);
 
                 var monthAudits = periodAudits
-                    .Where(a => a.AuditDate >= startOfMonth && a.AuditDate < endOfMonth)
+                    .Where(a => a.AuditDate >= startOfMonthUtc && a.AuditDate < endOfMonthUtc)
                     .ToList();
 
                 double? avg = monthAudits.Any() ? Math.Round(monthAudits.Average(a => a.PercentageScore), 1) : null;
                 double? passRate = monthAudits.Any() ? Math.Round((double)monthAudits.Count(a => a.IsPassed) / monthAudits.Count * 100, 1) : null;
-                var monthLabel = thaiMonths[targetMonth.Month - 1] + " " + ((targetMonth.Year + 543) % 100);
+                var monthLabel = thaiMonths[targetMonthBkk.Month - 1] + " " + ((targetMonthBkk.Year + 543) % 100);
 
                 months.Add(new
                 {
@@ -168,14 +225,8 @@ namespace QSC.Api.Controllers
             }
 
             var locQuery = _context.Locations.Where(l => l.IsActive).AsQueryable();
-            if (allowedLocationIds != null)
-            {
-                locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
-            }
-            if (allowedBrandIds != null)
-            {
-                locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
-            }
+            if (allowedLocationIds != null) locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
+            if (allowedBrandIds != null) locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
             var regionalScores = await locQuery
                 .GroupBy(l => l.Region)
@@ -192,6 +243,78 @@ namespace QSC.Api.Controllers
                 monthlyTrends = months,
                 regionalScores = regionalScores
             });
+        }
+
+        [HttpGet("category-scores")]
+        public async Task<IActionResult> GetCategoryScores(
+            [FromQuery] string? period = "month",
+            [FromQuery] int? brandId = null,
+            [FromQuery] int? locationId = null)
+        {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            var (startUtc, endUtc, _, _) = GetPeriodDateRanges(period);
+
+            var recordQuery = _context.AuditRecords
+                .AsNoTracking()
+                .Where(r => r.AuditDate >= startUtc && r.AuditDate < endUtc);
+
+            if (locationId.HasValue)
+            {
+                recordQuery = recordQuery.Where(r => r.LocationId == locationId.Value);
+            }
+            else if (allowedLocationIds != null)
+            {
+                recordQuery = recordQuery.Where(r => allowedLocationIds.Contains(r.LocationId));
+            }
+
+            if (brandId.HasValue)
+            {
+                recordQuery = recordQuery.Where(r => r.Location != null && r.Location.LocationBrands.Any(lb => lb.BrandId == brandId.Value));
+            }
+            else if (allowedBrandIds != null)
+            {
+                recordQuery = recordQuery.Where(r => r.Location != null && r.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
+
+            var responseQuery = _context.AuditResponses
+                .AsNoTracking()
+                .Where(resp => !resp.IsNa)
+                .Where(resp => recordQuery.Any(rec => rec.Id == resp.AuditRecordId));
+
+            var rawCategoryData = await responseQuery
+                .Select(resp => new
+                {
+                    CategoryName = !string.IsNullOrWhiteSpace(resp.CategoryName)
+                        ? resp.CategoryName
+                        : (!string.IsNullOrWhiteSpace(resp.SurveyItem!.CategoryName)
+                            ? resp.SurveyItem.CategoryName
+                            : (resp.SurveyItem.SurveySection != null ? resp.SurveyItem.SurveySection.Title : "ทั่วไป")),
+                    ScoreGiven = resp.ScoreGiven,
+                    FullScore = resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 10.0
+                })
+                .ToListAsync();
+
+            var categoryScores = rawCategoryData
+                .GroupBy(d => d.CategoryName.Trim())
+                .Select(g =>
+                {
+                    var totalScoreGiven = g.Sum(x => x.ScoreGiven);
+                    var totalFullScore = g.Sum(x => x.FullScore);
+                    var percentage = totalFullScore > 0 ? Math.Round((totalScoreGiven / totalFullScore) * 100.0, 1) : 0.0;
+
+                    return new
+                    {
+                        name = g.Key,
+                        score = percentage,
+                        target = 85
+                    };
+                })
+                .OrderByDescending(c => c.score)
+                .ToList();
+
+            return Ok(categoryScores);
         }
     }
 }

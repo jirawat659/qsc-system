@@ -99,6 +99,9 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           auditorName: s.auditorName || s.auditor || (s.auditors?.[0]?.fullName) || "-",
           auditorNames: auditorNames,
           auditors: s.auditors || [],
+          auditorId: s.auditors?.[0]?.id || s.auditorId,
+          auditorIds: (s.auditors || []).map(a => a.id || a.auditorId).filter(Boolean),
+          createdBy: s.createdBy,
           form: s.surveyFormTitle || "-",
           surveyFormTitle: s.surveyFormTitle,
           status: computedStatus,
@@ -111,16 +114,76 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
     return [];
   }, [schedules, auditRecords]);
 
+  // Filtered schedules by auditor (Instant in-memory filtering with smart name & ID match)
+  const filteredSchedules = useMemo(() => {
+    return scheduleList
+      .filter((s) => {
+        // If AUDITOR -> strictly restrict to their own assigned schedules only
+        if (isAuditor) {
+          const myId = currentUser?.id;
+          const myTarget = (myAuditorName || currentUser?.name || currentUser?.fullName || "").toLowerCase().trim();
+          const myUsername = (currentUser?.username || "").toLowerCase().trim();
+
+          // 1. Match by Auditor ID
+          if (myId) {
+            const hasMyId = (s.auditors || []).some(a => (a.id === myId || a.auditorId === myId)) ||
+                            (s.auditorIds || []).includes(myId) ||
+                            s.auditorId === myId ||
+                            s.createdBy === myId;
+            if (hasMyId) return true;
+          }
+
+          // 2. Match by display name or auditor name
+          if (myTarget) {
+            const a1 = (s.auditor || "").toLowerCase().trim();
+            const a2 = (s.auditorName || "").toLowerCase().trim();
+            if (a1 === myTarget || a2 === myTarget) return true;
+            if (s.auditorNames && s.auditorNames.some(n => {
+              const clean = (n || "").toLowerCase().trim();
+              return clean === myTarget || clean.includes(myTarget) || myTarget.includes(clean);
+            })) return true;
+          }
+
+          // 3. Match by username
+          if (myUsername) {
+            const a1 = (s.auditor || "").toLowerCase().trim();
+            const a2 = (s.auditorName || "").toLowerCase().trim();
+            if (a1 === myUsername || a2 === myUsername) return true;
+            if (s.auditorNames && s.auditorNames.some(n => {
+              const clean = (n || "").toLowerCase().trim();
+              return clean === myUsername;
+            })) return true;
+          }
+
+          return false;
+        }
+
+        // For ADMIN, STANDARD, EXEC
+        if (!auditorFilter || auditorFilter === "ทั้งหมด") return true;
+        const target = auditorFilter.toLowerCase().trim();
+        const a1 = (s.auditor || "").toLowerCase().trim();
+        const a2 = (s.auditorName || "").toLowerCase().trim();
+        if (a1 === target || a2 === target) return true;
+        if (s.auditorNames && s.auditorNames.some(n => {
+          const clean = (n || "").toLowerCase().trim();
+          return clean === target || clean.includes(target) || target.includes(clean);
+        })) return true;
+        if (a1.includes(target) || target.includes(a1)) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime() || (a.time || "").localeCompare(b.time || ""));
+  }, [scheduleList, isAuditor, myAuditorName, currentUser?.id, currentUser?.name, currentUser?.username, auditorFilter]);
+
   const todaySchedules = useMemo(() => {
     const now = new Date();
     const todayY = now.getFullYear();
     const todayM = now.getMonth();
     const todayD = now.getDate();
-    return scheduleList.filter(s => {
+    return filteredSchedules.filter(s => {
       const d = new Date(s.scheduledDate);
       return d.getFullYear() === todayY && d.getMonth() === todayM && d.getDate() === todayD;
     });
-  }, [scheduleList]);
+  }, [filteredSchedules]);
 
   // รายการที่ยังไม่ได้ตรวจในวันนี้ (Pending Only)
   const pendingTodaySchedules = useMemo(() => {
@@ -209,41 +272,6 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
     return cells;
   }, [viewDate]);
-
-  // Filtered schedules by auditor (Instant in-memory filtering with smart name match)
-  const filteredSchedules = useMemo(() => {
-    return scheduleList
-      .filter((s) => {
-        // If AUDITOR -> strictly restrict to their own assigned schedules only
-        if (isAuditor) {
-          const myTarget = myAuditorName.toLowerCase().trim();
-          if (!myTarget) return true;
-          if (s.auditorId && currentUser?.id && s.auditorId === currentUser.id) return true;
-          const a1 = (s.auditor || "").toLowerCase().trim();
-          const a2 = (s.auditorName || "").toLowerCase().trim();
-          if (a1 === myTarget || a2 === myTarget || a1.includes(myTarget) || myTarget.includes(a1)) return true;
-          if (s.auditorNames && s.auditorNames.some(n => {
-            const clean = (n || "").toLowerCase().trim();
-            return clean === myTarget || clean.includes(myTarget) || myTarget.includes(clean);
-          })) return true;
-          return false;
-        }
-
-        // For ADMIN, STANDARD, EXEC
-        if (!auditorFilter || auditorFilter === "ทั้งหมด") return true;
-        const target = auditorFilter.toLowerCase().trim();
-        const a1 = (s.auditor || "").toLowerCase().trim();
-        const a2 = (s.auditorName || "").toLowerCase().trim();
-        if (a1 === target || a2 === target) return true;
-        if (s.auditorNames && s.auditorNames.some(n => {
-          const clean = (n || "").toLowerCase().trim();
-          return clean === target || clean.includes(target) || target.includes(clean);
-        })) return true;
-        if (a1.includes(target) || target.includes(a1)) return true;
-        return false;
-      })
-      .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime() || (a.time || "").localeCompare(b.time || ""));
-  }, [scheduleList, isAuditor, myAuditorName, currentUser?.id, auditorFilter]);
 
   // Schedules in viewing month
   const monthScheduleCount = useMemo(() => {

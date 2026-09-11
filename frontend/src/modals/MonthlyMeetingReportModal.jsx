@@ -1,12 +1,13 @@
-import React, { useState, useMemo } from "react";
-import { BarChart3, Download, X } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { BarChart3, Download, X, Loader2 } from "lucide-react";
 
 import { c, mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import ModalWrapper from "../shared/ModalWrapper";
+import api from "../config/api";
 
 export default function MonthlyMeetingReportModal({ onClose }) {
-  const { visibleLocations = [], auditRecords = [], capTasks = [] } = React.useContext(DataContext);
+  const { visibleLocations = [] } = React.useContext(DataContext);
 
   // ── ชื่อเดือนปัจจุบัน (ภาษาไทย + พ.ศ.) ──────────────────────────────────
   const now = new Date();
@@ -18,14 +19,80 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
-  // ── auditRecords ของเดือนนี้ ──────────────────────────────────────────────
-  const monthRecords = useMemo(() =>
-    auditRecords.filter(r => {
-      const d = new Date(r.auditDate || r.submittedAt || r.createdAt);
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    }),
-    [auditRecords, currentMonth, currentYear]
-  );
+  // 🌟 รายงานเดือนต้องอ้างอิงข้อมูลจริงทั้งหมดของเดือนนี้ ไม่ใช่แค่ buffer 50
+  // รายการล่าสุดที่โหลดไว้ใน context (Phase 3.3) — ดึงสดจาก API เอง โดย:
+  //  1) วน page ดึง /audit/records และ /cap มาให้ครบ แล้วกรองเฉพาะเดือน/ปีปัจจุบัน
+  //  2) เรียก GetAuditDetail รายตัวสำหรับผลตรวจของเดือนนี้ เพื่อให้ได้ `responses`
+  //     ซึ่ง endpoint แบบ list ไม่เคยส่งมาด้วย (บั๊กเดิมที่ sectionBreakdown/topDefects
+  //     เคยอ่านค่าว่างเสมอ)
+  const [monthRecords, setMonthRecords] = useState([]);
+  const [monthCaps, setMonthCaps] = useState([]);
+  const [isLoadingReport, setIsLoadingReport] = useState(true);
+  const [reportError, setReportError] = useState(null);
+
+  const fetchAllPaged = async (endpoint, params = {}) => {
+    const pageSize = 100;
+    let page = 1;
+    let all = [];
+    let totalCount = Infinity;
+    while (all.length < totalCount) {
+      const res = await api.get(endpoint, { params: { ...params, page, pageSize } });
+      const data = res.data;
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
+      all = all.concat(items);
+      if (items.length === 0) break;
+      page += 1;
+    }
+    return all;
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      setIsLoadingReport(true);
+      setReportError(null);
+      try {
+        const [allAuditRecords, allCapTasks] = await Promise.all([
+          fetchAllPaged('/audit/records'),
+          fetchAllPaged('/cap')
+        ]);
+
+        const isThisMonth = (rawDate) => {
+          if (!rawDate) return false;
+          const d = new Date(rawDate);
+          return !isNaN(d.getTime()) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+        };
+
+        const recordsThisMonth = allAuditRecords.filter(r => isThisMonth(r.auditDate || r.submittedAt || r.createdAt));
+        const capsThisMonth = allCapTasks.filter(cItem => isThisMonth(cItem.createdAt));
+
+        // ดึงรายละเอียด (พร้อม responses) เฉพาะผลตรวจของเดือนนี้ ที่จำเป็นสำหรับ
+        // สรุปคะแนนรายหมวดหมู่ และ Top 5 ข้อบกพร่อง
+        const detailResults = await Promise.all(
+          recordsThisMonth.map(r =>
+            api.get(`/audit/${r.id}`).then(res => res.data).catch(() => null)
+          )
+        );
+
+        const mergedRecords = recordsThisMonth.map((r, idx) => ({
+          ...r,
+          responses: detailResults[idx]?.responses || []
+        }));
+
+        if (isMounted) {
+          setMonthRecords(mergedRecords);
+          setMonthCaps(capsThisMonth);
+        }
+      } catch (err) {
+        if (isMounted) setReportError("ไม่สามารถดึงข้อมูลสำหรับสรุปรายงานประจำเดือนได้ครบถ้วน");
+      } finally {
+        if (isMounted) setIsLoadingReport(false);
+      }
+    })();
+    return () => { isMounted = false; };
+  }, [currentMonth, currentYear]);
+
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const totalLocations = visibleLocations.length;
@@ -76,14 +143,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   }, [monthRecords]);
 
   // ── CAP Stats ─────────────────────────────────────────────────────────────
-  const monthCaps = useMemo(() =>
-    capTasks.filter(c => {
-      const d = new Date(c.createdAt);
-      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-    }),
-    [capTasks, currentMonth, currentYear]
-  );
-  const closedCaps = monthCaps.filter(c => c.status === 'CLOSED' || c.status === 'closed').length;
+  const closedCaps = monthCaps.filter(cItem => cItem.status === 'CLOSED' || cItem.status === 'closed').length;
   const totalCaps = monthCaps.length;
   const pendingCaps = totalCaps - closedCaps;
 
@@ -153,6 +213,19 @@ export default function MonthlyMeetingReportModal({ onClose }) {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 p-4 sm:p-6 space-y-5">
+        {isLoadingReport && (
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-slate-400">
+            <Loader2 size={22} className="animate-spin" />
+            <span className="text-xs font-bold">กำลังรวบรวมข้อมูลสำหรับรายงานประจำเดือน...</span>
+          </div>
+        )}
+        {!isLoadingReport && reportError && (
+          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 text-center">
+            {reportError}
+          </div>
+        )}
+        {!isLoadingReport && (
+        <>
         {/* Period Header */}
         <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
           <div>
@@ -260,6 +333,8 @@ export default function MonthlyMeetingReportModal({ onClose }) {
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* Footer Actions */}
@@ -267,7 +342,8 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         <button
           type="button"
           onClick={handleExportCsv}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-white border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer shadow-2xs transition-all active:scale-95"
+          disabled={isLoadingReport}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-white border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 cursor-pointer shadow-2xs transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download size={14} />
           <span>ส่งออกสรุปรายงานประจำเดือน (.csv)</span>

@@ -139,7 +139,7 @@ const getRemainingDashboardCooldown = () => {
 };
 
 export default function DashboardScreen({ role, isDesktop }) {
-  const { locations: visibleLocations, auditRecords, capTasks, currentUser } = React.useContext(DataContext);
+  const { locations: visibleLocations, auditRecords, capTasks, currentUser, selectedBrandId } = React.useContext(DataContext);
   const activeLocations = useMemo(() => visibleLocations || [], [visibleLocations]);
 
   const userRole = (role || currentUser?.role || currentUser?.roleCode || '').toUpperCase();
@@ -309,7 +309,10 @@ export default function DashboardScreen({ role, isDesktop }) {
 
       const latestInPeriod = locAudits[0] || null;
       const scoreInPeriod = latestInPeriod ? Math.round(latestInPeriod.percentageScore !== undefined ? latestInPeriod.percentageScore : (latestInPeriod.score || 0)) : null;
-      const displayScore = scoreInPeriod !== null ? scoreInPeriod : (periodFilter === "last_month" ? Math.max(72, (loc.lastScore || 85) - 3) : (loc.lastScore || 85));
+      // 🐛 FIX: the "last_month" filter used to fabricate a fake score (lastScore - 3,
+      // floored at 72) for branches with no audit in the period, instead of just showing
+      // their real cached lastScore like every other period filter does.
+      const displayScore = scoreInPeriod !== null ? scoreInPeriod : (loc.lastScore || 85);
 
       return {
         ...loc, auditsInPeriod: locAudits, latestAuditInPeriod: latestInPeriod,
@@ -322,8 +325,48 @@ export default function DashboardScreen({ role, isDesktop }) {
     const activeScored = auditedBranchesInPeriod.length > 0 ? auditedBranchesInPeriod : branchStats;
     const periodAvgScore = activeScored.length > 0 ? Math.round(activeScored.reduce((acc, b) => acc + (b.displayScore || 0), 0) / activeScored.length) : 0;
 
-    const prevPeriodAvgScore = Math.max(0, periodAvgScore - 2.5);
-    const trendPercent = (((periodAvgScore - prevPeriodAvgScore) / (prevPeriodAvgScore || 1)) * 100).toFixed(1);
+    // 🐛 FIX: prevPeriodAvgScore used to be fabricated as "current average - 2.5", which
+    // made trendPercent mathematically guaranteed to be positive (or exactly 0) no matter
+    // how the branches actually performed — the trend arrow on the dashboard always
+    // claimed improvement. Compute the previous window from real audit records instead,
+    // using the same length of time immediately preceding the selected period.
+    let prevPeriodAvgScore = null;
+    if (startDate && endDate) {
+      const durationMs = endDate.getTime() - startDate.getTime();
+      const prevEndDate = new Date(startDate.getTime() - 1);
+      const prevStartDate = new Date(prevEndDate.getTime() - durationMs);
+
+      const prevAudits = rawAudits.filter(r => {
+        const d = parseAuditDate(r.auditDate || r.createdAt);
+        return d && d >= prevStartDate && d <= prevEndDate;
+      });
+
+      const prevScoresByBranch = activeLocations.map(loc => {
+        const locPrevAudits = prevAudits
+          .filter(r =>
+            (r.locationId && r.locationId === loc.id) ||
+            (r.locationName && (r.locationName === loc.name || r.locationName === loc.fullName)) ||
+            (r.location?.name && (r.location.name === loc.name || r.location.name === loc.fullName))
+          )
+          .sort((a, b) => {
+            const tA = new Date(a.auditDate || a.createdAt || a.date || 0).getTime();
+            const tB = new Date(b.auditDate || b.createdAt || b.date || 0).getTime();
+            return tB - tA || (b.id || 0) - (a.id || 0);
+          });
+        const latest = locPrevAudits[0];
+        if (!latest) return null;
+        return Math.round(latest.percentageScore !== undefined ? latest.percentageScore : (latest.score || 0));
+      }).filter(s => s !== null);
+
+      if (prevScoresByBranch.length > 0) {
+        prevPeriodAvgScore = Math.round(prevScoresByBranch.reduce((a, b) => a + b, 0) / prevScoresByBranch.length);
+      }
+    }
+
+    // No real data for the previous period → don't invent a trend, leave it unavailable.
+    const trendPercent = (prevPeriodAvgScore !== null && prevPeriodAvgScore > 0)
+      ? (((periodAvgScore - prevPeriodAvgScore) / prevPeriodAvgScore) * 100).toFixed(1)
+      : null;
 
     const passedInPeriod = activeScored.filter(b => (b.displayScore || 0) >= 85).length;
     const totalCount = activeLocations.length || 1;
@@ -344,7 +387,54 @@ export default function DashboardScreen({ role, isDesktop }) {
     };
   }, [periodFilter, auditRecords, capTasks, activeLocations]);
 
-  const { totalBranches, auditedCount, passedCount, passRate, avgScore, pendingCapCount, trendPercent } = periodFilteredData;
+  // รับผลรวม KPI สรุปจาก Database
+  const [dashboardStats, setDashboardStats] = useState({
+    totalBranches: 0,
+    auditedCount: 0,
+    passedCount: 0,
+    passRate: 0,
+    avgScore: 0,
+    trendPercent: null,
+    pendingCaps: 0
+  });
+  const [topBranches, setTopBranches] = useState([]);
+  const [categoryScores, setCategoryScores] = useState([]);
+  const [isStatsLoading, setIsStatsLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsStatsLoading(true);
+
+    const queryParams = { period: periodFilter };
+    if (selectedBrandId) {
+      queryParams.brandId = selectedBrandId;
+    }
+
+    // ยิงดึง Overview, Rankings และ CategoryScores พร้อมกันตามรอบ Period และ Brand
+    Promise.allSettled([
+      api.get('/dashboard/overview', { params: queryParams }),
+      api.get('/dashboard/rankings', { params: queryParams }),
+      api.get('/dashboard/category-scores', { params: queryParams })
+    ]).then(([overviewRes, rankingRes, categoryRes]) => {
+      if (!isMounted) return;
+      if (overviewRes.status === 'fulfilled' && overviewRes.value.data) {
+        setDashboardStats(overviewRes.value.data);
+      }
+      if (rankingRes.status === 'fulfilled' && rankingRes.value.data?.top5) {
+        setTopBranches(rankingRes.value.data.top5);
+      }
+      if (categoryRes.status === 'fulfilled' && Array.isArray(categoryRes.value.data)) {
+        setCategoryScores(categoryRes.value.data);
+      }
+    }).finally(() => {
+      if (isMounted) setIsStatsLoading(false);
+    });
+
+    return () => { isMounted = false; };
+  }, [periodFilter, selectedBrandId]);
+
+  // ดึงตัวแปรสรุปจาก State แทน
+  const { totalBranches, auditedCount, passedCount, passRate, avgScore, pendingCaps: pendingCapCount, trendPercent } = dashboardStats;
 
   const { currentMonthLabel, lastMonthLabel } = useMemo(() => {
     const now = new Date();
@@ -416,17 +506,33 @@ export default function DashboardScreen({ role, isDesktop }) {
     return months;
   }, [trendsData, auditRecords, avgScore]);
 
-  const categoryScores = useMemo(() => {
-    return [
-      { name: "ความสะอาด", score: Math.round(avgScore * 1.02), target: 85 },
-      { name: "เอกสาร", score: Math.round(avgScore * 0.95), target: 85 },
-      { name: "กระบวนการทำงาน", score: Math.round(avgScore * 1.05), target: 85 },
-      { name: "คุณภาพสินค้า-วัตถุดิบ", score: Math.round(avgScore * 0.98), target: 85 },
-      { name: "การบริการ", score: Math.round(avgScore * 1.01), target: 85 },
-    ].map(c => ({ ...c, score: Math.min(100, Math.max(0, c.score)) }));
-  }, [avgScore]);
+  const rankedBranches = useMemo(() => {
+    // 🌟 1. ถ้ามี topBranches จาก API สำหรับรอบเวลานี้โดยเฉพาะ (คัดมาจาก AuditRecords ตาม period แล้ว)
+    if (topBranches && topBranches.length > 0) {
+      return topBranches.map(b => ({
+        ...b,
+        effectiveScore: Math.round(b.lastScore ?? b.percentageScore ?? b.avgScore ?? 0),
+        hasAudit: true
+      }));
+    }
 
-  const rankedBranches = [...periodFilteredData.branchStats].sort((a, b) => b.displayScore - a.displayScore).slice(0, 5);
+    // 🌟 2. Client fallback: ดึงจาก periodFilteredData.branchStats เฉพาะสาขาที่ตรวจในรอบเวลานี้จริง!
+    const auditedInPeriod = (periodFilteredData?.branchStats || [])
+      .filter(b => b.hasAuditInPeriod && b.scoreInPeriod !== null)
+      .sort((a, b) => (b.scoreInPeriod || 0) - (a.scoreInPeriod || 0))
+      .slice(0, 5)
+      .map(b => ({
+        ...b,
+        effectiveScore: b.scoreInPeriod,
+        hasAudit: true
+      }));
+
+    if (auditedInPeriod.length > 0) {
+      return auditedInPeriod;
+    }
+
+    return [];
+  }, [topBranches, periodFilteredData]);
 
   const aiInsightsList = useMemo(() => [
     { type: "highlight", icon: "✨", title: "จุดเด่น", iconClass: "text-[#0F6659]", bgClass: "bg-[#EFF8F6] border-[#A7D7CE]", text: aiInsightsData?.highlight || `คะแนนเฉลี่ยภาพรวม ${avgScore}% ผ่านเกณฑ์ ${passRate}%` },
@@ -484,8 +590,8 @@ export default function DashboardScreen({ role, isDesktop }) {
           </div>
           <div className="flex items-end gap-2">
             <div className="text-3xl font-bold text-slate-900 font-mono">{avgScore}%</div>
-            <div className={`text-xs font-bold mb-1 ${Number(trendPercent) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-              {Number(trendPercent) > 0 ? "+" : ""}{trendPercent}%
+            <div className={`text-xs font-bold mb-1 ${trendPercent === null ? "text-slate-400" : Number(trendPercent) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+              {trendPercent === null ? "ไม่มีข้อมูลเทียบ" : `${Number(trendPercent) > 0 ? "+" : ""}${trendPercent}%`}
             </div>
           </div>
         </div>
@@ -621,42 +727,58 @@ export default function DashboardScreen({ role, isDesktop }) {
               <h3 className="text-sm font-bold text-slate-700">อันดับสาขา (Top 5)</h3>
             </div>
             <div className="overflow-x-auto flex-1">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="pb-2 text-xs font-semibold text-slate-500 w-12 text-center">อันดับ</th>
-                    <th className="pb-2 text-xs font-semibold text-slate-500 px-2">ชื่อสาขา</th>
-                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center w-5 sm:w-16 px-3">คะแนน</th>
-                    <th className="pb-2 text-xs font-semibold text-slate-500 text-center w-5 sm:w-16 px-3">สถานะ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rankedBranches.map((b, idx) => (
-                    <tr 
-                      key={idx} 
-                      onClick={() => setViewUnit(b)} 
-                      className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                    >
-                      <td className="py-2.5 text-center">
-                        <div className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${idx === 0 ? "bg-amber-100 text-amber-700" : idx === 1 ? "bg-slate-200 text-slate-700" : idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>
-                          #{idx + 1}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-2 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
-                      <td className="py-2.5 px-3 text-center">
-                        <div className="inline-flex items-center justify-center font-mono font-bold text-sm text-slate-900">
-                          {b.displayScore}%
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold inline-block shadow-2xs ${b.displayScore >= 85 ? "bg-emerald-100 text-[#0F6659]" : "bg-amber-100 text-amber-800"}`}>
-                          {b.displayScore >= 85 ? "ผ่าน" : "ปรับปรุง"}
-                        </span>
-                      </td>
+              {rankedBranches.length === 0 ? (
+                <div className="py-10 text-center flex flex-col items-center justify-center text-slate-400">
+                  <BarChart3 size={28} className="text-slate-300 mb-2" />
+                  <p className="text-xs font-medium">ไม่มีข้อมูลการตรวจประเมินในช่วงเวลานี้</p>
+                </div>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      <th className="pb-2 text-xs font-semibold text-slate-500 w-12 text-center">อันดับ</th>
+                      <th className="pb-2 text-xs font-semibold text-slate-500 px-2">ชื่อสาขา</th>
+                      <th className="pb-2 text-xs font-semibold text-slate-500 text-center w-5 sm:w-16 px-3">คะแนน</th>
+                      <th className="pb-2 text-xs font-semibold text-slate-500 text-center w-5 sm:w-16 px-3">สถานะ</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rankedBranches.map((b, idx) => {
+                      const score = b.effectiveScore;
+                      return (
+                        <tr 
+                          key={b.id || idx} 
+                          onClick={() => setViewUnit(b)} 
+                          className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors cursor-pointer group"
+                        >
+                          <td className="py-2.5 text-center">
+                            <div className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${idx === 0 ? "bg-amber-100 text-amber-700" : idx === 1 ? "bg-slate-200 text-slate-700" : idx === 2 ? "bg-orange-100 text-orange-700" : "bg-slate-100 text-slate-500"}`}>
+                              #{idx + 1}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="inline-flex items-center justify-center font-mono font-bold text-sm text-slate-900">
+                              {score !== null ? `${score}%` : "-"}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {score !== null ? (
+                              <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold inline-block shadow-2xs ${score >= 85 ? "bg-emerald-100 text-[#0F6659]" : "bg-amber-100 text-amber-800"}`}>
+                                {score >= 85 ? "ผ่าน" : "ปรับปรุง"}
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-md text-[11px] font-medium inline-block bg-slate-100 text-slate-500">
+                                ยังไม่ตรวจ
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         )}

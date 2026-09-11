@@ -5,7 +5,7 @@ import { CalendarDays, ClipboardList, Store, ChevronRight, Settings, MessageSqua
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE } from "../../config/roles";
+import { ROLES, NAV_BY_ROLE, SYSTEM_TOOLS, hasToolAccess } from "../../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
@@ -24,14 +24,30 @@ import MasterManagementScreen from "./MasterManagementScreen";
 import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
-export default function AdminMoreScreen({ role = "STANDARD", onNavigate, currentUser, onStartAuditDirect, resetKey, onSubScreenChange, activeNavKeys = [] }) {
+export default function AdminMoreScreen({ 
+  role = "STANDARD", 
+  onNavigate, 
+  currentUser, 
+  onStartAuditDirect, 
+  resetKey, 
+  onSubScreenChange, 
+  activeNavKeys = [],
+  activeSubScreen = null,
+  isDesktop = false
+}) {
   const { locations: allLocations = [] } = React.useContext(DataContext);
-  const [open, setOpen] = useState(null);
+  const [open, setOpen] = useState(() => activeSubScreen || null);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [selectedIntegration, setSelectedIntegration] = useState(null);
 
   useEffect(() => {
-    setOpen(null);
+    if (activeSubScreen !== undefined) {
+      setOpen(activeSubScreen || null);
+    }
+  }, [activeSubScreen]);
+
+  useEffect(() => {
+    setOpen(activeSubScreen || null);
   }, [resetKey]);
 
   useEffect(() => {
@@ -49,111 +65,26 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
     return currentUser?.permissions || [];
   }, [currentUser]);
 
-  const isAdmin = role === "ADMIN" || currentUser?.role === "ADMIN";
+  const tools = useMemo(() => {
+    return SYSTEM_TOOLS.filter((tool) => {
+      if (activeNavKeys.includes(tool.key) || (tool.route && activeNavKeys.includes(tool.route))) {
+        return false;
+      }
+      return hasToolAccess(tool, role, userPerms);
+    });
+  }, [activeNavKeys, role, userPerms]);
 
-  const hasPerm = (permCode, fallbackRoles = []) => {
-    if (isAdmin) return true;
-    if (permCode && userPerms.includes(permCode)) return true;
-    if (fallbackRoles && fallbackRoles.includes(role)) return true;
-    return false;
-  };
-
-  const tools = [
-    {
-      key: "master_management",
-      icon: Layers,
-      label: "การจัดการระบบและข้อมูลหลัก",
-      desc: "จัดการข้อมูลผู้ใช้งาน, เพิ่มสถานที่/สาขา และประเภทสถานที่",
-      perm: "menu.admin",
-      roles: ["ADMIN"]
-    },
-    {
-      key: "reports",
-      icon: FileSpreadsheet,
-      label: "รายงานผลการตรวจ",
-      desc: "ดูผลตรวจรายครั้งในตาราง กรองข้อมูล และส่งออก Excel",
-      perm: "menu.analytics",
-      roles: ["STANDARD", "EXEC", "ADMIN"]
-    },
-    {
-      key: "schedule",
-      icon: CalendarDays,
-      label: "แผนการตรวจ",
-      desc: "ดูแผนตรวจและสาขาที่ถูกมอบหมายให้ผู้ตรวจ",
-      route: "schedule",
-      perm: "menu.schedules",
-      roles: ["STANDARD", "ADMIN", "AUDITOR", "EXEC"]
-    },
-    {
-      key: "forms",
-      icon: ClipboardList,
-      label: "จัดการแบบฟอร์มการตรวจ",
-      desc: "สร้าง แก้ไข และกำหนดเกณฑ์สำหรับแบบฟอร์มตรวจประเมิน",
-      perm: "menu.forms",
-      roles: ["STANDARD", "ADMIN", "EXEC"]
-    },
-    { 
-      key: "cap",
-      icon: Wrench,
-      label: "ติดตามและพิจารณางานแก้ไข (CAP)",
-      desc: "ตรวจสอบหลักฐานการแก้ไขข้อบกพร่องและอนุมัติปิดงาน",
-      route: "cap",
-      perm: "menu.cap",
-      roles: ["STANDARD", "ADMIN", "AUDITOR"]
-    },
-    { 
-      key: "integrations", 
-      icon: Key, 
-      label: "การเชื่อมต่อ API & Webhook", 
-      desc: "ระบบเชื่อมต่อ ERP, POS และ LINE Notify",
-      perm: "menu.admin",
-      roles: ["ADMIN"]
-    },
-    { 
-      key: "settings", 
-      icon: Settings, 
-      label: "ตั้งค่านโยบายและเกณฑ์มาตรฐาน", 
-      desc: "เกณฑ์คะแนนผ่าน ≥85% และกำหนดเวลาส่งงาน SLA",
-      perm: "menu.admin",
-      roles: ["STANDARD", "ADMIN"]
-    },
-
-    {
-      key: "auditor_profile",
-      icon: UserCheck,
-      label: "ข้อมูลผู้ตรวจและสังกัด",
-      desc: "ดูข้อมูลโปรไฟล์และพื้นที่ความรับผิดชอบ",
-      roles: ["AUDITOR"]
-    },
-    {
-      key: "branch_info",
-      icon: Store,
-      label: "ข้อมูลสาขาและคู่มือมาตรฐาน SOP",
-      desc: "ดูข้อมูลประจำสาขาและเอกสารเกณฑ์มาตรฐานร้าน",
-      roles: ["AUDITEE"]
-    },
-    {
-      key: "contact_qa",
-      icon: MessageSquare,
-      label: "ติดต่อฝ่ายมาตรฐาน (QA Support)",
-      desc: "สอบถามข้อสงสัยเกี่ยวกับเกณฑ์การตรวจประเมิน",
-      roles: ["AUDITEE"]
-    }
-  ].filter((tool) => {
-    if (activeNavKeys.includes(tool.key) || (tool.route && activeNavKeys.includes(tool.route))) {
-      return false;
-    }
-    return hasPerm(tool.perm, tool.roles);
-  });
+  const isDesktopMode = isDesktop || !!activeSubScreen;
+  const backHandler = isDesktopMode ? undefined : () => setOpen(null);
 
   if (open === "master_management") {
-    return <MasterManagementScreen onBack={() => setOpen(null)} />;
+    return <MasterManagementScreen onBack={backHandler} />;
   }
 
   if (open === "reports") {
     return (
       <ConsolidatedReportsScreen
-        onBack={() => setOpen(null)}
+        onBack={backHandler}
         currentAuditorName={null}
         onStartAudit={(plan) => {
           setOpen(null);
@@ -175,7 +106,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
     const displayName = currentUser?.fullName || currentUser?.name || "คุณสมชาย ใจดี";
     const initialLetter = displayName.charAt(0) || "ส";
     return (
-      <AdminSubScreen title="ข้อมูลผู้ตรวจประเมิน" onBack={() => setOpen(null)}>
+      <AdminSubScreen title="ข้อมูลผู้ตรวจประเมิน" onBack={backHandler}>
         <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-[#0F6659] flex items-center justify-center text-xl font-bold">
@@ -229,7 +160,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
     const matchedLoc = allLocations && allLocations.find(l => l.name === branchName || l.fullName === branchName);
     const branchAddress = matchedLoc?.address || "-";
     return (
-      <AdminSubScreen title="ข้อมูลสาขาและคู่มือ SOP" onBack={() => setOpen(null)}>
+      <AdminSubScreen title="ข้อมูลสาขาและคู่มือ SOP" onBack={backHandler}>
         <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
           <div className="text-base font-bold text-slate-900">🏬 {branchName}</div>
           <p className="text-xs text-slate-500 font-medium">{branchAddress}</p>
@@ -246,7 +177,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
 
   if (open === "contact_qa") {
     return (
-      <AdminSubScreen title="ติดต่อฝ่ายมาตรฐาน (QA Support)" onBack={() => setOpen(null)}>
+      <AdminSubScreen title="ติดต่อฝ่ายมาตรฐาน (QA Support)" onBack={backHandler}>
         <div className="rounded-3xl p-6 bg-white border border-slate-200 shadow-2xs space-y-4 text-center py-10">
           <MessageSquare size={40} className="mx-auto text-[#0F6659]" />
           <div className="text-base font-bold text-slate-900">ฝ่ายประกันคุณภาพ (Quality Assurance)</div>
@@ -262,7 +193,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
   }
 
   if (open === "forms") {
-    return <FormsScreen isDesktop={true} onBack={() => setOpen(null)} />;
+    return <FormsScreen isDesktop={true} onBack={backHandler} />;
   }
 
 
@@ -301,7 +232,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
     ];
 
     return (
-      <AdminSubScreen title="การเชื่อมต่อ API & Webhook" onBack={() => setOpen(null)}>
+      <AdminSubScreen title="การเชื่อมต่อ API & Webhook" onBack={backHandler}>
         <div className="space-y-2.5">
           {integrations.map((a) => (
             <div
@@ -412,7 +343,7 @@ export default function AdminMoreScreen({ role = "STANDARD", onNavigate, current
 
   if (open === "settings") {
     return (
-      <AdminSubScreen title="ตั้งค่านโยบายและเกณฑ์มาตรฐาน" onBack={() => setOpen(null)}>
+      <AdminSubScreen title="ตั้งค่านโยบายและเกณฑ์มาตรฐาน" onBack={backHandler}>
         <div className="space-y-2.5">
           {/* Card 1: เกณฑ์คะแนนผ่านขั้นต่ำ (Passing Threshold) */}
           <div className="rounded-2xl p-4 sm:p-4.5 bg-white border border-slate-200/80 shadow-2xs flex items-center justify-between gap-3.5">

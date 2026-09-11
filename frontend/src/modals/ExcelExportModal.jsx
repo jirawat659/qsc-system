@@ -6,6 +6,7 @@ import { CheckCircle2, Check, X, Search, Download, FileSpreadsheet, ChevronDown 
 import { c, sans, mono, cardStyle } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import { exportToExcel } from "../utils/exportToExcel";
+import api from "../config/api";
 import ModalWrapper from "../shared/ModalWrapper";
 import Header from "../shared/Header";
 import Section from "../shared/Section";
@@ -16,7 +17,7 @@ import ErrorBoundary from "../shared/ErrorBoundary";
 
 
 export default function ExcelExportModal({ initialUnit = null, onClose }) {
-  const { locations: allLocations, visibleLocations = [], auditRecords = [] } = React.useContext(DataContext);
+  const { locations: allLocations, visibleLocations = [] } = React.useContext(DataContext);
   const isBranchScoped = !!initialUnit;
   const [exportMode, setExportMode] = useState(isBranchScoped ? "detailed_questions" : "all"); // 'all' | 'unit' | 'detailed_questions'
   const [searchQuery, setSearchQuery] = useState("");
@@ -24,6 +25,27 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
   const [selectedRound, setSelectedRound] = useState("latest"); // 'latest' | 'round_index' | 'all' | '1M' | '3M' | '6M' | '1Y'
   const [timeRange, setTimeRange] = useState("all"); // 'all' | '1M' | '3M' | '6M' | '1Y'
   const [regionFilter, setRegionFilter] = useState("all");
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
+
+  // 🌟 Export ต้องใช้ข้อมูลผลตรวจ "ครบทุกรายการ" ไม่ใช่แค่ buffer 50 รายการที่โหลดไว้ใน
+  // context (Phase 3.3) ดังนั้นตอนกดดาวน์โหลดจะดึงข้อมูลสดจาก API วนหน้าจนครบ totalCount
+  const fetchAllAuditRecords = async (params = {}) => {
+    const pageSize = 100;
+    let page = 1;
+    let all = [];
+    let totalCount = Infinity;
+    while (all.length < totalCount) {
+      const res = await api.get('/audit/records', { params: { ...params, page, pageSize } });
+      const data = res.data;
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
+      all = all.concat(items);
+      if (items.length === 0) break;
+      page += 1;
+    }
+    return all;
+  };
 
   const filteredUnits = useMemo(() => {
     if (!searchQuery.trim()) return visibleLocations;
@@ -36,16 +58,30 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
     );
   }, [searchQuery, visibleLocations]);
 
-  const handleDownload = () => {
-    exportToExcel({
-      mode: exportMode,
-      targetUnit: selectedUnit,
-      timeRange: isBranchScoped ? selectedRound : timeRange,
-      region: regionFilter,
-      locations: visibleLocations || [],
-      auditRecords: auditRecords || []
-    });
-    onClose();
+  const handleDownload = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      // 🌟 ดึงข้อมูลผลตรวจแบบเต็มจาก API สดๆ ตอนกดดาวน์โหลด — ถ้าเปิดจากโปรไฟล์สาขา
+      // (isBranchScoped) กรองเฉพาะสาขานั้นที่ backend เพื่อลดขนาดข้อมูลที่ต้องดึง
+      const fullAuditRecords = await fetchAllAuditRecords(
+        isBranchScoped && selectedUnit?.id ? { locationId: selectedUnit.id } : {}
+      );
+
+      exportToExcel({
+        mode: exportMode,
+        targetUnit: selectedUnit,
+        timeRange: isBranchScoped ? selectedRound : timeRange,
+        region: regionFilter,
+        locations: visibleLocations || [],
+        auditRecords: fullAuditRecords || []
+      });
+      onClose();
+    } catch (err) {
+      setExportError("ไม่สามารถดึงข้อมูลสำหรับส่งออกได้ครบถ้วน กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -272,16 +308,25 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
           </div>
         )}
 
+        {exportError && (
+          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700">
+            {exportError}
+          </div>
+        )}
+
         {/* Download Action Button */}
         <button
           type="button"
           onClick={handleDownload}
-          className="w-full py-3.5 px-4 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.01] active:scale-[0.99]"
+          disabled={isExporting}
+          className="w-full py-3.5 px-4 rounded-2xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
           style={{ background: c.accent, color: "#fff" }}
         >
           <Download size={16} className="shrink-0" />
           <span className="truncate max-w-[260px] sm:max-w-none">
-            {isBranchScoped 
+            {isExporting
+              ? "กำลังเตรียมข้อมูล..."
+              : isBranchScoped 
               ? `ดาวน์โหลดรายงาน Excel (${selectedUnit.name})` 
               : exportMode === "all" 
               ? "ดาวน์โหลดรายงาน Excel รวมทุกสาขา" 

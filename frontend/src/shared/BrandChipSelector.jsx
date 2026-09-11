@@ -1,9 +1,12 @@
 import React from 'react';
-import { Check, Tag, Star } from "lucide-react";
+import { Check, Tag } from "lucide-react";
 
 /**
  * BrandChipSelector — กด chip เพื่อเลือก/ยกเลิกแบรนด์ (multi-select แบบ filter)
- * รองรับการตั้ง "แบรนด์หลัก" (primary) ด้วยปุ่มดาว เมื่อส่ง primaryId + onSetPrimary มา
+ *
+ * หมายเหตุ: เดิมรองรับการตั้ง "แบรนด์หลัก" (primary) ด้วยปุ่มดาว แต่แนวคิดนี้ถูก
+ * ถอดออกทั้งระบบแล้ว (ลบคอลัมน์ IsPrimary ออกจาก LocationBrand — ดู Phase 4.1)
+ * จึงตัดฟีเจอร์นี้ออกจากคอมโพเนนต์ด้วย ไม่ให้เหลือ UI ที่กดแล้วไม่มีผลอะไร
  *
  * Props:
  *  - brands: [{ id, name, code }]
@@ -11,8 +14,6 @@ import { Check, Tag, Star } from "lucide-react";
  *  - onChange: (newSelectedIds: number[]) => void
  *  - mode: 'multi' | 'single'  (default 'multi')
  *  - size: 'xs' | 'sm' | 'md'  (default 'sm')
- *  - primaryId?: number | null       — ถ้าส่งมา จะแสดงปุ่มดาวบนชิปที่ถูกเลือก
- *  - onSetPrimary?: (id: number) => void
  */
 export default function BrandChipSelector({
   brands = [],
@@ -21,10 +22,10 @@ export default function BrandChipSelector({
   onChange,
   mode = 'multi',
   size = 'sm',
-  primaryId = null,
-  onSetPrimary,
+  activeOnly = false,
 }) {
   const ids = selectedIds ?? value ?? [];
+  const list = activeOnly ? brands.filter((b) => b.isActive !== false) : brands;
 
   const toggle = (id) => {
     if (mode === 'single') {
@@ -45,15 +46,15 @@ export default function BrandChipSelector({
 
   const iconSize = size === 'xs' ? 11 : size === 'md' ? 13 : 12;
 
-  if (!brands.length) {
+  if (!list.length) {
     return <p className="text-xs text-slate-400 italic">ไม่มีแบรนด์ในระบบ</p>;
   }
 
   return (
     <div className="flex flex-wrap gap-1.5 max-w-full overflow-hidden">
-      {brands.map((b) => {
+      {list.map((b) => {
         const active = ids.includes(b.id);
-        const isPrimary = active && onSetPrimary && primaryId === b.id;
+        const isDeactivated = b.isActive === false;
         return (
           <button
             key={b.id}
@@ -62,23 +63,15 @@ export default function BrandChipSelector({
             className={`${pad} rounded-full border font-semibold flex items-center transition-all cursor-pointer max-w-full truncate ${
               active
                 ? 'bg-[#0F6659] border-[#0F6659] text-white shadow-2xs'
+                : isDeactivated
+                ? 'bg-slate-50 border-dashed border-slate-300 text-slate-400 hover:border-slate-400'
                 : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
             }`}
           >
             {active ? <Check size={iconSize} strokeWidth={2.5} /> : <Tag size={iconSize} className="opacity-50" />}
             <span className="truncate">{b.name}</span>
-            {active && onSetPrimary && (
-              <span
-                role="button"
-                title={isPrimary ? 'แบรนด์หลัก' : 'ตั้งเป็นแบรนด์หลัก'}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSetPrimary(b.id);
-                }}
-                className="ml-0.5 -mr-1 p-0.5 rounded-full hover:bg-white/20"
-              >
-                <Star size={iconSize} fill={isPrimary ? 'currentColor' : 'none'} />
-              </span>
+            {isDeactivated && (
+              <span className="text-[10px] text-rose-500 font-normal ml-0.5 shrink-0">(ปิดใช้งาน)</span>
             )}
           </button>
         );

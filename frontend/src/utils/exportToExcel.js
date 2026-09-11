@@ -43,14 +43,16 @@ export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "al
         const score = Math.round(r.percentageScore || r.score || 0);
         const isPassed = score >= 90 ? "ดีเยี่ยม" : score >= 85 ? "ผ่านเกณฑ์" : "ต่ำกว่าเกณฑ์";
         const dateStr = r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH') : (r.date || "-");
-        const auditor = r.auditorName || r.auditor || "สมชาย ใจดี";
+        // 🐛 FIX: don't fabricate a fake auditor name ("สมชาย ใจดี") when the record
+        // has none — that placeholder looked like real audit data in an exported report.
+        const auditor = r.auditorName || r.auditor || "-";
         csvContent += `"${i + 1}","${dateStr}","${score}","85%","${auditor}","${isPassed}"\n`;
       });
     } else {
-      const score = targetUnit.lastScore || 0;
-      const isPassed = score >= 85 ? "ผ่านเกณฑ์" : "ต่ำกว่าเกณฑ์";
-      const dateStr = targetUnit.lastAuditDate ? new Date(targetUnit.lastAuditDate).toLocaleDateString('th-TH') : "-";
-      csvContent += `"1","${dateStr}","${score}","85%","สมชาย ใจดี","${isPassed}"\n`;
+      // 🐛 FIX: previously fabricated a fake "audit #1" row (using cached lastScore and a
+      // hardcoded auditor name "สมชาย ใจดี") even when the branch has zero real audit
+      // records. That made an unaudited branch look audited in the exported report.
+      csvContent += `"-","-","-","-","-","ยังไม่มีประวัติการตรวจ"\n`;
     }
   } else if (mode === "detailed_questions" && targetUnit) {
     filename = `QSC_${targetUnit.name}_Detailed_Report_${new Date().toISOString().slice(0, 10)}.csv`;

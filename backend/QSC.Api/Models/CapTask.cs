@@ -12,6 +12,7 @@ namespace QSC.Api.Models
         public AuditResponse? AuditResponse { get; set; }
         public int LocationId { get; set; }
         public Location? Location { get; set; }
+        public string? CategoryName { get; set; }
         public string IssueItem { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public DateTime SubmissionDeadline { get; set; }

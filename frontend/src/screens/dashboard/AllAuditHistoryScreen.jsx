@@ -11,10 +11,88 @@ import AuditHistoryDetail from "../audit/AuditHistoryDetail";
 import BranchProfile from "./BranchProfile";
 import LiveAuditScreen from "../audit/LiveAuditScreen";
 import api from "../../config/api";
-import { parseAuditTimestamp } from "../../utils/formatters";
+import { parseAuditTimestamp, parseThaiMonthYearQuery } from "../../utils/formatters";
+
+// 🌟 ฟังก์ชันช่วยระดับโมดูล (เดิมเคยประกาศซ้ำในหลายจุดของ allLogs useMemo) — รับ forms/activeLocations
+// เป็นพารามิเตอร์ตรงๆ เพื่อให้เรียกใช้ซ้ำได้ทั้งใน allLogs useMemo และใน buildCompletedLog (โหมดค้นหาเดือน/ปี)
+function resolveFormTitle(formId, directTitle, forms) {
+  if (directTitle && directTitle !== "-" && typeof directTitle === 'string' && directTitle.trim()) {
+    return directTitle.trim();
+  }
+  if (formId && forms && forms.length > 0) {
+    const found = forms.find(f => Number(f.id) === Number(formId));
+    if (found && (found.title || found.name)) return (found.title || found.name).trim();
+  }
+  if (forms && forms.length > 0 && (forms[0].title || forms[0].name)) {
+    return (forms[0].title || forms[0].name).trim();
+  }
+  return "แบบฟอร์มมาตรฐานใหม่";
+}
+
+function getBrandsForLoc(locId, directLoc, activeLocations) {
+  const loc = (directLoc && (directLoc.locationBrands || directLoc.brand)) ? directLoc : (activeLocations || []).find(al => al.id === locId);
+  if (!loc) return "";
+  const brands = (loc.locationBrands || []).map(lb => lb.brand?.name || lb.brandName).filter(Boolean);
+  if (brands.length === 0 && (loc.brand?.name || loc.brandName)) brands.push(loc.brand?.name || loc.brandName);
+  return brands.join(" ");
+}
+
+// 🌟 แปลง audit record ดิบ (จาก /audit/records ไม่ว่าจะมาจาก buffer หรือ fetch ตรงด้วย startDate/endDate)
+// ให้เป็น log object ที่หน้านี้ใช้แสดงผล — แยกออกมาเป็นฟังก์ชันระดับโมดูลเพื่อใช้ซ้ำได้ทั้งสองทาง
+function buildCompletedLog(r, forms, activeLocations) {
+  const score = Math.round(r.percentageScore || 0);
+  const branchName = r.locationName || r.location?.name || "-";
+  const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "-";
+  const rawDate = r.auditDate || r.createdAt;
+  const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+  const timestamp = parseAuditTimestamp(rawDate, r.id);
+  const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
+  const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
+  const directForm = r.surveyFormTitle || r.surveyForm?.title || r.formTitle || r.formName || r.form;
+  const formVal = resolveFormTitle(formId, directForm, forms);
+  const brandNames = getBrandsForLoc(r.locationId, r.location, activeLocations);
+
+  return {
+    id: `completed-${r.id}`,
+    originalId: r.id,
+    type: 'completed',
+    unitName: branchName,
+    unitFullName: branchFullName,
+    brandNames: brandNames,
+    region: r.locationRegion || r.location?.region || "-",
+    date: dateFormatted,
+    rawDate: rawDate,
+    timestamp: timestamp,
+    score: score,
+    auditor: auditorVal,
+    formName: formVal,
+    auditType: (r.auditType === 'unannounced' || r.auditType === 'spot') ? "นอกกำหนดการ" : (r.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
+    status: r.isPassed ? "pass" : "fail",
+    record: {
+      ...r,
+      unitName: branchName,
+      unitFullName: branchFullName,
+      score: score,
+      percentageScore: score,
+      date: dateFormatted,
+      auditDate: r.auditDate,
+      auditor: auditorVal,
+      auditorName: auditorVal,
+      form: formVal,
+      formName: formVal,
+      surveyFormTitle: formVal,
+      status: r.isPassed ? "pass" : "fail",
+      isPassed: r.isPassed,
+      hasCriticalDefect: r.hasCriticalDefect
+    }
+  };
+}
 
 export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExcel, currentAuditorName = null, title = "รายงานผลการตรวจ", onStartAudit, onResumeDraft, onStartNewAudit }) {
-  const { locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms, refreshData } = React.useContext(DataContext);
+  const {
+    locations: visibleLocations, auditRecords, capTasks, schedules, activeDrafts, forms, refreshData,
+    auditRecordsTotalCount, isLoadingAuditRecords, loadMoreAuditRecords
+  } = React.useContext(DataContext);
   const activeLocations = visibleLocations || [];
   const [trendsData, setTrendsData] = useState([]);
 
@@ -45,6 +123,44 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const [activeDirectPlan, setActiveDirectPlan] = useState(null);
   const pageSize = 10;
 
+  // 🌟 โหมดค้นหาด้วยเดือน/ปีภาษาไทย (เช่น "มี.ค 2568"): ยิง request ตรงไป backend
+  // ด้วย startDate/endDate แทนการกรอง buffer — คนละ path กับการ browse ปกติ
+  const [monthQuery, setMonthQuery] = useState(null); // { startDate, endDate, label } | null
+  const [monthSearchLogs, setMonthSearchLogs] = useState([]);
+  const [isMonthSearching, setIsMonthSearching] = useState(false);
+
+  useEffect(() => {
+    const parsed = parseThaiMonthYearQuery(searchTerm);
+    setMonthQuery(parsed);
+
+    if (!parsed) {
+      setMonthSearchLogs([]);
+      return;
+    }
+
+    let isCancelled = false;
+    setIsMonthSearching(true);
+    api.get('/audit/records', {
+      params: {
+        startDate: parsed.startDate.toISOString(),
+        endDate: parsed.endDate.toISOString()
+      }
+    })
+      .then(res => {
+        if (isCancelled) return;
+        const items = Array.isArray(res.data) ? res.data : (res.data?.items || []);
+        setMonthSearchLogs(items.map(r => buildCompletedLog(r, forms, activeLocations)));
+      })
+      .catch(() => {
+        if (!isCancelled) setMonthSearchLogs([]);
+      })
+      .finally(() => {
+        if (!isCancelled) setIsMonthSearching(false);
+      });
+
+    return () => { isCancelled = true; };
+  }, [searchTerm, forms, activeLocations]);
+
   // Reset page to 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
@@ -55,12 +171,75 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     setPageInput(String(currentPage));
   }, [currentPage]);
 
-  // 🌟 Dynamic Real-time Calculations from Database
+  // 🌟 Dynamic Real-time Calculations from Database & Audit Records
   const totalBranches = activeLocations.length;
   const auditedCount = (auditRecords && auditRecords.length > 0) ? auditRecords.length : 0;
-  const passedBranches = activeLocations.filter(u => (u.lastScore || 0) >= 85);
+
+  // คำนวณคะแนนและสถานะผ่านของแต่ละสาขาจาก auditRecords จริง (fallback ไปยัง loc.lastScore)
+  const branchLatestScores = useMemo(() => {
+    return activeLocations.map(loc => {
+      // หาผลตรวจของสาขานี้จาก auditRecords
+      const locAudits = (auditRecords || []).filter(r =>
+        (r.locationId && r.locationId === loc.id) ||
+        (r.locationName && (r.locationName === loc.name || r.locationName === loc.fullName)) ||
+        (r.location?.id && r.location.id === loc.id) ||
+        (r.location?.name && (r.location.name === loc.name || r.location.name === loc.fullName))
+      );
+
+      let latestScore = null;
+      let isPassed = false;
+
+      if (locAudits.length > 0) {
+        const sorted = [...locAudits].sort((a, b) => {
+          const tA = new Date(a.auditDate || a.createdAt || a.date || 0).getTime();
+          const tB = new Date(b.auditDate || b.createdAt || b.date || 0).getTime();
+          return tB - tA || (b.id || 0) - (a.id || 0);
+        });
+        const latest = sorted[0];
+        const sc = latest.percentageScore !== undefined ? latest.percentageScore : latest.score;
+        if (sc !== undefined && sc !== null) {
+          latestScore = Math.round(sc);
+          isPassed = latest.isPassed !== undefined ? latest.isPassed : (latestScore >= 85);
+        }
+      }
+
+      // ถ้ายังไม่มีใน auditRecords ลองดู loc.lastScore
+      if (latestScore === null && typeof loc.lastScore === 'number' && loc.lastScore > 0) {
+        latestScore = Math.round(loc.lastScore);
+        isPassed = latestScore >= 85;
+      }
+
+      return {
+        ...loc,
+        latestScore,
+        isPassed,
+        hasAudit: latestScore !== null
+      };
+    });
+  }, [activeLocations, auditRecords]);
+
+  const auditedBranches = useMemo(() => branchLatestScores.filter(b => b.hasAudit), [branchLatestScores]);
+  const auditedBranchCount = auditedBranches.length;
+  const passedBranches = useMemo(() => auditedBranches.filter(b => b.isPassed), [auditedBranches]);
   const passedCount = passedBranches.length;
-  const avgScore = totalBranches > 0 ? Math.round(activeLocations.reduce((acc, l) => acc + (l.lastScore || 0), 0) / totalBranches) : 0;
+
+  // คะแนนเฉลี่ยภาพรวม:
+  // 1. ถ้ามีสาขาที่ตรวจแล้ว -> เฉลี่ยจากคะแนนล่าสุดของแต่ละสาขาที่ตรวจแล้ว
+  // 2. ถ้าไม่มีข้อมูลแบ่งสาขา แต่มี auditRecords -> เฉลี่ยจาก percentageScore ทั้งหมด
+  // 3. ถ้าไม่มีเลย -> 0
+  const avgScore = useMemo(() => {
+    if (auditedBranches.length > 0) {
+      return Math.round(auditedBranches.reduce((acc, b) => acc + b.latestScore, 0) / auditedBranches.length);
+    }
+    if (auditRecords && auditRecords.length > 0) {
+      const validRecords = auditRecords.filter(r => (r.percentageScore !== undefined && r.percentageScore !== null) || (r.score !== undefined && r.score !== null));
+      if (validRecords.length > 0) {
+        return Math.round(validRecords.reduce((acc, r) => acc + (r.percentageScore !== undefined ? r.percentageScore : r.score), 0) / validRecords.length);
+      }
+    }
+    return 0;
+  }, [auditedBranches, auditRecords]);
+
   const pendingCapCount = (capTasks && capTasks.length > 0) 
     ? capTasks.filter(c => {
         const s = (c.status || '').toUpperCase();
@@ -72,77 +251,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const allLogs = useMemo(() => {
     const logs = [];
 
-    const resolveFormTitle = (formId, directTitle) => {
-      if (directTitle && directTitle !== "-" && typeof directTitle === 'string' && directTitle.trim()) {
-        return directTitle.trim();
-      }
-      if (formId && forms && forms.length > 0) {
-        const found = forms.find(f => Number(f.id) === Number(formId));
-        if (found && (found.title || found.name)) return (found.title || found.name).trim();
-      }
-      if (forms && forms.length > 0 && (forms[0].title || forms[0].name)) {
-        return (forms[0].title || forms[0].name).trim();
-      }
-      return "แบบฟอร์มมาตรฐานใหม่";
-    };
-
-    const getBrandsForLoc = (locId, directLoc) => {
-      const loc = (directLoc && (directLoc.locationBrands || directLoc.brand)) ? directLoc : (activeLocations || []).find(al => al.id === locId);
-      if (!loc) return "";
-      const brands = (loc.locationBrands || []).map(lb => lb.brand?.name || lb.brandName).filter(Boolean);
-      if (brands.length === 0 && (loc.brand?.name || loc.brandName)) brands.push(loc.brand?.name || loc.brandName);
-      return brands.join(" ");
-    };
-
     // 1. Completed Records
     if (auditRecords && auditRecords.length > 0) {
       auditRecords.forEach((r) => {
-        const score = Math.round(r.percentageScore || 0);
-        const branchName = r.locationName || r.location?.name || "-";
-        const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "-";
-        const rawDate = r.auditDate || r.createdAt;
-        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
-        const timestamp = parseAuditTimestamp(rawDate, r.id);
-        const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
-        const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
-        const directForm = r.surveyFormTitle || r.surveyForm?.title || r.formTitle || r.formName || r.form;
-        const formVal = resolveFormTitle(formId, directForm);
-        const brandNames = getBrandsForLoc(r.locationId, r.location);
-        
-        logs.push({
-          id: `completed-${r.id}`,
-          originalId: r.id,
-          type: 'completed',
-          unitName: branchName,
-          unitFullName: branchFullName,
-          brandNames: brandNames,
-          region: r.locationRegion || r.location?.region || "-",
-          date: dateFormatted,
-          rawDate: rawDate,
-          timestamp: timestamp,
-          score: score,
-          auditor: auditorVal,
-          formName: formVal,
-          auditType: (r.auditType === 'unannounced' || r.auditType === 'spot') ? "นอกกำหนดการ" : (r.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
-          status: r.isPassed ? "pass" : "fail",
-          record: {
-            ...r,
-            unitName: branchName,
-            unitFullName: branchFullName,
-            score: score,
-            percentageScore: score,
-            date: dateFormatted,
-            auditDate: r.auditDate,
-            auditor: auditorVal,
-            auditorName: auditorVal,
-            form: formVal,
-            formName: formVal,
-            surveyFormTitle: formVal,
-            status: r.isPassed ? "pass" : "fail",
-            isPassed: r.isPassed,
-            hasCriticalDefect: r.hasCriticalDefect
-          }
-        });
+        logs.push(buildCompletedLog(r, forms, activeLocations));
       });
     }
 
@@ -163,7 +275,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         
         const formId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id;
         const directForm = d.surveyFormTitle || d.formTitle || d.surveyForm?.title || d.formName || d.form?.title || d.form?.name;
-        const formVal = resolveFormTitle(formId, directForm);
+        const formVal = resolveFormTitle(formId, directForm, forms);
         
         let parsedPayload = null;
         if (d.draftPayloadJson) {
@@ -197,7 +309,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           totalCount = Number(d.totalQuestions || d.TotalQuestions) || 0;
         }
         
-        const brandNames = getBrandsForLoc(d.locationId, d.location);
+        const brandNames = getBrandsForLoc(d.locationId, d.location, activeLocations);
 
         logs.push({
           id: `draft-${d.id}`,
@@ -257,7 +369,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const auditorVal = s.auditorName || s.primaryAuditor?.fullName || (s.auditors?.[0]?.fullName) || "-";
         const formId = s.surveyFormId || s.formId || s.surveyForm?.id;
         const directForm = s.surveyFormTitle || s.formTitle || s.surveyForm?.title || s.formName || s.form;
-        const formVal = resolveFormTitle(formId, directForm);
+        const formVal = resolveFormTitle(formId, directForm, forms);
 
         // Check if there is already an active draft for this schedule
         const existingDraft = (activeDrafts || []).find(d => 
@@ -266,7 +378,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         );
         if (existingDraft) return; // already represented in activeDrafts
 
-        const brandNames = getBrandsForLoc(s.locationId, s.location);
+        const brandNames = getBrandsForLoc(s.locationId, s.location, activeLocations);
 
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
@@ -354,7 +466,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     // If no data, use mocks
     if (logs.length === 0) {
       activeLocations.forEach(u => {
-        const uBrandNames = getBrandsForLoc(u.id, u);
+        const uBrandNames = getBrandsForLoc(u.id, u, activeLocations);
         (u.history || []).forEach((h, hIdx) => {
           const timestamp = parseAuditTimestamp(h.date, h.id || hIdx);
           logs.push({
@@ -387,7 +499,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   }, [allLogs, currentAuditorName]);
 
   const filteredAndSortedLogs = useMemo(() => {
-    let list = [...baseLogs];
+    // 🌟 โหมดค้นหาเดือน/ปี: ใช้ผลลัพธ์จาก request ตรงไป backend แทน buffer ปกติ
+    // และไม่ต้องกรองด้วย searchTerm ซ้ำ เพราะ backend กรองตามช่วงวันที่ให้แล้ว
+    let list = monthQuery ? [...monthSearchLogs] : [...baseLogs];
 
     if (statusFilter === "completed") {
       list = list.filter(l => l.type === "completed");
@@ -397,7 +511,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       list = list.filter(l => l.type === "schedule");
     }
 
-    if (searchTerm.trim()) {
+    if (!monthQuery && searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim();
       list = list.filter(l => {
         const isCompleted = l.type === 'completed';
@@ -466,7 +580,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
 
     return list;
-  }, [baseLogs, searchTerm, filterCategory, statusFilter, sortBy]);
+  }, [baseLogs, monthQuery, monthSearchLogs, searchTerm, filterCategory, statusFilter, sortBy]);
 
   // 🌟 Map branches list with real last score, date, and complete history across all rounds
   const allBranches = useMemo(() => {
@@ -597,6 +711,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const startItem = totalCount === 0 ? 0 : startIndex + 1;
   const endItem = Math.min(startIndex + pageSize, totalCount);
 
+  // 🌟 โหลดเพิ่มเมื่อเลื่อน/พลิกหน้าใกล้ขอบข้อมูลที่โหลดไว้ใน buffer (lazy load)
+  // ใช้เฉพาะตอน browse ปกติเท่านั้น — โหมดค้นหาเดือน/ปี (monthQuery) ยิง request ตรงอยู่แล้ว ไม่ต้องโหลด buffer เพิ่ม
+  useEffect(() => {
+    if (monthQuery) return;
+    if (isLoadingAuditRecords) return;
+    if (auditRecords.length >= auditRecordsTotalCount) return;
+
+    const nearEdge = totalPages - currentPage <= 2; // เหลืออีก ~2 หน้าก็จะหมดข้อมูลที่โหลดไว้
+    if (nearEdge) {
+      loadMoreAuditRecords(false);
+    }
+  }, [currentPage, totalPages, monthQuery, auditRecords.length, auditRecordsTotalCount, isLoadingAuditRecords, loadMoreAuditRecords]);
+
   // Submit typed page number only on Enter or Blur
   const handlePageSubmit = () => {
     const val = parseInt(pageInput, 10);
@@ -662,7 +789,7 @@ const handleTriggerAudit = (record) => {
       {onBack ? (
         <Header
           title={title}
-          subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length} รอบตรวจ`}
+          subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length}`}
           onBack={onBack}
           isAudit={true}
           action={
@@ -674,8 +801,7 @@ const handleTriggerAudit = (record) => {
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
                 >
                   <Plus size={14} />
-                  <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
-                  <span className="sm:hidden">นอกแผน</span>
+                  <span>ตรวจงานใหม่</span>
                 </button>
               )}
             </div>
@@ -697,14 +823,9 @@ const handleTriggerAudit = (record) => {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
               >
                 <Plus size={14} />
-                <span className="hidden sm:inline">ตรวจงานใหม่ (นอกแผน)</span>
-                <span className="sm:hidden">นอกแผน</span>
+                <span>ตรวจงานใหม่</span>
               </button>
             )}
-            <div className="flex items-center gap-1 bg-white px-2.5 py-1.5 rounded-xl border border-slate-200 shadow-2xs text-[11px] font-bold text-slate-700 h-[32px]">
-              <CalendarDays size={12} className="text-[#0F6659]" />
-              <span>{new Date().toLocaleDateString('th-TH', { month: 'short', year: 'numeric' })}</span>
-            </div>
           </div>
         </div>
       )}
@@ -803,6 +924,23 @@ const handleTriggerAudit = (record) => {
             <span>ตรวจงานใหม่</span>
           </button>
         </div>
+
+        {/* 🌟 Chip แสดงโหมดค้นหาเดือน/ปี — ยิง request ตรงไป backend ด้วย startDate/endDate แทนการกรอง buffer ปกติ */}
+        {monthQuery && (
+          <div className="px-3.5 pt-2.5 flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0F6659]/10 text-[#0F6659] text-xs font-bold border border-[#0F6659]/20">
+              <CalendarDays size={12} />
+              {isMonthSearching ? "กำลังค้นหา..." : `กำลังกรอง: ${monthQuery.label}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              className="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer"
+            >
+              ล้างตัวกรอง
+            </button>
+          </div>
+        )}
 
         {/* Filter bar */}
         <div className="px-3.5 py-2.5 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">

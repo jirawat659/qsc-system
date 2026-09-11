@@ -22,7 +22,10 @@ import api from "../../config/api";
 import signalrService from "../../services/signalrService";
 
 export default function CapScreen({ isDesktop, onBack, role = "STANDARD", currentUser }) {
-  const { capTasks, locations: visibleLocations, refreshData } = React.useContext(DataContext);
+  const {
+    capTasks, locations: visibleLocations, refreshData,
+    capTasksTotalCount, isLoadingCapTasks, loadMoreCapTasks
+  } = React.useContext(DataContext);
   const [selected, setSelected] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -127,6 +130,19 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
       setPageInput(String(listPage));
     }
   };
+
+  // 🌟 Phase 3.3: capTasks is a growing buffer (50 at a time) from the API.
+  // When the visible page (10/page) approaches the edge of what's currently
+  // buffered — and more exists on the server — fetch the next buffer page.
+  useEffect(() => {
+    if (!capTasks || isLoadingCapTasks) return;
+    if (capTasksTotalCount <= capTasks.length) return;
+    const start = (listPage - 1) * LIST_PAGE_SIZE;
+    const nearEndOfBuffer = start + LIST_PAGE_SIZE >= capTasks.length - LIST_PAGE_SIZE;
+    if (nearEndOfBuffer) {
+      loadMoreCapTasks();
+    }
+  }, [listPage, capTasks, capTasksTotalCount, isLoadingCapTasks]);
 
   if (selected) return (
     <CapDetailScreen

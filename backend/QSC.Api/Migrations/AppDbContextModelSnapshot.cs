@@ -486,7 +486,8 @@ namespace QSC.Api.Migrations
 
                     b.HasIndex("AuditorId");
 
-                    b.HasIndex("AuditScheduleId", "AuditorId");
+                    b.HasIndex("AuditScheduleId", "AuditorId")
+                        .IsUnique();
 
                     b.ToTable("AuditScheduleAuditors");
                 });
@@ -534,7 +535,11 @@ namespace QSC.Api.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Code");
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique();
 
                     b.ToTable("Brands");
                 });
@@ -555,6 +560,10 @@ namespace QSC.Api.Migrations
 
                     b.Property<int?>("AuditResponseId")
                         .HasColumnType("int");
+
+                    b.Property<string>("CategoryName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("datetime2");
@@ -842,9 +851,6 @@ namespace QSC.Api.Migrations
 
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
-
-                    b.Property<bool>("IsPrimary")
-                        .HasColumnType("bit");
 
                     b.Property<int>("LocationId")
                         .HasColumnType("int");

@@ -88,7 +88,13 @@ namespace QSC.Api.Controllers
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
-            int targetAuditorId = auditorId.HasValue && auditorId.Value > 0 ? auditorId.Value : currentUserId;
+            // 🔒 IDOR FIX: a non-admin used to be able to pass ?auditorId=<someone else> and read
+            // that person's in-progress live-audit draft (unsubmitted answers, notes, start GPS,
+            // in-progress photos). Only ADMIN may look up another auditor's draft; everyone else
+            // is always scoped to their own id regardless of what they pass in the query string.
+            int targetAuditorId = (role == "ADMIN" && auditorId.HasValue && auditorId.Value > 0)
+                ? auditorId.Value
+                : currentUserId;
 
             var query = _context.AuditDrafts
                 .Where(d => (allowedLocationIds == null || allowedLocationIds.Contains(d.LocationId)) &&
@@ -110,10 +116,7 @@ namespace QSC.Api.Controllers
                     query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
                 }
 
-                if (targetAuditorId > 0)
-                {
-                    query = query.Where(d => d.AuditorId == targetAuditorId || d.AuditorId == currentUserId);
-                }
+                query = query.Where(d => d.AuditorId == targetAuditorId);
 
                 query = query.Where(d => d.AuditScheduleId == null);
             }
@@ -128,7 +131,6 @@ namespace QSC.Api.Controllers
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
-            int targetAuditorId = auditorId.HasValue && auditorId.Value > 0 ? auditorId.Value : currentUserId;
 
             var query = _context.AuditDrafts
                 .Include(d => d.Location)
@@ -136,13 +138,20 @@ namespace QSC.Api.Controllers
                 .Where(d => (allowedLocationIds == null || allowedLocationIds.Contains(d.LocationId)) &&
                             (allowedBrandIds == null || (d.Location != null && d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)))));
 
-            if (role != "ADMIN")
+            // 🔒 IDOR FIX: non-admins used to be able to pass ?auditorId=<someone else> and the
+            // filter would OR it with their own id, so it never actually excluded anything they
+            // asked for — any auditor could list any other auditor's full stack of live drafts.
+            // Only ADMIN may request another auditor's drafts; everyone else is pinned to their own id.
+            if (role == "ADMIN")
             {
-                query = query.Where(d => d.AuditorId == targetAuditorId || d.AuditorId == currentUserId);
+                if (auditorId.HasValue && auditorId.Value > 0)
+                {
+                    query = query.Where(d => d.AuditorId == auditorId.Value);
+                }
             }
-            else if (auditorId.HasValue && auditorId.Value > 0)
+            else
             {
-                query = query.Where(d => d.AuditorId == auditorId.Value);
+                query = query.Where(d => d.AuditorId == currentUserId);
             }
 
             var allDrafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
@@ -185,7 +194,11 @@ namespace QSC.Api.Controllers
                 return Ok(new { message = "No answers yet, draft skipped", totalAnswered = 0 });
             }
 
-            int effectiveAuditorId = dto.AuditorId > 0 ? dto.AuditorId : currentUserId;
+            // 🔒 IDOR FIX: dto.AuditorId came straight from the client with no ownership check —
+            // a non-admin could set it to another real auditor's id and have a brand-new draft
+            // silently attributed to that person. Non-admins are now always pinned to their own id;
+            // only ADMIN may explicitly attribute a draft to someone else.
+            int effectiveAuditorId = (role == "ADMIN" && dto.AuditorId > 0) ? dto.AuditorId : currentUserId;
 
             // Update schedule status if explicit schedule was provided
             AuditSchedule? targetSchedule = null;
@@ -214,6 +227,15 @@ namespace QSC.Api.Controllers
                     .Where(d => d.AuditScheduleId == effectiveScheduleId.Value)
                     .OrderByDescending(d => d.UpdatedAt)
                     .FirstOrDefaultAsync();
+            }
+
+            // 🔒 IDOR FIX: an existing draft found by id (or by schedule) was updated with zero
+            // ownership check beyond location scope — any AUDITOR/STANDARD with access to the same
+            // branch could pass another auditor's live draft id and overwrite their in-progress
+            // answers/photos/notes. Non-admins may only continue writing to their own drafts.
+            if (draft != null && role != "ADMIN" && draft.AuditorId != currentUserId)
+            {
+                return Forbid();
             }
 
             // 3. If still no draft, insert a brand-new row (ensures separate rows for ad-hoc drafts)
@@ -262,7 +284,6 @@ namespace QSC.Api.Controllers
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
-            int targetAuditorId = auditorId.HasValue && auditorId.Value > 0 ? auditorId.Value : currentUserId;
 
             var query = _context.AuditDrafts.AsQueryable();
 
@@ -292,13 +313,24 @@ namespace QSC.Api.Controllers
                 query = query.Where(d => d.Location != null &&
                     d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-            if (role != "ADMIN")
+            // 🔒 CRITICAL FIX: this used to be
+            //   d.AuditorId == targetAuditorId || d.AuditorId == currentUserId || d.AuditorId == 1
+            // — an unconditional "|| d.AuditorId == 1" leftover (looks like debug/test code) meant
+            // ANY non-admin auditor/standard user could delete user #1's in-progress draft (and
+            // silently revert their assigned schedule back to "pending") just by knowing or
+            // guessing the draft id, regardless of who they actually were. It also let a non-admin
+            // pass ?auditorId=<someone else> to reach other people's drafts the same way the GET
+            // endpoints above did. Non-admins are now always scoped strictly to their own drafts.
+            if (role == "ADMIN")
             {
-                query = query.Where(d => d.AuditorId == targetAuditorId || d.AuditorId == currentUserId || d.AuditorId == 1);
+                if (auditorId.HasValue && auditorId.Value > 0)
+                {
+                    query = query.Where(d => d.AuditorId == auditorId.Value);
+                }
             }
-            else if (auditorId.HasValue && auditorId.Value > 0)
+            else
             {
-                query = query.Where(d => d.AuditorId == auditorId.Value);
+                query = query.Where(d => d.AuditorId == currentUserId);
             }
 
             var drafts = await query.ToListAsync();
@@ -750,13 +782,18 @@ namespace QSC.Api.Controllers
 
                 foreach (var computedResp in processedResponses)
                 {
+                    allItems.TryGetValue(computedResp.SurveyItemId, out var item);
+                    var catName = item?.CategoryName ?? item?.SurveySection?.Title ?? "ทั่วไป";
+                    if (catName.Length > 100) catName = catName.Substring(0, 100);
+
                     var response = new AuditResponse
                     {
                         SurveyItemId = computedResp.SurveyItemId,
                         ScoreGiven = computedResp.ScoreGiven,
                         IsPassed = computedResp.IsPassed,
                         IsNa = computedResp.IsNa,
-                        Notes = computedResp.Notes
+                        Notes = computedResp.Notes,
+                        CategoryName = catName
                     };
 
                     // Attach Images (auto-saved to /uploads/audit_images/ if base64)
@@ -779,7 +816,6 @@ namespace QSC.Api.Controllers
                     // Auto-create CAP task if question failed (and not N/A)
                     if (!computedResp.IsNa && !computedResp.IsPassed)
                     {
-                        allItems.TryGetValue(computedResp.SurveyItemId, out var item);
                         var issueItem = item?.QuestionText ?? "ข้อบกพร่องมาตรฐาน";
                         var desc = !string.IsNullOrWhiteSpace(computedResp.Notes) ? computedResp.Notes : $"ไม่ผ่านเกณฑ์การประเมิน: {issueItem}";
 
@@ -788,26 +824,22 @@ namespace QSC.Api.Controllers
                             AuditRecord = record,
                             AuditResponse = response,
                             LocationId = dto.LocationId,
+                            CategoryName = catName,
                             IssueItem = issueItem.Length > 250 ? issueItem.Substring(0, 250) : issueItem,
                             Description = desc,
-                            SubmissionDeadline = DateTime.UtcNow.AddDays(7), // 7-day SLA
+                            SubmissionDeadline = DateTime.UtcNow.AddDays(7),
                             Status = "OPEN",
                             AssignedTo = validAuditeeUserId,
                             CreatedAt = DateTime.UtcNow
                         });
                     }
                 }
-
-                _context.AuditRecords.Add(record);
+_context.AuditRecords.Add(record);
 
                 if (capTasksToCreate.Any())
                 {
                     _context.CapTasks.AddRange(capTasksToCreate);
                 }
-
-                // Update Location summary cache
-                location.LastScore = percentageScore;
-                location.LastAuditDate = DateTime.UtcNow;
 
                 // Mark Schedule completed
                 if (validScheduleId.HasValue)
@@ -850,6 +882,9 @@ namespace QSC.Api.Controllers
                 }
 
                 await _context.SaveChangesAsync();
+                await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, dto.LocationId);
+                await _context.SaveChangesAsync();
+
                 await transaction.CommitAsync();
 
                 // 📡 Broadcast real-time event to clients: new audit completed!
@@ -900,7 +935,9 @@ namespace QSC.Api.Controllers
             [FromQuery] int? limit,
             [FromQuery] int? brandId,
             [FromQuery] int? page,
-            [FromQuery] int? pageSize)
+            [FromQuery] int? pageSize,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -965,13 +1002,27 @@ namespace QSC.Api.Controllers
 
             if (auditorId.HasValue) query = query.Where(r => r.PrimaryAuditorId == auditorId.Value);
 
+            // 🌟 ค้นหาตามช่วงวันที่ (ใช้เมื่อผู้ใช้พิมพ์เดือน/ปีในช่องค้นหา เช่น "มี.ค 2568")
+            // startDate รวม, endDate ไม่รวม (exclusive upper bound) — ยิงตรงไป DB ด้วย index บน AuditDate
+            // ไม่ผ่าน buffer ฝั่ง client เลย เพราะเป็นคนละ path กับการ browse ปกติ
+            if (startDate.HasValue)
+            {
+                query = query.Where(r => r.AuditDate >= startDate.Value);
+            }
+            if (endDate.HasValue)
+            {
+                query = query.Where(r => r.AuditDate < endDate.Value);
+            }
+
             query = query.OrderByDescending(r => r.AuditDate);
 
             // 🚀 Pagination support: If page or pageSize is specified, apply pagination
+            int totalCount = 0;
             if (page.HasValue || pageSize.HasValue)
             {
+                totalCount = await query.CountAsync();
                 int currentPage = Math.Max(1, page ?? 1);
-                int currentPageSize = Math.Clamp(pageSize ?? 20, 1, 100);
+                int currentPageSize = Math.Clamp(pageSize ?? 50, 1, 100);
                 query = query.Skip((currentPage - 1) * currentPageSize).Take(currentPageSize);
             }
             else if (limit.HasValue)
@@ -993,18 +1044,15 @@ namespace QSC.Api.Controllers
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,
                 locationRegion = r.Location?.Region,
-                locationBrand = r.Location?.LocationBrands
-                    .Where(lb => lb.IsPrimary)
-                    .Select(lb => lb.Brand.Name)
-                    .FirstOrDefault() ?? r.Location?.LocationBrands.Select(lb => lb.Brand.Name).FirstOrDefault(),
+                locationBrand = r.Location?.LocationBrands != null && r.Location.LocationBrands.Any()
+                    ? string.Join(", ", r.Location.LocationBrands.Select(lb => lb.Brand.Name).Where(n => !string.IsNullOrWhiteSpace(n)))
+                    : "-",
                 locationBrands = r.Location?.LocationBrands
-                    .OrderByDescending(lb => lb.IsPrimary)
-                    .ThenBy(lb => lb.Brand.Name)
+                    .OrderBy(lb => lb.Brand.Name)
                     .Select(lb => new
                     {
                         id = lb.BrandId,
-                        name = lb.Brand.Name,
-                        isPrimary = lb.IsPrimary
+                        name = lb.Brand.Name
                     })
                     .ToList(),
                 surveyFormId = r.SurveyFormId,
@@ -1033,6 +1081,19 @@ namespace QSC.Api.Controllers
                 submittedAt = r.SubmittedAt,
                 isBackdated = r.IsBackdated
             });
+
+            // 🚀 When paginated (page/pageSize provided), wrap with totalCount so the
+            // frontend can drive "load more" / page indicators correctly.
+            if (page.HasValue || pageSize.HasValue)
+            {
+                return Ok(new
+                {
+                    items = result,
+                    totalCount,
+                    page = Math.Max(1, page ?? 1),
+                    pageSize = Math.Clamp(pageSize ?? 50, 1, 100)
+                });
+            }
 
             return Ok(result);
         }
@@ -1080,18 +1141,15 @@ namespace QSC.Api.Controllers
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,
                 locationRegion = r.Location?.Region,
-                locationBrand = r.Location?.LocationBrands
-                    .Where(lb => lb.IsPrimary)
-                    .Select(lb => lb.Brand.Name)
-                    .FirstOrDefault() ?? r.Location?.LocationBrands.Select(lb => lb.Brand.Name).FirstOrDefault(),
+                locationBrand = r.Location?.LocationBrands != null && r.Location.LocationBrands.Any()
+                    ? string.Join(", ", r.Location.LocationBrands.Select(lb => lb.Brand.Name).Where(n => !string.IsNullOrWhiteSpace(n)))
+                    : "-",
                 locationBrands = r.Location?.LocationBrands
-                    .OrderByDescending(lb => lb.IsPrimary)
-                    .ThenBy(lb => lb.Brand.Name)
+                    .OrderBy(lb => lb.Brand.Name)
                     .Select(lb => new
                     {
                         id = lb.BrandId,
-                        name = lb.Brand.Name,
-                        isPrimary = lb.IsPrimary
+                        name = lb.Brand.Name
                     })
                     .ToList(),
                 location = r.Location,
@@ -1121,30 +1179,34 @@ namespace QSC.Api.Controllers
                 startedAt = r.StartedAt,
                 submittedAt = r.SubmittedAt,
                 isBackdated = r.IsBackdated,
-                responses = r.Responses?.Select(res => new
-                {
-                    id = res.Id,
-                    surveyItemId = res.SurveyItemId,
-                    questionText = res.SurveyItem?.QuestionText,
-                    questionType = res.SurveyItem?.QuestionType,
-                    fullScore = res.SurveyItem?.FullScore,
-                    isCritical = res.SurveyItem?.IsCritical,
-                    orderIndex = res.SurveyItem?.OrderIndex,
-                    surveySectionId = res.SurveyItem?.SurveySectionId,
-                    sectionTitle = res.SurveyItem?.SurveySection?.Title,
-                    sectionOrderIndex = res.SurveyItem?.SurveySection?.OrderIndex,
-                    scoreGiven = res.ScoreGiven,
-                    isPassed = res.IsPassed,
-                    isNa = res.IsNa,
-                    notes = res.Notes,
-                    surveyItem = res.SurveyItem,
-                    images = res.Images?.Select(img => new
+                responses = r.Responses?
+                    .OrderBy(res => res.SurveyItem?.SurveySection?.OrderIndex ?? 0)
+                    .ThenBy(res => res.SurveyItem?.OrderIndex ?? 0)
+                    .Select(res => new
                     {
-                        id = img.Id,
-                        imageUrl = img.ImageUrl,
-                        uploadedAt = img.UploadedAt
+                        id = res.Id,
+                        surveyItemId = res.SurveyItemId,
+                        questionText = res.SurveyItem?.QuestionText,
+                        questionType = res.SurveyItem?.QuestionType,
+                        fullScore = res.SurveyItem?.FullScore,
+                        isCritical = res.SurveyItem?.IsCritical,
+                        orderIndex = res.SurveyItem?.OrderIndex,
+                        surveySectionId = res.SurveyItem?.SurveySectionId,
+                        sectionTitle = res.SurveyItem?.SurveySection?.Title,
+                        sectionOrderIndex = res.SurveyItem?.SurveySection?.OrderIndex,
+                        scoreGiven = res.ScoreGiven,
+                        isPassed = res.IsPassed,
+                        isNa = res.IsNa,
+                        notes = res.Notes,
+                        categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
+                        surveyItem = res.SurveyItem,
+                        images = res.Images?.Select(img => new
+                        {
+                            id = img.Id,
+                            imageUrl = img.ImageUrl,
+                            uploadedAt = img.UploadedAt
+                        }).ToList()
                     }).ToList()
-                }).ToList()
             };
 
             return Ok(result);
@@ -1382,13 +1444,18 @@ namespace QSC.Api.Controllers
 
                 foreach (var computedResp in processedResponses)
                 {
+                    allItems.TryGetValue(computedResp.SurveyItemId, out var itemMeta);
+                    var catName = itemMeta?.CategoryName ?? itemMeta?.SurveySection?.Title ?? "ทั่วไป";
+                    if (catName.Length > 100) catName = catName.Substring(0, 100);
+
                     var response = new AuditResponse
                     {
                         SurveyItemId = computedResp.SurveyItemId,
                         ScoreGiven = computedResp.ScoreGiven,
                         IsPassed = computedResp.IsPassed,
                         IsNa = computedResp.IsNa,
-                        Notes = computedResp.Notes
+                        Notes = computedResp.Notes,
+                        CategoryName = catName
                     };
 
                     if (computedResp.ImageUrls != null && computedResp.ImageUrls.Any())
@@ -1404,34 +1471,9 @@ namespace QSC.Api.Controllers
                             });
                         }
                     }
-
                     record.Responses.Add(response);
                 }
 
-                // 🌟 Sync แคชคะแนนล่าสุดของสาขา (คำนวณใหม่จากบันทึกล่าสุดจริงเสมอ ไม่ใช้ cache เดิมที่อาจ stale)
-                if (record.Location != null)
-                {
-                    var latestAudit = await _context.AuditRecords
-                        .AsNoTracking()
-                        .Where(a => a.LocationId == record.LocationId && a.Id != record.Id)
-                        .OrderByDescending(a => a.AuditDate)
-                        .Select(a => new { a.PercentageScore, a.AuditDate })
-                        .FirstOrDefaultAsync();
-
-                    // Compare: is the current edited record the latest, or is there a newer one?
-                    if (latestAudit == null || record.AuditDate >= latestAudit.AuditDate)
-                    {
-                        // This record is the latest (or only) audit for this location
-                        record.Location.LastScore = percentageScore;
-                        record.Location.LastAuditDate = record.AuditDate;
-                    }
-                    else
-                    {
-                        // There's a newer audit — don't touch LastScore (it belongs to the newer record)
-                    }
-                }
-
-                // บันทึกประวัติการแก้ไข — เก็บเหตุผล และ Snapshot / Diff ทุกส่วนไว้ 100%
                 _context.AuditRecordEditLogs.Add(new AuditRecordEditLog
                 {
                     AuditRecordId = record.Id,
@@ -1447,6 +1489,8 @@ namespace QSC.Api.Controllers
                     })
                 });
 
+                await _context.SaveChangesAsync();
+                await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, record.LocationId);
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -1507,6 +1551,68 @@ namespace QSC.Api.Controllers
                 .ToListAsync();
 
             return Ok(logs);
+        }
+
+        // ==========================================
+        // ลบผลตรวจ + คืนค่าสถิติสาขากลับอัตโนมัติ
+        // ==========================================
+        [Authorize]
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> DeleteAuditRecord(int id)
+        {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            var hasDeletePermission = role == "ADMIN" || await _context.RolePermissions
+                .Include(rp => rp.Role)
+                .Include(rp => rp.Permission)
+                .AnyAsync(rp => rp.Role!.Code == role && rp.Permission!.Code == "audit.delete");
+
+            if (!hasDeletePermission) return Forbid();
+
+            var record = await _context.AuditRecords
+                .Include(r => r.Location).ThenInclude(l => l!.LocationBrands)
+                .Include(r => r.Responses).ThenInclude(res => res.Images)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (record == null) return NotFound();
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId)) return Forbid();
+            if (allowedBrandIds != null && (record.Location == null || !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)))) return Forbid();
+
+            int locationId = record.LocationId;
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var linkedCaps = await _context.CapTasks
+                    .Where(c => c.AuditRecordId == id || record.Responses.Select(res => res.Id).Contains(c.AuditResponseId ?? 0))
+                    .ToListAsync();
+
+                foreach (var cap in linkedCaps)
+                {
+                    cap.AuditRecordId = null;
+                    cap.AuditResponseId = null;
+                }
+
+                var logs = await _context.AuditRecordEditLogs.Where(l => l.AuditRecordId == id).ToListAsync();
+                _context.AuditRecordEditLogs.RemoveRange(logs);
+
+                _context.AuditRecords.Remove(record);
+                await _context.SaveChangesAsync();
+
+                // อัปเดตสถิติสาขากลับเป็นคะแนนของผลตรวจก่อนหน้า
+                await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, locationId);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+                return Ok(new { message = "ลบผลตรวจและคำนวณคะแนนล่าสุดของสาขาใหม่เรียบร้อยแล้ว" });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error deleting audit record {Id}", id);
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการลบผลตรวจ" });
+            }
         }
     }
 }

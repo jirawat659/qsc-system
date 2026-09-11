@@ -18,7 +18,5 @@ namespace QSC.Api.Models
         public int BrandId { get; set; }
         [ForeignKey(nameof(BrandId))]
         public virtual Brand Brand { get; set; } = null!;
-
-        public bool IsPrimary { get; set; } = false;
     }
 }

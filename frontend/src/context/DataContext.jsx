@@ -20,5 +20,11 @@ export const DataContext = React.createContext({
   setCapTasks: () => {},
   auditRecords: [],
   setAuditRecords: () => {},
-  refreshData: () => {}
+  refreshData: () => {},
+  auditRecordsTotalCount: 0,
+  capTasksTotalCount: 0,
+  isLoadingAuditRecords: false,
+  isLoadingCapTasks: false,
+  loadMoreAuditRecords: () => {},
+  loadMoreCapTasks: () => {}
 });

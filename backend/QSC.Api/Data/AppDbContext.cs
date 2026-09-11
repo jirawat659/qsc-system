@@ -174,6 +174,7 @@ namespace QSC.Api.Data
             {
                 e.Property(x => x.IssueItem).HasMaxLength(300);
                 e.Property(x => x.Status).HasMaxLength(30);
+                e.Property(x => x.CategoryName).HasMaxLength(100);
             });
 
             modelBuilder.Entity<CapTaskImage>(e =>
@@ -253,7 +254,8 @@ namespace QSC.Api.Data
                 .HasIndex(s => s.ScheduledDate);
 
             modelBuilder.Entity<AuditScheduleAuditor>()
-                .HasIndex(a => new { a.AuditScheduleId, a.AuditorId });
+                .HasIndex(a => new { a.AuditScheduleId, a.AuditorId })
+                .IsUnique();
 
             modelBuilder.Entity<SurveyFormTargetLocation>()
                 .HasIndex(t => new { t.SurveyFormId, t.LocationId })
@@ -305,7 +307,13 @@ namespace QSC.Api.Data
                 .HasIndex(c => new { c.Status, c.SubmissionDeadline });
 
             modelBuilder.Entity<Location>().HasIndex(l => l.Code);
-            modelBuilder.Entity<Brand>().HasIndex(b => b.Code);
+            modelBuilder.Entity<Brand>()
+                .HasIndex(b => b.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<Brand>()
+                .HasIndex(b => b.Name)
+                .IsUnique();
             modelBuilder.Entity<Role>().HasIndex(r => r.Code);
             modelBuilder.Entity<Permission>().HasIndex(p => p.Code);
             modelBuilder.Entity<LocationType>().HasIndex(t => t.Code);

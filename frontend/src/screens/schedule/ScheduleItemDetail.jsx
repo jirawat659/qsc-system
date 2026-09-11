@@ -32,27 +32,49 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
     (item.unit && u.fullName && item.unit.includes(u.fullName))
   ));
 
+  const targetLocationId = item.locationId || unit?.id;
+
+  // 🌟 Phase 3.3 fix: auditRecords ใน context เป็นแค่ buffer 50 รายการล่าสุดรวม
+  // ทุกสาขา จึงดึงประวัติของสาขาที่ผูกกับตารางนัดหมายนี้เองตรงๆ จาก API เป็นแหล่งหลัก
+  const [ownAuditRecords, setOwnAuditRecords] = useState([]);
+
+  useEffect(() => {
+    if (!targetLocationId) {
+      setOwnAuditRecords([]);
+      return;
+    }
+    let isMounted = true;
+    api.get('/audit/records', { params: { locationId: targetLocationId, limit: 200 } })
+      .then(res => {
+        if (isMounted && Array.isArray(res.data)) setOwnAuditRecords(res.data);
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [targetLocationId]);
+
   // 🌟 Real-time audit history for this specific branch from SQLite DB
   const branchHistory = useMemo(() => {
     const targetId = item.locationId || unit?.id;
     const targetName = item.unit || item.locationName || unit?.name || unit?.fullName || "";
 
-    const fromDb = (auditRecords || []).filter(r => {
-      const matchId = targetId && (r.locationId === targetId || r.location?.id === targetId);
-      const matchName = targetName && (
-        r.locationName === targetName ||
-        r.location?.name === targetName ||
-        r.location?.fullName === targetName ||
-        (r.unitName && r.unitName === targetName) ||
-        (r.locationName && targetName.includes(r.locationName)) ||
-        (targetName && r.locationName && targetName.includes(r.locationName)) ||
-        (r.location?.name && targetName.includes(r.location.name))
-      );
-      return matchId || matchName;
-    });
+    const sourceRecords = ownAuditRecords.length > 0
+      ? ownAuditRecords
+      : (auditRecords || []).filter(r => {
+          const matchId = targetId && (r.locationId === targetId || r.location?.id === targetId);
+          const matchName = targetName && (
+            r.locationName === targetName ||
+            r.location?.name === targetName ||
+            r.location?.fullName === targetName ||
+            (r.unitName && r.unitName === targetName) ||
+            (r.locationName && targetName.includes(r.locationName)) ||
+            (targetName && r.locationName && targetName.includes(r.locationName)) ||
+            (r.location?.name && targetName.includes(r.location.name))
+          );
+          return matchId || matchName;
+        });
 
-    if (fromDb.length > 0) {
-      return fromDb.map(r => {
+    if (sourceRecords.length > 0) {
+      return sourceRecords.map(r => {
         const score = Math.round(r.percentageScore || 0);
         const rawDate = r.auditDate || r.createdAt;
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
@@ -78,7 +100,7 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
     }
 
     return unit?.history || [];
-  }, [auditRecords, item, unit]);
+  }, [auditRecords, ownAuditRecords, item, unit]);
 
   const auditTypeMeta = {
     announced: { label: "ตรวจมาตรฐานรอบปกติ (Announced)", color: "text-blue-700 bg-blue-50 border-blue-200" },
@@ -207,8 +229,8 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
               </button>
             )}
 
-            {/* ✏️ Edit / 🗑️ Delete Buttons (Only for Pending Schedules) */}
-            {isPending && (
+            {/* ✏️ Edit / 🗑️ Delete Buttons (Only for Pending Schedules, ADMIN/STANDARD only) */}
+            {isPending && canManageSchedule && (
               <div className="flex gap-2.5 pt-1">
                 <button
                   type="button"

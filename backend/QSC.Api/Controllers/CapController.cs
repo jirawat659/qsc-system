@@ -76,7 +76,9 @@ namespace QSC.Api.Controllers
             [FromQuery] int? auditRecordId,
             [FromQuery] int? assignedTo,
             [FromQuery] string? status,
-            [FromQuery] int? limit)
+            [FromQuery] int? limit,
+            [FromQuery] int? page,
+            [FromQuery] int? pageSize)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -127,7 +129,16 @@ namespace QSC.Api.Controllers
 
             query = query.OrderByDescending(t => t.CreatedAt);
 
-            if (limit.HasValue)
+            // 🚀 Pagination support: If page or pageSize is specified, apply pagination
+            int totalCount = 0;
+            if (page.HasValue || pageSize.HasValue)
+            {
+                totalCount = await query.CountAsync();
+                int currentPage = Math.Max(1, page ?? 1);
+                int currentPageSize = Math.Clamp(pageSize ?? 50, 1, 100);
+                query = query.Skip((currentPage - 1) * currentPageSize).Take(currentPageSize);
+            }
+            else if (limit.HasValue)
             {
                 query = query.Take(Math.Clamp(limit.Value, 1, 500));
             }
@@ -147,6 +158,7 @@ namespace QSC.Api.Controllers
                 locationId = t.LocationId,
                 locationCode = t.Location?.Code,
                 locationName = t.Location?.Name,
+                categoryName = t.CategoryName ?? t.AuditResponse?.CategoryName ?? t.AuditResponse?.SurveyItem?.CategoryName ?? "ทั่วไป",
                 issueItem = t.IssueItem,
                 description = t.Description,
                 submissionDeadline = t.SubmissionDeadline,
@@ -168,6 +180,19 @@ namespace QSC.Api.Controllers
                 closedAt = t.ClosedAt,
                 createdAt = t.CreatedAt
             });
+
+            // 🚀 When paginated (page/pageSize provided), wrap with totalCount so the
+            // frontend can drive "load more" correctly.
+            if (page.HasValue || pageSize.HasValue)
+            {
+                return Ok(new
+                {
+                    items = result,
+                    totalCount,
+                    page = Math.Max(1, page ?? 1),
+                    pageSize = Math.Clamp(pageSize ?? 50, 1, 100)
+                });
+            }
 
             return Ok(result);
         }
@@ -244,7 +269,7 @@ namespace QSC.Api.Controllers
                 auditScore = task.AuditRecord?.PercentageScore,
                 questionNumber = task.AuditResponse?.SurveyItem?.OrderIndex,
                 questionText = task.AuditResponse?.SurveyItem?.QuestionText ?? task.IssueItem,
-                categoryName = task.AuditResponse?.SurveyItem?.CategoryName ?? task.AuditResponse?.CategoryName,
+                categoryName = task.CategoryName ?? task.AuditResponse?.SurveyItem?.CategoryName ?? task.AuditResponse?.CategoryName ?? "ทั่วไป",
                 scoreGiven = task.AuditResponse?.ScoreGiven,
                 fullScore = task.AuditResponse?.SurveyItem?.FullScore ?? 10.0,
                 completedAt = task.CompletedAt,
@@ -279,6 +304,7 @@ namespace QSC.Api.Controllers
         {
             public int LocationId { get; set; }
             public int? AuditRecordId { get; set; }
+            public string? CategoryName { get; set; }
             public string IssueItem { get; set; } = string.Empty;
             public string Description { get; set; } = string.Empty;
             public DateTime? SubmissionDeadline { get; set; }
@@ -317,6 +343,7 @@ namespace QSC.Api.Controllers
                 LocationId = dto.LocationId,
                 AuditRecordId = dto.AuditRecordId,
                 AuditResponseId = null, // Manual
+                CategoryName = !string.IsNullOrWhiteSpace(dto.CategoryName) ? dto.CategoryName.Trim() : "ทั่วไป",
                 IssueItem = dto.IssueItem.Trim(),
                 Description = dto.Description.Trim(),
                 SubmissionDeadline = dto.SubmissionDeadline ?? DateTime.UtcNow.AddDays(7),
@@ -838,7 +865,7 @@ namespace QSC.Api.Controllers
             }
             else
             {
-                task.NextAuditNote = dto.Note.Trim();
+                task.NextAuditNote = dto.Note?.Trim();
                 task.FollowUpStatus = "PENDING";
             }
 

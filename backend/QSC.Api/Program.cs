@@ -199,5 +199,4 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"⚠️ Seeder error: {ex.Message}");
     }
 }
-
 app.Run();

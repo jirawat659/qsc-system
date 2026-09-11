@@ -1,5 +1,5 @@
-import React from 'react';
-import { Search, Plus, Store, MapPin, UserCheck, ChevronRight, Edit3, Phone } from "lucide-react";
+import React, { useState, useMemo } from 'react';
+import { Search, Plus, Store, MapPin, UserCheck, ChevronRight, Edit3, Phone, Tag } from "lucide-react";
 import BrandChipSelector from '../../../shared/BrandChipSelector';
 
 export default function LocationManagementTab({
@@ -11,6 +11,13 @@ export default function LocationManagementTab({
   pageSize, locationPage, setLocationPage, totalLocationPages,
   brandsList = [], brandFilter = [], setBrandFilter = () => {}
 }) {
+  const [showInactiveBrands, setShowInactiveBrands] = useState(false);
+
+  // 🌟 กรองเฉพาะแบรนด์ที่เปิดใช้งานเป็นค่าเริ่มต้น (IsActive != false)
+  const activeBrands = useMemo(() => brandsList.filter(b => b.isActive !== false), [brandsList]);
+  const inactiveBrandsCount = useMemo(() => brandsList.filter(b => b.isActive === false).length, [brandsList]);
+  const displayedBrands = showInactiveBrands ? brandsList : activeBrands;
+
   return (
 <div className="bg-white rounded-3xl p-4 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
@@ -61,7 +68,7 @@ export default function LocationManagementTab({
             <div className="flex flex-wrap items-center gap-2 pb-1">
               <span className="text-xs font-bold text-slate-400 shrink-0">แบรนด์:</span>
               <BrandChipSelector
-                brands={brandsList}
+                brands={displayedBrands}
                 value={brandFilter}
                 onChange={setBrandFilter}
                 mode="multi"
@@ -74,6 +81,20 @@ export default function LocationManagementTab({
                   className="text-xs font-bold text-slate-400 hover:text-slate-700 underline cursor-pointer"
                 >
                   ล้างตัวกรองแบรนด์
+                </button>
+              )}
+              {inactiveBrandsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowInactiveBrands(!showInactiveBrands)}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
+                    showInactiveBrands
+                      ? 'bg-slate-200 border-slate-300 text-slate-700'
+                      : 'bg-slate-50 border-dashed border-slate-300 text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                  }`}
+                  title={showInactiveBrands ? 'คลิกเพื่อซ่อนแบรนด์ที่ปิดใช้งาน' : 'คลิกเพื่อแสดงแบรนด์ที่ปิดใช้งานเพิ่มเติม'}
+                >
+                  {showInactiveBrands ? 'ซ่อนแบรนด์ที่ปิดใช้งาน' : `+ แบรนด์ปิดใช้งาน (${inactiveBrandsCount})`}
                 </button>
               )}
             </div>

@@ -66,6 +66,59 @@ export const parseAuditDate = (dateVal) => {
   return null;
 };
 
+// 🔎 ตรวจจับข้อความค้นหาที่พิมพ์เป็น "เดือน" หรือ "เดือน+ปี" ภาษาไทยล้วนๆ
+// เช่น "มีนาคม", "มี.ค", "มี.ค.", "มีนาคม 2568", "มี.ค 2568"
+// - ไม่ใส่ปี -> default เป็นปีปัจจุบัน (ค.ศ.)
+// - ใส่ปี พ.ศ. (>2500) -> แปลงเป็น ค.ศ. อัตโนมัติ
+// คืนค่า null ถ้าข้อความทั้งหมดไม่ใช่ pattern เดือน/ปีล้วนๆ (กันไม่ให้ทับคำค้นหาอื่น เช่น ชื่อสาขา)
+const THAI_FULL_MONTH_INDEX_MAP = THAI_MONTHS_FULL.reduce((acc, name, idx) => {
+  acc[name] = idx;
+  return acc;
+}, {});
+
+// รองรับกรณีผู้ใช้พิมพ์แบบตัดจุดออกหมด เช่น "ม.ค." -> "มค", "มี.ค." -> "มีค"
+// สร้างจาก THAI_MONTH_INDEX_MAP อัตโนมัติ กันพลาดกรณีแก้ mapping ต้นทางแล้วลืมอัปเดตที่นี่
+const THAI_MONTH_NO_DOT_INDEX_MAP = Object.keys(THAI_MONTH_INDEX_MAP).reduce((acc, key) => {
+  const noDot = key.replace(/\./g, '');
+  if (noDot) acc[noDot] = THAI_MONTH_INDEX_MAP[key];
+  return acc;
+}, {});
+
+export const parseThaiMonthYearQuery = (text) => {
+  if (!text) return null;
+  // ตัดคำว่า "พ.ศ." / "ค.ศ." ที่ผู้ใช้อาจพิมพ์คั่นกลางระหว่างเดือนกับปีออกก่อน
+  // เช่น "มีนาคม พ.ศ. 2568" หรือ "มี.ค. ค.ศ. 2025" -> เหลือแค่ "มีนาคม 2568"
+  const q = text.trim().replace(/(?:พ\.ศ\.?|ค\.ศ\.?)\s*/g, '').trim();
+  if (!q) return null;
+
+  const match = q.match(/^([ก-๙.]+?)\s*(\d{4})?$/);
+  if (!match) return null;
+
+  const monthToken = match[1].trim();
+  const allMonthTokens = { ...THAI_MONTH_INDEX_MAP, ...THAI_FULL_MONTH_INDEX_MAP, ...THAI_MONTH_NO_DOT_INDEX_MAP };
+  const monthIndex = allMonthTokens[monthToken];
+  if (monthIndex === undefined) return null;
+
+  let year;
+  if (match[2]) {
+    year = parseInt(match[2], 10);
+    if (year > 2500) year -= 543; // พ.ศ. -> ค.ศ.
+  } else {
+    year = new Date().getFullYear();
+  }
+
+  const startDate = new Date(year, monthIndex, 1, 0, 0, 0, 0);
+  const endDate = new Date(year, monthIndex + 1, 1, 0, 0, 0, 0); // exclusive upper bound
+
+  return {
+    startDate,
+    endDate,
+    monthIndex,
+    year,
+    label: `${THAI_MONTHS_FULL[monthIndex]} ${year + 543}`
+  };
+};
+
 export const getScoreStatus = (score) => {
   const s = Number(score) || 0;
   if (s < 70) {

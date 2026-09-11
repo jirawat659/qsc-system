@@ -399,7 +399,7 @@ namespace QSC.Api.Services
                 {
                     LocationId = loc.Id,
                     LocationName = loc.Name,
-                    BrandName = string.Join(", ", loc.LocationBrands.OrderByDescending(lb => lb.IsPrimary).Select(lb => lb.Brand.Name)),
+                    BrandName = string.Join(", ", loc.LocationBrands.Select(lb => lb.Brand?.Name).Where(n => !string.IsNullOrEmpty(n))),
                     Region = loc.Region,
                     PriorityLevel = priority,
                     LastScore = lastScore,

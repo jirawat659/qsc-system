@@ -24,6 +24,7 @@ export default function MasterManagementScreen({ onBack }) {
   const [users, setUsers] = useState([]);
   const [locations, setLocations] = useState([]);
   const [brands, setBrands] = useState([]); // [{id, code, name, description, isActive}]
+  const activeBrands = useMemo(() => brands.filter(b => b.isActive !== false), [brands]);
   const [locationTypes, setLocationTypes] = useState([]);
   const [roles, setRoles] = useState([]);
   const [availablePermissions, setAvailablePermissions] = useState([]);
@@ -88,7 +89,6 @@ export default function MasterManagementScreen({ onBack }) {
     code: '',
     name: '',
     boundBrandIds: [],
-    primaryBrandId: null,
     locationTypeId: 1,
     region: '',
     address: '',
@@ -156,7 +156,6 @@ export default function MasterManagementScreen({ onBack }) {
     code: '',
     name: '',
     boundBrandIds: [],
-    primaryBrandId: null,
     locationTypeId: 1,
     region: 'กรุงเทพฯ และปริมณฑล',
     address: '',
@@ -327,7 +326,6 @@ export default function MasterManagementScreen({ onBack }) {
       code: loc.code || '',
       name: loc.name || '',
       boundBrandIds: lbs.map(lb => lb.brandId),
-      primaryBrandId: lbs.find(lb => lb.isPrimary)?.brandId ?? (lbs[0]?.brandId ?? null),
       locationTypeId: loc.locationTypeId || 1,
       region: loc.region || 'กรุงเทพฯ และปริมณฑล',
       address: loc.address || '',
@@ -344,34 +342,27 @@ export default function MasterManagementScreen({ onBack }) {
     if (!editLocation || !editLocationForm.name.trim()) return;
 
     try {
-      const { boundBrandIds, primaryBrandId, ...basicFields } = editLocationForm;
+      const { boundBrandIds, ...basicFields } = editLocationForm;
       await api.put(`/location/${editLocation.id}`, {
         id: editLocation.id,
         ...basicFields
       });
 
       // 🌟 Sync การผูกแบรนด์ (LocationBrands) ให้ตรงกับที่เลือกไว้ในฟอร์ม
+      // 🌟 ไม่มีแนวคิด "แบรนด์หลัก" อีกต่อไป (คอลัมน์ IsPrimary ถูกถอดออกจาก
+      // LocationBrand แล้วตาม Phase 4.1) — ผูกทุกแบรนด์ที่เลือกไว้อย่างเท่าเทียมกัน
       const originalIds = (editLocation.locationBrands || []).map(lb => lb.brandId);
       const toBind = boundBrandIds.filter(id => !originalIds.includes(id));
       const toUnbind = originalIds.filter(id => !boundBrandIds.includes(id));
 
       await Promise.allSettled([
         ...toBind.map(brandId =>
-          api.post(`/location/${editLocation.id}/brands`, { brandId, isPrimary: brandId === primaryBrandId })
+          api.post(`/location/${editLocation.id}/brands`, { brandId })
         ),
         ...toUnbind.map(brandId =>
           api.delete(`/location/${editLocation.id}/brands/${brandId}`)
         ),
       ]);
-
-      // ตั้งแบรนด์หลัก ถ้ายังไม่ตรงกับที่เลือก (เฉพาะแบรนด์ที่ยังผูกอยู่เดิม ไม่ใช่ตัวที่เพิ่งผูกใหม่ที่ส่ง isPrimary ไปแล้ว)
-      const alreadyPrimaryHandled = toBind.includes(primaryBrandId);
-      if (primaryBrandId && !alreadyPrimaryHandled && originalIds.includes(primaryBrandId)) {
-        const wasAlreadyPrimary = (editLocation.locationBrands || []).find(lb => lb.brandId === primaryBrandId)?.isPrimary;
-        if (!wasAlreadyPrimary) {
-          await api.put(`/location/${editLocation.id}/brands/${primaryBrandId}/primary`);
-        }
-      }
 
       showToast(`✓ บันทึกสถานที่ "${editLocationForm.name}" สำเร็จ`);
       setEditLocation(null);
@@ -389,15 +380,16 @@ export default function MasterManagementScreen({ onBack }) {
     }
 
     try {
-      const { boundBrandIds, primaryBrandId, ...basicFields } = locationForm;
+      const { boundBrandIds, ...basicFields } = locationForm;
       const created = await api.post('/location', basicFields);
       const newLocationId = created.data?.id;
 
-      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้าง (ทีละตัว ให้ตัวที่เป็น primary ผูกด้วยธง isPrimary)
+      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้าง (ทีละตัว เท่ากันทุกแบรนด์
+      // ไม่มีแบรนด์หลักอีกต่อไป)
       if (newLocationId && boundBrandIds.length > 0) {
         await Promise.allSettled(
           boundBrandIds.map(brandId =>
-            api.post(`/location/${newLocationId}/brands`, { brandId, isPrimary: brandId === primaryBrandId })
+            api.post(`/location/${newLocationId}/brands`, { brandId })
           )
         );
       }
@@ -409,7 +401,6 @@ export default function MasterManagementScreen({ onBack }) {
         name: '',
         brandName: '',
         boundBrandIds: [],
-        primaryBrandId: null,
         locationTypeId: locationTypes[0]?.id || 1,
         region: 'กรุงเทพฯ และปริมณฑล',
         address: '',
@@ -1286,7 +1277,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <div className="space-y-2 pt-1 animate-in fade-in">
                   <label className="block text-sm font-medium text-slate-600">เลือกแบรนด์ที่ได้รับอนุญาต:</label>
                   <BrandChipSelector
-                    brands={brands}
+                    brands={activeBrands}
                     selectedIds={editUserForm.allowedBrandIds || []}
                     onChange={(ids) => {
                       setEditUserForm(prev => {
@@ -1562,7 +1553,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <div className="space-y-2 pt-1 animate-in fade-in">
                   <label className="block text-sm font-medium text-slate-600">เลือกแบรนด์ที่ได้รับอนุญาต:</label>
                   <BrandChipSelector
-                    brands={brands}
+                    brands={activeBrands}
                     selectedIds={userForm.allowedBrandIds || []}
                     onChange={(ids) => {
                       setUserForm(prev => {
@@ -1926,25 +1917,19 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              {/* Brand Selection (chip, multi + primary) */}
+              {/* Brand Selection (chip, multi-select) */}
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  แบรนด์ที่ผูกกับสถานที่นี้ <span className="font-normal text-slate-400">(กด ★ เพื่อตั้งแบรนด์หลัก)</span>
+                  แบรนด์ที่ผูกกับสถานที่นี้
                 </label>
                 <BrandChipSelector
                   brands={brands}
                   value={editLocationForm.boundBrandIds}
                   onChange={(ids) => setEditLocationForm(prev => ({
                     ...prev,
-                    boundBrandIds: ids,
-                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null)
+                    boundBrandIds: ids
                   }))}
                   mode="multi"
-                  primaryId={editLocationForm.primaryBrandId}
-                  onSetPrimary={(id) => setEditLocationForm(prev => ({
-                    ...prev,
-                    primaryBrandId: id
-                  }))}
                 />
               </div>
 
@@ -2157,25 +2142,19 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              {/* Brand Selection (chip, multi + primary) */}
+              {/* Brand Selection (chip, multi-select) */}
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  แบรนด์ที่ผูกกับสถานที่นี้ <span className="font-normal text-slate-400">(กด ★ เพื่อตั้งแบรนด์หลัก)</span>
+                  แบรนด์ที่ผูกกับสถานที่นี้
                 </label>
                 <BrandChipSelector
-                  brands={brands}
+                  brands={activeBrands}
                   value={locationForm.boundBrandIds}
                   onChange={(ids) => setLocationForm(prev => ({
                     ...prev,
-                    boundBrandIds: ids,
-                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null)
+                    boundBrandIds: ids
                   }))}
                   mode="multi"
-                  primaryId={locationForm.primaryBrandId}
-                  onSetPrimary={(id) => setLocationForm(prev => ({
-                    ...prev,
-                    primaryBrandId: id
-                  }))}
                 />
               </div>
 

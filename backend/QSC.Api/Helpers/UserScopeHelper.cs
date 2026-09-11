@@ -123,5 +123,20 @@ namespace QSC.Api.Helpers
 
             return query;
         }
+
+        // 🌟 Dynamic permission check ตาม pattern เดียวกับ AuditController.UpdateAuditRecord:
+        // เช็คจากตาราง RolePermission ตรงๆ แทนที่จะ hardcode [Authorize(Roles=...)] เพื่อให้ Admin
+        // ไปเปิด/ปิดสิทธิ์ (เช่น "users.manage", "roles.manage") ให้ role ไหนก็ได้จากหน้า "บทบาทและสิทธิ์"
+        // ADMIN ผ่านเสมอโดยไม่ต้องมีแถวใน RolePermission (กันเคส seed ข้อมูลไม่ครบ)
+        public static async Task<bool> HasPermissionAsync(string role, string permissionCode, AppDbContext context)
+        {
+            if (role == "ADMIN") return true;
+            if (string.IsNullOrEmpty(role)) return false;
+
+            return await context.RolePermissions
+                .Include(rp => rp.Role)
+                .Include(rp => rp.Permission)
+                .AnyAsync(rp => rp.Role!.Code == role && rp.Permission!.Code == permissionCode);
+        }
     }
 }

@@ -378,13 +378,12 @@ namespace QSC.Api.Data
                 Console.WriteLine($"[DatabaseSeeder] Role NavConfig backfill warning: {ex.Message}");
             }
 
-            // Ensure Brand, LocationBrand, and UserBrand data is always synchronized
-            EnsureBrandAndUserBrandData(context);
-            EnsurePermissionsAndRoles(context);
-
             // Check if already seeded (never wipe existing data if database is already initialized)
             if (!forceRecreate && context.Roles.Any())
             {
+                EnsureBrandAndUserBrandData(context);
+                EnsurePermissionsAndRoles(context);
+
                 Console.WriteLine("[DatabaseSeeder] Database already initialized. Skipping seed to protect production data.");
                 return;
             }
@@ -622,8 +621,7 @@ namespace QSC.Api.Data
                             locationBrandLinks.Add(new LocationBrand
                             {
                                 LocationId = loc.Id,
-                                BrandId = brandId,
-                                IsPrimary = string.Equals(brandName, "Urban Burger", StringComparison.OrdinalIgnoreCase)
+                                BrandId = brandId
                             });
                         }
                     }
@@ -646,8 +644,7 @@ namespace QSC.Api.Data
                     locationBrandLinks.Add(new LocationBrand
                     {
                         LocationId = loc.Id,
-                        BrandId = targetBrandId,
-                        IsPrimary = true
+                        BrandId = targetBrandId
                     });
                 }
             }
@@ -1278,8 +1275,7 @@ namespace QSC.Api.Data
                                 context.LocationBrands.Add(new LocationBrand
                                 {
                                     LocationId = loc.Id,
-                                    BrandId = b.Id,
-                                    IsPrimary = (b.Id == ubBrand.Id)
+                                    BrandId = b.Id
                                 });
                                 locBrandsAdded = true;
                             }
@@ -1289,7 +1285,7 @@ namespace QSC.Api.Data
                     {
                         if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == ubBrand.Id))
                         {
-                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = ubBrand.Id, IsPrimary = true });
+                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = ubBrand.Id });
                             locBrandsAdded = true;
                         }
                     }
@@ -1297,7 +1293,7 @@ namespace QSC.Api.Data
                     {
                         if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == clBrand.Id))
                         {
-                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = clBrand.Id, IsPrimary = true });
+                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = clBrand.Id });
                             locBrandsAdded = true;
                         }
                     }
@@ -1305,7 +1301,7 @@ namespace QSC.Api.Data
                     {
                         if (!existingLocBrands.Any(lb => lb.LocationId == loc.Id && lb.BrandId == abBrand.Id))
                         {
-                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = abBrand.Id, IsPrimary = true });
+                            context.LocationBrands.Add(new LocationBrand { LocationId = loc.Id, BrandId = abBrand.Id });
                             locBrandsAdded = true;
                         }
                     }

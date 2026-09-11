@@ -39,7 +39,9 @@ namespace QSC.Api.Controllers
             [FromQuery] int? locationId,
             [FromQuery] DateTime? startDate,
             [FromQuery] DateTime? endDate,
-            [FromQuery] int? limit)
+            [FromQuery] int? limit,
+            [FromQuery] int? page,
+            [FromQuery] int? pageSize)
         {
             var (userId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -63,15 +65,14 @@ namespace QSC.Api.Controllers
                     return Ok(new List<object>());
                 }
             }
-            else if (role == "AUDITOR")
+            else if (string.Equals(role, "AUDITOR", StringComparison.OrdinalIgnoreCase))
             {
-                if (auditorId.HasValue)
+                // 🔒 QC (Auditor) can ONLY see their own assigned schedules
+                query = query.Where(s => s.Auditors.Any(a => a.AuditorId == userId) || s.CreatedBy == userId);
+
+                if (allowedLocationIds != null)
                 {
-                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == auditorId.Value));
-                }
-                else if (allowedLocationIds != null)
-                {
-                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == userId) || allowedLocationIds.Contains(s.LocationId));
+                    query = query.Where(s => allowedLocationIds.Contains(s.LocationId));
                 }
             }
             else
@@ -85,6 +86,12 @@ namespace QSC.Api.Controllers
                 {
                     query = query.Where(s => allowedLocationIds.Contains(s.LocationId));
                 }
+            }
+
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(s => s.Location != null &&
+                    s.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
             if (locationId.HasValue)
@@ -108,7 +115,16 @@ namespace QSC.Api.Controllers
 
             query = query.OrderByDescending(s => s.ScheduledDate);
 
-            if (limit.HasValue)
+            // 🚀 Pagination support: If page or pageSize is specified, apply pagination
+            int totalCount = 0;
+            if (page.HasValue || pageSize.HasValue)
+            {
+                totalCount = await query.CountAsync();
+                int currentPage = Math.Max(1, page ?? 1);
+                int currentPageSize = Math.Clamp(pageSize ?? 50, 1, 100);
+                query = query.Skip((currentPage - 1) * currentPageSize).Take(currentPageSize);
+            }
+            else if (limit.HasValue)
             {
                 query = query.Take(Math.Clamp(limit.Value, 1, 500));
             }
@@ -145,6 +161,19 @@ namespace QSC.Api.Controllers
                     isLead = a.IsLead
                 }).ToList()
             });
+
+            // 🚀 When paginated (page/pageSize provided), wrap with totalCount so the
+            // frontend can drive "load more" correctly.
+            if (page.HasValue || pageSize.HasValue)
+            {
+                return Ok(new
+                {
+                    items = result,
+                    totalCount,
+                    page = Math.Max(1, page ?? 1),
+                    pageSize = Math.Clamp(pageSize ?? 50, 1, 100)
+                });
+            }
 
             return Ok(result);
         }
@@ -198,6 +227,7 @@ namespace QSC.Api.Controllers
 
             return null;
         }
+        
 
         [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
@@ -211,11 +241,19 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = formValidationError });
             }
 
-            if (dto.AuditorIds.Any())
+            var auditorIds = (dto.AuditorIds ?? new List<int>())
+                .Distinct()
+                .ToList();
+
+            if (auditorIds.Any())
             {
-                var validAuditorCount = await _context.Users.CountAsync(u => dto.AuditorIds.Contains(u.Id) && u.IsActive);
-                if (validAuditorCount != dto.AuditorIds.Distinct().Count())
-                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
+                var validAuditorCount = await _context.Users.CountAsync(
+                    u => auditorIds.Contains(u.Id) && u.IsActive);
+
+                if (validAuditorCount != auditorIds.Count)
+                {
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบหรือถูกปิดการใช้งาน" });
+                }
             }
 
             using var transaction = await _context.Database.BeginTransactionAsync();
@@ -236,10 +274,10 @@ namespace QSC.Api.Controllers
             _context.AuditSchedules.Add(schedule);
             await _context.SaveChangesAsync();
 
-            if (dto.AuditorIds.Any())
+            if (auditorIds.Any())
             {
                 bool isLead = true;
-                foreach (var audId in dto.AuditorIds)
+                foreach (var audId in auditorIds)
                 {
                     _context.AuditScheduleAuditors.Add(new AuditScheduleAuditor
                     {
@@ -286,12 +324,19 @@ namespace QSC.Api.Controllers
             {
                 return BadRequest(new { message = formValidationError });
             }
+            var auditorIds = (dto.AuditorIds ?? new List<int>())
+                .Distinct()
+                .ToList();
 
-            if (dto.AuditorIds.Any())
+            if (auditorIds.Any())
             {
-                var validAuditorCount = await _context.Users.CountAsync(u => dto.AuditorIds.Contains(u.Id) && u.IsActive);
-                if (validAuditorCount != dto.AuditorIds.Distinct().Count())
-                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบ" });
+                var validAuditorCount = await _context.Users.CountAsync(
+                    u => auditorIds.Contains(u.Id) && u.IsActive);
+
+                if (validAuditorCount != auditorIds.Count)
+                {
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบหรือถูกปิดการใช้งาน" });
+                }
             }
 
             if (schedule.Status == "completed")
@@ -299,21 +344,33 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "ไม่สามารถแก้ไขนัดหมายที่ตรวจเสร็จสมบูรณ์แล้วได้ (ล็อกถาวร)" });
             }
 
-            schedule.LocationId = dto.LocationId;
+           schedule.LocationId = dto.LocationId;
             schedule.SurveyFormId = dto.SurveyFormId;
             schedule.ScheduledDate = dto.ScheduledDate;
             schedule.Time = dto.Time;
             schedule.AuditType = dto.AuditType;
             schedule.Notes = dto.Notes;
-            if (!string.IsNullOrEmpty(dto.Status)) schedule.Status = dto.Status;
+
+            if (!string.IsNullOrWhiteSpace(dto.Status))
+            {
+                var allowedStatuses = new[] { "pending", "in_progress", "completed", "cancelled" };
+                var status = dto.Status.Trim().ToLowerInvariant();
+
+                if (!allowedStatuses.Contains(status))
+                {
+                    return BadRequest(new { message = "สถานะนัดหมายไม่ถูกต้อง" });
+                }
+
+                schedule.Status = status;
+            }
 
             // Sync auditors
             _context.AuditScheduleAuditors.RemoveRange(schedule.Auditors);
 
-            if (dto.AuditorIds.Any())
+            if (auditorIds.Any())
             {
                 bool isLead = true;
-                foreach (var audId in dto.AuditorIds)
+                foreach (var audId in auditorIds)
                 {
                     _context.AuditScheduleAuditors.Add(new AuditScheduleAuditor
                     {

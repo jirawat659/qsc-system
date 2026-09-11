@@ -217,6 +217,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [isFetchingEndGps, setIsFetchingEndGps] = useState(false);
   const [gpsSuccess, setGpsSuccess] = useState({ start: false, end: false });
 
+  const [sectionDrawerOpen, setSectionDrawerOpen] = useState(false);
+  const sectionRefs = useRef({});
+
   // Sync record prop
   useEffect(() => {
     setCurrentRecord(record);
@@ -704,6 +707,14 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return { earned, max, percent, isPassed, hasCritFail };
   }, [answersState, checklistQuestions, currentRecord]);
 
+  const scrollToSection = (sectionId) => {
+    setSectionDrawerOpen(false);
+    setTimeout(() => {
+      const el = sectionRefs.current[sectionId] || document.getElementById(sectionId);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
+  };
+
   if (!isOpen || !currentRecord) return null;
 
   const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
@@ -868,9 +879,14 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           {/* Top Row: Icon + Title + Score Preview + Close Button */}
           <div className="flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-emerald-100/80 border border-emerald-300/70 flex items-center justify-center text-[#0F6659] shadow-2xs shrink-0">
-                <Edit3 size={16} />
-              </div>
+              <button
+                type="button"
+                onClick={() => setSectionDrawerOpen(true)}
+                className="w-8 h-8 rounded-xl bg-emerald-100/80 border border-emerald-300/70 flex items-center justify-center text-[#0F6659] shadow-2xs shrink-0 cursor-pointer hover:bg-emerald-200/80 active:scale-95 transition-all"
+                title="เปิดหมวดหมู่"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+              </button>
               <div className="min-w-0">
                 <h3 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight truncate">
                   แก้ไขบันทึกผลการตรวจ
@@ -911,6 +927,71 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
           </div>
         </div>
+
+        {/* Section Navigation Drawer */}
+        {sectionDrawerOpen && (
+          <>
+            <div
+              onClick={() => setSectionDrawerOpen(false)}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50 }}
+            />
+            <div style={{
+              position: 'fixed', top: 0, left: 0, bottom: 0, width: 280,
+              background: 'white', zIndex: 51, overflowY: 'auto',
+              boxShadow: '4px 0 20px rgba(0,0,0,0.15)',
+            }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>หมวดหมู่ข้อตรวจ</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>เลือกหมวดเพื่อข้ามไปยังส่วนนั้น</div>
+              </div>
+              {[
+                { id: 'sec-reason-time', label: 'เหตุผล & เวลาตรวจ', icon: '📝' },
+                { id: 'sec-meta', label: 'รายละเอียดการตรวจ', icon: '📋' },
+                { id: 'sec-gps', label: 'พิกัด GPS', icon: '📍' },
+                { id: 'sec-signatures', label: 'ลายเซ็นดิจิทัล', icon: '✍️' },
+                ...groupedSections.map((sec, idx) => ({
+                  id: sec.id,
+                  label: sec.title,
+                  icon: `${idx + 1}`,
+                  count: `${sec.items.length} ข้อ`,
+                  isSection: true,
+                }))
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => scrollToSection(item.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    width: '100%', padding: '12px 20px', border: 'none',
+                    background: 'transparent', cursor: 'pointer', textAlign: 'left',
+                    borderBottom: '1px solid #f1f5f9',
+                    transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = '#f0fdf4'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <span style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: item.isSection ? '#e5e7eb' : '#f0fdf4',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 700, color: item.isSection ? '#374151' : '#0F6659',
+                    border: '1px solid #d1d5db', flexShrink: 0,
+                  }}>
+                    {item.icon}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {item.label}
+                    </div>
+                    {item.count && (
+                      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{item.count}</div>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Form Body */}
         <form
@@ -1357,7 +1438,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
 
             {groupedSections.map((sec, secIdx) => (
-              <div key={sec.id || secIdx} id={sec.id} className="space-y-3">
+              <div key={sec.id || secIdx} id={sec.id} ref={el => sectionRefs.current[sec.id] = el} className="space-y-3">
                 {/* Header หมวด */}
                 <div className="px-3.5 py-2 rounded-xl bg-slate-100/80 border border-slate-200 flex items-center justify-between">
                   <h4 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">

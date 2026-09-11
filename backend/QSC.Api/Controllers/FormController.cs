@@ -56,7 +56,7 @@ namespace QSC.Api.Controllers
 
             var scheduleCounts = await _context.AuditSchedules
                 .AsNoTracking()
-                .Where(s => s.Status != "CANCELLED")
+                .Where(s => s.Status.ToLower() != "cancelled")
                 .GroupBy(s => s.SurveyFormId)
                 .Select(g => new { FormId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.FormId, x => x.Count);
@@ -141,7 +141,9 @@ namespace QSC.Api.Controllers
             if (f == null) return NotFound();
 
             var auditCount = await _context.AuditRecords.AsNoTracking().CountAsync(a => a.SurveyFormId == id);
-            var scheduleCount = await _context.AuditSchedules.AsNoTracking().CountAsync(s => s.SurveyFormId == id && s.Status != "CANCELLED");
+            var scheduleCount = await _context.AuditSchedules
+                .AsNoTracking()
+                .CountAsync(s => s.SurveyFormId == id && s.Status.ToLower() != "cancelled");
 
             var targetLocationIds = f.TargetLocations.Select(t => t.LocationId).ToList();
 

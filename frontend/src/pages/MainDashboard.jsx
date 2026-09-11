@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, CheckCircle2, Navigation, X, LogOut, AlertCircle, ChevronDown } from "lucide-react";
+import { Menu, ChevronLeft, CheckCircle2, Navigation, X, LogOut, AlertCircle, ChevronDown } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../config/theme";
-import { ROLES, NAV_BY_ROLE, getRoleNavConfig, NAV_MODULES_DICT } from "../config/roles";
+import { ROLES, NAV_BY_ROLE, getRoleNavConfig, NAV_MODULES_DICT, getDesktopNavGroups } from "../config/roles";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP } from "../config/constants";
 import { TopBarContext } from "../context/TopBarContext";
 import { DataContext } from "../context/DataContext";
@@ -45,6 +45,20 @@ export default function MainDashboard({ onLogout }) {
   const [auditRecords, setAuditRecords] = useState([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataFetchError, setDataFetchError] = useState(null);
+
+  // 🌟 Phase 3.3: Buffer pagination state for /audit/records and /cap.
+  // These two collections were removed from the initial Promise.allSettled (Phase 3.2)
+  // to keep first paint fast, so they're loaded here separately in the background,
+  // 50 records at a time, with more pages fetchable on demand via loadMore*.
+  const [auditRecordsTotalCount, setAuditRecordsTotalCount] = useState(0);
+  const [capTasksTotalCount, setCapTasksTotalCount] = useState(0);
+  const [isLoadingAuditRecords, setIsLoadingAuditRecords] = useState(false);
+  const [isLoadingCapTasks, setIsLoadingCapTasks] = useState(false);
+  const auditRecordsPageRef = useRef(0);
+  const capTasksPageRef = useRef(0);
+  const hasReachedAuditRecordsEndRef = useRef(false);
+  const hasReachedCapTasksEndRef = useRef(false);
+  const BUFFER_PAGE_SIZE = 100;
 
   const [selectedBrandId, setSelectedBrandIdState] = useState(() => {
     const saved = localStorage.getItem('qsc_selected_brand_id');
@@ -89,17 +103,16 @@ export default function MainDashboard({ onLogout }) {
     if (!isSilent) setIsLoadingData(true);
     if (!isSilent) setDataFetchError(null);
     try {
-      const [locRes, schedRes, formRes, draftsRes, capRes, auditRes, brandRes] = await Promise.allSettled([
+      // 🌟 ตัด /cap และ /audit/records ออกจากโหลดเริ่มต้น
+      const [locRes, schedRes, formRes, draftsRes, brandRes] = await Promise.allSettled([
         api.get('/location'),
         api.get('/schedule'),
         api.get('/form'),
         api.get('/audit/drafts'),
-        api.get('/cap'),
-        api.get('/audit/records'),
         api.get('/brand')
       ]);
 
-      const rejectedCount = [locRes, schedRes, formRes, capRes, auditRes, brandRes].filter(r => r.status === 'rejected').length;
+      const rejectedCount = [locRes, schedRes, formRes, brandRes].filter(r => r.status === 'rejected').length;
       if (rejectedCount > 0 && !isSilent) {
         setDataFetchError(`ไม่สามารถเชื่อมต่อดึงข้อมูลบางส่วนได้ (${rejectedCount} รายการ)`);
       }
@@ -115,8 +128,6 @@ export default function MainDashboard({ onLogout }) {
         setActiveDrafts([]);
         setActiveDraft(null);
       }
-      if (capRes.status === 'fulfilled' && capRes.value.data) setCapTasks(capRes.value.data);
-      if (auditRes.status === 'fulfilled' && auditRes.value.data) setAuditRecords(auditRes.value.data);
       if (brandRes.status === 'fulfilled' && brandRes.value.data) setBrands(brandRes.value.data);
       lastRefreshTimeRef.current = Date.now();
     } catch (err) {
@@ -129,19 +140,148 @@ export default function MainDashboard({ onLogout }) {
     }
   };
 
+  // 🌟 Phase 3.3: Load a buffer page of /audit/records into context.
+  // `reset = true` starts back at page 1 (used on first load / refresh);
+  // otherwise it fetches the next page after whatever was already loaded.
+  const loadMoreAuditRecords = async (reset = false) => {
+    if (isLoadingAuditRecords) return;
+    if (reset) {
+      hasReachedAuditRecordsEndRef.current = false;
+    } else if (hasReachedAuditRecordsEndRef.current) {
+      return;
+    }
+    const nextPage = reset ? 1 : auditRecordsPageRef.current + 1;
+    setIsLoadingAuditRecords(true);
+    try {
+      const res = await api.get('/audit/records', { params: { page: nextPage, pageSize: BUFFER_PAGE_SIZE } });
+      const data = res.data;
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      const totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
+
+      if (items.length === 0) {
+        hasReachedAuditRecordsEndRef.current = true;
+        if (reset) {
+          setAuditRecords([]);
+          setAuditRecordsTotalCount(0);
+          auditRecordsPageRef.current = 1;
+        }
+        return;
+      }
+
+      auditRecordsPageRef.current = nextPage;
+      setAuditRecordsTotalCount(totalCount);
+      setAuditRecords(prev => (reset ? items : [...prev, ...items]));
+
+      if (items.length < BUFFER_PAGE_SIZE) {
+        hasReachedAuditRecordsEndRef.current = true;
+      }
+    } catch (err) {
+      // เงียบไว้: หน้าจอที่ใช้ auditRecords จะยังคงแสดงข้อมูลเท่าที่โหลดได้ก่อนหน้า
+    } finally {
+      setIsLoadingAuditRecords(false);
+    }
+  };
+
+  // 🌟 Bugfix: background refresh (focus / interval / SignalR) เดิมเรียก
+  // loadMoreAuditRecords(true) ซึ่งรีเซ็ต buffer กลับไปหน้า 1 (50 รายการล่าสุด)
+  // ทุกครั้ง — ทำให้ข้อมูลหน้าเพิ่มเติมที่หน้ารายงานเคยโหลดไว้ก่อนหน้านั้นหายไป
+  // ฟังก์ชันนี้โหลดคืนให้ครบเท่าจำนวนหน้าที่เคยโหลดไว้แล้วแทน จะได้ไม่เห็นข้อมูลลดลง
+  // ระหว่างที่หน้ารายงานเปิดค้างอยู่
+  const resyncAuditRecords = async () => {
+    if (isLoadingAuditRecords) return;
+    const pagesToRestore = Math.max(1, auditRecordsPageRef.current);
+    setIsLoadingAuditRecords(true);
+    try {
+      let combined = [];
+      let totalCount = 0;
+      for (let p = 1; p <= pagesToRestore; p++) {
+        const res = await api.get('/audit/records', { params: { page: p, pageSize: BUFFER_PAGE_SIZE } });
+        const data = res.data;
+        const items = Array.isArray(data) ? data : (data?.items || []);
+        totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? totalCount);
+        combined = combined.concat(items);
+        if (items.length < BUFFER_PAGE_SIZE) {
+          hasReachedAuditRecordsEndRef.current = true;
+          break;
+        }
+      }
+      auditRecordsPageRef.current = pagesToRestore;
+      setAuditRecordsTotalCount(totalCount);
+      setAuditRecords(combined);
+    } catch (err) {
+      // เงียบไว้เหมือนเดิม: คงข้อมูลเดิมที่มีอยู่ต่อไปแทนที่จะล้างทิ้ง
+    } finally {
+      setIsLoadingAuditRecords(false);
+    }
+  };
+
+  // 🌟 Phase 3.3: Same buffer pattern for /cap.
+  const loadMoreCapTasks = async (reset = false) => {
+    if (isLoadingCapTasks) return;
+    if (reset) {
+      hasReachedCapTasksEndRef.current = false;
+    } else if (hasReachedCapTasksEndRef.current) {
+      return;
+    }
+    const nextPage = reset ? 1 : capTasksPageRef.current + 1;
+    setIsLoadingCapTasks(true);
+    try {
+      const res = await api.get('/cap', { params: { page: nextPage, pageSize: BUFFER_PAGE_SIZE } });
+      const data = res.data;
+      const items = Array.isArray(data) ? data : (data?.items || []);
+      const totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
+
+      if (items.length === 0) {
+        hasReachedCapTasksEndRef.current = true;
+        if (reset) {
+          setCapTasks([]);
+          setCapTasksTotalCount(0);
+          capTasksPageRef.current = 1;
+        }
+        return;
+      }
+
+      capTasksPageRef.current = nextPage;
+      setCapTasksTotalCount(totalCount);
+      setCapTasks(prev => (reset ? items : [...prev, ...items]));
+
+      if (items.length < BUFFER_PAGE_SIZE) {
+        hasReachedCapTasksEndRef.current = true;
+      }
+    } catch (err) {
+      // เงียบไว้เช่นกัน
+    } finally {
+      setIsLoadingCapTasks(false);
+    }
+  };
+
+  // 🌟 Lazy buffer (revert eager-load-all): ไม่โหลดทุกหน้าอัตโนมัติอีกต่อไป
+  // โหลดแค่หน้าแรก (BUFFER_PAGE_SIZE รายการ) ตอนเริ่มต้น แล้วให้หน้าจอที่ใช้งาน
+  // (เช่น AllAuditHistoryScreen) เรียก loadMoreAuditRecords(false) เองเมื่อผู้ใช้เลื่อน/พลิกหน้าใกล้ขอบข้อมูลที่โหลดไว้
   useEffect(() => {
     refreshData();
+
+    // 🌟 Background-load the first buffer page of audit records / CAP tasks.
+    // Not part of the critical Promise.allSettled batch above (Phase 3.2), so it
+    // never blocks first paint — screens relying on these show a local loading
+    // state (isLoadingAuditRecords / isLoadingCapTasks) until this resolves.
+    loadMoreAuditRecords(true);
+    loadMoreCapTasks(true);
 
     // 🔄 Auto-sync on Window Focus (ดึงข้อมูลล่าสุดอัตโนมัติเมื่อสลับกลับมาที่แท็บ หากเกิน 60 วินาที)
     const handleFocus = () => {
       if (Date.now() - lastRefreshTimeRef.current > 60000) {
         refreshData(true);
+        resyncAuditRecords();
+        loadMoreCapTasks(true);
       }
     };
 
     // 🔄 Background periodic sync ทุก 3 นาที (180,000 ms) แบบเงียบๆ เพื่อประหยัดทรัพยากรเซิร์ฟเวอร์
     const interval = setInterval(() => {
       refreshData(true);
+      resyncAuditRecords();
+      loadMoreCapTasks(true);
     }, 180000);
 
     // 📡 Real-time SignalR Event: รีเฟรชข้อมูลอัตโนมัติเฉพาะเมื่อมีผลตรวจใหม่เข้ามาจริงๆ
@@ -150,6 +290,8 @@ export default function MainDashboard({ onLogout }) {
       .then(() => {
         unsubscribeAudit = signalRService.onAuditCreated(() => {
           refreshData(true);
+          resyncAuditRecords();
+          loadMoreCapTasks(true);
         });
       })
       .catch(() => {});
@@ -227,7 +369,22 @@ export default function MainDashboard({ onLogout }) {
     };
   }, [storedUser, role]);
 
+  // 🌟 Desktop sidebar navigation groups (Core workflows + System tools, replaces 'more')
+  const desktopNav = useMemo(() => {
+    const userNavConfig = storedUser?.navConfig || storedUser?.navConfigJson;
+    const permissions = currentUser?.permissions || storedUser?.permissions || [];
+    return getDesktopNavGroups(role, permissions, userNavConfig);
+  }, [role, storedUser, currentUser]);
 
+  const [isDesktop, setIsDesktop] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : false);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const [moreResetKey, setMoreResetKey] = useState(0);
   const mainContentRef = useRef(null);
@@ -327,12 +484,14 @@ export default function MainDashboard({ onLogout }) {
   }, [role]);
 
   const renderCurrentScreen = () => {
+    const adminMoreSubScreens = ["master_management", "branch_info", "contact_qa", "auditor_profile", "settings", "integrations"];
+
     return (
       <ErrorBoundary>
         <React.Suspense fallback={<ScreenLoader />}>
           {(screen === "reports" || screen === "history") && (
             <ConsolidatedReportsScreen
-              onBack={() => setScreen("more")}
+              onBack={isDesktop ? undefined : () => setScreen("more")}
               currentAuditorName={null}
               title="รายงานผลการตรวจประเมิน"
               onStartAudit={(plan) => handleStartAuditDirect(plan)}
@@ -396,21 +555,25 @@ export default function MainDashboard({ onLogout }) {
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
                 refreshData();
+                loadMoreAuditRecords(true);
+                loadMoreCapTasks(true);
                 setScreen("reports");
               }}
             />
           )}
-          {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={() => setScreen("more")} />}
-          {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={role !== "AUDITEE" ? () => setScreen("more") : undefined} />}
-          {screen === "more" && (
+          {screen === "forms" && <FormsScreen isDesktop={true} role={role} onBack={isDesktop ? undefined : () => setScreen("more")} />}
+          {screen === "cap" && <CapScreen isDesktop={true} role={role} currentUser={currentUser} onBack={(!isDesktop && role !== "AUDITEE") ? () => setScreen("more") : undefined} />}
+          {(screen === "more" || adminMoreSubScreens.includes(screen)) && (
             <AdminMoreScreen
               resetKey={moreResetKey}
-              isDesktop={true}
+              isDesktop={isDesktop}
               role={role}
               currentUser={currentUser}
               onNavigate={handleNavClick}
               onStartAuditDirect={handleStartAuditDirect}
               activeNavKeys={nav.map(n => n.key)}
+              activeSubScreen={screen !== "more" ? screen : null}
+              onSubScreenChange={setIsMoreSubScreen}
             />
           )}
           {screen === "schedule" && (
@@ -420,7 +583,7 @@ export default function MainDashboard({ onLogout }) {
               isDesktop={true}
               onStartAuditDirect={handleStartAuditDirect}
               currentAuditorName={role === "AUDITOR" ? currentUser.name : null}
-              onBack={role === "STANDARD" || role === "ADMIN" ? () => setScreen("more") : undefined}
+              onBack={(!isDesktop && (role === "STANDARD" || role === "ADMIN")) ? () => setScreen("more") : undefined}
             />
           )}
           {screen === "dashboard" && <DashboardScreen role={role} isDesktop={true} />}
@@ -452,19 +615,27 @@ export default function MainDashboard({ onLogout }) {
     setLocations, setSchedules, setCapTasks, setAuditRecords,
     refreshData,
     isLoadingData,
-    dataFetchError
+    dataFetchError,
+    // 🌟 Phase 3.3: buffer pagination metadata + loaders for /audit/records and /cap
+    auditRecordsTotalCount,
+    capTasksTotalCount,
+    isLoadingAuditRecords,
+    isLoadingCapTasks,
+    loadMoreAuditRecords,
+    loadMoreCapTasks
   }), [
     currentUser, locations, schedules, forms,
     activeDraft, activeDrafts, capTasks, auditRecords,
     refreshData, isLoadingData, dataFetchError,
     visibleLocations, visibleAuditRecords, visibleSchedules, visibleCapTasks,
-    brands, selectedBrandId
+    brands, selectedBrandId,
+    auditRecordsTotalCount, capTasksTotalCount, isLoadingAuditRecords, isLoadingCapTasks
   ]);
 
   return (
     <DataContext.Provider value={dataContextValue}>
     <TopBarContext.Provider value={topBarContextValue}>
-    <div className="w-full min-h-screen" style={{ background: "#EBEAE5", fontFamily: sans }}>
+    <div className="w-full min-h-screen lg:h-screen lg:overflow-hidden" style={{ background: "#EBEAE5", fontFamily: sans }}>
       
       {/* ⚠️ API Fetch Warning Banner */}
       {dataFetchError && (
@@ -491,12 +662,12 @@ export default function MainDashboard({ onLogout }) {
       )}
 
       {/* UNIFIED FULLY RESPONSIVE APPLICATION LAYOUT */}
-      <div className="w-full min-h-screen flex flex-col lg:flex-row" style={{ background: c.bg }}>
+      <div className="w-full min-h-screen lg:min-h-0 lg:h-full flex flex-col lg:flex-row" style={{ background: c.bg }}>
           {/* DESKTOP SIDEBAR */}
-          <aside className="hidden lg:flex w-64 xl:w-72 shrink-0 bg-white border-r flex-col justify-between shadow-2xs h-screen sticky top-0" style={{ borderColor: c.border }}>
-            <div className="p-5 space-y-5">
+          <aside className="hidden lg:flex w-64 xl:w-72 shrink-0 bg-white border-r flex-col justify-between shadow-2xs h-screen lg:h-full" style={{ borderColor: c.border }}>
+            <div className="p-5 space-y-4 flex-1 flex flex-col min-h-0">
               {/* Brand Header */}
-              <div className="flex items-center gap-3 pb-1">
+              <div className="flex items-center gap-3 pb-1 shrink-0">
                 <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#0F6659] to-[#15806e] text-white flex items-center justify-center font-black text-lg shadow-md shrink-0">
                   Q
                 </div>
@@ -507,7 +678,7 @@ export default function MainDashboard({ onLogout }) {
               </div>
 
               {brands.length > 1 ? (
-                <div>
+                <div className="shrink-0">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5 px-1">แบรนด์ที่แสดง</label>
                   <div className="relative">
                     <select
@@ -524,33 +695,70 @@ export default function MainDashboard({ onLogout }) {
                   </div>
                 </div>
               ) : brands.length === 1 ? (
-                <div className="px-3.5 py-2 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200 text-xs font-bold flex items-center gap-2">
+                <div className="px-3.5 py-2 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200 text-xs font-bold flex items-center gap-2 shrink-0">
                   <span className="truncate">🏪 {brands[0].name}</span>
                 </div>
               ) : null}
 
               {/* Sidebar Navigation */}
-              <nav className="space-y-1.5">
-                <div className="text-[11px] font-semibold uppercase tracking-wider px-3.5 mb-2 text-slate-400">เมนูการทำงาน</div>
-                {nav.map((item) => {
-                  const Icon = item.icon;
-                  const active = screen === item.key;
-                  return (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => handleNavClick(item.key)}
-                      className={`w-full flex items-center gap-3.5 px-3.5 py-3 rounded-2xl text-sm font-semibold text-left transition-all cursor-pointer ${
-                        active 
-                          ? 'bg-[#E3F0ED] text-[#0F6659] shadow-2xs' 
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                      }`}
-                    >
-                      <Icon size={20} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
-                      <span className="tracking-tight">{item.label}</span>
-                    </button>
-                  );
-                })}
+              <nav className="space-y-4 overflow-y-auto flex-1 pr-1.5 -mr-1.5 custom-scrollbar">
+                {/* Group 1: เมนูการทำงาน */}
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider px-3.5 mb-2 text-slate-400">เมนูการทำงาน</div>
+                  <div className="space-y-1">
+                    {desktopNav.workflows.map((item) => {
+                      const Icon = item.icon;
+                      const targetRoute = item.route || item.defaultRoute || item.key;
+                      const active = screen === item.key || (item.route && screen === item.route);
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => handleNavClick(targetRoute)}
+                          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-sm font-semibold text-left transition-all cursor-pointer ${
+                            active 
+                              ? 'bg-[#E3F0ED] text-[#0F6659] shadow-2xs font-bold' 
+                              : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                          }`}
+                        >
+                          <Icon size={19} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
+                          <span className="tracking-tight truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Group 2: ระบบและการจัดการ / ข้อมูลและบริการ */}
+                {desktopNav.systemTools && desktopNav.systemTools.length > 0 && (
+                  <div className="pt-3 border-t border-slate-100">
+                    <div className="text-[11px] font-bold uppercase tracking-wider px-3.5 mb-2 text-slate-400">
+                      {desktopNav.systemGroupTitle}
+                    </div>
+                    <div className="space-y-1">
+                      {desktopNav.systemTools.map((item) => {
+                        const Icon = item.icon;
+                        const targetRoute = item.route || item.key;
+                        const active = screen === item.key || (item.route && screen === item.route);
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={() => handleNavClick(targetRoute)}
+                            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-sm font-semibold text-left transition-all cursor-pointer ${
+                              active 
+                                ? 'bg-[#E3F0ED] text-[#0F6659] shadow-2xs font-bold' 
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            }`}
+                          >
+                            <Icon size={19} className={active ? 'text-[#0F6659]' : 'text-slate-400'} />
+                            <span className="tracking-tight truncate">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </nav>
             </div>
 
@@ -596,14 +804,18 @@ export default function MainDashboard({ onLogout }) {
             {(subHeader?.isAudit || subHeader?.onBack || subHeader?.hasBack) ? (
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  {subHeader?.onBack && (
+                  {(subHeader?.onBack || subHeader?.onMenuClick) && (
                     <button
                       type="button"
-                      onClick={subHeader.onBack}
+                      onClick={subHeader.leftActionType === "menu" ? subHeader.onMenuClick : subHeader.onBack}
                       className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200 shrink-0 group"
-                      title="ย้อนกลับ"
+                      title={subHeader.leftActionType === "menu" ? "เปิดหมวดหมู่" : "ย้อนกลับ"}
                     >
-                      <ChevronLeft size={20} strokeWidth={2.5} className="text-slate-700 group-hover:text-[#0F6659] transition-colors -ml-0.5" />
+                      {subHeader.leftActionType === "menu" ? (
+                        <Menu size={18} strokeWidth={2.4} className="text-[#0F6659]" />
+                      ) : (
+                        <ChevronLeft size={20} strokeWidth={2.5} className="text-slate-700 group-hover:text-[#0F6659] transition-colors -ml-0.5" />
+                      )}
                     </button>
                   )}
                   <div className="min-w-0 flex-1">
@@ -689,7 +901,7 @@ export default function MainDashboard({ onLogout }) {
           </header>
 
           {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
-          <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden min-h-screen pb-16 lg:pb-8 w-full max-w-full">
+          <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden min-h-screen lg:min-h-0 lg:h-full pb-16 lg:pb-8 w-full max-w-full">
             <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
               {renderCurrentScreen()}
             </div>
