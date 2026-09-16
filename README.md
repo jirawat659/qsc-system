@@ -31,8 +31,8 @@
                                            ▼
 ┌───────────────────────────────────────────────────────────────────────────────────────┐
 │                               BACKEND API (RESTful & Real-Time)                       │
-│  • Core: ASP.NET Core 9 Web API (C# .NET 9)                                           │
-│  • ORM: Entity Framework Core 9 (Code-First with Fluent API)                          │
+│  • Core: ASP.NET Core 10 Web API (C# .NET 10)                                         │
+│  • ORM: Entity Framework Core 10 (Code-First with Fluent API)                         │
 │  • Real-Time Hub: SignalR Hubs (/hubs/cap-chat)                                       │
 │  • Authentication: JWT Bearer Token + Role & Granular Permission Authorization        │
 │  • Concurrency & Audit: Shadow Properties + VersionNumber Concurrency Token          │
@@ -55,14 +55,15 @@
 
 ### 📊 3.1 แดชบอร์ดผู้บริหาร (Executive Dashboard)
 - **KPI Metrics:** คะแนนเฉลี่ยรวม, อัตราผ่านเกณฑ์มาตรฐาน, จำนวนสาขาที่ตรวจแล้ว, และงาน CAP ค้างแก้ไข
+- **Latest Audit per Location:** คำนวณคะแนนภาพรวมและอัตราการผ่านเกณฑ์จาก **รอบล่าสุดของแต่ละสถานที่** ในช่วงเวลาที่เลือก ป้องกันการเฉลี่ยคะแนนซ้ำซ้อน
 - **Visual Gauge & Benchmarks:** มาตรวัดความสำเร็จเทียบเป้าหมายองค์กร ($\ge 85\%$)
-- **Monthly Trend:** กราฟวิเคราะห์แนวโน้มคะแนนเฉลี่ยย้อนหลัง พร้อมเส้นเกณฑ์มาตรฐาน
-- **Dynamic Category Breakdown:** แสดงคะแนนจำแนกตามหมวดหมู่ (ความสะอาด, เอกสาร, กระบวนการ, วัตถุดิบ, บริการ)
+- **Monthly Trend:** กราฟวิเคราะห์แนวโน้มคะแนนเฉลี่ยย้อนหลัง พร้อมเส้นเกณฑ์มาตรฐาน (คิดจากรอบล่าสุดของแต่ละสาขารายเดือน)
+- **Dynamic Category Breakdown:** แสดงคะแนนจำแนกตามหมวดหมู่ (ความสะอาด, เอกสาร, กระบวนการทำงาน, คุณภาพสินค้า, การบริการ)
 - **Branch Rankings:** ตารางจัดอันดับสาขาคะแนนสูงสุด-ต่ำสุด พร้อมสถานะผ่าน/ไม่ผ่าน
 
 ### 📱 3.2 ตรวจประเมินหน้างานสด (Live Audit Engine)
 - **Workflow 3 แท็บ:** ข้อมูลการตรวจ $\rightarrow$ รายการตรวจ $\rightarrow$ สรุปผลและลงลายเซ็น
-- **Scoring System:** รองรับข้อคำถามแบบ Yes/No, สเกลคะแนน, และระบบ **N/A (Not Applicable)** โดยคำนวณคะแนนเต็มสุทธิใหม่อย่างยุติธรรม
+- **Scoring System:** รองรับข้อคำถามแบบ Yes/No, สเกลคะแนน 1-5 (คะแนน $\ge 3$ ถือว่าผ่านเกณฑ์), และระบบ **N/A (Not Applicable)** โดยคำนวณคะแนนเต็มสุทธิใหม่อย่างยุติธรรม
 - **Critical Defect (Zero Tolerance):** หากข้อตรวจระดับวิกฤตไม่ผ่าน ระบบจะปรับผลเป็นตกการตรวจทันที
 - **GPS Distance Validation:** ตรวจจับระยะห่างระหว่างตำแหน่งผู้ตรวจกับพิกัดจริงของสาขา
 - **Media Upload:** บีบอัดรูปถ่ายหลักฐานหน้างานบน Canvas ก่อนอัปโหลดเป็นภาพ WebP
@@ -91,6 +92,13 @@
 ### 📑 3.6 รายงานและการส่งออกข้อมูล (Consolidated Reports & Excel Suite)
 - ค้นหาประวัติการตรวจย้อนหลังแบบอัจฉริยะ รองรับการค้นหาด้วย **เดือนและปีภาษาไทย** (เช่น "มีนาคม", "มี.ค. 2568", "ก.ย. 2569") โดยดึงข้อมูลตรงจากฐานข้อมูล
 - ระบบส่งออกรายงานเป็น Excel สวยงามพร้อมจัดรูปแบบ (Summary, Full Audit Report, CAP List, Monthly Meeting Report)
+
+### 🤖 3.7 ระบบผู้ช่วยปัญญาประดิษฐ์ (AI Assistant & Analytics Suite)
+- **Ollama Local AI Integration:** เชื่อมต่อ Local LLM (โมเดล Qwen 2.5:9b) ประมวลผลข้อมูลปลอดภัยภายในองค์กร 100%
+- **AI Dashboard Insights:** สรุปจุดเด่น จุดเฝ้าระวัง และข้อเสนอแนะเชิงกลยุทธ์ตามรอบเวลาที่เลือก พร้อมระบบ In-Memory Session Cache ป้องกันยิงซ้ำซ้อน
+- **AI CAP Advisor:** วิเคราะห์ข้อบกพร่องและแนะนำแนวทางแก้ไขเชิงปฏิบัติการ (Preventive Actions)
+- **AI Schedule Advisor:** วิเคราะห์สาขาที่มีความเสี่ยงสูงเพื่อแนะนำจัดลำดับการเข้าตรวจล่วงหน้า
+- **Smart Analytics Engine Fallback:** ระบบวิเคราะห์เชิงสถิติอัตโนมัติที่ทำงานได้ทันทีแม้ไม่ได้เชื่อมต่อ AI หรือออฟไลน์
 
 ---
 
@@ -130,7 +138,7 @@ qsc-System/
 ## 🚀 5. วิธีการติดตั้งและเริ่มต้นใช้งาน (Installation & Quick Start)
 
 ### ความต้องการของระบบ (Prerequisites)
-- **.NET SDK:** เวอร์ชัน 9.0 ขึ้นไป
+- **.NET SDK:** เวอร์ชัน 10.0 ขึ้นไป
 - **Node.js:** เวอร์ชัน 18.0 ขึ้นไป (แนะนำ LTS)
 - **Database:** Microsoft SQL Server (LocalDB / Express / Enterprise)
 
@@ -161,7 +169,7 @@ cd frontend
 # 2. ติดตั้ง Dependencies
 npm install
 
-# 3. เริ่มต้นโหมด Development (รันบนพอร์ต http://localhost:2000)
+# 3. เริ่มต้นโหมด Development (รันบนพอร์ต http://localhost:5173 หรือ http://localhost:2000)
 npm run dev
 ```
 
@@ -173,11 +181,11 @@ npm run dev
 
 | ชื่อผู้ใช้งาน (Username) | รหัสผ่าน (Password) | บทบาท (Role) | สิทธิ์และหน้าที่ |
 |---|---|---|---|
-| `admin` | `admin123` | **ADMIN** | ผู้ดูแลระบบ เข้าถึงได้ทุกฟังก์ชัน จัดการข้อมูลหลัก และตั้งค่าสิทธิ์ |
-| `auditor` | `auditor123` | **AUDITOR** | ผู้ตรวจประเมิน (QC Lead) ตรวจหน้างานสด ดูแผนงานตนเอง และตรวจรับรอง CAP |
-| `auditee` | `auditee123` | **AUDITEE** | ผู้จัดการสาขา (Store Manager) ดูผลตรวจสาขาตนเอง ส่งงานแก้ไข CAP ในห้องแชท |
-| `standard` | `standard123` | **STANDARD** | ผู้ดูแลมาตรฐาน (QA Team) วางแผนตรวจ สร้างแบบฟอร์ม วิเคราะห์ผลตรวจ |
-| `exec` | `exec123` | **EXEC** | ผู้บริหารระดับสูง ดูรายงานสถิติภาพรวม แดชบอร์ด และแนวโน้มรายแบรนด์ |
+| `admin` | `1234` | **ADMIN** | ผู้ดูแลระบบ เข้าถึงได้ทุกฟังก์ชัน จัดการข้อมูลหลัก และตั้งค่าสิทธิ์ |
+| `somchai` | `1234` | **AUDITOR** | ผู้ตรวจประเมิน (Lead QA) ตรวจหน้างานสด ดูแผนงานตนเอง และตรวจรับรอง CAP |
+| `auditee` | `123456` | **AUDITEE** | ผู้จัดการสาขา (Store Manager - เอเชียทีค) ดูผลตรวจสาขาตนเอง ส่งงานแก้ไข CAP ในห้องแชท |
+| `kanda` | `1234` | **STANDARD** | ผู้ดูแลมาตรฐาน (QA Director) วางแผนตรวจ สร้างแบบฟอร์ม วิเคราะห์ผลตรวจ |
+| `david` | `1234` | **EXEC** | ผู้บริหารระดับสูง (COO) ดูรายงานสถิติภาพรวม แดชบอร์ด และแนวโน้มรายแบรนด์ |
 
 ---
 

@@ -1,6 +1,6 @@
 # 📖 Q.S.C. System — พจนานุกรมข้อมูล (Data Dictionary)
-> **เวอร์ชัน:** 4.0 (Enterprise Production Schema — 25 ตารางสมบูรณ์แบบ รองรับ Multi-Brand, Audit Trail, Dynamic Navigation JSON & RBAC Matrix)  
-> **อัปเดตล่าสุด:** 11 กันยายน 2569  
+> **เวอร์ชัน:** 4.1 (Enterprise Production Schema — 25 ตารางสมบูรณ์แบบ รองรับ Multi-Brand, Audit Trail, Dynamic Navigation JSON, AI Analysis & RBAC Matrix)  
+> **อัปเดตล่าสุด:** 16 กันยายน 2569  
 > **ฐานข้อมูลเป้าหมาย:** SQL Server / SQLite / PostgreSQL
 
 ---
@@ -371,6 +371,7 @@
 | `audit_type` | `VARCHAR(20)` | Default `'announced'` | ❌ No | ประเภทการตรวจ |
 | `notes` | `TEXT` | - | ✅ Yes | สรุปภาพรวมและข้อเสนอแนะของผู้ตรวจ |
 | `metadata_values_json`| `TEXT` | - | ✅ Yes | ค่าฟิลด์พิเศษเพิ่มเติมของผลตรวจ (JSON) |
+| `ai_analysis_json` | `TEXT` | - | ✅ Yes | ผลการวิเคราะห์ข้อมูลความเสี่ยงและข้อเสนอแนะโดย AI Assistant (JSON) |
 | `auditor_signature_url`| `VARCHAR(500)`| - | ✅ Yes | Relative Path ภาพลายเซ็นผู้ตรวจ เช่น `/uploads/signatures/auditor_1.webp` |
 | `auditee_signature_url`| `VARCHAR(500)`| - | ✅ Yes | Relative Path ภาพลายเซ็นผู้รับตรวจ เช่น `/uploads/signatures/auditee_1.webp` |
 | `signed_at` | `DATETIME` | - | ✅ Yes | วันเวลาที่ลงนามเสร็จสมบูรณ์ |
