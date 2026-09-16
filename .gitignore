@@ -99,6 +99,7 @@ $RECYCLE.BIN/
 # ==========================================
 qsc-clean-source/
 *.zip
+!qsc-code.zip
 *.tar.gz
 *.rar
 *.7z
