@@ -68,10 +68,12 @@ api.interceptors.request.use(
 );
 
 // 🛡️ Auto Error Interceptor: ถ้า Token หมดอายุหรือไม่ถูกต้อง (401 Unauthorized) ให้ล้างข้อมูลและเด้งกลับหน้า Login ทันที
+// ⚠️ ยกเว้น endpoint /auth/login เพื่อให้หน้า Login แสดงแจ้งเตือนรหัสผ่านผิดและนับถอยหลัง Brute Force ได้
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
+    const isLoginEndpoint = error.config?.url?.includes('/auth/login');
+    if (!isLoginEndpoint && error.response && error.response.status === 401) {
       authStorage.clearSession();
       window.dispatchEvent(new Event('storage'));
       window.location.reload();

@@ -110,17 +110,23 @@ builder.Services.AddSignalR(options =>
 
 // 5. Application Services
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<QSC.Api.Services.LoginRateLimiterService>();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
 
-// 6. Rate Limiting for AI Endpoints
+// 6. Rate Limiting for AI and Login Endpoints
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+        var isLogin = context.HttpContext.Request.Path.StartsWithSegments("/api/auth/login");
+        var msg = isLogin
+            ? "มีการพยายามเข้าสู่ระบบถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่อีกครั้ง"
+            : "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่";
         await context.HttpContext.Response.WriteAsync(
-            "{\"message\": \"คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่\", \"status\": 429}", 
+            $"{{\"message\": \"{msg}\", \"status\": 429, \"isLocked\": {isLogin.ToString().ToLower()}, \"retryAfterSeconds\": 60}}", 
             token);
     };
 
@@ -135,6 +141,23 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+
+    options.AddPolicy("LoginRateLimit", httpContext =>
+    {
+        var clientIp = httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor) && !string.IsNullOrWhiteSpace(forwardedFor)
+            ? forwardedFor.ToString().Split(',')[0].Trim()
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: clientIp,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 15,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0

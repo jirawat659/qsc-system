@@ -86,37 +86,34 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
   }, []);
 
   const current = options.find((o) => o.value === value);
-  const isSmall = size === "xs";
 
   return (
     <div ref={ref} className="relative z-50">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`relative flex items-center gap-2 rounded-2xl border border-slate-200 cursor-pointer transition-colors group ${
-          isSmall ? "bg-white px-3.5 py-2 hover:border-[#0F6659]" : "bg-white hover:bg-slate-50 px-4 py-2"
-        }`}
+        className="relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-2xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer transition-colors group"
       >
-        <CalendarDays size={isSmall ? 13 : 15} className="text-[#0F6659] shrink-0" />
-        <span className={`font-semibold text-slate-700 select-none ${isSmall ? "text-xs" : "text-sm"}`}>
+        <CalendarDays size={13} className="text-[#0F6659] shrink-0" />
+        <span className="font-semibold text-slate-700 select-none text-xs">
           {current?.label || value}
         </span>
-        <ChevronDown size={isSmall ? 12 : 14} className={`text-slate-400 shrink-0 group-hover:text-slate-600 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown size={12} className={`text-slate-400 shrink-0 group-hover:text-slate-600 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
-        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[220px] border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95">
           {options.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`w-full text-left px-4 py-3 text-sm font-bold cursor-pointer transition-colors flex items-center justify-between ${
+              className={`w-full text-left px-3.5 py-2.5 text-xs font-bold cursor-pointer transition-colors flex items-center justify-between ${
                 opt.value === value ? "bg-[#0F6659] text-white" : "text-slate-700 hover:bg-slate-50"
               }`}
             >
               <span>{opt.label}</span>
-              {opt.value === value && <CheckCircle2 size={14} className="text-white shrink-0" />}
+              {opt.value === value && <CheckCircle2 size={13} className="text-white shrink-0" />}
             </button>
           ))}
         </div>
@@ -620,7 +617,7 @@ export default function DashboardScreen({ role, isDesktop }) {
                 />
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+            <div className="absolute top-[68%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
               <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 font-mono">{avgScore}%</div>
             </div>
             <div className="absolute top-[35%] right-[12%] sm:right-[15%] flex flex-col items-center pointer-events-none">

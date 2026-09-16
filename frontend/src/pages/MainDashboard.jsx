@@ -921,7 +921,7 @@ export default function MainDashboard({ onLogout }) {
                   {/* Right Group: Brand Selector + Profile Badge */}
                   <div className="flex items-center gap-2 shrink-0 min-w-0 ml-auto">
                     {brands.length > 1 ? (
-                      <div className="flex items-center min-w-0 max-w-[140px] sm:max-w-[190px]">
+                      <div className="flex items-center min-w-0 max-w-[140px] sm:max-w-[190px] scale-[0.85] origin-right">
                         <div className="relative w-full">
                           <select
                             value={selectedBrandId || ''}
@@ -938,7 +938,7 @@ export default function MainDashboard({ onLogout }) {
                         </div>
                       </div>
                     ) : brands.length === 1 ? (
-                      <div className="flex items-center px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold shrink-0 max-w-[130px]">
+                      <div className="flex items-center px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold shrink-0 max-w-[130px] scale-[0.85] origin-right">
                         <span className="truncate">{brands[0].name}</span>
                       </div>
                     ) : null}
