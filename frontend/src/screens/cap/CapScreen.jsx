@@ -50,6 +50,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     }
 
     const mapped = tasks.map(t => {
+      const isCancelled = (t.status === "CANCELLED" || t.status === "cancelled");
       const isDone = (t.status === "CLOSED" || t.status === "approved" || t.status === "done" || t.status === "closed");
       const deadlineDate = t.submissionDeadline ? new Date(t.submissionDeadline) : null;
       const deadlineTime = deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.getTime() : Infinity;
@@ -63,7 +64,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         locationId: t.locationId || t.location?.id,
         issueItem: t.issueItem || t.description,
         desc: t.description || t.desc || "ต้องดำเนินการแก้ไขตามมาตรฐาน Q.S.C.",
-        status: isDone ? "done" : "pending",
+        status: isCancelled ? "cancelled" : (isDone ? "done" : "pending"),
         statusRaw: t.status,
         deadline: deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.toLocaleDateString('th-TH') : "-",
         createdAt: createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleDateString('th-TH') : "-",
@@ -79,10 +80,12 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     // 🌟 จัดเรียง: สถานะกำลังแก้ไขงาน (pending) อยู่บนสุด เรียงตามวันครบกำหนดที่ถึงก่อน (Ascending)
     // จากนั้นสถานะอนุมัติปิดงานแล้ว (done) อยู่ทีหลัง เรียงตามวันที่ล่าสุด (Descending)
     return mapped.sort((a, b) => {
-      if (a.status !== b.status) {
-        return a.status === "pending" ? -1 : 1;
+      const aIsDoneOrCancelled = a.status === "done" || a.status === "cancelled";
+      const bIsDoneOrCancelled = b.status === "done" || b.status === "cancelled";
+      if (aIsDoneOrCancelled !== bIsDoneOrCancelled) {
+        return aIsDoneOrCancelled ? 1 : -1;
       }
-      if (a.status === "pending") {
+      if (!aIsDoneOrCancelled) {
         return a.deadlineTime - b.deadlineTime;
       }
       return b.createdTime - a.createdTime;
@@ -95,7 +98,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
 
   const filteredCapList = useMemo(() => {
     return capList.filter(item => {
-      const matchStatus = statusFilter === "all" || item.status === statusFilter;
+      const matchStatus = statusFilter === "all" || item.status === statusFilter || (statusFilter === "done" && (item.status === "done" || item.status === "cancelled"));
       const q = searchTerm.toLowerCase();
       const matchSearch =
         !searchTerm.trim() ||
@@ -203,7 +206,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           {[
             { key: "all", label: "ทั้งหมด" },
             { key: "pending", label: "กำลังแก้ไขงาน" },
-            { key: "done", label: "อนุมัติปิดงานแล้ว" },
+            { key: "done", label: "ปิดงาน/ยกเลิกแล้ว" },
           ].map(tab => (
             <button
               key={tab.key}
@@ -240,7 +243,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
                   <Wrench size={22} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors break-words [overflow-wrap:anywhere]">
                     {item.title}
                   </h3>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">

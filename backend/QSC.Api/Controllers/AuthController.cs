@@ -47,11 +47,14 @@ namespace QSC.Api.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
+            var trimmedUsername = dto.Username?.Trim() ?? string.Empty;
+
             var user = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.Username.ToLower() == dto.Username.ToLower());
+                .FirstOrDefaultAsync(u => u.Username == trimmedUsername);
 
-            if (user == null)
+            // 🌟 ตรวจสอบตัวพิมพ์เล็ก-พิมพ์ใหญ่ให้ตรงกันเป๊ะ (Case-Sensitive Match)
+            if (user == null || user.Username != trimmedUsername)
             {
                 return Unauthorized(new { message = "ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง" });
             }

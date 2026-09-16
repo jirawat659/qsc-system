@@ -11,9 +11,18 @@ import ScoreRing from "../shared/ScoreRing";
 import HistoryList from "../shared/HistoryList";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import { getFullImageUrl } from "../config/api";
+import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 export default function ViewCapEvidenceModal({ cap, onClose }) {
   const [previewPhoto, setPreviewPhoto] = useState(null);
+
+  useEffect(() => {
+    if (!previewPhoto) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [previewPhoto]);
 
   const afterPhotos = useMemo(() => {
     if (!cap) return [];

@@ -83,20 +83,6 @@ export default function LocationManagementTab({
                   ล้างตัวกรองแบรนด์
                 </button>
               )}
-              {inactiveBrandsCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowInactiveBrands(!showInactiveBrands)}
-                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
-                    showInactiveBrands
-                      ? 'bg-slate-200 border-slate-300 text-slate-700'
-                      : 'bg-slate-50 border-dashed border-slate-300 text-slate-500 hover:text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title={showInactiveBrands ? 'คลิกเพื่อซ่อนแบรนด์ที่ปิดใช้งาน' : 'คลิกเพื่อแสดงแบรนด์ที่ปิดใช้งานเพิ่มเติม'}
-                >
-                  {showInactiveBrands ? 'ซ่อนแบรนด์ที่ปิดใช้งาน' : `+ แบรนด์ปิดใช้งาน (${inactiveBrandsCount})`}
-                </button>
-              )}
             </div>
           )}
 

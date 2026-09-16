@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import api, { getFullImageUrl } from "../config/api";
 import { mono } from "../config/theme";
+import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
   const [logs, setLogs] = useState([]);
@@ -14,6 +15,22 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
   const [error, setError] = useState(null);
   const [expandedItems, setExpandedItems] = useState({});
   const [previewPhoto, setPreviewPhoto] = useState(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!previewPhoto) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [previewPhoto]);
 
   useEffect(() => {
     if (!isOpen || !auditRecordId) return;
@@ -263,8 +280,8 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                                   <div key={item.surveyItemId || itemIdx} className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2 text-xs">
                                     {/* Item Title + Section */}
                                     <div className="flex items-start justify-between gap-2">
-                                      <div className="font-bold text-slate-800 leading-snug">
-                                        <span className="text-[#0F6659] font-mono font-black mr-1.5">#{itemIdx + 1}</span>
+                                      <div className="font-bold text-slate-800 leading-snug flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
+                                        <span className="text-[#0F6659] font-mono font-black mr-1.5 shrink-0">#{itemIdx + 1}</span>
                                         <span>{item.questionText}</span>
                                       </div>
                                       {item.sectionTitle && (

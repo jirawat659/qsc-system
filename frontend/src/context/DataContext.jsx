@@ -10,8 +10,9 @@ export const DataContext = React.createContext({
   setSelectedBrandId: () => {},
   schedules: [],
   setSchedules: () => {},
-  forms: [],
+  forms: [], // 🌟 โหลดแบบ summary (ไม่มี sections/items) — ใช้ getFormDetail() เพื่อดึงข้อมูลเต็ม
   setForms: () => {},
+  getFormDetail: async () => null, // (formId) => Promise<full form with sections> — lazy hydrate + cache in `forms`
   activeDraft: null,
   setActiveDraft: () => {},
   activeDrafts: [],

@@ -23,11 +23,12 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
   const canCreateSchedule = userRole === "STANDARD" || userRole === "ADMIN" || (currentUser?.permissions || []).includes("schedules.manage");
   const [view, setView] = useState("calendar"); // 'calendar' | 'list'
   const [auditorFilter, setAuditorFilter] = useState(() => isAuditor ? myAuditorName : "ทั้งหมด");
+  const [selectedAuditorId, setSelectedAuditorId] = useState(null);
   const [viewDate, setViewDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [detail, setDetail] = useState(null);
   const [showAuditorModal, setShowAuditorModal] = useState(false);
-  const { schedules, locations, allLocations, forms, auditRecords, refreshData, brands } = React.useContext(DataContext);
+  const { schedules, locations, allLocations, forms, auditRecords, refreshData, brands, activeDrafts } = React.useContext(DataContext);
   const [showNewScheduleModal, setShowNewScheduleModal] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [showAiQuickPopover, setShowAiQuickPopover] = useState(false);
@@ -43,27 +44,33 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
         const day = !isNaN(dateObj.getDate()) ? dateObj.getDate() : 1;
         const h = !isNaN(dateObj.getHours()) ? dateObj.getHours() : 0;
         const m = !isNaN(dateObj.getMinutes()) ? dateObj.getMinutes() : 0;
-        const timeStr = s.time 
-          ? s.time 
-          : (h === 0 && m === 0)
+        const timeFormatted = s.time || ((h === 0 && m === 0) 
           ? "-"
-          : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} - ${String(Math.min(23, h + 2)).padStart(2, '0')}:${String(m).padStart(2, '0')} น.`;
+          : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} - ${String(Math.min(23, h + 2)).padStart(2, '0')}:${String(m).padStart(2, '0')} น.`);
         
         const auditorNames = [
           s.auditorName,
           s.auditor,
-          ...(s.auditors || []).map(a => a.fullName)
+          ...(s.auditors || []).map(a => a.fullName || a.name || a.username)
         ].filter(Boolean);
 
         // ตรวจสอบว่าสาขานี้ตรวจเสร็จแล้วหรือยัง
         const isCompleted = s.status === "completed" || s.status === "done" || s.isCompleted || (auditRecords || []).some(ar => {
-          if (ar.auditScheduleId && ar.auditScheduleId === s.id) return true;
-          const ad = new Date(ar.auditDate || ar.submittedAt || ar.createdAt);
-          return ar.locationId === s.locationId && 
-                 ad.getFullYear() === dateObj.getFullYear() && 
-                 ad.getMonth() === dateObj.getMonth() && 
-                 ad.getDate() === dateObj.getDate();
+          if (ar.auditScheduleId && Number(ar.auditScheduleId) === Number(s.id)) return true;
+          if (Number(ar.locationId) === Number(s.locationId)) {
+            const ad = new Date(ar.auditDate || ar.submittedAt || ar.createdAt);
+            const diffDays = Math.abs((ad.getTime() - dateObj.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 2 && (!s.surveyFormId || !ar.surveyFormId || Number(ar.surveyFormId) === Number(s.surveyFormId))) {
+              return true;
+            }
+          }
+          return false;
         });
+
+        const hasActiveDraft = (activeDrafts || []).some(d =>
+          (d.auditScheduleId && Number(d.auditScheduleId) === Number(s.id)) ||
+          (Number(d.locationId) === Number(s.locationId) && (!s.surveyFormId || !d.surveyFormId || Number(d.surveyFormId) === Number(s.surveyFormId)))
+        );
 
         const now = new Date();
         const isToday = !isNaN(dateObj.getTime()) && 
@@ -74,7 +81,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
         let computedStatus = "upcoming";
         if (isCompleted) {
           computedStatus = "done";
-        } else if (s.status === "in_progress") {
+        } else if (hasActiveDraft || s.status === "in_progress") {
           computedStatus = "in_progress";
         } else if (isToday) {
           computedStatus = "today";
@@ -94,7 +101,7 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           region: s.region || "-",
           day,
           date: s.scheduledDate ? new Date(s.scheduledDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-",
-          time: timeStr,
+          time: timeFormatted,
           auditor: s.auditorName || s.auditor || (s.auditors?.[0]?.fullName) || "-",
           auditorName: s.auditorName || s.auditor || (s.auditors?.[0]?.fullName) || "-",
           auditorNames: auditorNames,
@@ -114,7 +121,36 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
     return [];
   }, [schedules, auditRecords]);
 
-  // Filtered schedules by auditor (Instant in-memory filtering with smart name & ID match)
+  // Helper: Extract all distinct individual auditor name tokens for exact equality matching
+  const getScheduleAuditorTokens = (s) => {
+    const rawList = [
+      s.auditor,
+      s.auditorName,
+      ...(Array.isArray(s.auditorNames) ? s.auditorNames : []),
+      ...(Array.isArray(s.auditors) ? s.auditors.map(a => a?.fullName || a?.name || a?.username) : [])
+    ];
+
+    const tokens = new Set();
+    rawList.filter(Boolean).forEach(item => {
+      if (typeof item === "string") {
+        const fullTrimmed = item.trim().toLowerCase();
+        if (fullTrimmed && fullTrimmed !== "-") {
+          tokens.add(fullTrimmed);
+        }
+        // Split delimited names (e.g. "QC Test, QC Test2" or "QC Test / QC Test2")
+        item.split(/[,;/|\n]|\s+และ\s+|\s+&\s+/).forEach(part => {
+          const cleaned = part.trim().toLowerCase();
+          if (cleaned && cleaned !== "-") {
+            tokens.add(cleaned);
+          }
+        });
+      }
+    });
+
+    return Array.from(tokens);
+  };
+
+  // Filtered schedules by auditor (Instant in-memory filtering with exact name & ID match)
   const filteredSchedules = useMemo(() => {
     return scheduleList
       .filter((s) => {
@@ -133,46 +169,34 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
             if (hasMyId) return true;
           }
 
-          // 2. Match by display name or auditor name
-          if (myTarget) {
-            const a1 = (s.auditor || "").toLowerCase().trim();
-            const a2 = (s.auditorName || "").toLowerCase().trim();
-            if (a1 === myTarget || a2 === myTarget) return true;
-            if (s.auditorNames && s.auditorNames.some(n => {
-              const clean = (n || "").toLowerCase().trim();
-              return clean === myTarget || clean.includes(myTarget) || myTarget.includes(clean);
-            })) return true;
-          }
-
-          // 3. Match by username
-          if (myUsername) {
-            const a1 = (s.auditor || "").toLowerCase().trim();
-            const a2 = (s.auditorName || "").toLowerCase().trim();
-            if (a1 === myUsername || a2 === myUsername) return true;
-            if (s.auditorNames && s.auditorNames.some(n => {
-              const clean = (n || "").toLowerCase().trim();
-              return clean === myUsername;
-            })) return true;
-          }
+          // 2. Exact token matching on assigned auditor names
+          const tokens = getScheduleAuditorTokens(s);
+          if (myTarget && tokens.includes(myTarget)) return true;
+          if (myUsername && tokens.includes(myUsername)) return true;
 
           return false;
         }
 
         // For ADMIN, STANDARD, EXEC
         if (!auditorFilter || auditorFilter === "ทั้งหมด") return true;
+
+        // 1. Match by selected auditor ID if available
+        if (selectedAuditorId) {
+          const hasSelectedId = (s.auditors || []).some(a => (a.id === selectedAuditorId || a.auditorId === selectedAuditorId)) ||
+                                (s.auditorIds || []).includes(selectedAuditorId) ||
+                                s.auditorId === selectedAuditorId;
+          if (hasSelectedId) return true;
+        }
+
+        // 2. Exact token matching on assigned auditor names
         const target = auditorFilter.toLowerCase().trim();
-        const a1 = (s.auditor || "").toLowerCase().trim();
-        const a2 = (s.auditorName || "").toLowerCase().trim();
-        if (a1 === target || a2 === target) return true;
-        if (s.auditorNames && s.auditorNames.some(n => {
-          const clean = (n || "").toLowerCase().trim();
-          return clean === target || clean.includes(target) || target.includes(clean);
-        })) return true;
-        if (a1.includes(target) || target.includes(a1)) return true;
+        const tokens = getScheduleAuditorTokens(s);
+        if (tokens.includes(target)) return true;
+
         return false;
       })
       .sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime() || (a.time || "").localeCompare(b.time || ""));
-  }, [scheduleList, isAuditor, myAuditorName, currentUser?.id, currentUser?.name, currentUser?.username, auditorFilter]);
+  }, [scheduleList, isAuditor, myAuditorName, currentUser?.id, currentUser?.name, currentUser?.username, auditorFilter, selectedAuditorId]);
 
   const todaySchedules = useMemo(() => {
     const now = new Date();
@@ -441,7 +465,10 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
           {auditorFilter !== "ทั้งหมด" && (
             <button
               type="button"
-              onClick={() => setAuditorFilter("ทั้งหมด")}
+              onClick={() => {
+                setAuditorFilter("ทั้งหมด");
+                setSelectedAuditorId(null);
+              }}
               className="p-3 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-500 hover:text-slate-800 shadow-2xs cursor-pointer flex items-center justify-center shrink-0 transition-colors"
               title="รีเซ็ตแสดงทุกคน"
             >
@@ -736,7 +763,10 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
       {showAuditorModal && (
         <AuditorSelectModal
           currentAuditor={auditorFilter}
-          onSelect={(auditorName) => setAuditorFilter(auditorName)}
+          onSelect={(auditorName, auditorId) => {
+            setAuditorFilter(auditorName);
+            setSelectedAuditorId(auditorId || null);
+          }}
           onClose={() => setShowAuditorModal(false)}
         />
       )}

@@ -104,6 +104,12 @@ namespace QSC.Api.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("AiAnalysisGeneratedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("AiAnalysisJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<DateTime>("AuditDate")
                         .HasColumnType("datetime2");
 

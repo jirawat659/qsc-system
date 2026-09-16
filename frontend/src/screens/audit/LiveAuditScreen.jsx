@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3 } from "lucide-react";
 
@@ -14,10 +14,11 @@ import Breadcrumbs from "../../shared/Breadcrumbs";
 import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
-import { compressImageFile } from "../../utils/imageCompressor";
+import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
+import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 
-const QuestionCommentInput = ({ initialValue, onChange }) => {
+const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
   const onChangeRef = useRef(onChange);
 
@@ -41,7 +42,7 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
   return (
     <input
       type="text"
-      placeholder="พิมพ์ข้อคิดเห็น / ข้อบกพร่องที่พบในข้อนี้..."
+      placeholder="ข้อคิดเห็น..."
       value={localValue}
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={() => {
@@ -52,7 +53,7 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
       className="w-full text-xs p-2.5 rounded-xl border border-slate-200 outline-none text-slate-800 focus:border-[#0F6659] bg-slate-50/80"
     />
   );
-};
+});
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
@@ -90,11 +91,202 @@ export const getQuestionCategory = (q, sec) => {
   return "ความสะอาด";
 };
 
+// 🌟 QuestionCard — แยกออกมาจาก inline JSX เดิมที่อยู่ในลูป .map() ตรงๆ ในคอมโพเนนต์หลัก
+// เหตุผล: ของเดิมทุกคำถาม (อาจมีเป็นร้อยข้อ) render อยู่ในฟังก์ชันเดียวกับฟอร์มทั้งหมด
+// พอตอบข้อไหนข้อหนึ่ง React ก็ต้อง re-render คำถามทุกข้อพร้อมกันหมด เพราะไม่มีขอบเขต component
+// แยกให้ React.memo เทียบ props ได้ — ถ้า props ของการ์ดนี้ไม่เปลี่ยน (ไม่ใช่ข้อที่เพิ่งตอบ) จะไม่ re-render เลย
+//
+// ⚠️ กติกาสำคัญที่ทำให้ memo ใช้ได้ผลจริง: รับ "ค่าเฉพาะของคำถามข้อนี้" เป็น props
+// (เช่น answer แทนที่จะรับ answers ทั้งก้อน) และ handler ทุกตัวที่ส่งเข้ามาต้องเป็น reference คงที่
+// (ห่อด้วย useCallback ที่ต้นทาง) ไม่งั้น React.memo จะเทียบ props แล้วเจอว่าเปลี่ยนทุกครั้งอยู่ดี
+const QuestionCard = React.memo(function QuestionCard({
+  q,
+  sec,
+  idx,
+  answer,
+  photosForQuestion,
+  commentValue,
+  openCommentOverride,
+  photoUploadError,
+  isHighlighted,
+  onAnswerSelect,
+  onCommentChange,
+  onPhotoUpload,
+  onPhotoDelete,
+  onToggleComment
+}) {
+  const isNa = answer === "na";
+  const isFailed = !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
+  const rawP = photosForQuestion;
+  const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
+  const hasPhoto = questionPhotos.length > 0;
+  const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+  const isScale = qType === "scale" || qType === "rating";
+  const isCommentRequired = isFailed;
+  const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
+  const scoreGiven = isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0));
+  const isAnswered = answer !== undefined && answer !== "";
+
+  return (
+    <div
+      id={`question-card-${q.id}`}
+      className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${isHighlighted
+          ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
+          : isNa
+            ? "bg-slate-50/90 border-slate-300"
+            : isFailed
+              ? "bg-red-50/50 border-red-300"
+              : "bg-white border-slate-200 shadow-2xs"
+        }`}
+    >
+      <div className="mb-3">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+            {getQuestionCategory(q, sec)}
+          </span>
+          {q.isCritical && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
+          )}
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+            คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
+          </span>
+          {isHighlighted && (
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
+          )}
+
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+            <button
+              type="button"
+              onClick={() => onToggleComment(q.id, isCommentOpen)}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(commentValue && commentValue.trim().length > 0)
+                  ? 'bg-amber-50 text-amber-700 border-amber-300'
+                  : isCommentOpen
+                    ? 'bg-slate-200 text-slate-800 border-slate-300'
+                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                }`}
+            >
+              <MessageSquare size={16} className={(commentValue && commentValue.trim().length > 0) ? "fill-amber-400/40" : ""} />
+            </button>
+            <label
+              className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                }`}
+              title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
+            >
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  onPhotoUpload(q.id, e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <Camera size={16} />
+              {hasPhoto && (
+                <span className="text-[11px] font-black font-mono">
+                  {questionPhotos.length}
+                </span>
+              )}
+            </label>
+          </div>
+        </div>
+        <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug break-words [overflow-wrap:anywhere] ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
+          {q.questionText || q.text}
+        </h4>
+      </div>
+
+      {hasPhoto && (
+        <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
+          {questionPhotos.map((imgUrl, imgIdx) => (
+            <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
+              <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
+              <button
+                type="button"
+                onClick={() => onPhotoDelete(q.id, imgIdx)}
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
+                title="ลบรูปภาพนี้"
+              >
+                ✕
+              </button>
+              <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
+                #{imgIdx + 1}
+              </span>
+            </div>
+          ))}
+          <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                onPhotoUpload(q.id, e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <Plus size={18} />
+            <span className="text-[10px] font-bold">เพิ่มรูป</span>
+          </label>
+        </div>
+      )}
+
+      {photoUploadError && (
+        <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-1.5 mb-3">
+          <AlertTriangle size={13} className="shrink-0" />
+          <span>{photoUploadError}</span>
+        </div>
+      )}
+
+      {!isScale && (
+        <div className="grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => onAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "yes" || answer === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+            <CheckCircle2 size={18} /><span>ผ่าน</span>
+          </button>
+          <button type="button" onClick={() => onAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "no" || answer === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+            <XCircle size={18} /><span>ไม่ผ่าน</span>
+          </button>
+          <button type="button" onClick={() => onAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
+            <Minus size={18} /><span>ข้าม</span>
+          </button>
+        </div>
+      )}
+
+      {isScale && (
+        <div className="flex gap-1.5 items-center">
+          {[5, 4, 3, 2, 1].map((n) => (
+            <button key={n} type="button" onClick={() => onAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answer === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+              {n}
+            </button>
+          ))}
+          <button type="button" onClick={() => onAnswerSelect(q.id, "na")} className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black cursor-pointer transition-all border ${answer === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+            <Minus size={14} className="mr-0.5" /> N/A
+          </button>
+        </div>
+      )}
+
+      {isCommentOpen && (
+        <div className="mt-3">
+          <QuestionCommentInput initialValue={commentValue} onChange={(val) => onCommentChange(q.id, val)} />
+        </div>
+      )}
+    </div>
+  );
+});
+
 // ✍️ Touch & Mouse High-DPI Digital Signature Pad — เปิดเป็น Modal เต็มจอเวลาเซ็น
 function SignaturePadCanvas({ onDone, onCancel }) {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSigned, setHasSigned] = useState(false);
+
+  useEffect(() => {
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -328,7 +520,7 @@ export default function LiveAuditScreen({
   onBackRef.current = onBack;
 
   const { setSubHeader } = React.useContext(TopBarContext) || {};
-  const { currentUser: ctxUser, locations: allLocations, visibleLocations, forms, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
+  const { currentUser: ctxUser, locations: allLocations, visibleLocations, forms, getFormDetail, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
   const currentUser = propUser || ctxUser;
   const formList = forms || [];
 
@@ -417,6 +609,7 @@ export default function LiveAuditScreen({
 
   const [searchBranch, setSearchBranch] = useState("");
   const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
+  const [realStartGps, setRealStartGps] = useState(null);
 
   const sortedBranchList = useMemo(() => {
     let list = [...(visibleLocations || [])];
@@ -498,9 +691,13 @@ export default function LiveAuditScreen({
   });
 
   const applicableForms = useMemo(() => {
-    if (!unit) return formList;
-    return formList.filter(f => isFormApplicableToLocation(f, unit));
-  }, [formList, unit]);
+    const activeLatestForms = formList.filter(f => 
+      ((f.isLatest !== false && f.isLatest !== 0) || f.id === preselectedPlan?.surveyFormId || f.id === targetFormId) &&
+      f.isActive !== false && f.isActive !== 0
+    );
+    if (!unit) return activeLatestForms;
+    return activeLatestForms.filter(f => isFormApplicableToLocation(f, unit));
+  }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
     const targetFId = (isResumeDraft && parsedDraftPayload?.formId) ? parsedDraftPayload.formId : (preselectedPlan?.surveyFormId || targetFormId);
@@ -513,6 +710,31 @@ export default function LiveAuditScreen({
     }
     return formList[0];
   });
+
+  // 🌟 forms จาก context เป็นแบบ summary (ไม่มี sections) — พอเลือกฟอร์มที่จะใช้ตรวจจริง
+  // ต้องดึงคำถามเต็มมาก่อนเสมอ ไม่งั้นหน้าจอตรวจจะไม่มีคำถามให้ตอบ
+  useEffect(() => {
+    if (!selectedForm?.id || !getFormDetail) return;
+    if (Array.isArray(selectedForm.sections)) return; // hydrate แล้ว
+    let cancelled = false;
+    getFormDetail(selectedForm.id).then(full => {
+      if (!cancelled && full && Array.isArray(full.sections)) {
+        setSelectedForm(prev => (prev && prev.id === full.id) ? { ...prev, ...full } : prev);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [selectedForm?.id, selectedForm?.sections, getFormDetail]);
+
+  // 🌟 Hydrate applicable forms in the background so their full sections/items are ready instantly
+  useEffect(() => {
+    if (step === "select-form" && getFormDetail && Array.isArray(applicableForms)) {
+      applicableForms.forEach(f => {
+        if (f?.id && !Array.isArray(f.sections)) {
+          getFormDetail(f.id);
+        }
+      });
+    }
+  }, [step, applicableForms, getFormDetail]);
 
   const [sectionIdx, setSectionIdx] = useState(isResumeDraft ? (parsedDraftPayload?.sectionIdx || 0) : 0);
   const [answers, setAnswers] = useState(isResumeDraft ? (parsedDraftPayload?.answers || {}) : {});
@@ -613,11 +835,40 @@ export default function LiveAuditScreen({
   const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
   const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
 
+  // 🛡️ Accurately resolve effective schedule ID across all entry points
+  const effectiveSchedId = useMemo(() => {
+    if (preselectedPlan?.auditScheduleId && Number(preselectedPlan.auditScheduleId) > 0) {
+      return Number(preselectedPlan.auditScheduleId);
+    }
+    if (preselectedPlan?.scheduleId && Number(preselectedPlan.scheduleId) > 0) {
+      return Number(preselectedPlan.scheduleId);
+    }
+    if (matchedDraftRecord?.auditScheduleId && Number(matchedDraftRecord.auditScheduleId) > 0) {
+      return Number(matchedDraftRecord.auditScheduleId);
+    }
+    if (!preselectedPlan?.isResume && preselectedPlan?.id && Number(preselectedPlan.id) > 0) {
+      return Number(preselectedPlan.id);
+    }
+    if (preselectedPlan?.scheduledDate && preselectedPlan?.id && Number(preselectedPlan.id) > 0) {
+      return Number(preselectedPlan.id);
+    }
+    if (preselectedPlan?.type === 'schedule' && preselectedPlan?.id && Number(preselectedPlan.id) > 0) {
+      return Number(preselectedPlan.id);
+    }
+    return null;
+  }, [preselectedPlan, matchedDraftRecord]);
+
   const initialDraftId = useMemo(() => {
     if (isResumeDraft && matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') {
       return matchedDraftRecord.id;
     }
     if (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan.id).startsWith('schedule')) {
+      if (preselectedPlan?.scheduleId && Number(preselectedPlan.id) === Number(preselectedPlan.scheduleId)) {
+        return null;
+      }
+      if (preselectedPlan?.auditScheduleId && Number(preselectedPlan.id) === Number(preselectedPlan.auditScheduleId)) {
+        return null;
+      }
       return preselectedPlan.id;
     }
     return null;
@@ -627,6 +878,22 @@ export default function LiveAuditScreen({
   const draftIdRef = useRef(initialDraftId);
   const skipScrollToTopRef = useRef(false);
 
+  const getEffectiveDraftId = useCallback(() => {
+    if (draftIdRef.current && typeof draftIdRef.current === 'number' && draftIdRef.current > 0) {
+      return draftIdRef.current;
+    }
+    if (draftId && typeof draftId === 'number' && draftId > 0) {
+      return draftId;
+    }
+    if (initialDraftId && typeof initialDraftId === 'number' && initialDraftId > 0) {
+      return initialDraftId;
+    }
+    if (matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number' && matchedDraftRecord.id > 0) {
+      return matchedDraftRecord.id;
+    }
+    return null;
+  }, [draftId, initialDraftId, matchedDraftRecord]);
+
   useEffect(() => {
     if (initialDraftId) {
       setDraftId(initialDraftId);
@@ -635,6 +902,8 @@ export default function LiveAuditScreen({
   }, [initialDraftId]);
 
   const [syncStatus, setSyncStatus] = useState("idle");
+  const isDiscardingRef = useRef(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
   const [highlightedQuestionId, setHighlightedQuestionId] = useState(null);
@@ -647,6 +916,30 @@ export default function LiveAuditScreen({
   const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
   const [isAuditHeaderScrolled, setIsAuditHeaderScrolled] = useState(false);
   const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isCategoryDrawerOpen) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [isCategoryDrawerOpen]);
+
+  useEffect(() => {
+    if (!showConfirmModal) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [showConfirmModal]);
+
+  useEffect(() => {
+    if (!showDiscardConfirmModal) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [showDiscardConfirmModal]);
   
   // 🌟 ปรับเกณฑ์ scroll เป็น > 60 ป้องกันการสะบัด/ดีดกลับ
   useEffect(() => {
@@ -661,12 +954,6 @@ export default function LiveAuditScreen({
     if (unit?.managerName) {
       setAuditeeSignName(unit.managerName);
     }
-    if (unit?.latitude && unit?.longitude) {
-      setUserCoords({
-        latitude: unit.latitude,
-        longitude: unit.longitude
-      });
-    }
   }, [unit]);
 
   useEffect(() => {
@@ -675,21 +962,17 @@ export default function LiveAuditScreen({
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (cancelled || !pos?.coords) return;
-          setUserCoords({
+          const coords = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude
-          });
+          };
+          setUserCoords(coords);
+          setRealStartGps(coords);
         },
         (err) => {
-          if (cancelled) return;
-          if (unit?.latitude && unit?.longitude) {
-            setUserCoords({
-              latitude: unit.latitude,
-              longitude: unit.longitude
-            });
-          }
+          // หากไม่มี GPS หรือผู้ใช้ไม่อนุญาต ไม่ใช้ fallback ใดๆ (คงเป็น null)
         },
-        { enableHighAccuracy: true, timeout: 6000 }
+        { enableHighAccuracy: true, timeout: 8000 }
       );
     }
     return () => {
@@ -700,9 +983,17 @@ export default function LiveAuditScreen({
   const hasHydratedDraftRef = useRef(false);
   useEffect(() => {
     if (parsedDraftPayload && !hasHydratedDraftRef.current && isResumeDraft) {
+      const currentForm = selectedForm || formList.find(f => f.id === parsedDraftPayload.formId);
+
+      // 🌟 forms จาก context เป็น summary ก่อน (ไม่มี sections) ให้รอ hydrate เต็มก่อน
+      // ไม่งั้น currentItemIds จะว่างเปล่าเสมอ ทำให้การกรองคำตอบเก่า (stale answers) ไม่ทำงานเลย
+      // (useEffect ที่ hydrate selectedForm ด้านบนจะทำให้ effect นี้รันใหม่เองเมื่อโหลดเสร็จ)
+      if (currentForm?.id && !Array.isArray(currentForm.sections)) {
+        return;
+      }
+
       hasHydratedDraftRef.current = true;
 
-      const currentForm = selectedForm || formList.find(f => f.id === parsedDraftPayload.formId);
       const currentItemIds = new Set();
       if (currentForm?.sections) {
         for (const sec of currentForm.sections) {
@@ -848,6 +1139,11 @@ export default function LiveAuditScreen({
             setStep("select-unit");
           } else {
             if (isResumeDraft || isFromAssignedPlan) {
+              if (autoSaveTimerRef.current) {
+                clearTimeout(autoSaveTimerRef.current);
+                autoSaveTimerRef.current = null;
+                performSaveDraft();
+              }
               if (onBackRef.current) onBackRef.current(true);
               return;
             }
@@ -913,6 +1209,10 @@ export default function LiveAuditScreen({
   }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate, auditeeSignature, auditorSignature]);
 
   const performSaveDraft = async (overrideData = {}) => {
+    if (isDiscardingRef.current) {
+      setSyncStatus("idle");
+      return;
+    }
     try {
       setSyncStatus("saving");
       const currentAnswers = overrideData.answers !== undefined ? overrideData.answers : answers;
@@ -971,33 +1271,30 @@ export default function LiveAuditScreen({
       );
 
       const draftPayloadJson = JSON.stringify(payload);
-      const effectiveSchedId = (preselectedPlan?.id && Number(preselectedPlan.id) > 0) 
-        ? Number(preselectedPlan.id) 
-        : (preselectedPlan?.scheduleId ? Number(preselectedPlan.scheduleId) : null);
-
-      const effectiveDraftId = draftIdRef.current || draftId;
+      const currSchedId = effectiveSchedId;
+      const currDraftId = getEffectiveDraftId();
 
       try {
-        if (effectiveSchedId) {
-          localStorage.setItem(`qsc_draft_sched_${effectiveSchedId}`, draftPayloadJson);
-        } else if (effectiveDraftId) {
-          localStorage.setItem(`qsc_draft_id_${effectiveDraftId}`, draftPayloadJson);
+        if (currSchedId) {
+          localStorage.setItem(`qsc_draft_sched_${currSchedId}`, draftPayloadJson);
+        } else if (currDraftId) {
+          localStorage.setItem(`qsc_draft_id_${currDraftId}`, draftPayloadJson);
         }
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
       } catch (e) { }
 
       const res = await api.put('/audit/draft', {
-        id: effectiveDraftId,
+        id: currDraftId,
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
         auditorId: currentUser?.id || 1,
-        auditScheduleId: effectiveSchedId,
+        auditScheduleId: currSchedId,
         draftPayloadJson: draftPayloadJson,
         currentSectionIdx: currentSectionIdx,
         totalAnswered,
         totalQuestions,
-        startLatitude: parsedDraftPayload?.startLatitude || userCoords.latitude,
-        startLongitude: parsedDraftPayload?.startLongitude || userCoords.longitude,
+        startLatitude: realStartGps?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+        startLongitude: realStartGps?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
         startedAt: payload.startedAt
       });
 
@@ -1009,7 +1306,11 @@ export default function LiveAuditScreen({
       setSyncStatus("synced");
 
       const draftObj = {
-        id: res?.data?.id || effectiveDraftId,
+        id: res?.data?.id || currDraftId,
+        auditScheduleId: currSchedId,
+        surveyFormId: currentForm.id,
+        totalAnswered,
+        totalQuestions,
         unit: currentUnit,
         formId: currentForm.id,
         sectionIdx: currentSectionIdx,
@@ -1087,6 +1388,22 @@ export default function LiveAuditScreen({
     currentUser
   ]);
 
+  const performSaveDraftRef = useRef(performSaveDraft);
+  useEffect(() => {
+    performSaveDraftRef.current = performSaveDraft;
+  });
+
+  // Flush draft on unmount if any debounce timer is pending
+  useEffect(() => {
+    return () => {
+      if (isDiscardingRef.current) return;
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        performSaveDraftRef.current();
+      }
+    };
+  }, []);
+
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
 
@@ -1095,36 +1412,91 @@ export default function LiveAuditScreen({
     return sortedBranchList.slice(start, start + branchPageSize);
   }, [sortedBranchList, branchPage]);
 
-  const handlePhotoUpload = async (questionId, files) => {
-    if (!files || files.length === 0) return;
-    try {
-      const fileList = Array.from(files);
-      const compressedBase64List = await Promise.all(fileList.map(f => compressImageFile(f)));
-      const uploadPromises = compressedBase64List.map(async (base64) => {
-        try {
-          const res = await api.post('/audit/upload-image', { base64Data: base64 });
-          return res.data?.url || base64;
-        } catch (uploadErr) {
-          console.warn("Direct upload failed, keeping base64 fallback:", uploadErr);
-          return base64;
-        }
-      });
+  const [photoUploadErrors, setPhotoUploadErrors] = useState({});
 
-      const uploadedUrls = await Promise.all(uploadPromises);
-      setPhotos(prev => {
-        const existing = Array.isArray(prev[questionId])
-          ? prev[questionId]
-          : (prev[questionId] ? [prev[questionId]] : []);
-        const next = { ...prev, [questionId]: [...existing, ...uploadedUrls] };
-        performSaveDraft({ photos: next });
-        return next;
-      });
+  const handlePhotoUpload = useCallback(async (questionId, files) => {
+    if (!files || files.length === 0) return;
+
+    setPhotoUploadErrors(prev => {
+      if (!prev[questionId]) return prev;
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
+
+    try {
+      const rawFileList = Array.from(files);
+      const validFiles = [];
+      const validationErrors = [];
+
+      for (const file of rawFileList) {
+        const check = validateImageFile(file);
+        if (!check.valid) {
+          validationErrors.push(check.message);
+        } else {
+          validFiles.push(file);
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        const errText = validationErrors.join(" | ");
+        setPhotoUploadErrors(prev => ({
+          ...prev,
+          [questionId]: errText
+        }));
+        if (validFiles.length === 0) return;
+      }
+
+      const fileList = validFiles;
+      const compressedBase64List = await Promise.all(fileList.map(f => compressImageFile(f)));
+
+      // ⚠️ จุดสำคัญ: ห้าม fallback คืน base64 อีกต่อไป เพราะ backend column
+      // ImageUrl จำกัดแค่ nvarchar(500) ตัวอักษร แต่ base64 ยาวเป็นแสนตัวอักษร
+      const lastBackendError = { msg: null };
+      const uploadResults = await Promise.all(
+        compressedBase64List.map(async (base64) => {
+          try {
+            const res = await api.post('/audit/upload-image', { base64Data: base64 });
+            const url = res.data?.url;
+            if (!url) throw new Error("Upload response missing url");
+            return { ok: true, url };
+          } catch (uploadErr) {
+            console.warn("Photo upload failed:", uploadErr);
+            const serverMsg = uploadErr?.response?.data?.message;
+            if (serverMsg) lastBackendError.msg = serverMsg;
+            return { ok: false };
+          }
+        })
+      );
+
+      const successfulUrls = uploadResults.filter(r => r.ok).map(r => r.url);
+      const failedCount = uploadResults.length - successfulUrls.length;
+
+      if (successfulUrls.length > 0) {
+        setPhotos(prev => {
+          const existing = Array.isArray(prev[questionId])
+            ? prev[questionId]
+            : (prev[questionId] ? [prev[questionId]] : []);
+          const next = { ...prev, [questionId]: [...existing, ...successfulUrls] };
+          return next;
+        });
+      }
+
+      if (failedCount > 0) {
+        setPhotoUploadErrors(prev => ({
+          ...prev,
+          [questionId]: lastBackendError.msg || (failedCount === fileList.length
+            ? "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+            : `อัปโหลดสำเร็จ ${successfulUrls.length} รูป แต่มี ${failedCount} รูปที่ล้มเหลว กรุณาลองใหม่`)
+        }));
+      }
     } catch (e) {
       console.error("Compression/Upload error:", e);
+      setPhotoUploadErrors(prev => ({ ...prev, [questionId]: "ไม่สามารถประมวลผลรูปภาพได้ กรุณาลองใหม่อีกครั้ง" }));
     }
-  };
+  }, []);
 
-  const handlePhotoDelete = (questionId, photoIdx) => {
+  const handlePhotoDelete = useCallback((questionId, photoIdx) => {
     setPhotos(prev => {
       const next = { ...prev };
       const existing = Array.isArray(next[questionId])
@@ -1140,15 +1512,12 @@ export default function LiveAuditScreen({
       } else {
         delete next[questionId];
       }
-      performSaveDraft({ photos: next });
       return next;
     });
-  };
+  }, []);
 
-  const handleAnswerSelect = (questionId, val) => {
-    if (highlightedQuestionId === questionId) {
-      setHighlightedQuestionId(null);
-    }
+  const handleAnswerSelect = useCallback((questionId, val) => {
+    setHighlightedQuestionId(prevHighlighted => (prevHighlighted === questionId ? null : prevHighlighted));
 
     const isFailing = val === "no" || val === false || (typeof val === "number" && val < 3);
 
@@ -1163,21 +1532,17 @@ export default function LiveAuditScreen({
       } else {
         next[questionId] = val;
       }
-      performSaveDraft({ answers: next });
       return next;
     });
-  };
+  }, []);
 
-  const handleCommentChange = (questionId, val) => {
-    setComments(prev => {
-      const next = { ...prev, [questionId]: val };
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = setTimeout(() => {
-        performSaveDraft({ comments: next });
-      }, 350);
-      return next;
-    });
-  };
+  const handleCommentChange = useCallback((questionId, val) => {
+    setComments(prev => ({ ...prev, [questionId]: val }));
+  }, []);
+
+  const handleToggleComment = useCallback((questionId, currentlyOpen) => {
+    setOpenComments(prev => ({ ...prev, [questionId]: !currentlyOpen }));
+  }, []);
 
   const scoreAnalysis = useMemo(() => {
     let earnedScore = 0;
@@ -1311,22 +1676,44 @@ export default function LiveAuditScreen({
   const highlightTimerRef = useRef(null);
 
   const triggerHighlightQuestion = (questionId, targetSectionIdx) => {
+    skipScrollToTopRef.current = true;
     if (targetSectionIdx !== undefined && targetSectionIdx !== sectionIdx) {
       setSectionIdx(targetSectionIdx);
     }
     setHighlightedQuestionId(questionId);
 
-    setTimeout(() => {
-      const el = document.getElementById(`question-card-${questionId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 150);
-
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = setTimeout(() => {
       setHighlightedQuestionId(null);
-    }, 3000);
+    }, 6000);
+
+    let attempts = 0;
+    const maxAttempts = 30; // 30 * 50ms = 1.5s
+
+    const tryScroll = () => {
+      const el = document.getElementById(`question-card-${questionId}`);
+      if (el) {
+        // Calculate offset position for sticky headers
+        const rect = el.getBoundingClientRect();
+        const topOffset = 85;
+        const currentScroll = window.scrollY || document.documentElement.scrollTop || document.querySelector('main')?.scrollTop || 0;
+        const targetTop = Math.max(0, rect.top + currentScroll - topOffset);
+
+        try {
+          window.scrollTo({ top: targetTop, behavior: 'smooth' });
+          document.querySelector('main')?.scrollTo({ top: targetTop, behavior: 'smooth' });
+        } catch (e) {}
+
+        try {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (e) {}
+      } else if (attempts < maxAttempts) {
+        attempts++;
+        setTimeout(tryScroll, 50);
+      }
+    };
+
+    setTimeout(tryScroll, 60);
   };
 
   const validateEntireAuditForm = () => {
@@ -1394,10 +1781,11 @@ export default function LiveAuditScreen({
 
     const missing = checkUnansweredQuestions();
     if (missing.length > 0) {
-      setActiveTab(2);
       const firstMissing = missing[0];
-      triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
+      skipScrollToTopRef.current = true;
+      setActiveTab(2);
       alert(`⚠️ กรุณาตอบคำถามให้ครบทุกข้อ (ยังเหลืออีก ${missing.length} ข้อที่ยังไม่ได้ตอบ ในหมวด: "${firstMissing.sectionTitle}")`);
+      triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
       return false;
     }
 
@@ -1429,15 +1817,16 @@ export default function LiveAuditScreen({
     });
 
     if (missingComments.length > 0) {
-      setActiveTab(2);
       const first = missingComments[0];
+      skipScrollToTopRef.current = true;
+      setActiveTab(2);
       setOpenComments(prev => {
         const next = { ...prev };
         missingComments.forEach(m => { next[m.questionId] = true; });
         return next;
       });
-      triggerHighlightQuestion(first.questionId, first.sectionIdx);
       alert(`⚠️ กรุณาระบุข้อคิดเห็น/เหตุผลสำหรับข้อที่ไม่ผ่านหรือคะแนนต่ำกว่า 3 (ยังขาดอีก ${missingComments.length} ข้อ ในหมวด: "${first.sectionTitle}")`);
+      triggerHighlightQuestion(first.questionId, first.sectionIdx);
       return false;
     }
 
@@ -1471,15 +1860,21 @@ export default function LiveAuditScreen({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      let endLat = userCoords.latitude;
-      let endLng = userCoords.longitude;
+      let endLat = null;
+      let endLng = null;
 
       if ("geolocation" in navigator) {
         try {
-          const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
-          endLat = pos.coords.latitude;
-          endLng = pos.coords.longitude;
-        } catch (e) { }
+          const pos = await new Promise((res, rej) => 
+            navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 6000 })
+          );
+          if (pos?.coords) {
+            endLat = pos.coords.latitude;
+            endLng = pos.coords.longitude;
+          }
+        } catch (e) {
+          // หากไม่มีสัญญาณ GPS หรือผู้ใช้ไม่อนุญาต ไม่ใช้ fallback (คงเป็น null ตามที่ต้องการ)
+        }
       }
 
       const responses = [];
@@ -1535,17 +1930,17 @@ export default function LiveAuditScreen({
         ? new Date(backdatedEndDate).toISOString()
         : new Date().toISOString();
 
-      const effectiveDraftId = draftIdRef.current || draftId;
-      const effectiveSchedId = (preselectedPlan?.id && Number(preselectedPlan.id) > 0) ? Number(preselectedPlan.id) : null;
+      const targetDraftId = getEffectiveDraftId();
+      const targetSchedId = effectiveSchedId;
 
       const payload = {
-        draftId: effectiveDraftId || null,
+        draftId: targetDraftId || null,
         locationId: Number(unit.id),
         surveyFormId: Number(selectedForm?.id || 1),
         primaryAuditorId: currentUser?.id ? Number(currentUser.id) : null,
         auditeeUserId: (unit.managerUserId && Number(unit.managerUserId) > 0) ? Number(unit.managerUserId) : null,
         auditeeNameText: auditeeSignName || unit.managerName || "-",
-        auditScheduleId: effectiveSchedId,
+        auditScheduleId: targetSchedId,
         staffCount: Number(staffCount) || 0,
         auditType: auditType || "announced",
         notes: extraNote || "",
@@ -1556,10 +1951,10 @@ export default function LiveAuditScreen({
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
-        startLatitude: parsedDraftPayload?.startLatitude || userCoords.latitude || unit?.latitude,
-        startLongitude: parsedDraftPayload?.startLongitude || userCoords.longitude || unit?.longitude,
-        endLatitude: endLat || userCoords.latitude || unit?.latitude,
-        endLongitude: endLng || userCoords.longitude || unit?.longitude,
+        startLatitude: realStartGps?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+        startLongitude: realStartGps?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+        endLatitude: endLat,
+        endLongitude: endLng,
         isBackdated: Boolean(isBackdated),
         startedAt: effectiveStartedAt,
         submittedAt: effectiveSubmittedAt,
@@ -1567,12 +1962,58 @@ export default function LiveAuditScreen({
       };
 
       await api.post('/audit', payload);
+
+      // 🔒 กันไม่ให้ auto-save ยิงเซฟร่างซ้ำตอน component unmount หลังส่งสำเร็จ
+      isDiscardingRef.current = true;
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
+      // 🧹 1. Clean localStorage thoroughly for this unit and schedule
       try {
         localStorage.removeItem('qsc_live_audit_draft');
-        if (unit?.id) localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
-        if (effectiveSchedId) localStorage.removeItem(`qsc_draft_sched_${effectiveSchedId}`);
-        if (effectiveDraftId) localStorage.removeItem(`qsc_draft_id_${effectiveDraftId}`);
+        if (unit?.id) {
+          localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
+          localStorage.removeItem(`qsc_draft_${unit.id}`);
+        }
+        if (targetSchedId) {
+          localStorage.removeItem(`qsc_draft_sched_${targetSchedId}`);
+        }
+        if (targetDraftId) {
+          localStorage.removeItem(`qsc_draft_id_${targetDraftId}`);
+        }
+        Object.keys(localStorage).forEach(key => {
+          if (
+            (unit?.id && key.startsWith(`qsc_draft_${unit.id}_`)) ||
+            (targetSchedId && key.includes(`sched_${targetSchedId}`)) ||
+            (targetDraftId && key.includes(`id_${targetDraftId}`))
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
       } catch (e) { }
+
+      // 🧹 2. Defensively call discard API to ensure server drafts are completely removed
+      try {
+        const discardParams = new URLSearchParams();
+        if (targetDraftId) discardParams.append('id', String(targetDraftId));
+        if (unit?.id) discardParams.append('locationId', String(unit.id));
+        if (selectedForm?.id) discardParams.append('surveyFormId', String(selectedForm.id));
+        if (targetSchedId) discardParams.append('scheduleId', String(targetSchedId));
+        await api.delete(`/audit/draft?${discardParams.toString()}`);
+      } catch (e) { }
+
+      // 🧹 3. Reset internal state
+      draftIdRef.current = null;
+      setDraftId(null);
+      setAnswers({});
+      setPhotos({});
+      setComments({});
+      setAuditeeSignature(null);
+      setAuditorSignature(null);
+
+      if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
 
       setShowConfirmModal(false);
@@ -1582,20 +2023,24 @@ export default function LiveAuditScreen({
       setStep("select-unit");
     } catch (err) {
       console.error("Submit audit failed:", err);
-      setSubmitError(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการบันทึกผลตรวจ");
+      const errMsg = err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการบันทึกผลตรวจ";
+      setSubmitError(errMsg);
+      alert(`ไม่สามารถส่งผลตรวจได้: ${errMsg}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const confirmDiscardDraft = async () => {
+    isDiscardingRef.current = true;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    setIsDiscarding(true);
     try {
-      const targetDraftId = draftIdRef.current || draftId || ((matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') 
-        ? matchedDraftRecord.id 
-        : (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan?.id).startsWith('schedule'))
-          ? preselectedPlan.id
-          : null);
-      const targetScheduleId = preselectedPlan?.scheduleId || (preselectedPlan?.type === 'schedule' ? (preselectedPlan.originalId || preselectedPlan.id) : null) || matchedDraftRecord?.auditScheduleId;
+      const targetDraftId = getEffectiveDraftId();
+      const targetScheduleId = effectiveSchedId;
       const targetLocId = unit?.id || preselectedPlan?.locationId;
       const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || 1;
       const targetAuditorId = currentUser?.id || 1;
@@ -1610,11 +2055,30 @@ export default function LiveAuditScreen({
       await api.delete(`/audit/draft?${params.toString()}`);
       try {
         localStorage.removeItem('qsc_live_audit_draft');
-        if (targetLocId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
+        if (targetLocId) {
+          localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
+          localStorage.removeItem(`qsc_draft_${targetLocId}`);
+        }
+        if (targetScheduleId) localStorage.removeItem(`qsc_draft_sched_${targetScheduleId}`);
+        if (targetDraftId) localStorage.removeItem(`qsc_draft_id_${targetDraftId}`);
+        Object.keys(localStorage).forEach(key => {
+          if (
+            (targetLocId && key.startsWith(`qsc_draft_${targetLocId}_`)) ||
+            (targetScheduleId && key.includes(`sched_${targetScheduleId}`)) ||
+            (targetDraftId && key.includes(`id_${targetDraftId}`))
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
       } catch (e) { }
       if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
-    } catch (e) { }
+    } catch (e) {
+      console.error("Failed to discard draft:", e);
+    } finally {
+      setIsDiscarding(false);
+      setShowDiscardConfirmModal(false);
+    }
 
     draftIdRef.current = null;
     setDraftId(null);
@@ -1628,7 +2092,6 @@ export default function LiveAuditScreen({
     setBackdatedStartDate("");
     setBackdatedEndDate("");
     setSyncStatus("idle");
-    setShowDiscardConfirmModal(false);
 
     if (setUnit) setUnit(null);
     if (preselectedPlan && onClearPlan) {
@@ -1882,7 +2345,7 @@ export default function LiveAuditScreen({
                       เกณฑ์ผ่าน {f.passingScore || 85}%
                     </span>
                     <span className="text-xs font-bold text-slate-400">
-                      {(f.sections || []).length} หมวดการตรวจ
+                      {f.sectionCount !== undefined && f.sectionCount !== null ? f.sectionCount : (f.sections || []).length} หมวดการตรวจ
                     </span>
                   </div>
                   <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
@@ -2330,7 +2793,7 @@ export default function LiveAuditScreen({
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         />
                         {field.unit && (
-                          <div className="absolute right-2.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 select-none">
+                          <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
                             {field.unit}
                           </div>
                         )}
@@ -2599,7 +3062,7 @@ export default function LiveAuditScreen({
             <div className="space-y-6 animate-in fade-in duration-200">
               {currentSections.map((sec, sIdx) => (
                 <div key={sec.id || sIdx} id={`audit-section-${sIdx}`} className="audit-section-anchor space-y-3">
-                  <div className={`sticky z-30 transition-all duration-200 ${isAuditHeaderScrolled ? 'top-14' : 'top-44'} flex items-center justify-between gap-2 bg-slate-50/95 backdrop-blur-sm py-2 px-1 rounded-xl`}>
+                  <div className="flex items-center justify-between gap-2 bg-slate-100/90 py-2.5 px-3 rounded-2xl border border-slate-200/80">
                     <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
                       <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs">{sIdx + 1}</span>
                       {sec.title}
@@ -2610,161 +3073,25 @@ export default function LiveAuditScreen({
                   </div>
 
                   <div className="space-y-4">
-                    {(sec.items || []).map((q, idx) => {
-                      const isHighlighted = highlightedQuestionId === q.id;
-                      const isNa = answers[q.id] === "na";
-                      const isFailed = !isNa && (answers[q.id] === "no" || answers[q.id] === false || (Number(answers[q.id]) < 3 && answers[q.id] !== undefined && answers[q.id] !== ""));
-                      const rawP = photos[q.id];
-                      const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
-                      const hasPhoto = questionPhotos.length > 0;
-                      const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-                      const isScale = qType === "scale" || qType === "rating";
-                      const isCommentRequired = isFailed;
-                      const isCommentOpen = Boolean(isCommentRequired || openComments[q.id] || (comments[q.id] && comments[q.id].trim().length > 0));
-                      const scoreGiven = isNa ? 0 : (isScale ? (Number(answers[q.id]) || 0) / 5 * (q.fullScore || 10) : ((answers[q.id] === "yes" || answers[q.id] === true) ? (q.fullScore || 10) : 0));
-                      const isAnswered = answers[q.id] !== undefined && answers[q.id] !== "";
-
-                      return (
-                        <div
-                          key={q.id || idx}
-                          id={`question-card-${q.id}`}
-                          className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${isHighlighted
-                              ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
-                              : isNa
-                                ? "bg-slate-50/90 border-slate-300"
-                                : isFailed
-                                  ? "bg-red-50/50 border-red-300"
-                                  : "bg-white border-slate-200 shadow-2xs"
-                            }`}
-                        >
-                          <div className="mb-3">
-                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                                {getQuestionCategory(q, sec)}
-                              </span>
-                              {q.isCritical && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
-                              )}
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
-                              </span>
-                              {isHighlighted && (
-                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
-                              )}
-
-                              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                                <button
-                                  type="button"
-                                  onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
-                                  className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(comments[q.id] && comments[q.id].trim().length > 0)
-                                      ? 'bg-amber-50 text-amber-700 border-amber-300'
-                                      : isCommentOpen
-                                        ? 'bg-slate-200 text-slate-800 border-slate-300'
-                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                    }`}
-                                >
-                                  <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
-                                </button>
-                                <label
-                                  className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                    }`}
-                                  title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
-                                >
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      handlePhotoUpload(q.id, e.target.files);
-                                      e.target.value = '';
-                                    }}
-                                  />
-                                  <Camera size={16} />
-                                  {hasPhoto && (
-                                    <span className="text-[11px] font-black font-mono">
-                                      {questionPhotos.length}
-                                    </span>
-                                  )}
-                                </label>
-                              </div>
-                            </div>
-                            <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
-                              {q.questionText || q.text}
-                            </h4>
-                          </div>
-
-                          {hasPhoto && (
-                            <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
-                              {questionPhotos.map((imgUrl, imgIdx) => (
-                                <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
-                                  <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePhotoDelete(q.id, imgIdx)}
-                                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
-                                    title="ลบรูปภาพนี้"
-                                  >
-                                    ✕
-                                  </button>
-                                  <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
-                                    #{imgIdx + 1}
-                                  </span>
-                                </div>
-                              ))}
-                              <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    handlePhotoUpload(q.id, e.target.files);
-                                    e.target.value = '';
-                                  }}
-                                />
-                                <Plus size={18} />
-                                <span className="text-[10px] font-bold">เพิ่มรูป</span>
-                              </label>
-                            </div>
-                          )}
-
-                          {!isScale && (
-                            <div className="grid grid-cols-3 gap-2">
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "yes" || answers[q.id] === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                <CheckCircle2 size={18} /><span>ผ่าน</span>
-                              </button>
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "no" || answers[q.id] === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                <XCircle size={18} /><span>ไม่ผ่าน</span>
-                              </button>
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
-                                <Minus size={18} /><span>ข้าม</span>
-                              </button>
-                            </div>
-                          )}
-
-                          {isScale && (
-                            <div className="flex gap-1.5 items-center">
-                              {[5, 4, 3, 2, 1].map((n) => (
-                                <button key={n} type="button" onClick={() => handleAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answers[q.id] === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                  {n}
-                                </button>
-                              ))}
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black cursor-pointer transition-all border ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                <Minus size={14} className="mr-0.5" /> N/A
-                              </button>
-                            </div>
-                          )}
-
-                          {isCommentOpen && (
-                            <div className="mt-3">
-                              <QuestionCommentInput initialValue={comments[q.id]} onChange={(val) => handleCommentChange(q.id, val)} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {(sec.items || []).map((q, idx) => (
+                      <QuestionCard
+                        key={q.id || idx}
+                        q={q}
+                        sec={sec}
+                        idx={idx}
+                        answer={answers[q.id]}
+                        photosForQuestion={photos[q.id]}
+                        commentValue={comments[q.id]}
+                        openCommentOverride={openComments[q.id]}
+                        photoUploadError={photoUploadErrors[q.id]}
+                        isHighlighted={highlightedQuestionId === q.id}
+                        onAnswerSelect={handleAnswerSelect}
+                        onCommentChange={handleCommentChange}
+                        onPhotoUpload={handlePhotoUpload}
+                        onPhotoDelete={handlePhotoDelete}
+                        onToggleComment={handleToggleComment}
+                      />
+                    ))}
                   </div>
                 </div>
               ))}
@@ -2914,8 +3241,29 @@ export default function LiveAuditScreen({
                 <p className="text-xs text-slate-500 font-medium mt-1 px-2">ข้อมูลที่ตรวจค้างไว้ของสาขานี้จะถูกลบทั้งหมด</p>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-2">
-                <button onClick={() => setShowDiscardConfirmModal(false)} className="py-3 px-4 rounded-2xl bg-slate-100 text-slate-700 font-bold text-xs">ย้อนกลับ</button>
-                <button onClick={confirmDiscardDraft} className="py-3 px-4 rounded-2xl bg-rose-600 text-white font-bold text-xs shadow-md">ยืนยันลบ</button>
+                <button
+                  type="button"
+                  onClick={() => setShowDiscardConfirmModal(false)}
+                  disabled={isDiscarding}
+                  className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs disabled:opacity-50"
+                >
+                  ย้อนกลับ
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDiscardDraft}
+                  disabled={isDiscarding}
+                  className="py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDiscarding ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      กำลังลบ...
+                    </>
+                  ) : (
+                    "ยืนยันลบ"
+                  )}
+                </button>
               </div>
             </div>
           </div>,

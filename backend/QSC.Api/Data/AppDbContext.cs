@@ -274,6 +274,9 @@ namespace QSC.Api.Data
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(r => r.SurveyFormId);
 
+            modelBuilder.Entity<AuditSchedule>()
+                .HasIndex(s => s.SurveyFormId);
+
             // งานตรวจรายผู้ตรวจ เรียงตามวันที่ (AuditController.GetAuditRecords)
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(r => new { r.PrimaryAuditorId, r.AuditDate });

@@ -110,18 +110,21 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
 
             {/* 1. Old Password */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label htmlFor="change-old-password" className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
                 <Lock size={13} className="text-[#0F6659]" />
                 <span>รหัสผ่านเดิม</span>
                 <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
+                  id="change-old-password"
+                  name="oldPassword"
                   type={showOld ? 'text' : 'password'}
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านเดิมที่ใช้งานอยู่"
                   className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
+                  autoComplete="current-password"
                   required
                 />
                 <button
@@ -136,18 +139,21 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
 
             {/* 2. New Password */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label htmlFor="change-new-password" className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
                 <Key size={13} className="text-[#0F6659]" />
                 <span>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</span>
                 <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
+                  id="change-new-password"
+                  name="newPassword"
                   type={showNew ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านใหม่อย่างน้อย 8 ตัวอักษร"
                   className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
+                  autoComplete="new-password"
                   required
                   minLength={8}
                 />
@@ -163,18 +169,21 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
 
             {/* 3. Confirm New Password */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+              <label htmlFor="change-confirm-password" className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
                 <CheckCircle2 size={13} className="text-[#0F6659]" />
                 <span>ยืนยันรหัสผ่านใหม่อีกครั้ง</span>
                 <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
+                  id="change-confirm-password"
+                  name="confirmPassword"
                   type={showConfirm ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="กรอกรหัสผ่านใหม่อีกครั้งให้ตรงกัน"
                   className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
+                  autoComplete="new-password"
                   required
                 />
                 <button

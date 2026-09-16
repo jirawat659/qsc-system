@@ -126,6 +126,47 @@ namespace QSC.Api.Services
         public string Disclaimer { get; set; } = "คำแนะนำนี้ประมวลผลโดย AI เพื่อช่วยผู้ประเมินประกอบการพิจารณา ผู้ตรวจยังคงเป็นผู้ตัดสินใจขั้นสุดท้าย";
     }
 
+    // 🌟 DTO ผลวิเคราะห์ข้อบกพร่องหน้า "ผลการตรวจ" — ตั้งใจให้สั้น/กระชับ (หมวดหมู่ + จำนวน)
+    // ใช้โครงเดียวกันทั้งตอน AI ตอบสำเร็จและตอน fallback แบบกฎง่ายๆ เพื่อให้ UI ไม่ต้องมี 2 แบบ
+    public class AuditDefectCategoryGroupDto
+    {
+        [JsonPropertyName("category")]
+        public string Category { get; set; } = string.Empty;
+
+        [JsonPropertyName("count")]
+        public int Count { get; set; }
+
+        [JsonPropertyName("note")]
+        public string Note { get; set; } = string.Empty; // สรุปปัญหาที่ตรวจพบสั้นๆ 1 ประโยค
+
+        [JsonPropertyName("action")]
+        public string Action { get; set; } = string.Empty; // วิธีแก้ไขที่แนะนำ สั้นกระชับ 1 ประโยค นำไปปฏิบัติได้จริง
+    }
+
+    public class AuditDefectAnalysisDto
+    {
+        [JsonPropertyName("auditRecordId")]
+        public int AuditRecordId { get; set; }
+
+        [JsonPropertyName("summary")]
+        public string Summary { get; set; } = string.Empty; // สรุปรวม 1 ประโยคสั้นๆ
+
+        [JsonPropertyName("categoryGroups")]
+        public List<AuditDefectCategoryGroupDto> CategoryGroups { get; set; } = new();
+
+        [JsonPropertyName("priorityFocus")]
+        public string PriorityFocus { get; set; } = string.Empty; // จุดที่ควรแก้ก่อน 1 ประโยคสั้นๆ
+
+        [JsonPropertyName("generatedBy")]
+        public string GeneratedBy { get; set; } = "AI Engine";
+
+        [JsonPropertyName("generatedAt")]
+        public DateTime? GeneratedAt { get; set; }
+
+        [JsonPropertyName("disclaimer")]
+        public string Disclaimer { get; set; } = "คำแนะนำนี้ประมวลผลโดย AI เพื่อช่วยผู้ตรวจประกอบการพิจารณา ไม่ใช่คำตัดสินสุดท้าย";
+    }
+
     public class AiService
     {
         private readonly AppDbContext _context;
@@ -145,120 +186,278 @@ namespace QSC.Api.Services
             _logger = logger;
         }
 
-        private string GetApiKey()
+        private string GetBaseUrl()
         {
-            return _config["AI:ApiKey"] 
-                ?? Environment.GetEnvironmentVariable("AI_API_KEY") 
-                ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY") 
-                ?? string.Empty;
+            return _config["AI:BaseUrl"]
+                ?? Environment.GetEnvironmentVariable("AI_BASE_URL")
+                ?? "http://localhost:11434";
+        }
+
+        private bool IsAiEnabled()
+        {
+            var raw = _config["AI:Enabled"];
+            if (string.IsNullOrWhiteSpace(raw)) return true; // เปิดใช้งาน AI เป็นค่าเริ่มต้น (local ไม่ต้องมี API key)
+            return bool.TryParse(raw, out var enabled) && enabled;
         }
 
         private string GetModel()
         {
-            return _config["AI:Model"] ?? "gemini-flash-latest";
+            return _config["AI:Model"] ?? "qwen3.5:9b";
         }
 
         // DASHBOARD
-        public async Task<DashboardAiInsightsDto> GetDashboardInsightsAsync(ClaimsPrincipal user, DateTime? targetMonth = null)
+        public async Task<DashboardAiInsightsDto> GetDashboardInsightsAsync(
+            ClaimsPrincipal user, 
+            DateTime? targetMonth = null,
+            string? period = "month",
+            int? brandId = null)
         {
             var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(user, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(user, _context);
 
-            var month = targetMonth ?? DateTime.UtcNow;
-            var startOfMonth = new DateTime(month.Year, month.Month, 1);
-            var endOfMonth = startOfMonth.AddMonths(1).AddTicks(-1);
+            // 🌟 Auto-resolve brandId if not explicitly provided:
+            // 1) User is restricted to 1 brand in UserBrands
+            // 2) Or all user's accessible locations belong to exactly 1 brand
+            if (!brandId.HasValue)
+            {
+                if (allowedBrandIds != null && allowedBrandIds.Count == 1)
+                {
+                    brandId = allowedBrandIds.First();
+                }
+                else if (allowedLocationIds != null && allowedLocationIds.Count > 0)
+                {
+                    var locBrandIds = await _context.LocationBrands
+                        .Where(lb => allowedLocationIds.Contains(lb.LocationId))
+                        .Select(lb => lb.BrandId)
+                        .Distinct()
+                        .ToListAsync();
+                    if (locBrandIds.Count == 1)
+                    {
+                        brandId = locBrandIds[0];
+                    }
+                }
+            }
 
-            var monthRecordsQuery = _context.AuditRecords
+            DateTime startUtc, endUtc;
+            if (targetMonth.HasValue)
+            {
+                startUtc = new DateTime(targetMonth.Value.Year, targetMonth.Value.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+                endUtc = startUtc.AddMonths(1).AddTicks(-1);
+            }
+            else
+            {
+                var ranges = TimezoneHelper.GetPeriodDateRanges(period);
+                startUtc = ranges.StartUtc;
+                endUtc = ranges.EndUtc;
+            }
+
+            // 🚀 Query 1: ดึงเฉพาะข้อมูลสรุปสถิติที่จำเป็น (id, score, isPassed) ไม่ Include entity responses มหาศาล
+            var auditQuery = _context.AuditRecords
                 .AsNoTracking()
-                .Include(r => r.Location)
-                .Include(r => r.Responses)
-                    .ThenInclude(res => res.SurveyItem)
-                        .ThenInclude(item => item!.SurveySection)
-                .Where(r => r.AuditDate >= startOfMonth && r.AuditDate <= endOfMonth)
-                .AsQueryable();
+                .Where(r => r.AuditDate >= startUtc && r.AuditDate <= endUtc);
 
             if (allowedLocationIds != null)
             {
-                monthRecordsQuery = monthRecordsQuery.Where(r => allowedLocationIds.Contains(r.LocationId));
+                auditQuery = auditQuery.Where(r => allowedLocationIds.Contains(r.LocationId));
             }
-            if (allowedBrandIds != null)
+            if (brandId.HasValue)
             {
-                monthRecordsQuery = monthRecordsQuery.Where(r => r.Location != null && r.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                auditQuery = auditQuery.Where(r => r.Location != null && r.Location.LocationBrands.Any(lb => lb.BrandId == brandId.Value));
+            }
+            else if (allowedBrandIds != null)
+            {
+                auditQuery = auditQuery.Where(r => r.Location != null && r.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
-            var monthRecords = await monthRecordsQuery.ToListAsync();
+            var auditStats = await auditQuery
+                .Select(r => new { r.Id, r.PercentageScore, r.IsPassed })
+                .ToListAsync();
 
+            var totalAudits = auditStats.Count;
+            var avgScore = totalAudits > 0 ? Math.Round(auditStats.Average(r => r.PercentageScore), 1) : 0;
+            var passCount = auditStats.Count(r => r.IsPassed);
+            var passRate = totalAudits > 0 ? Math.Round((double)passCount / totalAudits * 100, 1) : 0;
+
+            // 🚀 Query 2: นับจำนวนงาน CAP ค้างด้วย CountAsync ตรงๆ ใน DB (ไม่โหลดทั้ง Entity เข้า Memory)
             var pendingCapsQuery = _context.CapTasks
                 .AsNoTracking()
-                .Include(c => c.Location)
-                .Where(c => c.Status != "CLOSED" && c.Status != "closed")
-                .AsQueryable();
+                .Where(c => c.Status != "CLOSED" && c.Status != "closed" && c.Status != "CANCELLED" && c.Status != "cancelled");
 
             if (allowedLocationIds != null)
             {
                 pendingCapsQuery = pendingCapsQuery.Where(c => allowedLocationIds.Contains(c.LocationId));
             }
-            if (allowedBrandIds != null)
+            if (brandId.HasValue)
+            {
+                pendingCapsQuery = pendingCapsQuery.Where(c => c.Location != null && c.Location.LocationBrands.Any(lb => lb.BrandId == brandId.Value));
+            }
+            else if (allowedBrandIds != null)
             {
                 pendingCapsQuery = pendingCapsQuery.Where(c => c.Location != null && c.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
             }
 
-            var pendingCaps = await pendingCapsQuery.ToListAsync();
+            var pendingCapsCount = await pendingCapsQuery.CountAsync();
 
-            var totalAudits = monthRecords.Count;
-            var avgScore = totalAudits > 0 ? Math.Round(monthRecords.Average(r => r.PercentageScore), 1) : 0;
-            var passCount = monthRecords.Count(r => r.IsPassed);
-            var passRate = totalAudits > 0 ? Math.Round((double)passCount / totalAudits * 100, 1) : 0;
+            // 🚀 Query 2.1: ดึงรายละเอียดหัวข้อปัญหาของงาน CAP ค้าง เพื่อให้ AI และ Fallback สรุปหัวข้อได้ชัดเจน
+            var pendingCapList = await pendingCapsQuery
+                .Select(c => new { 
+                    c.CategoryName, 
+                    c.IssueItem 
+                })
+                .Take(10)
+                .ToListAsync();
 
-            var defectFrequencies = monthRecords
-                .SelectMany(r => r.Responses)
-                .Where(res => !res.IsPassed && !res.IsNa)
-                .GroupBy(res => res.SurveyItem?.QuestionText ?? "ข้อบกพร่องทั่วไป")
-                .Select(g => new { Question = g.Key, Count = g.Count() })
-                .OrderByDescending(x => x.Count)
-                .Take(3)
+            var pendingIssues = pendingCapList
+                .Select(c => {
+                    if (!string.IsNullOrWhiteSpace(c.CategoryName) && c.CategoryName.Trim() != "ทั่วไป")
+                    {
+                        return c.CategoryName.Trim();
+                    }
+                    var text = (c.IssueItem ?? "").Replace(".", "").Trim();
+                    if (text.Contains("Take Home", StringComparison.OrdinalIgnoreCase)) return "สินค้า Take Home";
+                    if (text.Contains("ป้ายสินค้า", StringComparison.OrdinalIgnoreCase)) return "ป้ายสินค้า";
+                    var parts = text.Split(new[] { '/', '-', '(', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                    return parts.Length > 0 ? parts[0].Trim() : (string.IsNullOrWhiteSpace(text) ? "ทั่วไป" : text);
+                })
+                .Where(s => !string.IsNullOrWhiteSpace(s) && !s.StartsWith("ข้อ"))
+                .Distinct()
+                .Take(4)
                 .ToList();
 
-            string TruncateText(string text, int maxLen = 30)
+            string pendingCapSummary = pendingIssues.Count > 0 
+                ? string.Join(", ", pendingIssues) 
+                : "ไม่มีงานค้างส่ง";
+
+            // 🚀 Query 3: หาข้อบกพร่องที่พบบ่อยสุดรายข้อ (คำถามจริง + หมวดหมู่) เพื่อให้คำแนะนำเจาะจงไม่ปลายเปิด
+            var auditIds = auditStats.Select(a => a.Id).ToList();
+            string topDefectShort = "ไม่พบข้อบกพร่อง";
+            string topDefectQuestion = "";
+            var topFailedQuestionsFormatted = new List<string>();
+
+            if (auditIds.Count > 0)
             {
-                if (string.IsNullOrWhiteSpace(text)) return string.Empty;
-                var clean = text.Split('(')[0].Trim();
-                return clean.Length > maxLen ? clean.Substring(0, maxLen - 3) + "..." : clean;
+                var topDefectItems = await _context.AuditResponses
+                    .AsNoTracking()
+                    .Where(res => auditIds.Contains(res.AuditRecordId) && !res.IsPassed && !res.IsNa)
+                    .GroupBy(res => new {
+                        Category = res.CategoryName ?? (res.SurveyItem != null ? res.SurveyItem.CategoryName : "ทั่วไป"),
+                        Question = res.SurveyItem != null ? res.SurveyItem.QuestionText : (res.CategoryName ?? "ทั่วไป")
+                    })
+                    .Select(g => new { 
+                        Category = g.Key.Category, 
+                        Question = g.Key.Question, 
+                        Count = g.Count() 
+                    })
+                    .OrderByDescending(x => x.Count)
+                    .Take(3)
+                    .ToListAsync();
+
+                if (topDefectItems.Count > 0)
+                {
+                    topDefectShort = topDefectItems[0].Category ?? "ทั่วไป";
+                    
+                    // สกัดชื่อข้อคำถามให้เป็นสาระสำคัญจริง ไม่เป็นแค่ตัวเลข เช่น "ข้อ 14"
+                    string ExtractMeaningfulTopic(string? raw, string? category)
+                    {
+                        if (string.IsNullOrWhiteSpace(raw)) return "";
+                        var text = raw.Trim();
+
+                        var parts = text.Split(new[] { '-', ':', '—', '/' }, StringSplitOptions.RemoveEmptyEntries)
+                                        .Select(p => p.Trim())
+                                        .Where(p => !string.IsNullOrWhiteSpace(p))
+                                        .ToList();
+
+                        if (parts.Count > 1)
+                        {
+                            if (System.Text.RegularExpressions.Regex.IsMatch(parts[0], @"^(ข้อที่?\s*\d+|\d+\.?)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                            {
+                                text = string.Join(" ", parts.Skip(1));
+                            }
+                            else
+                            {
+                                text = parts[0];
+                            }
+                        }
+
+                        text = System.Text.RegularExpressions.Regex.Replace(text, @"^(ข้อที่?\s*\d+[\.:\s\-]*|\d+[\.:\s\-]+)", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+                        text = text.Trim('.', '-', ':', ' ', '"', '\'');
+
+                        if (string.IsNullOrWhiteSpace(text) || System.Text.RegularExpressions.Regex.IsMatch(text, @"^(ข้อที่?\s*\d+|\d+)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                        {
+                            if (!string.IsNullOrWhiteSpace(category) && category != "ทั่วไป")
+                            {
+                                return $"หมวด{category}";
+                            }
+                            return "";
+                        }
+
+                        return text;
+                    }
+
+                    topDefectQuestion = ExtractMeaningfulTopic(topDefectItems[0].Question, topDefectItems[0].Category);
+
+                    foreach (var item in topDefectItems)
+                    {
+                        var cleanPart = ExtractMeaningfulTopic(item.Question, item.Category);
+                        var desc = !string.IsNullOrWhiteSpace(cleanPart) ? cleanPart : item.Category;
+                        topFailedQuestionsFormatted.Add($"- หมวด{item.Category}: {desc} (ตก {item.Count} ครั้ง)");
+                    }
+                }
             }
 
-            var topDefectShort = defectFrequencies.Any() 
-                ? TruncateText(defectFrequencies.First().Question, 28)
-                : "ไม่พบข้อบกพร่อง";
+            var failedListText = topFailedQuestionsFormatted.Count > 0 
+                ? string.Join("\n", topFailedQuestionsFormatted)
+                : "- ไม่พบข้อบกพร่องเด่นชัด";
 
-            var apiKey = GetApiKey();
-            if (!string.IsNullOrWhiteSpace(apiKey))
+            string brandLabel = "ทุกแบรนด์";
+            if (brandId.HasValue)
+            {
+                string? bName = await _context.Brands.Where(b => b.Id == brandId.Value).Select(b => b.Name).FirstOrDefaultAsync();
+                if (!string.IsNullOrEmpty(bName)) brandLabel = bName;
+            }
+            else if (allowedBrandIds != null && allowedBrandIds.Count > 1)
+            {
+                var allowedNames = await _context.Brands.Where(b => allowedBrandIds.Contains(b.Id)).Select(b => b.Name).ToListAsync();
+                if (allowedNames.Count > 0) brandLabel = string.Join(", ", allowedNames);
+            }
+
+            string periodLabel = period switch
+            {
+                "last_month" => "เดือนที่แล้ว",
+                "3m" => "3 เดือนย้อนหลัง",
+                "6m" => "6 เดือนย้อนหลัง",
+                "ytd" => "ตั้งแต่ต้นปี (YTD)",
+                _ => "เดือนนี้"
+            };
+
+            if (IsAiEnabled())
             {
                 try
                 {
                     var prompt = $@"
-คุณคือ AI ผู้เชี่ยวชาญด้านระบบควบคุมคุณภาพมาตรฐานร้านอาหาร (QSC)
-ให้สรุปสถิติประจำเดือนแบบสั้น กระชับ ตรงประเด็น (ความยาวไม่เกิน 1 ประโยคสั้นๆ ต่อหัวข้อ)
-คำแนะนำในการใช้ภาษา:
-- ให้ใช้สำนวนภาษาไทยที่เป็นธรรมชาติ สลับคำเกริ่นและคำเชื่อมให้มีความสดใหม่ในแต่ละรอบ โดยคงตัวเลขสถิติตามข้อมูลจริงไว้อย่างแม่นยำ 100%
-- highlight: สรุปภาพรวมคะแนน ({avgScore}%) และอัตราผ่าน ({passRate}%) ให้อ่านง่าย เช่น สถิติผลตรวจเฉลี่ย หรือภาพรวมมาตรฐานรอบนี้
-- attention: ระบุเรื่องที่ต้องเฝ้าระวัง เช่น งาน CAP ที่ค้าง ({pendingCaps.Count} รายการ) หรือจุดบกพร่องที่พบบ่อย ({topDefectShort})
-- action: ข้อเสนอแนะเชิงปฏิบัติการที่กระชับ ตรงประเด็น 1 ประโยค
-ตอบเป็น JSON:
+คุณคือ AI ผู้เชี่ยวชาญด้านระบบควบคุมคุณภาพมาตรฐานร้านอาหาร (QSC) เน้นตอบสั้น กระชับ ตรงประเด็น
+ข้อมูลสรุปการตรวจประเมินจริงของแบรนด์ {brandLabel} (ช่วงเวลา: {periodLabel}):
+- แบรนด์: {brandLabel}
+- รอบตรวจทั้งหมด: {totalAudits} ครั้ง (คะแนนเฉลี่ย {avgScore}%, ผ่านเกณฑ์ {passRate}%)
+- งาน CAP ที่ค้างอยู่ ({pendingCapsCount} รายการ): {pendingCapSummary}
+- จุดที่ตรวจตกบ่อยที่สุดจริงในหน้างานของแบรนด์ {brandLabel}:
+{failedListText}
+
+คำสั่งสร้างผลวิเคราะห์เป็น JSON ภาษาไทย (สั้น กระชับ ตรงประเด็น ไม่เกริ่น):
 {{
-  ""highlight"": ""ข้อความสรุปจุดเด่นสั้นๆ 1 ประโยค"",
-  ""attention"": ""ข้อความจุดเฝ้าระวังสั้นๆ 1 ประโยค"",
-  ""action"": ""ข้อความข้อเสนอแนะสั้นๆ 1 ประโยค""
+  ""highlight"": ""สรุปผลคะแนนเฉลี่ยและอัตราผ่านของแบรนด์ {brandLabel} 1 ประโยคสั้น (เช่น คะแนนเฉลี่ย ({brandLabel}) {avgScore}% ผ่านเกณฑ์ {passRate}%)"",
+  ""attention"": ""ระบุจำนวนงาน CAP ค้าง และสรุปสั้นๆ ว่าพบปัญหาในหัวข้ออะไรบ้างให้ชัดเจน (เช่น งาน CAP ค้าง {pendingCapsCount} รายการ พบปัญหาเรื่อง{pendingCapSummary})"",
+  ""action"": ""เสนอแนวทางแก้ไขหรือข้อปฏิบัติที่เจาะจงชัดเจนตรงจุดตามปัญหาที่ตรวจตกจริงของแบรนด์ {brandLabel} ห้ามตอบกว้างๆ ปลายเปิด และห้ามระบุแค่หมายเลขข้อ เช่น ข้อ 14 โดยไม่มีชื่อเรื่อง (เช่น กวดขันเรื่อง{(!string.IsNullOrWhiteSpace(topDefectQuestion) ? topDefectQuestion : topDefectShort)} และตรวจสอบสต๊อกทุกกะ)""
 }}
-ข้อมูลจริง: รอบตรวจ {totalAudits} ครั้ง, คะแนนเฉลี่ย {avgScore}%, ผ่านเกณฑ์ {passRate}%, งาน CAP ค้าง {pendingCaps.Count} รายการ, ตกบ่อยสุด: {topDefectShort}
 ตอบเฉพาะ JSON ล้วนๆ
 ";
-                    var aiResultJson = await CallGeminiRestApiAsync(prompt, apiKey, GetModel());
+                    var aiResultJson = await CallLocalAiApiAsync(prompt, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiResultJson))
                     {
                         var parsed = JsonSerializer.Deserialize<DashboardAiInsightsDto>(aiResultJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                         if (parsed != null && !string.IsNullOrWhiteSpace(parsed.Highlight))
                         {
-                            parsed.GeneratedBy = "Gemini AI";
+                            parsed.GeneratedBy = $"Local AI ({GetModel()})";
                             parsed.GeneratedAt = DateTime.UtcNow;
                             return parsed;
                         }
@@ -266,22 +465,50 @@ namespace QSC.Api.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Gemini API call failed for Dashboard Insights. Falling back to rule-based.");
+                    _logger.LogWarning(ex, "Local AI API call failed for Dashboard Insights. Falling back to rule-based.");
                 }
             }
 
-            // Fallback: ข้อความสั้น กระชับ อ่านง่าย
+            // Fallback: ข้อความสั้น กระชับ เจาะจงชัดเจน ไม่ปลายเปิด
+            string fallbackAttention = pendingCapsCount > 0
+                ? $"งาน CAP ค้าง {pendingCapsCount} รายการ (พบปัญหา: {pendingCapSummary})"
+                : "ไม่มีงานค้างส่ง CAP จัดการได้ตามกรอบเวลา";
+
+            string fallbackAction;
+            if (!string.IsNullOrWhiteSpace(topDefectQuestion))
+            {
+                if (topDefectQuestion.StartsWith("หมวด"))
+                {
+                    fallbackAction = $"กวดขันและติดตามการแก้ไขมาตรฐาน{topDefectQuestion} อย่างใกล้ชิด";
+                }
+                else
+                {
+                    fallbackAction = $"เน้นย้ำมาตรฐานเรื่อง \"{topDefectQuestion}\" ทันที";
+                }
+            }
+            else if (pendingIssues.Count > 0)
+            {
+                var issue = pendingIssues[0];
+                fallbackAction = issue.StartsWith("หมวด")
+                    ? $"กวดขันและติดตามการแก้ไขมาตรฐาน{issue} ทันที"
+                    : $"กวดขันและแก้ไขปัญหาเรื่อง \"{issue}\" ทันที";
+            }
+            else if (!string.IsNullOrWhiteSpace(topDefectShort) && topDefectShort != "ไม่พบข้อบกพร่อง" && topDefectShort != "ทั่วไป")
+            {
+                fallbackAction = $"ติดตามการแก้ไขมาตรฐานหมวด{topDefectShort} อย่างใกล้ชิด";
+            }
+            else
+            {
+                fallbackAction = "ควรรักษามาตรฐานการสุ่มตรวจตามรอบอย่างต่อเนื่อง";
+            }
+
             return new DashboardAiInsightsDto
             {
                 Highlight = totalAudits > 0
-                    ? $"คะแนนเฉลี่ยภาพรวม {avgScore}% ผ่านเกณฑ์มาตรฐาน {passRate}%"
-                    : "ระบบพร้อมสำหรับการบันทึกผลตรวจรอบใหม่",
-                Attention = pendingCaps.Count > 0
-                    ? $"งานค้างส่ง CAP {pendingCaps.Count} รายการ (พบตกบ่อย: {topDefectShort})"
-                    : "ไม่มีงานค้างส่ง CAP จัดการได้ตามกรอบเวลา",
-                Action = defectFrequencies.Any()
-                    ? $"เน้นย้ำมาตรฐาน {topDefectShort} เป็นพิเศษ"
-                    : "ควรรักษามาตรฐานการสุ่มตรวจตามรอบอย่างต่อเนื่อง",
+                    ? $"คะแนนเฉลี่ย ({brandLabel}) {avgScore}% ผ่านเกณฑ์ {passRate}%"
+                    : $"ยังไม่มีรอบตรวจของ {brandLabel} ในช่วง{periodLabel}",
+                Attention = fallbackAttention,
+                Action = fallbackAction,
                 GeneratedBy = "Smart Analytics Engine",
                 GeneratedAt = DateTime.UtcNow
             };
@@ -322,7 +549,7 @@ namespace QSC.Api.Services
 
             var capTasks = await _context.CapTasks
                 .AsNoTracking()
-                .Where(c => c.Status != "CLOSED" && c.Status != "closed")
+                .Where(c => c.Status != "CLOSED" && c.Status != "closed" && c.Status != "CANCELLED" && c.Status != "cancelled")
                 .ToListAsync();
 
             var auditors = await _context.Users
@@ -425,8 +652,7 @@ namespace QSC.Api.Services
 
             var totalPendingMonthly = branchStats.Count(b => !b.HasAuditedThisMonth);
 
-            var apiKey = GetApiKey();
-            if (!string.IsNullOrWhiteSpace(apiKey) && ranked.Any())
+            if (IsAiEnabled() && ranked.Any())
             {
                 try
                 {
@@ -454,7 +680,7 @@ namespace QSC.Api.Services
 {branchesInfo}
 ตอบเฉพาะ JSON ล้วนๆ
 ";
-                    var aiJson = await CallGeminiRestApiAsync(prompt, apiKey, GetModel());
+                    var aiJson = await CallLocalAiApiAsync(prompt, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiJson))
                     {
                         using var doc = JsonDocument.Parse(aiJson);
@@ -477,13 +703,13 @@ namespace QSC.Api.Services
                             Summary = summary ?? (totalPendingMonthly > 0 ? $"แนะนำเร่งจัดตารางตรวจ {totalPendingMonthly} สาขาความเสี่ยงสูงที่ยังไม่ได้รับการตรวจในเดือนนี้" : "สาขาได้รับการตรวจตามรอบมาตรฐานเรียบร้อยแล้ว"),
                             Recommendations = ranked,
                             TotalBranchesPendingMonthlyAudit = totalPendingMonthly,
-                            GeneratedBy = "Gemini AI"
+                            GeneratedBy = $"Local AI ({GetModel()})"
                         };
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Gemini API call failed for Schedule Planner. Using fallback.");
+                    _logger.LogWarning(ex, "Local AI API call failed for Schedule Planner. Using fallback.");
                 }
             }
 
@@ -545,8 +771,7 @@ namespace QSC.Api.Services
                 ? string.Join("\n", comments.Select(c => $"[{c.Sender?.FullName ?? "ผู้ใช้"}]: {c.Message}"))
                 : "ยังไม่มีการสนทนาในห้องแชท";
 
-            var apiKey = GetApiKey();
-            if (!string.IsNullOrWhiteSpace(apiKey))
+            if (IsAiEnabled())
             {
                 try
                 {
@@ -578,7 +803,7 @@ namespace QSC.Api.Services
 }}
 ตอบเฉพาะ JSON ล้วนๆ
 ";
-                    var aiJson = await CallGeminiRestApiAsync(prompt, apiKey, GetModel());
+                    var aiJson = await CallLocalAiApiAsync(prompt, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiJson))
                     {
                         var parsed = JsonSerializer.Deserialize<CapAiAnalysisDto>(aiJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -594,7 +819,7 @@ namespace QSC.Api.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Gemini API call failed for CAP Analysis. Using rule-based fallback.");
+                    _logger.LogWarning(ex, "Local AI API call failed for CAP Analysis. Using rule-based fallback.");
                 }
             }
 
@@ -651,7 +876,178 @@ namespace QSC.Api.Services
             };
         }
 
-        // ── 💬 INTERACTIVE Q&A FOR SCHEDULE ADVISOR ──
+        // ── 🩺 AI ANALYSIS FOR AUDIT RESULT PAGE ("ผลการตรวจ") ──
+        // คืน null เมื่อ user ไม่มีสิทธิ์เข้าถึง audit record นี้ (เช็คแบบเดียวกับ GetAuditRecords)
+        public async Task<AuditDefectAnalysisDto?> AnalyzeAuditRecordDefectsAsync(ClaimsPrincipal user, int auditRecordId, bool forceRefresh = false)
+        {
+            var (_, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(user, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(user, _context);
+
+            var record = await _context.AuditRecords
+                .Include(r => r.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                .Include(r => r.Responses)
+                    .ThenInclude(resp => resp.SurveyItem)
+                .FirstOrDefaultAsync(r => r.Id == auditRecordId);
+
+            if (record == null) return null;
+
+            // 🌟 เช็คสิทธิ์เข้าถึง — เหมือน guard ที่ใช้ใน GetAuditRecords ทุกประการ กัน user เห็นข้อมูลสาขาที่ไม่ใช่ของตัวเอง
+            // หมายเหตุ: role AUDITEE ที่ allowedLocationIds เป็น null หมายถึง "ไม่มีสิทธิ์เข้าถึงสาขาไหนเลย" (deny-by-default)
+            // ต่างจาก role อื่นที่ null หมายถึง "ไม่ถูกจำกัด" (เช่น แอดมิน/ผู้บริหาร) — ต้องแยกเช็คให้ตรงกับ GetAuditRecords
+            if (role == "AUDITEE" && allowedLocationIds == null)
+            {
+                return null;
+            }
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId))
+            {
+                return null;
+            }
+            if (allowedBrandIds != null)
+            {
+                var brandOk = record.Location != null &&
+                    record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId));
+                if (!brandOk) return null;
+            }
+
+            // 🌟 ใช้ผลที่เคย generate ไว้แล้ว ถ้ามี (และต้องมี action ครบในทุกหมวดหมู่)
+            if (!forceRefresh && !string.IsNullOrWhiteSpace(record.AiAnalysisJson))
+            {
+                try
+                {
+                    var cached = JsonSerializer.Deserialize<AuditDefectAnalysisDto>(record.AiAnalysisJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    // ถ้าแคชเดิมมี action ครบในทุกหมวด ให้ใช้แคชได้เลย ถ้าเป็นรุ่นเก่าที่ไม่มี action ให้ปล่อย generate ใหม่
+                    if (cached != null && (cached.CategoryGroups.Count == 0 || cached.CategoryGroups.All(c => !string.IsNullOrWhiteSpace(c.Action))))
+                    {
+                        return cached;
+                    }
+                }
+                catch { /* ผลเก่ารูปแบบไม่ตรง ปล่อยให้ generate ใหม่ */ }
+            }
+
+            var defects = record.Responses.Where(r => !r.IsPassed && !r.IsNa).ToList();
+
+            // 🌟 ไม่มีข้อบกพร่องเลย ไม่ต้องยิง AI เลย ประหยัดทรัพยากร local server
+            if (defects.Count == 0)
+            {
+                var passResult = new AuditDefectAnalysisDto
+                {
+                    AuditRecordId = auditRecordId,
+                    Summary = "ไม่พบข้อบกพร่องในการตรวจครั้งนี้",
+                    PriorityFocus = "ไม่มีจุดที่ต้องแก้ไขเร่งด่วน",
+                    GeneratedBy = "Rule-based",
+                    GeneratedAt = DateTime.UtcNow
+                };
+                await SaveAuditAnalysisAsync(auditRecordId, passResult);
+                return passResult;
+            }
+
+            // 🌟 จำกัดจำนวนข้อบกพร่องที่ส่งเข้า prompt กัน prompt ยาวเกินจนช้า/timeout (ส่งแค่ข้อความ ไม่ส่งรูป)
+            var defectsForPrompt = defects.Take(20).Select(d => new
+            {
+                category = d.CategoryName ?? d.SurveyItem?.CategoryName ?? "ไม่ระบุหมวด",
+                question = d.SurveyItem?.QuestionText ?? "",
+                note = d.Notes ?? ""
+            }).ToList();
+
+            var groupedByCategory = defects
+                .GroupBy(d => d.CategoryName ?? d.SurveyItem?.CategoryName ?? "ไม่ระบุหมวด")
+                .Select(g => new { category = g.Key, count = g.Count() })
+                .OrderByDescending(g => g.count)
+                .ToList();
+
+            if (IsAiEnabled())
+            {
+                try
+                {
+                    var defectListText = string.Join("\n", defectsForPrompt.Select((d, i) =>
+                        $"{i + 1}. [{d.category}] {d.question}{(string.IsNullOrWhiteSpace(d.note) ? "" : $" — หมายเหตุผู้ตรวจ: {d.note}")}"));
+
+                    var prompt = $@"
+คุณคือ AI ผู้ช่วยตรวจสอบมาตรฐานคุณภาพ QSC (เน้นตอบสั้น กระชับ ตรงประเด็นแบบผู้บริหาร ตัดคำเกริ่นและคำเชื่อมที่ยืดเยื้อออกทั้งหมด เอาเฉพาะเนื้อหาสำคัญที่ต้องปฏิบัติ)
+
+กฎการตอบอย่างเคร่งครัด:
+- ห้ามใช้คำเกริ่นยืดเยื้อ เช่น 'พบปัญหาหลักได้แก่', 'ซึ่งส่งผลกระทบต่อ...', 'เพื่อป้องกันความเสี่ยง'
+- summary: สรุปประเด็นสำคัญสั้นมาก 1 ประโยค (ความยาวไม่เกิน 15 คำ)
+- note: ระบุปัญหาที่พบแบบสั้นกระชับ ตรงจุดที่สุด (ไม่เกิน 15 คำ)
+- action: ระบุสิ่งที่ต้องทำทันที ขึ้นต้นด้วยกริยาปฏิบัติชัดเจน (ไม่เกิน 15 คำ)
+- priorityFocus: สิ่งที่ต้องทำด่วนที่สุดเป็นอันดับแรก 1 ประโยคสั้น (ไม่เกิน 15 คำ)
+
+รายการข้อบกพร่องที่ตรวจพบ ({defects.Count} ข้อ):
+{defectListText}
+
+ตอบเป็น JSON ภาษาไทยตามโครงสร้างนี้เท่านั้น:
+{{
+  ""summary"": ""สรุปประเด็นสำคัญสั้นมาก 1 ประโยค"",
+  ""categoryGroups"": [
+    {{
+      ""category"": ""ชื่อหมวดหมู่"",
+      ""count"": จำนวนข้อในหมวดนี้,
+      ""note"": ""ปัญหาที่พบแบบตรงจุดสั้นกระชับ"",
+      ""action"": ""สิ่งที่ต้องทำทันที""
+    }}
+  ],
+  ""priorityFocus"": ""สิ่งที่ต้องทำด่วนที่สุดอันดับแรก 1 ประโยค""
+}}
+ตอบเฉพาะ JSON ล้วนๆ
+";
+                    var aiJson = await CallLocalAiApiAsync(prompt, GetModel());
+                    if (!string.IsNullOrWhiteSpace(aiJson))
+                    {
+                        var parsed = JsonSerializer.Deserialize<AuditDefectAnalysisDto>(aiJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (parsed != null && parsed.CategoryGroups.Count > 0)
+                        {
+                            parsed.AuditRecordId = auditRecordId;
+                            parsed.GeneratedBy = $"Local AI ({GetModel()})";
+                            parsed.GeneratedAt = DateTime.UtcNow;
+                            await SaveAuditAnalysisAsync(auditRecordId, parsed);
+                            return parsed;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Local AI API call failed for Audit Defect Analysis. Using rule-based fallback.");
+                }
+            }
+
+            // Fallback: สั้น กระชับ หมวดหมู่ + จำนวน + วิธีแก้ไขเบื้องต้น
+            var fallbackResult = new AuditDefectAnalysisDto
+            {
+                AuditRecordId = auditRecordId,
+                Summary = $"พบข้อบกพร่องทั้งหมด {defects.Count} ข้อ ใน {groupedByCategory.Count} หมวดหมู่",
+                CategoryGroups = groupedByCategory.Select(g => new AuditDefectCategoryGroupDto
+                {
+                    Category = g.category,
+                    Count = g.count,
+                    Note = $"ตก {g.count} ข้อในหมวดนี้",
+                    Action = $"ทบทวนขั้นตอนและตรวจสอบรายการที่ไม่ผ่านในหมวด {g.category} เพื่อแก้ไขปรับปรุงให้ตรงตามมาตรฐาน"
+                }).ToList(),
+                PriorityFocus = $"ควรแก้หมวด \"{groupedByCategory.First().category}\" ก่อน เพราะพบข้อบกพร่องมากที่สุด ({groupedByCategory.First().count} ข้อ)",
+                GeneratedBy = "Rule-based",
+                GeneratedAt = DateTime.UtcNow
+            };
+            await SaveAuditAnalysisAsync(auditRecordId, fallbackResult);
+            return fallbackResult;
+        }
+
+        private async Task SaveAuditAnalysisAsync(int auditRecordId, AuditDefectAnalysisDto result)
+        {
+            try
+            {
+                var record = await _context.AuditRecords.FirstOrDefaultAsync(r => r.Id == auditRecordId);
+                if (record == null) return;
+                record.AiAnalysisJson = JsonSerializer.Serialize(result);
+                record.AiAnalysisGeneratedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to save AI audit-defect analysis cache for record {Id}.", auditRecordId);
+            }
+        }
+
+
         public async Task<string> AskScheduleQuestionAsync(ClaimsPrincipal user, string question)
         {
             if (string.IsNullOrWhiteSpace(question)) return "กรุณาระบุคำถามที่ต้องการถาม AI ครับ";
@@ -660,8 +1056,7 @@ namespace QSC.Api.Services
             var branchesSummary = string.Join("\n", scheduleData.Recommendations.Select((b, i) =>
                 $"- อันดับ {i + 1}: สาขา {b.LocationName} ({b.BrandName}), เขต {b.Region}, ความเร่งด่วน {b.PriorityLevel}, ตรวจเดือนนี้={(b.HasAuditedThisMonth ? "ตรวจแล้ว" : "ยังไม่ตรวจ")}, เหตุผล: {b.Reason}, ผู้ตรวจแนะนำ: {b.SuggestedAuditorName} ({b.AuditorReason})"));
 
-            var apiKey = GetApiKey();
-            if (!string.IsNullOrWhiteSpace(apiKey))
+            if (IsAiEnabled())
             {
                 try
                 {
@@ -680,7 +1075,7 @@ namespace QSC.Api.Services
 - อธิบายเหตุผลหรือผู้ตรวจที่เหมาะสมให้ชัดเจนตามข้อมูลจริง
 - ตอบเป็นข้อความธรรมดา ไม่ต้องมี JSON
 ";
-                    var answer = await CallGeminiRestApiAsync(prompt, apiKey, GetModel(), isJson: false);
+                    var answer = await CallLocalAiApiAsync(prompt, GetModel(), isJson: false);
                     if (!string.IsNullOrWhiteSpace(answer))
                     {
                         return answer.Trim();
@@ -688,7 +1083,7 @@ namespace QSC.Api.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Gemini API call failed for AskScheduleQuestion.");
+                    _logger.LogWarning(ex, "Local AI API call failed for AskScheduleQuestion.");
                 }
             }
 
@@ -714,32 +1109,35 @@ namespace QSC.Api.Services
             return $"จากข้อมูลล่าสุด มีสาขาค้างตรวจในเดือนนี้ {scheduleData.TotalBranchesPendingMonthlyAudit} สาขา โดยแนะนำให้จัดทีมลงตรวจสาขาความเสี่ยงสูง 3 อันดับแรกก่อน เพื่อรักษามาตรฐาน QSC ประจำเดือนครับ";
         }
 
-        // ── 🌐 GEMINI REST API CALL HELPER ──
-        private async Task<string?> CallGeminiRestApiAsync(string prompt, string apiKey, string model, bool isJson = true)
+        // ── 🖥️ LOCAL AI API CALL HELPER (Ollama /api/chat, ex. qwen3.5:9b) ──
+        private async Task<string?> CallLocalAiApiAsync(string prompt, string model, bool isJson = true)
         {
             var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(8);
+            // 🌟 Local model (เช่น qwen3.5:9b) มักช้ากว่า cloud API เดิมมาก โดยเฉพาะถ้าไม่มี GPU
+            // แรง — ปรับได้ผ่าน appsettings "AI:TimeoutSeconds" โดยไม่ต้อง deploy ใหม่ทุกครั้งที่
+            // เจอเครื่องช้า/เร็วต่างกัน ค่าเริ่มต้น 60 วิ (เดิม hardcode 8 วิสำหรับ Gemini)
+            var timeoutSeconds = int.TryParse(_config["AI:TimeoutSeconds"], out var t) ? t : 60;
+            client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
 
-            var endpoint = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={apiKey}";
+            var baseUrl = GetBaseUrl().TrimEnd('/');
+            var endpoint = $"{baseUrl}/api/chat";
 
-            object generationConfig = isJson
-                ? new { responseMimeType = "application/json", temperature = 0.6, topP = 0.95 }
-                : new { temperature = 0.7, topP = 0.95 };
-
-            var requestBody = new
+            // 🌟 แม่แบบ JSON คงที่ — จุดที่เปลี่ยนได้มีแค่ "content" (prompt) กับ "format" (isJson)
+            // เวลาจะเพิ่มจุดเรียก AI ใหม่ ก็แค่ประกอบ prompt แล้วเรียกฟังก์ชันนี้ ไม่ต้องแตะโครง request เลย
+            var requestBody = new Dictionary<string, object?>
             {
-                contents = new[]
+                ["model"] = model,
+                ["think"] = false,
+                ["stream"] = false,
+                ["messages"] = new[]
                 {
-                    new
-                    {
-                        parts = new[]
-                        {
-                            new { text = prompt }
-                        }
-                    }
-                },
-                generationConfig
+                    new { role = "user", content = prompt }
+                }
             };
+            if (isJson)
+            {
+                requestBody["format"] = "json";
+            }
 
             var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
             var response = await client.PostAsync(endpoint, content);
@@ -747,7 +1145,7 @@ namespace QSC.Api.Services
             if (!response.IsSuccessStatusCode)
             {
                 var errorText = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Gemini API error ({StatusCode}): {Error}", response.StatusCode, errorText);
+                _logger.LogWarning("Local AI API error ({StatusCode}): {Error}", response.StatusCode, errorText);
                 return null;
             }
 
@@ -755,15 +1153,10 @@ namespace QSC.Api.Services
             using var doc = JsonDocument.Parse(responseJson);
             var root = doc.RootElement;
 
-            if (root.TryGetProperty("candidates", out var candidates) && candidates.GetArrayLength() > 0)
+            if (root.TryGetProperty("message", out var messageObj) &&
+                messageObj.TryGetProperty("content", out var contentProp))
             {
-                var firstCandidate = candidates[0];
-                if (firstCandidate.TryGetProperty("content", out var cObj) &&
-                    cObj.TryGetProperty("parts", out var parts) && parts.GetArrayLength() > 0)
-                {
-                    var text = parts[0].GetProperty("text").GetString();
-                    return text;
-                }
+                return contentProp.GetString();
             }
 
             return null;

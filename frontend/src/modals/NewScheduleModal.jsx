@@ -244,12 +244,18 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
   }, [selectedUnit?.id]);
 
   // Smart Form Filtering strictly matching selected unit (Brand + Location Type + Specific Targets)
+  // 🌟 กรองเฉพาะแบบฟอร์มเวอร์ชันล่าสุด (isLatest !== false) เพื่อไม่ให้ฟอร์มเวอร์ชันเก่าในอดีตโผล่มาซ้ำ
   const availableForms = useMemo(() => {
     if (!forms || forms.length === 0) return [];
-    if (!selectedUnit) return forms;
+    
+    const activeLatestForms = forms.filter(f => 
+      ((f.isLatest !== false && f.isLatest !== 0) || f.id === scheduleToEdit?.surveyFormId) &&
+      f.isActive !== false && f.isActive !== 0
+    );
 
-    return forms.filter(f => isFormApplicableToLocation(f, selectedUnit));
-  }, [forms, selectedUnit]);
+    if (!selectedUnit) return activeLatestForms;
+    return activeLatestForms.filter(f => isFormApplicableToLocation(f, selectedUnit));
+  }, [forms, selectedUnit, scheduleToEdit]);
 
   useEffect(() => {
     if (availableForms.length > 0 && !availableForms.some(f => f.id === selectedFormId)) {
@@ -274,6 +280,12 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
       return;
     }
 
+    if (!selectedUnit?.id) {
+      setSaveError("กรุณาเลือกสาขาก่อนบันทึกกำหนดการ");
+      setIsSaving(false);
+      return;
+    }
+
     const chosenAuditor = dbAuditors.find(a => a.id === assignedAuditorId) || dbAuditors[0];
     const auditorId = chosenAuditor?.id || (currentUser?.id || null);
     const auditorFullName = chosenAuditor?.fullName || chosenAuditor?.username || "-";
@@ -285,27 +297,25 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
 
     try {
       let savedId = scheduleToEdit?.id;
-      if (selectedUnit?.id) {
-        const payload = {
-          locationId: selectedUnit.id,
-          surveyFormId: typeof selectedFormId === 'number' ? selectedFormId : (selectedForm?.id || 1),
-          auditorIds: auditorId ? [auditorId] : [],
-          createdBy: currentUser?.id || 1,
-          auditType: auditType.toLowerCase(),
-          scheduledDate: localDateTimeStr,
-          time: formattedTime,
-          notes: notes.trim()
-        };
+      const payload = {
+        locationId: selectedUnit.id,
+        surveyFormId: typeof selectedFormId === 'number' ? selectedFormId : (selectedForm?.id || 1),
+        auditorIds: auditorId ? [auditorId] : [],
+        createdBy: currentUser?.id || 1,
+        auditType: auditType.toLowerCase(),
+        scheduledDate: localDateTimeStr,
+        time: formattedTime,
+        notes: notes.trim()
+      };
 
-        if (scheduleToEdit?.id) {
-          const res = await api.put(`/schedule/${scheduleToEdit.id}`, payload);
-          if (res?.data?.id) savedId = res.data.id;
-        } else {
-          const res = await api.post('/schedule', payload);
-          if (res?.data?.id) savedId = res.data.id;
-        }
+      if (scheduleToEdit?.id) {
+        const res = await api.put(`/schedule/${scheduleToEdit.id}`, payload);
+        if (res?.data?.id) savedId = res.data.id;
+      } else {
+        const res = await api.post('/schedule', payload);
+        if (res?.data?.id) savedId = res.data.id;
       }
-
+    
       const dateObj = new Date(scheduledDate + 'T00:00:00');
       const dayNumber = !isNaN(dateObj.getDate()) ? dateObj.getDate() : defaultDay;
 
@@ -647,86 +657,78 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
 
       {/* 💡 Pop-up Modal แสดงคำแนะนำจากการตรวจ/CAP รอบก่อนหน้า */}
       {showRecommendationsModal && (
-        <div 
-          className="fixed inset-0 z-[10050] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-150"
-          onClick={() => setShowRecommendationsModal(false)}
-        >
-          <div 
-            className="bg-white rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[85dvh] border border-slate-200 animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50/50">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
-                  <Sparkles size={18} />
+        <ModalWrapper onClose={() => setShowRecommendationsModal(false)} maxWidth="max-w-lg">
+          {/* Header */}
+          <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-amber-50/50">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-700 shrink-0">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-tight">
+                  คำแนะนำจากการตรวจรอบก่อนหน้า
+                </h3>
+                <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                  สาขา: <span className="font-semibold text-slate-700">{selectedUnit?.name || selectedUnitName}</span> ({pendingRecommendations.length} รายการ)
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRecommendationsModal(false)}
+              className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+
+          {/* Recommendations List */}
+          <div className="p-4 sm:p-5 overflow-y-auto space-y-3">
+            {pendingRecommendations.map((rec, idx) => (
+              <div 
+                key={rec.id || idx}
+                className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2 shadow-2xs"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100/90 text-amber-900">
+                    <span>ข้อที่ {idx + 1}:</span>
+                    <span className="truncate max-w-[200px]">{rec.issueItem || "ข้อบกพร่อง"}</span>
+                  </span>
+                  {rec.createdAt && (
+                    <span className="text-[11px] font-medium text-slate-400">
+                      {new Date(rec.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })}
+                    </span>
+                  )}
                 </div>
-                <div>
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-tight">
-                    คำแนะนำจากการตรวจรอบก่อนหน้า
-                  </h3>
-                  <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
-                    สาขา: <span className="font-semibold text-slate-700">{selectedUnit?.name || selectedUnitName}</span> ({pendingRecommendations.length} รายการ)
+
+                {rec.description && (
+                  <p className="text-xs text-slate-600 pl-1 leading-relaxed">
+                    <span className="font-semibold text-slate-700">ปัญหาเดิม:</span> {rec.description}
                   </p>
+                )}
+
+                <div className="p-2.5 rounded-xl bg-amber-50/90 border border-amber-200/80 text-xs text-amber-950">
+                  <span className="font-bold text-amber-900 block mb-0.5">จุดที่ควรสังเกตเพิ่มเติม:</span>
+                  <p className="leading-relaxed whitespace-pre-wrap">{rec.nextAuditNote}</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowRecommendationsModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center cursor-pointer transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            {/* Recommendations List */}
-            <div className="p-4 sm:p-5 overflow-y-auto space-y-3">
-              {pendingRecommendations.map((rec, idx) => (
-                <div 
-                  key={rec.id || idx}
-                  className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2 shadow-2xs"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-amber-100/90 text-amber-900">
-                      <span>ข้อที่ {idx + 1}:</span>
-                      <span className="truncate max-w-[200px]">{rec.issueItem || "ข้อบกพร่อง"}</span>
-                    </span>
-                    {rec.createdAt && (
-                      <span className="text-[11px] font-medium text-slate-400">
-                        {new Date(rec.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" })}
-                      </span>
-                    )}
-                  </div>
-
-                  {rec.description && (
-                    <p className="text-xs text-slate-600 pl-1 leading-relaxed">
-                      <span className="font-semibold text-slate-700">ปัญหาเดิม:</span> {rec.description}
-                    </p>
-                  )}
-
-                  <div className="p-2.5 rounded-xl bg-amber-50/90 border border-amber-200/80 text-xs text-amber-950">
-                    <span className="font-bold text-amber-900 block mb-0.5">จุดที่ควรสังเกตเพิ่มเติม:</span>
-                    <p className="leading-relaxed whitespace-pre-wrap">{rec.nextAuditNote}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Footer */}
-            <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between gap-3">
-              <span className="text-[11px] text-slate-500">
-                อ่านเพื่อเป็นข้อมูลอ้างอิงในการลงหมายเหตุกำหนดการ
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowRecommendationsModal(false)}
-                className="py-2 px-5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold cursor-pointer transition-colors shadow-2xs shrink-0"
-              >
-                เข้าใจแล้ว
-              </button>
-            </div>
+            ))}
           </div>
-        </div>
+
+          {/* Footer */}
+          <div className="p-3.5 sm:p-4 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-slate-500">
+              อ่านเพื่อเป็นข้อมูลอ้างอิงในการลงหมายเหตุกำหนดการ
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowRecommendationsModal(false)}
+              className="py-2 px-5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold cursor-pointer transition-colors shadow-2xs shrink-0"
+            >
+              เข้าใจแล้ว
+            </button>
+          </div>
+        </ModalWrapper>
       )}
     </ModalWrapper>
   );

@@ -205,18 +205,35 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
                 className="w-full px-4.5 py-3 rounded-2xl border border-slate-200 text-sm focus:border-[#0F6659] outline-none shadow-xs resize-none"
               />
             </div>
-            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <div 
+              onClick={() => setForm(prev => ({ ...prev, isActive: !prev.isActive }))}
+              className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200 cursor-pointer hover:bg-slate-100/80 transition-colors select-none"
+            >
+              <div>
+                <div className="text-sm font-semibold text-slate-700">เปิดใช้งานแบรนด์นี้</div>
+                <div className="text-xs text-slate-400 font-normal mt-0.5">
+                  {form.isActive ? 'เปิดใช้งาน (แสดงในตัวเลือกและระบบ)' : 'ปิดใช้งาน (ซ่อนจากระบบ)'}
+                </div>
+              </div>
               <button
                 type="button"
-                onClick={() => setForm(prev => ({ ...prev, isActive: !prev.isActive }))}
-                className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${
-                  form.isActive ? 'bg-[#0F6659] text-white' : 'border-2 border-slate-300 bg-white'
+                role="switch"
+                aria-checked={form.isActive}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setForm(prev => ({ ...prev, isActive: !prev.isActive }));
+                }}
+                className={`relative inline-flex h-7 w-13 shrink-0 cursor-pointer items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out outline-none focus:ring-2 focus:ring-[#0F6659]/20 ${
+                  form.isActive ? 'bg-[#0F6659]' : 'bg-slate-300'
                 }`}
               >
-                {form.isActive && <Check size={16} strokeWidth={3} />}
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                    form.isActive ? 'translate-x-6' : 'translate-x-0'
+                  }`}
+                />
               </button>
-              <span className="text-sm font-semibold text-slate-700">เปิดใช้งานแบรนด์นี้</span>
-            </label>
+            </div>
 
             <div className="flex gap-2.5 pt-2">
               {editBrand && (

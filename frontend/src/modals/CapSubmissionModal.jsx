@@ -10,13 +10,22 @@ import Section from "../shared/Section";
 import ScoreRing from "../shared/ScoreRing";
 import HistoryList from "../shared/HistoryList";
 import ErrorBoundary from "../shared/ErrorBoundary";
-import { compressImageFile } from "../utils/imageCompressor";
+import { compressImageFile, validateImageFile } from "../utils/imageCompressor";
+import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 export default function CapSubmissionModal({ question, unitName, onSave, onClose }) {
   const [actionText, setActionText] = useState("");
   const [photos, setPhotos] = useState([]);
   const [isCompressing, setIsCompressing] = useState(false);
   const [previewModalPhoto, setPreviewModalPhoto] = useState(null);
+
+  useEffect(() => {
+    if (!previewModalPhoto) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [previewModalPhoto]);
   const [responsibleName, setResponsibleName] = useState("ผู้จัดการสาขา (Store Manager)");
   const [dueDate, setDueDate] = useState("ภายใน 24 ชม. (เร่งด่วน)");
   const [formError, setFormError] = useState(null);
@@ -25,22 +34,36 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
   const handleFileChange = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+
+    const rawFileList = Array.from(files);
+    const validFiles = [];
+    const validationErrors = [];
+
+    for (const f of rawFileList) {
+      const check = validateImageFile(f);
+      if (!check.valid) {
+        validationErrors.push(`${f.name || "ไฟล์"}: ${check.message}`);
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      setFormError(validationErrors.join(" | "));
+      if (validFiles.length === 0) {
+        e.target.value = "";
+        return;
+      }
+    }
+
     setIsCompressing(true);
     try {
-      const fileList = Array.from(files);
-      const compressedUrls = await Promise.all(fileList.map((f) => compressImageFile(f)));
+      const compressedUrls = await Promise.all(validFiles.map((f) => compressImageFile(f)));
       setPhotos((prev) => [...prev, ...compressedUrls]);
-      if (formError) setFormError(null);
+      if (formError && validationErrors.length === 0) setFormError(null);
     } catch (err) {
       console.error("Compression error:", err);
-      Array.from(files).forEach((file) => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setPhotos((prev) => [...prev, ev.target.result]);
-          if (formError) setFormError(null);
-        };
-        reader.readAsDataURL(file);
-      });
+      setFormError("เกิดข้อผิดพลาดในการประมวลผลรูปภาพ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsCompressing(false);
     }
@@ -154,7 +177,7 @@ export default function CapSubmissionModal({ question, unitName, onSave, onClose
 
             <input
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/webp"
               multiple
               ref={fileInputRef}
               onChange={handleFileChange}

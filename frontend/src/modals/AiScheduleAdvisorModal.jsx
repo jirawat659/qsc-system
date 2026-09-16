@@ -9,8 +9,9 @@ import {
   CheckCircle2, 
   AlertTriangle 
 } from "lucide-react";
-import api from "../config/api";
+import api, { AI_REQUEST_TIMEOUT_MS } from "../config/api";
 import { DataContext } from "../context/DataContext";
+import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 export default function AiScheduleAdvisorModal({ onClose }) {
   const { currentUser } = useContext(DataContext) || {};
@@ -116,7 +117,7 @@ export default function AiScheduleAdvisorModal({ onClose }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get("/ai/schedule-recommendations");
+      const res = await api.get("/ai/schedule-recommendations", { timeout: AI_REQUEST_TIMEOUT_MS });
       if (res.data) {
         setData(res.data);
         try {
@@ -147,14 +148,13 @@ export default function AiScheduleAdvisorModal({ onClose }) {
 
   // Escape key listener & body scroll lock
   useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     const handleKeyDown = (e) => {
       if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = originalOverflow;
+      unlockBodyScroll();
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Menu, ChevronLeft, CheckCircle2, Navigation, X, LogOut, AlertCircle, ChevronDown } from "lucide-react";
 
@@ -14,6 +14,8 @@ import signalRService from "../services/signalrService";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import Breadcrumbs from "../shared/Breadcrumbs";
 import ProfileModal from "../modals/ProfileModal";
+import ModalWrapper from "../shared/ModalWrapper";
+import { forceUnlockBodyScroll } from "../utils/scrollLock";
 
 // 🌟 Lazy-loaded Screens for Code Splitting & Performance Optimization
 const DashboardScreen = React.lazy(() => import("../screens/dashboard/DashboardScreen"));
@@ -39,6 +41,43 @@ export default function MainDashboard({ onLogout }) {
   const [brands, setBrands] = useState([]);
   const [schedules, setSchedules] = useState([]);
   const [forms, setForms] = useState([]);
+  // 🌟 forms ที่โหลดตอนเริ่มแอปเป็นแบบ summary (ไม่มี sections/items เพื่อความเร็ว)
+  // hydratingFormIdsRef กันไม่ให้ยิง /api/form/{id} ซ้ำถ้ามีคนเรียก getFormDetail
+  // สำหรับฟอร์มเดียวกันพร้อมกันหลายจุด (เช่น component เดียวกัน render ซ้ำ)
+  const hydratingFormIdsRef = useRef(new Set());
+  const getFormDetail = useCallback(async (formId) => {
+    if (!formId) return null;
+    const idNum = Number(formId);
+
+    const existing = forms.find(f => Number(f.id) === idNum);
+    // Array.isArray(sections) เป็นสัญญาณว่าฟอร์มนี้ hydrate เต็มแล้ว (summary mode ส่ง sections: null มา)
+    if (existing && Array.isArray(existing.sections)) {
+      return existing;
+    }
+
+    if (hydratingFormIdsRef.current.has(idNum)) {
+      return existing || null; // กำลังโหลดอยู่แล้วจากที่อื่น รอรอบ re-render ถัดไป
+    }
+
+    hydratingFormIdsRef.current.add(idNum);
+    try {
+      const res = await api.get(`/form/${idNum}`);
+      const full = res.data;
+      setForms(prev => {
+        const idx = prev.findIndex(f => Number(f.id) === idNum);
+        if (idx === -1) return [...prev, full];
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...full };
+        return next;
+      });
+      return full;
+    } catch (err) {
+      console.warn(`Failed to load full detail for form ${idNum}:`, err);
+      return existing || null;
+    } finally {
+      hydratingFormIdsRef.current.delete(idNum);
+    }
+  }, [forms]);
   const [activeDraft, setActiveDraft] = useState(null);
   const [activeDrafts, setActiveDrafts] = useState([]);
   const [capTasks, setCapTasks] = useState([]);
@@ -69,6 +108,15 @@ export default function MainDashboard({ onLogout }) {
     if (id) localStorage.setItem('qsc_selected_brand_id', String(id));
     else localStorage.removeItem('qsc_selected_brand_id');
   };
+
+  // 🌟 Auto-select brand if user only has access to 1 brand (e.g. After You)
+  useEffect(() => {
+    if (brands.length === 1 && selectedBrandId !== brands[0].id) {
+      setSelectedBrandId(brands[0].id);
+    } else if (brands.length > 1 && selectedBrandId && !brands.some(b => b.id === selectedBrandId)) {
+      setSelectedBrandId(null);
+    }
+  }, [brands, selectedBrandId]);
 
   const visibleLocations = useMemo(() => {
     if (!selectedBrandId) return locations;
@@ -104,10 +152,13 @@ export default function MainDashboard({ onLogout }) {
     if (!isSilent) setDataFetchError(null);
     try {
       // 🌟 ตัด /cap และ /audit/records ออกจากโหลดเริ่มต้น
+      // 🌟 /form?detail=summary: ไม่โหลด Sections/Items เต็ม (หนักและไม่ได้ใช้ตอนนี้)
+      // หน้าที่ต้องใช้คำถามจริง (ตรวจสด/แก้ไขฟอร์ม/ประวัติ) จะ hydrate เพิ่มเองผ่าน
+      // getFormDetail() ตอนต้องใช้จริง ดู DataContext.jsx
       const [locRes, schedRes, formRes, draftsRes, brandRes] = await Promise.allSettled([
         api.get('/location'),
         api.get('/schedule'),
-        api.get('/form'),
+        api.get('/form?detail=summary'),
         api.get('/audit/drafts'),
         api.get('/brand')
       ]);
@@ -143,7 +194,11 @@ export default function MainDashboard({ onLogout }) {
   // 🌟 Phase 3.3: Load a buffer page of /audit/records into context.
   // `reset = true` starts back at page 1 (used on first load / refresh);
   // otherwise it fetches the next page after whatever was already loaded.
-  const loadMoreAuditRecords = async (reset = false) => {
+  // 🌟 ห่อด้วย useCallback: ถ้าไม่ห่อ ฟังก์ชันนี้จะได้ reference ใหม่ทุกครั้งที่ MainDashboard
+  // re-render (เช่น จาก state อื่นที่ไม่เกี่ยวข้อง, polling, SignalR) แล้วส่งต่อผ่าน Context
+  // ไปให้หน้าจอลูก (เช่น AllAuditHistoryScreen) ที่ใส่ฟังก์ชันนี้ไว้ใน useEffect dependency —
+  // ทำให้ effect ที่นั่นทำงานซ้ำโดยไม่จำเป็น อาจยิง API ซ้ำเกินความจำเป็น
+  const loadMoreAuditRecords = useCallback(async (reset = false) => {
     if (isLoadingAuditRecords) return;
     if (reset) {
       hasReachedAuditRecordsEndRef.current = false;
@@ -180,14 +235,14 @@ export default function MainDashboard({ onLogout }) {
     } finally {
       setIsLoadingAuditRecords(false);
     }
-  };
+  }, [isLoadingAuditRecords]);
 
   // 🌟 Bugfix: background refresh (focus / interval / SignalR) เดิมเรียก
   // loadMoreAuditRecords(true) ซึ่งรีเซ็ต buffer กลับไปหน้า 1 (50 รายการล่าสุด)
   // ทุกครั้ง — ทำให้ข้อมูลหน้าเพิ่มเติมที่หน้ารายงานเคยโหลดไว้ก่อนหน้านั้นหายไป
   // ฟังก์ชันนี้โหลดคืนให้ครบเท่าจำนวนหน้าที่เคยโหลดไว้แล้วแทน จะได้ไม่เห็นข้อมูลลดลง
   // ระหว่างที่หน้ารายงานเปิดค้างอยู่
-  const resyncAuditRecords = async () => {
+    const resyncAuditRecords = useCallback(async () => {
     if (isLoadingAuditRecords) return;
     const pagesToRestore = Math.max(1, auditRecordsPageRef.current);
     setIsLoadingAuditRecords(true);
@@ -209,14 +264,13 @@ export default function MainDashboard({ onLogout }) {
       setAuditRecordsTotalCount(totalCount);
       setAuditRecords(combined);
     } catch (err) {
-      // เงียบไว้เหมือนเดิม: คงข้อมูลเดิมที่มีอยู่ต่อไปแทนที่จะล้างทิ้ง
     } finally {
       setIsLoadingAuditRecords(false);
     }
-  };
+  }, [isLoadingAuditRecords]);
 
   // 🌟 Phase 3.3: Same buffer pattern for /cap.
-  const loadMoreCapTasks = async (reset = false) => {
+  const loadMoreCapTasks = useCallback(async (reset = false) => {
     if (isLoadingCapTasks) return;
     if (reset) {
       hasReachedCapTasksEndRef.current = false;
@@ -230,7 +284,6 @@ export default function MainDashboard({ onLogout }) {
       const data = res.data;
       const items = Array.isArray(data) ? data : (data?.items || []);
       const totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
-
       if (items.length === 0) {
         hasReachedCapTasksEndRef.current = true;
         if (reset) {
@@ -240,20 +293,18 @@ export default function MainDashboard({ onLogout }) {
         }
         return;
       }
-
       capTasksPageRef.current = nextPage;
       setCapTasksTotalCount(totalCount);
       setCapTasks(prev => (reset ? items : [...prev, ...items]));
-
       if (items.length < BUFFER_PAGE_SIZE) {
         hasReachedCapTasksEndRef.current = true;
       }
     } catch (err) {
-      // เงียบไว้เช่นกัน
+      console.warn(err);
     } finally {
       setIsLoadingCapTasks(false);
     }
-  };
+  }, [isLoadingCapTasks]);
 
   // 🌟 Lazy buffer (revert eager-load-all): ไม่โหลดทุกหน้าอัตโนมัติอีกต่อไป
   // โหลดแค่หน้าแรก (BUFFER_PAGE_SIZE รายการ) ตอนเริ่มต้น แล้วให้หน้าจอที่ใช้งาน
@@ -408,21 +459,23 @@ export default function MainDashboard({ onLogout }) {
   };
 
   const handleNavClick = (key) => {
-    if (key === "more") {
-      setMoreResetKey(prev => prev + 1);
-    }
-    if (key === "audit") {
-      setPreselectedPlan(null); // When user clicks "ตรวจหน้างาน", always start fresh at Step 1
-      setIsAuditFromReportList(false);
-      setAuditReturnScreen("dashboard"); // 🌟 เข้าเองจากแท็บล่าง กด "ย้อนกลับ" ให้กลับหน้า dashboard ตามปกติ
-    }
     if (screen === key) {
-      // 🌟 ถ้าอยู่ที่แท็บเดิม เช่น "ระบบ" ให้รีเซ็ตกลับหน้าเมนูหลักของระบบ + เลื่อนขึ้นบนอย่างนุ่มนวล
       if (key === "more") {
         setMoreResetKey(prev => prev + 1);
       }
       smoothScrollToTop();
       return;
+    }
+
+    if (key === "more") {
+      setMoreResetKey(prev => prev + 1);
+    }
+    if (key === "audit") {
+      // ตอนนี้โค้ดส่วนนี้จะรันเฉพาะตอนกดมาจาก "แท็บอื่น" เท่านั้น
+      // (เพราะกรณีอยู่แท็บเดิมโดน return ไปแล้วด้านบน)
+      setPreselectedPlan(null);
+      setIsAuditFromReportList(false);
+      setAuditReturnScreen("dashboard");
     }
     setScreen(key);
     smoothScrollToTop();
@@ -529,6 +582,8 @@ export default function MainDashboard({ onLogout }) {
               onSaveDraft={(draft) => {
                 setActiveAuditDraft(draft);
                 if (!draft) {
+                  setActiveDraft(null);
+                  setActiveDrafts([]);
                   refreshData();
                   return;
                 }
@@ -583,7 +638,7 @@ export default function MainDashboard({ onLogout }) {
               isDesktop={true}
               onStartAuditDirect={handleStartAuditDirect}
               currentAuditorName={role === "AUDITOR" ? currentUser.name : null}
-              onBack={(!isDesktop && (role === "STANDARD" || role === "ADMIN")) ? () => setScreen("more") : undefined}
+              onBack={(!isDesktop && !nav.some(n => n.key === "schedule")) ? () => setScreen("more") : undefined}
             />
           )}
           {screen === "dashboard" && <DashboardScreen role={role} isDesktop={true} />}
@@ -603,7 +658,7 @@ export default function MainDashboard({ onLogout }) {
     allSchedules: schedules,
     schedules: visibleSchedules,
     visibleSchedules,
-    forms, setForms,
+    forms, setForms, getFormDetail,
     activeDraft, setActiveDraft,
     activeDrafts, setActiveDrafts,
     allCapTasks: capTasks,
@@ -624,12 +679,13 @@ export default function MainDashboard({ onLogout }) {
     loadMoreAuditRecords,
     loadMoreCapTasks
   }), [
-    currentUser, locations, schedules, forms,
+    currentUser, locations, schedules, forms, getFormDetail,
     activeDraft, activeDrafts, capTasks, auditRecords,
     refreshData, isLoadingData, dataFetchError,
     visibleLocations, visibleAuditRecords, visibleSchedules, visibleCapTasks,
     brands, selectedBrandId,
-    auditRecordsTotalCount, capTasksTotalCount, isLoadingAuditRecords, isLoadingCapTasks
+    auditRecordsTotalCount, capTasksTotalCount, isLoadingAuditRecords, isLoadingCapTasks,
+    loadMoreAuditRecords, loadMoreCapTasks
   ]);
 
   return (
@@ -862,39 +918,42 @@ export default function MainDashboard({ onLogout }) {
                     </div>
                   </button>
 
-                  {brands.length > 1 ? (
-                    <div className="flex items-center min-w-0 max-w-[140px] sm:max-w-[190px] shrink">
-                      <div className="relative w-full">
-                        <select
-                          value={selectedBrandId || ''}
-                          onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
-                          className="w-full pl-3 pr-7 py-1.5 sm:py-2 rounded-xl border border-slate-300 bg-slate-50 text-xs sm:text-sm font-extrabold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none cursor-pointer truncate shadow-xs min-h-[36px] sm:min-h-[40px] appearance-none"
-                          title="เลือกแบรนด์ที่ต้องการแสดง"
-                        >
-                          <option value="">ทุกแบรนด์</option>
-                          {brands.filter(b => b.isActive).map(b => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                          ))}
-                        </select>
-                        <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  {/* Right Group: Brand Selector + Profile Badge */}
+                  <div className="flex items-center gap-2 shrink-0 min-w-0 ml-auto">
+                    {brands.length > 1 ? (
+                      <div className="flex items-center min-w-0 max-w-[140px] sm:max-w-[190px]">
+                        <div className="relative w-full">
+                          <select
+                            value={selectedBrandId || ''}
+                            onChange={(e) => setSelectedBrandId(e.target.value ? Number(e.target.value) : null)}
+                            className="w-full pl-3 pr-7 py-1.5 sm:py-2 rounded-xl border border-slate-300 bg-slate-50 text-base sm:text-sm font-extrabold text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none cursor-pointer truncate shadow-xs min-h-[36px] sm:min-h-[40px] appearance-none"
+                            title="เลือกแบรนด์ที่ต้องการแสดง"
+                          >
+                            <option value="">ทุกแบรนด์</option>
+                            {brands.filter(b => b.isActive).map(b => (
+                              <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                          </select>
+                          <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
                       </div>
-                    </div>
-                  ) : brands.length === 1 ? (
-                    <div className="flex items-center px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold shrink-0 max-w-[130px]">
-                      <span className="truncate">{brands[0].name}</span>
-                    </div>
-                  ) : null}
+                    ) : brands.length === 1 ? (
+                      <div className="flex items-center px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold shrink-0 max-w-[130px]">
+                        <span className="truncate">{brands[0].name}</span>
+                      </div>
+                    ) : null}
 
-                  <button
-                    type="button"
-                    onClick={() => setShowProfileModal(true)}
-                    className="flex items-center gap-1.5 p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
-                    title="ดูโปรไฟล์และบัญชีผู้ใช้"
-                  >
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
-                      {currentUser.avatar}
-                    </div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowProfileModal(true)}
+                      className="flex items-center gap-1.5 p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
+                      title="ดูโปรไฟล์และบัญชีผู้ใช้"
+                    >
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+                        {currentUser.avatar}
+                      </div>
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -994,8 +1053,8 @@ export default function MainDashboard({ onLogout }) {
 
       {/* 🚪 Custom In-App Logout Confirmation Modal (Desktop & Quick Trigger) */}
       {showLogoutConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 text-center animate-in zoom-in-95 duration-200">
+        <ModalWrapper onClose={() => setShowLogoutConfirmModal(false)} maxWidth="max-w-sm">
+          <div className="p-6 space-y-4 text-center">
             <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200/80 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
               <LogOut size={30} strokeWidth={2.2} />
             </div>
@@ -1028,7 +1087,7 @@ export default function MainDashboard({ onLogout }) {
               </button>
             </div>
           </div>
-        </div>
+        </ModalWrapper>
       )}
     </div>
     </TopBarContext.Provider>

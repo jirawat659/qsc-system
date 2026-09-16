@@ -126,7 +126,7 @@ export default function MasterManagementScreen({ onBack }) {
   const handleSaveNavSuccess = (updatedRole, newNavConfig) => {
     showToast(`✓ บันทึกการตั้งค่าแถบเมนูสำหรับบทบาท "${updatedRole.name || updatedRole.code}" สำเร็จ`);
     setCustomizingNavRole(null);
-    loadAllData();
+    loadAllData(true);
 
     // If the logged-in user shares the updated role, synchronize their session immediately
     const currentUser = authStorage.getUser();
@@ -183,7 +183,7 @@ export default function MasterManagementScreen({ onBack }) {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const loadAllData = async () => {
+  const loadAllData = async (syncGlobal = false) => {
     setLoading(true);
     setLoadError(false);
     try {
@@ -226,7 +226,7 @@ export default function MasterManagementScreen({ onBack }) {
         const sortedPerms = [...pRes.value.data].sort((a, b) => (a.code || '').localeCompare(b.code || ''));
         setAvailablePermissions(sortedPerms);
       }
-      if (anySuccess && refreshData) {
+      if (syncGlobal && anySuccess && refreshData) {
         refreshData();
       }
     } catch (err) {
@@ -239,7 +239,7 @@ export default function MasterManagementScreen({ onBack }) {
   };
 
   useEffect(() => {
-    loadAllData();
+    loadAllData(false);
   }, []);
 
   // ── 👥 USER HANDLERS ──
@@ -286,7 +286,7 @@ export default function MasterManagementScreen({ onBack }) {
 
       showToast(`✓ บันทึกการแก้ไข "${editUserForm.fullName}" สำเร็จ`);
       setEditUser(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขข้อมูลผู้ใช้ไม่สำเร็จ', true);
     }
@@ -311,7 +311,7 @@ export default function MasterManagementScreen({ onBack }) {
         branchScope: 'ALL',
         allowedLocationIds: []
       });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast(err.response?.data?.message || 'สร้างบัญชีผู้ใช้ไม่สำเร็จ', true);
     }
@@ -366,7 +366,7 @@ export default function MasterManagementScreen({ onBack }) {
 
       showToast(`✓ บันทึกสถานที่ "${editLocationForm.name}" สำเร็จ`);
       setEditLocation(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขสถานที่/สาขาไม่สำเร็จ', true);
     }
@@ -409,7 +409,7 @@ export default function MasterManagementScreen({ onBack }) {
         longitude: 100.5347,
         managerUserId: null
       });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('เพิ่มสถานที่/สาขาไม่สำเร็จ', true);
     }
@@ -442,7 +442,7 @@ export default function MasterManagementScreen({ onBack }) {
       });
       showToast(`✓ บันทึกประเภทสถานที่ "${editTypeForm.name}" สำเร็จ`);
       setEditType(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขประเภทสถานที่ไม่สำเร็จ', true);
     }
@@ -460,7 +460,7 @@ export default function MasterManagementScreen({ onBack }) {
       showToast(`✓ เพิ่มประเภทสถานที่ "${typeForm.name}" สำเร็จ`);
       setShowAddTypeModal(false);
       setTypeForm({ code: '', name: '', description: '' });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('เพิ่มประเภทสถานที่ไม่สำเร็จ', true);
     }
@@ -472,7 +472,7 @@ export default function MasterManagementScreen({ onBack }) {
     setEditRoleForm({
       name: r.name || '',
       description: r.description || '',
-      permissionIds: r.permissionIds || []
+      permissionIds: (r.permissions || []).map(p => p.id)
     });
   };
 
@@ -489,7 +489,7 @@ export default function MasterManagementScreen({ onBack }) {
       });
       showToast(`✓ บันทึกสิทธิ์บทบาท "${editRoleForm.name}" สำเร็จ`);
       setEditRole(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขสิทธิ์บทบาทไม่สำเร็จ', true);
     }
@@ -504,7 +504,7 @@ export default function MasterManagementScreen({ onBack }) {
       showToast(`✓ สร้างบทบาทใหม่ "${roleForm.name}" สำเร็จ`);
       setShowAddRoleModal(false);
       setRoleForm({ code: '', name: '', description: '', permissionIds: [] });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('สร้างบทบาทไม่สำเร็จ', true);
     }
@@ -1467,7 +1467,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <input
                   type="text"
                   value={userForm.username}
-                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value.replace(/\s+/g, '') })}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
                   placeholder="เช่น somsak_bkk"
                   required

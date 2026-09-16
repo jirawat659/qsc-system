@@ -48,6 +48,7 @@ namespace QSC.Api.Controllers
 
             var query = _context.AuditSchedules
                 .AsNoTracking()
+                .AsSplitQuery()
                 .Include(s => s.Location)
                 .Include(s => s.SurveyForm)
                 .Include(s => s.Auditors)
@@ -135,6 +136,60 @@ namespace QSC.Api.Controllers
             }
 
             var schedules = await query.ToListAsync();
+
+            // 🛡️ Auto-heal: Ensure schedules that have already been audited are marked as completed
+            var scheduleIds = schedules.Select(s => s.Id).ToList();
+            var auditedScheduleIds = await _context.AuditRecords
+                .Where(r => r.AuditScheduleId.HasValue && scheduleIds.Contains(r.AuditScheduleId.Value))
+                .Select(r => r.AuditScheduleId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var uncompletedSchedules = schedules.Where(s => s.Status != "completed").ToList();
+            if (uncompletedSchedules.Any())
+            {
+                var locIds = uncompletedSchedules.Select(s => s.LocationId).Distinct().ToList();
+                var recentAudits = await _context.AuditRecords
+                    .Where(r => locIds.Contains(r.LocationId))
+                    .Select(r => new { r.Id, r.LocationId, r.SurveyFormId, r.AuditDate, r.AuditScheduleId })
+                    .ToListAsync();
+
+                var healedScheduleIds = new List<int>();
+                foreach (var s in uncompletedSchedules)
+                {
+                    bool isAudited = auditedScheduleIds.Contains(s.Id) ||
+                        recentAudits.Any(r => 
+                            (r.AuditScheduleId == s.Id) ||
+                            (r.LocationId == s.LocationId && 
+                             (s.SurveyFormId == 0 || r.SurveyFormId == s.SurveyFormId) &&
+                             Math.Abs((r.AuditDate.Date - s.ScheduledDate.Date).TotalDays) <= 2));
+
+                    if (isAudited)
+                    {
+                        s.Status = "completed";
+                        healedScheduleIds.Add(s.Id);
+                    }
+                }
+
+                if (healedScheduleIds.Any())
+                {
+                    try
+                    {
+                        var dbSchedules = await _context.AuditSchedules
+                            .Where(s => healedScheduleIds.Contains(s.Id) && s.Status != "completed")
+                            .ToListAsync();
+                        foreach (var dbs in dbSchedules)
+                        {
+                            dbs.Status = "completed";
+                        }
+                        await _context.SaveChangesAsync();
+                    }
+                    catch
+                    {
+                        // Ignore background healing exceptions
+                    }
+                }
+            }
 
             var result = schedules.Select(s => new
             {
@@ -344,7 +399,7 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "ไม่สามารถแก้ไขนัดหมายที่ตรวจเสร็จสมบูรณ์แล้วได้ (ล็อกถาวร)" });
             }
 
-           schedule.LocationId = dto.LocationId;
+            schedule.LocationId = dto.LocationId;
             schedule.SurveyFormId = dto.SurveyFormId;
             schedule.ScheduledDate = dto.ScheduledDate;
             schedule.Time = dto.Time;

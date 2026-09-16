@@ -20,6 +20,7 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import CapDetailScreen from "../cap/CapDetailScreen";
 import AuditEditLogsModal from "../../modals/AuditEditLogsModal";
 import EditAuditRecordModal from "../../modals/EditAuditRecordModal";
+import AiAuditDefectModal from "../../modals/AiAuditDefectModal";
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
@@ -67,7 +68,7 @@ export const getQuestionCategory = (q, sec) => {
 };
 
 export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
-  const { locations: allLocations, forms = [], currentUser, refreshData } = React.useContext(DataContext);
+  const { locations: allLocations, forms = [], getFormDetail, currentUser, refreshData } = React.useContext(DataContext);
   const [activeTab, setActiveTab] = useState("responses"); // 'responses' | 'overview' | 'photos' | 'sign'
   const [disputeSubmitted, setDisputeSubmitted] = useState(record.status === "Disputed");
   const [previewPhoto, setPreviewPhoto] = useState(null);
@@ -208,6 +209,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const [editLogsCount, setEditLogsCount] = useState(0);
   const [showEditLogsModal, setShowEditLogsModal] = useState(false);
   const [showEditFormModal, setShowEditFormModal] = useState(false);
+  const [showAiDefectModal, setShowAiDefectModal] = useState(false);
 
   const fetchEditLogs = () => {
     if (!currentRecord?.id) return;
@@ -236,6 +238,21 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       } catch (err) {}
     }
   };
+
+  // ค้นหา Form Definition ที่ตรงกันเพื่อดึง Schema ของ Metadata (จับคู่ด้วย ID ตรงกันเท่านั้น ห้ามใช้ชื่อฟอร์มเทียบข้ามเวอร์ชัน)
+  const matchedForm = useMemo(() => {
+    const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
+    if (!targetId) return null;
+    return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
+  }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
+
+  // 🌟 โหลด form detail ของเวอร์ชันที่ตรงกับรอบตรวจนี้ (ตาม surveyFormId) หากยังไม่มี sections
+  useEffect(() => {
+    const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
+    if (!targetId || !getFormDetail) return;
+    if (matchedForm && Array.isArray(matchedForm.sections)) return; // hydrate แล้ว
+    getFormDetail(targetId);
+  }, [currentRecord?.surveyFormId, currentRecord?.formId, matchedForm, getFormDetail]);
 
   // Normalized audit record attributes
   const isBackdated = Boolean(currentRecord.isBackdated);
@@ -266,20 +283,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return {};
   }, [currentRecord]);
 
-  // ค้นหา Form Definition ที่ตรงกันเพื่อดึง Schema ของ Metadata
-  const matchedForm = useMemo(() => {
-    return (forms || []).find(f => 
-      (currentRecord.surveyFormId && f.id === currentRecord.surveyFormId) ||
-      (currentRecord.formId && f.id === currentRecord.formId) ||
-      (f.title && (f.title === currentRecord.surveyFormTitle || f.title === currentRecord.formName || f.title === currentRecord.form))
-    );
-  }, [forms, currentRecord]);
-
   // รวมรายการ Metadata ทั้งหมด (ฟิลด์มาตรฐาน 3 ฟิลด์ + ฟิลด์เพิ่มเติมเฉพาะรอบตรวจ)
   const allDisplayMetadataFields = useMemo(() => {
-    let metaConfig = matchedForm?.metadataConfig;
-    if (!metaConfig && matchedForm?.metadataConfigJson) {
-      try { metaConfig = JSON.parse(matchedForm.metadataConfigJson); } catch (e) {}
+    let metaConfig = currentRecord?.surveyForm?.metadataConfig || matchedForm?.metadataConfig;
+    if (!metaConfig && (currentRecord?.surveyForm?.metadataConfigJson || matchedForm?.metadataConfigJson)) {
+      try {
+        metaConfig = JSON.parse(currentRecord?.surveyForm?.metadataConfigJson || matchedForm?.metadataConfigJson);
+      } catch (e) {}
     }
 
     const defaultSystemConfig = [
@@ -358,10 +368,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   }, [allLocations, currentRecord.locationId, locationTitle]);
 
   const branchAddress = currentRecord.location?.address || matchedLocation?.address || "-";
-  const startLat = currentRecord.startLatitude || matchedLocation?.latitude;
-  const startLng = currentRecord.startLongitude || matchedLocation?.longitude;
-  const endLat = currentRecord.endLatitude || matchedLocation?.latitude;
-  const endLng = currentRecord.endLongitude || matchedLocation?.longitude;
+  const startLat = currentRecord.startLatitude ?? null;
+  const startLng = currentRecord.startLongitude ?? null;
+  const endLat = currentRecord.endLatitude ?? null;
+  const endLng = currentRecord.endLongitude ?? null;
   const formatTimeWithSeconds = (d, fallback) => {
     if (!d) return fallback;
     let s = String(d).trim();
@@ -380,14 +390,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const formBreakdown = useMemo(() => {
     // If real responses exist from DB API
     if (currentRecord.responses && Array.isArray(currentRecord.responses) && currentRecord.responses.length > 0) {
-      // 1. Check if we have the matching Form schema in DataContext
-      const matchedForm = (forms || []).find(f => 
-        (currentRecord.surveyFormId && f.id === currentRecord.surveyFormId) ||
-        (currentRecord.formId && f.id === currentRecord.formId) ||
-        (f.title && (f.title === currentRecord.surveyFormTitle || f.title === currentRecord.formName || f.title === currentRecord.form))
-      );
+      const targetFormId = currentRecord.surveyFormId || currentRecord.formId;
+      // 1. ตรวจสอบว่ามี Form schema ใน DataContext ที่มี ID ตรงกับรอบตรวจนี้จริงเท่านั้น (ห้ามจับคู่ด้วยชื่อข้ามเวอร์ชัน)
+      const isExactFormMatched = matchedForm && targetFormId && Number(matchedForm.id) === Number(targetFormId);
 
-      if (matchedForm && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+      if (isExactFormMatched && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
         let runningNum = 1;
         const resultSections = [];
 
@@ -405,9 +412,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               (r.surveyItem?.questionText && item.text && r.surveyItem.questionText.trim().toLowerCase() === item.text.trim().toLowerCase())
             );
 
-            if (!res && currentRecord.responses[runningNum - 1]) {
-              res = currentRecord.responses[runningNum - 1];
-            }
             res = res || {};
 
             const qText = item.questionText || item.text || res.questionText || `ข้อตรวจที่ ${runningNum}`;
@@ -415,7 +419,23 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             const fullSc = res.fullScore !== undefined ? res.fullScore : (item.fullScore || 10);
             const isCrit = res.isCritical !== undefined ? res.isCritical : (item.isCritical || item.critical || false);
             const isNa = !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
-            const isPass = isNa ? true : (res.isPassed !== undefined ? res.isPassed : (res.scoreGiven > 0));
+
+            const calculatedScaleScore = res.scaleScore !== undefined && res.scaleScore !== null
+              ? Number(res.scaleScore)
+              : (res.rawAnswer && !isNaN(Number(res.rawAnswer)) && Number(res.rawAnswer) >= 1 && Number(res.rawAnswer) <= 5
+                  ? Number(res.rawAnswer)
+                  : (qType === "scale" && res.scoreGiven !== undefined && fullSc > 0
+                      ? Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullSc) * 5)))
+                      : null));
+
+            const isPass = isNa
+              ? true
+              : (res.isPassed !== undefined
+                  ? Boolean(res.isPassed)
+                  : (qType === "scale"
+                      ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
+                      : (res.scoreGiven > 0)));
+
             const calculatedScore = isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0));
 
             secQuestions.push({
@@ -425,12 +445,15 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               surveyItemId: res.surveyItemId || item.id || null,
               text: qText,
               type: qType,
-              answer: qType === "scale" ? (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)) : isPass,
+              answer: qType === "scale"
+                ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
+                : isPass,
               scoreGiven: calculatedScore,
-              scaleScore: res.scaleScore || (qType === "scale" && res.scoreGiven !== undefined ? Math.round((res.scoreGiven / fullSc) * 5) : null),
+              scaleScore: calculatedScaleScore,
               fullScore: fullSc,
               isCritical: isCrit,
               isNa: isNa,
+              isPassed: isPass,
               categoryName: item.categoryName || item.category || res.categoryName || res.surveyItem?.categoryName,
               categoryCode: item.categoryCode || res.categoryCode || res.surveyItem?.categoryCode,
               sectionTitle: sec.title,
@@ -465,7 +488,23 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
         const fullSc = res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10);
         const isNa = !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
-        const isPass = isNa ? true : (res.isPassed !== undefined ? res.isPassed : (res.scoreGiven > 0));
+
+        const calculatedScaleScore = res.scaleScore !== undefined && res.scaleScore !== null
+          ? Number(res.scaleScore)
+          : (res.rawAnswer && !isNaN(Number(res.rawAnswer)) && Number(res.rawAnswer) >= 1 && Number(res.rawAnswer) <= 5
+              ? Number(res.rawAnswer)
+              : (qType === "scale" && res.scoreGiven !== undefined && fullSc > 0
+                  ? Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullSc) * 5)))
+                  : null));
+
+        const isPass = isNa
+          ? true
+          : (res.isPassed !== undefined
+              ? Boolean(res.isPassed)
+              : (qType === "scale"
+                  ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
+                  : (res.scoreGiven > 0)));
+
         const calculatedScore = isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0));
 
         if (!sectionsMap.has(secName)) {
@@ -483,12 +522,15 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           surveyItemId: res.surveyItemId || null,
           text: qText,
           type: qType,
-          answer: qType === "scale" ? (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)) : isPass,
+          answer: qType === "scale"
+            ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
+            : isPass,
           scoreGiven: calculatedScore,
-          scaleScore: res.scaleScore || (qType === "scale" && res.scoreGiven !== undefined ? Math.round((res.scoreGiven / fullSc) * 5) : null),
+          scaleScore: calculatedScaleScore,
           fullScore: fullSc,
           isCritical: isCrit,
           isNa: isNa,
+          isPassed: isPass,
           categoryName: res.categoryName || res.surveyItem?.categoryName,
           categoryCode: res.categoryCode || res.surveyItem?.categoryCode,
           sectionTitle: secName,
@@ -574,13 +616,17 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     const list = [];
     formBreakdown.forEach(sec => {
       sec.questions.forEach(q => {
+        if (q.isNa) return;
+
         const full = Number(q.fullScore) || 10;
         const currentSc = q.scoreGiven !== undefined ? Number(q.scoreGiven) : (typeof q.answer === 'number' ? q.answer : 0);
-        const isPass = q.type === "yesno" 
-          ? q.answer === true 
-          : q.type === "scale" 
-            ? (currentSc >= (full * 0.7)) 
-            : true;
+        const isPass = q.isPassed !== undefined
+          ? q.isPassed
+          : (q.type === "yesno" 
+              ? q.answer === true 
+              : q.type === "scale" 
+                ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
+                : true);
 
         if (!isPass) {
           list.push({
@@ -601,6 +647,16 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     formBreakdown.forEach(sec => {
       sec.questions.forEach(q => {
         if (q.images && q.images.length > 0) {
+          const full = Number(q.fullScore) || 10;
+          const currentSc = q.scoreGiven !== undefined ? Number(q.scoreGiven) : (typeof q.answer === 'number' ? q.answer : 0);
+          const isPass = q.isNa 
+            ? true 
+            : (q.isPassed !== undefined 
+                ? q.isPassed 
+                : (q.type === "yesno" 
+                    ? q.answer === true 
+                    : (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6)))));
+
           q.images.forEach((img, iIdx) => {
             const url = img.imageUrl || img.url || img;
             if (url) {
@@ -610,7 +666,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                 qNum: q.num,
                 qText: q.text,
                 secTitle: sec.title,
-                isPass: q.isNa ? true : (q.type === "yesno" ? q.answer === true : (q.scoreGiven >= (q.fullScore * 0.7))),
+                isPass: isPass,
                 note: q.note,
                 uploadedAt: img.uploadedAt ? formatTimeWithSeconds(img.uploadedAt, dateStr) : dateStr
               });
@@ -659,17 +715,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   // Header action buttons memoized cleanly
   const headerAction = useMemo(() => (
     <div className="flex items-center gap-2">
-      {editLogsCount > 0 && (
-        <button
-          type="button"
-          onClick={() => setShowEditLogsModal(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer"
-          title="ดูประวัติการแก้ไขทั้งหมด"
-        >
-          <History size={13} className="text-amber-700" />
-          <span>ประวัติแก้ไข ({editLogsCount})</span>
-        </button>
-      )}
       {canEditAudit && (
         <button
           type="button"
@@ -786,9 +831,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
         {/* Second Section: Defect Banner (Full Width) */}
         {issues.length > 0 ? (
-          <div className="rounded-2xl p-3 sm:p-3.5 bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-2.5 shadow-2xs">
-            <AlertTriangle size={18} className="text-rose-600 shrink-0" />
-            <span className="text-sm font-extrabold">พบข้อบกพร่อง {issues.length} ข้อ</span>
+          <div className="rounded-2xl p-3 sm:p-3.5 bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-between gap-2.5 shadow-2xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AlertTriangle size={18} className="text-rose-600 shrink-0" />
+              <span className="text-sm font-extrabold">พบข้อบกพร่อง {issues.length} ข้อ</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAiDefectModal(true)}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0F6659] text-white text-xs font-bold shadow-2xs hover:bg-[#0D5449] active:scale-95 transition-all cursor-pointer"
+            >
+              <Sparkles size={13} />
+              <span>AI วิเคราะห์</span>
+            </button>
           </div>
         ) : (
           <div className="rounded-2xl p-3 sm:p-3.5 bg-[#F0FDF4] border border-emerald-200/80 text-[#0F6659] flex items-center gap-2.5 shadow-2xs">
@@ -797,39 +852,47 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           </div>
         )}
 
-        {/* Third Section: Metadata Rows (3 Rows with dividers and mint icons) */}
-        <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 px-1.5 py-1.5 sm:px-3 sm:py-3 divide-y divide-slate-100/90 text-xs sm:text-sm mt-3.5 sm:mt-4">
-          {/* Row 1: แบบฟอร์ม */}
-          <div className="flex items-center gap-1.5 sm:gap-3 pb-2 sm:pb-4">
+        {/* Third Section: Metadata Cards (เดิมเป็นแถวเดียวกันแบบ divide-y + label กว้างคงที่ 64px
+            ทำให้ค่าที่ยาว เช่น ชื่อฟอร์ม/ชื่อผู้ตรวจ ถูก truncate เป็น "..." บนจอมือถือแคบๆ
+            เปลี่ยนเป็นการ์ดแยกทีละอัน ใช้ break-words แทน truncate จะได้ขึ้นบรรทัดใหม่แทนการตัดข้อความ) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mt-3.5 sm:mt-4">
+          {/* Card: แบบฟอร์ม */}
+          <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <FileText size={16} />
             </div>
-            <span className="text-slate-400 font-semibold w-[64px] sm:w-[72px] shrink-0">แบบฟอร์ม</span>
-            <span className="font-extrabold text-slate-800 truncate flex-1 min-w-0" title={formTitle}>
-              {formTitle}
-            </span>
+            <div className="min-w-0">
+              <div className="text-[11px] text-slate-400 font-semibold">แบบฟอร์ม</div>
+              <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words" title={formTitle}>
+                {formTitle}
+              </div>
+            </div>
           </div>
 
-          {/* Row 2: วันที่ตรวจ */}
-          <div className="flex items-center gap-1.5 sm:gap-3 py-2 sm:py-4">
+          {/* Card: วันที่ตรวจ */}
+          <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <Calendar size={16} />
             </div>
-            <span className="text-slate-400 font-semibold w-[64px] sm:w-[72px] shrink-0">วันที่ตรวจ</span>
-            <span className="font-extrabold text-slate-800 truncate flex-1 min-w-0">
-              {isBackdated ? `${actualInspectDateStr} (${startedTimeStr} - ${submittedTimeStr})` : dateStr}
-            </span>
+            <div className="min-w-0">
+              <div className="text-[11px] text-slate-400 font-semibold">วันที่ตรวจ</div>
+              <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words">
+                {isBackdated ? `${actualInspectDateStr} (${startedTimeStr} - ${submittedTimeStr})` : dateStr}
+              </div>
+            </div>
           </div>
 
-          {/* Row 3: ผู้ตรวจ */}
-          <div className="flex items-center gap-1.5 sm:gap-3 pt-2 sm:pt-4">
+          {/* Card: ผู้ตรวจ */}
+          <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <User size={16} />
             </div>
-            <span className="text-slate-400 font-semibold w-[64px] sm:w-[72px] shrink-0">ผู้ตรวจ</span>
-            <span className="font-extrabold text-slate-800 truncate flex-1 min-w-0" title={auditorName}>
-              {auditorName}
-            </span>
+            <div className="min-w-0">
+              <div className="text-[11px] text-slate-400 font-semibold">ผู้ตรวจ</div>
+              <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words" title={auditorName}>
+                {auditorName}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -843,14 +906,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs sm:text-sm font-bold text-amber-950">
-                    บันทึกนี้ได้รับการแก้ไข
+                    ประวัติการแก้ไข
                   </span>
                   <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 text-[11px] font-black shadow-2xs">
                     {editLogsCount} ครั้ง
                   </span>
-                </div>
-                <div className="text-[11.5px] text-amber-800/85 font-medium mt-0.5 leading-normal">
-                  มีบันทึกประวัติการปรับปรุงคะแนนและเหตุผลกำกับ
                 </div>
               </div>
             </div>
@@ -913,8 +973,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             formBreakdown.map((sec, secIdx) => {
             const totalQ = sec.questions.length;
             const passedQ = sec.questions.filter(q => {
+              if (q.isNa) return true;
+              if (q.isPassed !== undefined) return q.isPassed;
               if (q.type === "yesno") return q.answer === true;
-              if (q.type === "scale") return q.answer >= 4;
+              if (q.type === "scale") return q.scaleScore ? q.scaleScore >= 3 : (Number(q.answer) >= 3);
               return true;
             }).length;
             const secPassed = passedQ === totalQ;
@@ -952,10 +1014,12 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     const currentSc = q.scoreGiven !== undefined ? Number(q.scoreGiven) : (typeof q.answer === 'number' ? q.answer : (q.answer === true ? full : 0));
                     const isPass = q.isNa
                       ? true
+                      : q.isPassed !== undefined
+                      ? q.isPassed
                       : q.type === "yesno" 
                       ? q.answer === true 
                       : q.type === "scale" 
-                        ? (currentSc >= (full * 0.7)) 
+                        ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
                         : true;
 
                     return (
@@ -969,8 +1033,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                             <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
                               {q.num}
                             </span>
-                            <div>
-                              <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug break-words [overflow-wrap:anywhere]">
                                 {q.text}
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap mt-1">
@@ -1012,10 +1076,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                     key={n}
                                     className={`flex-1 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-black border flex items-center justify-center transition-all ${
                                       isSelected
-                                        ? n >= 4
+                                        ? n >= 3
                                           ? 'bg-slate-200/90 text-emerald-800 border-emerald-300/80 font-black'
-                                          : n === 3
-                                          ? 'bg-slate-200/90 text-amber-800 border-amber-300/80 font-black'
                                           : 'bg-slate-200/90 text-rose-800 border-rose-300/80 font-black'
                                         : 'bg-slate-50 text-slate-400/80 border-slate-200/60 opacity-40'
                                     }`}
@@ -1147,57 +1209,72 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                         ) : null}
 
                         {/* 🌟 Direct CAP Action: Enter Real CAP Chat Room / Ticket */}
-                        {!isPass && (
-                          <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
-                            {/* Live CAP Status Badge */}
-                            <div>
-                              {(() => {
-                                const cap = findCapTaskForQuestion(q);
-                                const status = (cap?.status || "").toUpperCase();
-                                if (status === "CLOSED" || status === "APPROVED" || status === "DONE") {
-                                  return (
-                                    <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-300 shadow-2xs">
-                                      <CheckCircle2 size={14} className="text-emerald-600" />
-                                      <span>อนุมัติและปิดงานแก้ไขแล้ว</span>
-                                    </span>
-                                  );
-                                }
-                                if (status === "SUBMITTED") {
-                                  return (
-                                    <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs">
-                                      <Sparkles size={14} className="text-amber-600" />
-                                      <span>สาขาส่งหลักฐานแล้ว (รอตรวจ)</span>
-                                    </span>
-                                  );
-                                }
-                                return (
-                                  <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs">
-                                    <AlertTriangle size={14} className="text-rose-600" />
-                                    <span>รายการแก้ไข CAP (รอดำเนินการ)</span>
-                                  </span>
-                                );
-                              })()}
-                            </div>
+                        {(() => {
+                          const cap = findCapTaskForQuestion(q);
+                          const status = (cap?.status || "").toUpperCase();
+                          const isCancelled = status === "CANCELLED";
 
-                            {/* Button to open CAP chat room */}
-                            <button
-                              type="button"
-                              disabled={loadingCapQuestionId === q.id}
-                              onClick={() => handleOpenCapChat(q)}
-                              className="px-4 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-[#0B4E44] text-xs sm:text-sm font-bold text-white cursor-pointer shadow-sm active:scale-95 transition-all flex items-center gap-2"
-                              title="เปิดห้องสนทนาเพื่อพูดคุย ส่งรูปถ่ายหลักฐาน และติดตามผลการแก้ไข"
-                            >
-                              {loadingCapQuestionId === q.id ? (
-                                <span>กำลังเปิด...</span>
-                              ) : (
-                                <>
-                                  <MessageSquare size={16} />
-                                  <span>เข้าห้องสนทนาและติดตามงาน CAP ➔</span>
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        )}
+                          if (!isPass || isCancelled) {
+                            return (
+                              <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
+                                {/* Live CAP Status Badge */}
+                                <div>
+                                  {(() => {
+                                    if (status === "CLOSED" || status === "APPROVED" || status === "DONE") {
+                                      return (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-300 shadow-2xs">
+                                          <CheckCircle2 size={14} className="text-emerald-600" />
+                                          <span>อนุมัติและปิดงานแก้ไขแล้ว</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (isCancelled) {
+                                      return (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs">
+                                          <CheckCircle2 size={14} className="text-slate-500" />
+                                          <span>ยกเลิกงาน CAP (แก้ไขผลเป็นผ่านแล้ว)</span>
+                                        </span>
+                                      );
+                                    }
+                                    if (status === "SUBMITTED") {
+                                      return (
+                                        <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-300 shadow-2xs">
+                                          <Sparkles size={14} className="text-amber-600" />
+                                          <span>สาขาส่งหลักฐานแล้ว (รอตรวจ)</span>
+                                        </span>
+                                      );
+                                    }
+                                    return (
+                                      <span className="inline-flex items-center gap-1.5 text-xs font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 shadow-2xs">
+                                        <AlertTriangle size={14} className="text-rose-600" />
+                                        <span>รายการแก้ไข CAP (รอดำเนินการ)</span>
+                                      </span>
+                                    );
+                                  })()}
+                                </div>
+
+                                {/* Button to open CAP chat room */}
+                                <button
+                                  type="button"
+                                  disabled={loadingCapQuestionId === q.id}
+                                  onClick={() => handleOpenCapChat(q)}
+                                  className="px-4 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-[#0B4E44] text-xs sm:text-sm font-bold text-white cursor-pointer shadow-sm active:scale-95 transition-all flex items-center gap-2"
+                                  title={isCancelled ? "เปิดดูประวัติการแก้ไขและข้อความยกเลิก" : "เปิดห้องสนทนาเพื่อพูดคุย ส่งรูปถ่ายหลักฐาน และติดตามผลการแก้ไข"}
+                                >
+                                  {loadingCapQuestionId === q.id ? (
+                                    <span>กำลังเปิด...</span>
+                                  ) : (
+                                    <>
+                                      <MessageSquare size={16} />
+                                      <span>{isCancelled ? "ดูประวัติ CAP" : "ติดตามงาน CAP ➔"}</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                       </div>
                     );
                   })}
@@ -1354,19 +1431,18 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <Camera size={16} className="text-[#0F6659]" />
               <span>คลังภาพบันทึกหลักฐานการตรวจ ({locationTitle})</span>
             </h3>
-            <span className="text-xs text-slate-500">แยกหมวดหมู่ชัดเจน</span>
           </div>
 
           {/* Album 1: On-site Inspection Photos */}
           <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-900">📷 อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
-                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${allInspectionPhotos.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
-                  {allInspectionPhotos.length > 0 ? `${allInspectionPhotos.length} รูปภาพที่แนบ` : 'ไม่มีรูปภาพแนบ'}
+            <div className="flex items-start sm:items-center justify-between gap-2.5 sm:gap-3">
+              <span className="text-xs sm:text-sm font-bold text-slate-900">📷 อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
+              <div className="flex flex-col sm:flex-row items-end sm:items-center shrink-0 gap-1 sm:gap-2 text-right">
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">บันทึกโดยผู้ตรวจ</span>
+                <span className={`text-[11px] sm:text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${allInspectionPhotos.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                  {allInspectionPhotos.length > 0 ? `${allInspectionPhotos.length} รูปภาพ` : 'ไม่มีรูปภาพ'}
                 </span>
               </div>
-              <span className="text-xs text-slate-400">บันทึกโดยผู้ตรวจ</span>
             </div>
 
             {allInspectionPhotos.length > 0 ? (
@@ -1421,14 +1497,14 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
           {/* Album 2: CAP Corrective Action Evidence Photos */}
           <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-900">🛠️ อัลบั้มรูปหลักฐานการแก้ไข (CAP After-Photos)</span>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  {allCapAfterPhotos.length > 0 ? `${allCapAfterPhotos.length} รูปส่งแก้ไข` : 'รอส่งมอบหลักฐาน'}
+            <div className="flex items-start sm:items-center justify-between gap-2.5 sm:gap-3">
+              <span className="text-xs sm:text-sm font-bold text-slate-900">🛠️ อัลบั้มรูปหลักฐานการแก้ไข (CAP After-Photos)</span>
+              <div className="flex flex-col sm:flex-row items-end sm:items-center shrink-0 gap-1 sm:gap-2 text-right">
+                <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">ส่งมอบโดยสาขา</span>
+                <span className="text-[11px] sm:text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap bg-emerald-100 text-emerald-800">
+                  {allCapAfterPhotos.length > 0 ? `${allCapAfterPhotos.length} รูปแก้ไข` : 'รอการแก้ไข'}
                 </span>
               </div>
-              <span className="text-xs text-slate-400">ส่งมอบโดยสาขา</span>
             </div>
 
             {allCapAfterPhotos.length > 0 ? (
@@ -1472,7 +1548,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                         }}
                         className="text-[11px] text-[#0F6659] underline font-bold shrink-0 ml-2 cursor-pointer hover:text-[#0B4E44]"
                       >
-                        เข้าห้องสนทนา ➔
+                        ติดตามงาน CAP ➔
                       </button>
                     </div>
                   </div>
@@ -1481,7 +1557,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             ) : (
               <div className="p-6 rounded-2xl bg-slate-50 border border-dashed text-center text-xs text-slate-400 font-medium">
                 {score < 85 || (recordCaps && recordCaps.length > 0)
-                  ? "ยังไม่มีการส่งรูปถ่ายหลักฐานการแก้ไข (สามารถกดปุ่ม 'เข้าห้องสนทนาและติดตามงาน CAP' ในแท็บคำตอบได้)" 
+                  ? "ยังไม่มีการส่งรูปถ่ายหลักฐานการแก้ไข" 
                   : "รอบการตรวจนี้ผ่านเกณฑ์มาตรฐานครบถ้วน ไม่จำเป็นต้องส่งรูปแก้งาน"}
               </div>
             )}
@@ -1548,13 +1624,21 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             {/* 🟢 MAP 1: จุดเริ่มตรวจ (Start Location) */}
             <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                <div className="space-y-1">
+                  <div className="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
+                    <span className={`w-2.5 h-2.5 rounded-full ${startLat && startLng ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'} inline-block`} />
                     <span>1. จุดเริ่มตรวจ (Start Inspection)</span>
+                    {(!startLat || !startLng) && (
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800">
+                        ก่อนตรวจไม่บันทึก
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11.5px] text-slate-500 font-medium">
-                    เวลาเริ่ม: <span className="font-bold text-slate-700">{startedTimeStr}</span> · พิกัด: <span className="font-bold text-slate-700 font-mono">{startLat && startLng ? `${Number(startLat).toFixed(6)}, ${Number(startLng).toFixed(6)}` : "-"}</span>
+                    เวลาเริ่ม: <span className="font-bold text-slate-700">{startedTimeStr}</span>
+                    {startLat && startLng && (
+                      <> · พิกัด: <span className="font-bold text-slate-700 font-mono">{`${Number(startLat).toFixed(6)}, ${Number(startLng).toFixed(6)}`}</span></>
+                    )}
                   </div>
                 </div>
                 {startLat && startLng ? (
@@ -1585,9 +1669,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     className="w-full h-full block border-0"
                   />
                 ) : (
-                  <div className="text-center p-4 text-slate-400 space-y-1">
-                    <MapPin size={24} className="mx-auto text-slate-300" />
-                    <div className="text-xs font-bold">ไม่มีข้อมูลพิกัด GPS จุดเริ่มตรวจ</div>
+                  <div className="text-center p-6 text-slate-400 space-y-1.5">
+                    <MapPin size={28} className="mx-auto text-slate-300" />
+                    <div className="text-xs sm:text-sm font-bold text-slate-600">ก่อนตรวจไม่บันทึก</div>
                   </div>
                 )}
               </div>
@@ -1596,13 +1680,21 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             {/* 🔵 MAP 2: จุดส่งผลตรวจ (Submit Location) */}
             <div className="p-4 sm:p-5 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-0.5">
-                  <div className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse inline-block" />
+                <div className="space-y-1">
+                  <div className="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
+                    <span className={`w-2.5 h-2.5 rounded-full ${endLat && endLng ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'} inline-block`} />
                     <span>2. จุดส่งผลตรวจ (Submit Inspection)</span>
+                    {(!endLat || !endLng) && (
+                      <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800">
+                        หลังตรวจไม่บันทึก
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11.5px] text-slate-500 font-medium">
-                    เวลาส่งผล: <span className="font-bold text-slate-700">{submittedTimeStr}</span> · พิกัด: <span className="font-bold text-slate-700 font-mono">{endLat && endLng ? `${Number(endLat).toFixed(6)}, ${Number(endLng).toFixed(6)}` : "-"}</span>
+                    เวลาส่งผล: <span className="font-bold text-slate-700">{submittedTimeStr}</span>
+                    {endLat && endLng && (
+                      <> · พิกัด: <span className="font-bold text-slate-700 font-mono">{`${Number(endLat).toFixed(6)}, ${Number(endLng).toFixed(6)}`}</span></>
+                    )}
                   </div>
                 </div>
                 {endLat && endLng ? (
@@ -1633,19 +1725,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     className="w-full h-full block border-0"
                   />
                 ) : (
-                  <div className="text-center p-4 text-slate-400 space-y-1">
-                    <MapPin size={24} className="mx-auto text-slate-300" />
-                    <div className="text-xs font-bold">ไม่มีข้อมูลพิกัด GPS จุดส่งผลตรวจ</div>
+                  <div className="text-center p-6 text-slate-400 space-y-1.5">
+                    <MapPin size={28} className="mx-auto text-slate-300" />
+                    <div className="text-xs sm:text-sm font-bold text-slate-600">หลังตรวจไม่บันทึก</div>
                   </div>
                 )}
               </div>
             </div>
-          </div>
-
-          {/* Verification Banner */}
-          <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center gap-2.5 text-xs font-bold text-emerald-900 shadow-2xs">
-            <CheckCircle2 size={18} className="text-[#0F6659] shrink-0" />
-            <span>ระบบได้ทำการบันทึกและตรวจสอบตำแหน่งดาวเทียม (GPS Geofence Verified) ทั้งตอนเริ่มตรวจและส่งผลตรวจเรียบร้อยแล้ว</span>
           </div>
         </div>
       )}
@@ -1664,6 +1750,14 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         record={currentRecord}
         onSaveSuccess={handleSaveSuccess}
       />
+
+      {/* 🌟 AI DEFECT ANALYSIS MODAL (วิเคราะห์ข้อบกพร่องด้วย AI) */}
+      {showAiDefectModal && (
+        <AiAuditDefectModal
+          auditRecordId={currentRecord?.id}
+          onClose={() => setShowAiDefectModal(false)}
+        />
+      )}
     </div>
   );
 }

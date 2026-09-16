@@ -21,44 +21,7 @@ namespace QSC.Api.Controllers
 
         private (DateTime StartUtc, DateTime EndUtc, DateTime PrevStartUtc, DateTime PrevEndUtc) GetPeriodDateRanges(string? period)
         {
-            var nowUtc = DateTime.UtcNow;
-            var nowBkk = TimezoneHelper.ToBangkokTime(nowUtc);
-            var currentMonthStartBkk = new DateTime(nowBkk.Year, nowBkk.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
-            DateTime startBkk, endBkk;
-
-            switch (period?.ToLower())
-            {
-                case "last_month":
-                    startBkk = currentMonthStartBkk.AddMonths(-1);
-                    endBkk = currentMonthStartBkk;
-                    break;
-                case "3m":
-                    startBkk = currentMonthStartBkk.AddMonths(-2);
-                    endBkk = currentMonthStartBkk.AddMonths(1);
-                    break;
-                case "6m":
-                    startBkk = currentMonthStartBkk.AddMonths(-5);
-                    endBkk = currentMonthStartBkk.AddMonths(1);
-                    break;
-                case "ytd":
-                    startBkk = new DateTime(nowBkk.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
-                    endBkk = currentMonthStartBkk.AddMonths(1);
-                    break;
-                case "month":
-                default:
-                    startBkk = currentMonthStartBkk;
-                    endBkk = currentMonthStartBkk.AddMonths(1);
-                    break;
-            }
-
-            var startUtc = TimezoneHelper.ToUtcFromBangkok(startBkk);
-            var endUtc = TimezoneHelper.ToUtcFromBangkok(endBkk);
-
-            var duration = endUtc - startUtc;
-            var prevEndUtc = startUtc;
-            var prevStartUtc = startUtc - duration;
-
-            return (startUtc, endUtc, prevStartUtc, prevEndUtc);
+            return TimezoneHelper.GetPeriodDateRanges(period);
         }
 
         [HttpGet("overview")]
@@ -80,22 +43,32 @@ namespace QSC.Api.Controllers
             var periodAudits = await _context.AuditRecords
                 .AsNoTracking()
                 .Where(a => targetLocIds.Contains(a.LocationId) && a.AuditDate >= startUtc && a.AuditDate < endUtc)
-                .Select(a => new { a.LocationId, a.PercentageScore, a.IsPassed })
+                .Select(a => new { a.Id, a.LocationId, a.PercentageScore, a.IsPassed, a.AuditDate })
                 .ToListAsync();
 
             var prevPeriodAudits = await _context.AuditRecords
                 .AsNoTracking()
                 .Where(a => targetLocIds.Contains(a.LocationId) && a.AuditDate >= prevStartUtc && a.AuditDate < prevEndUtc)
-                .Select(a => new { a.PercentageScore })
+                .Select(a => new { a.Id, a.LocationId, a.PercentageScore, a.IsPassed, a.AuditDate })
                 .ToListAsync();
 
-            var auditedLocIds = periodAudits.Select(a => a.LocationId).Distinct().ToList();
-            int auditedCount = auditedLocIds.Count;
-            int passedCount = periodAudits.Count(a => a.IsPassed);
-            double passRate = auditedCount > 0 ? Math.Round((double)passedCount / periodAudits.Count * 100.0, 1) : 0.0;
-            double avgScore = periodAudits.Any() ? Math.Round(periodAudits.Average(a => a.PercentageScore), 1) : 0.0;
+            // 🌟 คำนวณตามคะแนนรอบล่าสุดของแต่ละสถานที่ในช่วงเวลานั้น (Latest Audit per Location)
+            var latestAuditsByLoc = periodAudits
+                .GroupBy(a => a.LocationId)
+                .Select(g => g.OrderByDescending(a => a.AuditDate).ThenByDescending(a => a.Id).First())
+                .ToList();
 
-            double? prevAvgScore = prevPeriodAudits.Any() ? Math.Round(prevPeriodAudits.Average(a => a.PercentageScore), 1) : null;
+            var prevLatestAuditsByLoc = prevPeriodAudits
+                .GroupBy(a => a.LocationId)
+                .Select(g => g.OrderByDescending(a => a.AuditDate).ThenByDescending(a => a.Id).First())
+                .ToList();
+
+            int auditedCount = latestAuditsByLoc.Count;
+            int passedCount = latestAuditsByLoc.Count(a => a.IsPassed);
+            double passRate = auditedCount > 0 ? Math.Round((double)passedCount / auditedCount * 100.0, 1) : 0.0;
+            double avgScore = latestAuditsByLoc.Any() ? Math.Round(latestAuditsByLoc.Average(a => a.PercentageScore), 1) : 0.0;
+
+            double? prevAvgScore = prevLatestAuditsByLoc.Any() ? Math.Round(prevLatestAuditsByLoc.Average(a => a.PercentageScore), 1) : null;
             string? trendPercent = (prevAvgScore.HasValue && prevAvgScore.Value > 0)
                 ? (((avgScore - prevAvgScore.Value) / prevAvgScore.Value) * 100.0).ToString("F1")
                 : null;
@@ -192,7 +165,7 @@ namespace QSC.Api.Controllers
             }
 
             var periodAudits = await auditQuery
-                .Select(a => new { a.AuditDate, a.PercentageScore, a.IsPassed })
+                .Select(a => new { a.Id, a.LocationId, a.AuditDate, a.PercentageScore, a.IsPassed })
                 .ToListAsync();
 
             var months = new List<object>();
@@ -211,15 +184,20 @@ namespace QSC.Api.Controllers
                     .Where(a => a.AuditDate >= startOfMonthUtc && a.AuditDate < endOfMonthUtc)
                     .ToList();
 
-                double? avg = monthAudits.Any() ? Math.Round(monthAudits.Average(a => a.PercentageScore), 1) : null;
-                double? passRate = monthAudits.Any() ? Math.Round((double)monthAudits.Count(a => a.IsPassed) / monthAudits.Count * 100, 1) : null;
+                var latestMonthAudits = monthAudits
+                    .GroupBy(a => a.LocationId)
+                    .Select(g => g.OrderByDescending(a => a.AuditDate).ThenByDescending(a => a.Id).First())
+                    .ToList();
+
+                double? avg = latestMonthAudits.Any() ? Math.Round(latestMonthAudits.Average(a => a.PercentageScore), 1) : null;
+                double? passRate = latestMonthAudits.Any() ? Math.Round((double)latestMonthAudits.Count(a => a.IsPassed) / latestMonthAudits.Count * 100, 1) : null;
                 var monthLabel = thaiMonths[targetMonthBkk.Month - 1] + " " + ((targetMonthBkk.Year + 543) % 100);
 
                 months.Add(new
                 {
                     month = monthLabel,
                     score = avg,
-                    auditCount = monthAudits.Count,
+                    auditCount = latestMonthAudits.Count,
                     passRate = passRate
                 });
             }

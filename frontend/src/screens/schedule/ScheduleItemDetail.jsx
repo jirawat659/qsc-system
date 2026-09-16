@@ -9,6 +9,7 @@ import { DataContext } from "../../context/DataContext";
 import Header from "../../shared/Header";
 import Section from "../../shared/Section";
 import HistoryList from "../../shared/HistoryList";
+import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 
 export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, onEdit }) {
@@ -261,8 +262,8 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
 
       {/* 🗑️ Custom Delete Schedule Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 text-center animate-in zoom-in-95 duration-200">
+        <ModalWrapper onClose={() => setShowDeleteModal(false)} maxWidth="max-w-sm">
+          <div className="p-6 space-y-4 text-center">
             <div className="w-16 h-16 rounded-3xl bg-rose-50 border border-rose-200/80 text-rose-600 flex items-center justify-center mx-auto shadow-2xs">
               <Trash2 size={28} strokeWidth={2} />
             </div>
@@ -299,7 +300,7 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
               </button>
             </div>
           </div>
-        </div>
+        </ModalWrapper>
       )}
     </div>
   );

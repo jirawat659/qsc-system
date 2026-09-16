@@ -24,6 +24,8 @@ export const CAP_STATUS_MAP = {
   done: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   approved: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   closed: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
+  cancelled: { label: "ยกเลิกงาน (แก้ไขเป็นผ่าน)", fg: "#64748B", bg: "#F1F5F9" },
+  CANCELLED: { label: "ยกเลิกงาน (แก้ไขเป็นผ่าน)", fg: "#64748B", bg: "#F1F5F9" },
 };
 
 // Color Palette for dynamic Brands & Regions in Charts

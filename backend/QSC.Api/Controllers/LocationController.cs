@@ -23,14 +23,10 @@ namespace QSC.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetLocations([FromQuery] bool? activeOnly)
         {
-            var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+            var scope = await UserScopeHelper.GetUserFullScopeAsync(User, _context);
 
             var query = _context.Locations
                 .AsNoTracking()
-                .Include(l => l.LocationType)
-                .Include(l => l.ManagerUser)
-                .Include(l => l.LocationBrands).ThenInclude(lb => lb.Brand)
                 .AsQueryable();
 
             if (activeOnly == true)
@@ -38,20 +34,65 @@ namespace QSC.Api.Controllers
                 query = query.Where(l => l.IsActive);
             }
 
-            if (allowedLocationIds != null)
+            if (scope.AllowedLocationIds != null)
             {
-                query = query.Where(l => allowedLocationIds.Contains(l.Id));
+                query = query.Where(l => scope.AllowedLocationIds.Contains(l.Id));
             }
 
-            if (allowedBrandIds != null)
+            if (scope.AllowedBrandIds != null)
             {
-                // Brand-restricted user ต้องเห็นเฉพาะ Location ที่มีแบรนด์ตรงกับสิทธิ์
-                // ดังนั้น Location ที่ไม่มี LocationBrand (เช่น HQ-01) จะไม่แสดงใน scope นี้
                 query = query.Where(l =>
-                    l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                    l.LocationBrands.Any(lb => scope.AllowedBrandIds.Contains(lb.BrandId)));
             }
 
-            var locations = await query.OrderByDescending(l => l.IsActive).ThenBy(l => l.Code).ToListAsync();
+            var locations = await query
+                .OrderByDescending(l => l.IsActive)
+                .ThenBy(l => l.Code)
+                .Select(l => new
+                {
+                    id = l.Id,
+                    code = l.Code,
+                    name = l.Name,
+                    locationTypeId = l.LocationTypeId,
+                    locationType = l.LocationType != null ? new
+                    {
+                        id = l.LocationType.Id,
+                        code = l.LocationType.Code,
+                        name = l.LocationType.Name,
+                        description = l.LocationType.Description,
+                        isActive = l.LocationType.IsActive
+                    } : null,
+                    managerUserId = l.ManagerUserId,
+                    managerUserName = l.ManagerUser != null ? l.ManagerUser.FullName : null,
+                    managerUser = l.ManagerUser != null ? new
+                    {
+                        id = l.ManagerUser.Id,
+                        username = l.ManagerUser.Username,
+                        fullName = l.ManagerUser.FullName
+                    } : null,
+                    latitude = l.Latitude,
+                    longitude = l.Longitude,
+                    region = l.Region,
+                    address = l.Address,
+                    phone = l.Phone,
+                    isActive = l.IsActive,
+                    lastScore = l.LastScore,
+                    lastAuditDate = l.LastAuditDate,
+                    createdAt = l.CreatedAt,
+                    locationBrands = l.LocationBrands.Select(lb => new
+                    {
+                        locationId = lb.LocationId,
+                        brandId = lb.BrandId,
+                        brand = lb.Brand != null ? new
+                        {
+                            id = lb.Brand.Id,
+                            code = lb.Brand.Code,
+                            name = lb.Brand.Name
+                        } : null
+                    }).ToList()
+                })
+                .ToListAsync();
+
             return Ok(locations);
         }
 

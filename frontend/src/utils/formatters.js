@@ -1,4 +1,4 @@
-﻿// 📅 Centralized Thai Date, Time & Status Formatters
+// 📅 Centralized Thai Date, Time & Status Formatters
 
 export const THAI_MONTHS_SHORT = [
   "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
@@ -66,57 +66,138 @@ export const parseAuditDate = (dateVal) => {
   return null;
 };
 
-// 🔎 ตรวจจับข้อความค้นหาที่พิมพ์เป็น "เดือน" หรือ "เดือน+ปี" ภาษาไทยล้วนๆ
-// เช่น "มีนาคม", "มี.ค", "มี.ค.", "มีนาคม 2568", "มี.ค 2568"
-// - ไม่ใส่ปี -> default เป็นปีปัจจุบัน (ค.ศ.)
-// - ใส่ปี พ.ศ. (>2500) -> แปลงเป็น ค.ศ. อัตโนมัติ
-// คืนค่า null ถ้าข้อความทั้งหมดไม่ใช่ pattern เดือน/ปีล้วนๆ (กันไม่ให้ทับคำค้นหาอื่น เช่น ชื่อสาขา)
-const THAI_FULL_MONTH_INDEX_MAP = THAI_MONTHS_FULL.reduce((acc, name, idx) => {
-  acc[name] = idx;
-  return acc;
-}, {});
+export const THAI_COLLOQUIAL = [
+  "มกรา", "กุมภา", "มีนา", "เมษา", "พฤษภา", "มิถุนา",
+  "กรกฎา", "สิงหา", "กันยา", "ตุลา", "พฤศจิกา", "ธันวา"
+];
 
-// รองรับกรณีผู้ใช้พิมพ์แบบตัดจุดออกหมด เช่น "ม.ค." -> "มค", "มี.ค." -> "มีค"
-// สร้างจาก THAI_MONTH_INDEX_MAP อัตโนมัติ กันพลาดกรณีแก้ mapping ต้นทางแล้วลืมอัปเดตที่นี่
-const THAI_MONTH_NO_DOT_INDEX_MAP = Object.keys(THAI_MONTH_INDEX_MAP).reduce((acc, key) => {
-  const noDot = key.replace(/\./g, '');
-  if (noDot) acc[noDot] = THAI_MONTH_INDEX_MAP[key];
-  return acc;
-}, {});
+export const ENG_MONTHS_SHORT = [
+  "jan", "feb", "mar", "apr", "may", "jun",
+  "jul", "aug", "sep", "oct", "nov", "dec"
+];
+
+export const ENG_MONTHS_FULL = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december"
+];
+
+const ALL_MONTH_INDEX_MAP = (() => {
+  const map = {};
+  for (let i = 0; i < 12; i++) {
+    map[THAI_MONTHS_SHORT[i].toLowerCase()] = i;
+    map[THAI_MONTHS_SHORT[i].replace(/\./g, "").toLowerCase()] = i;
+    map[THAI_MONTHS_FULL[i].toLowerCase()] = i;
+    map[THAI_COLLOQUIAL[i].toLowerCase()] = i;
+    map[ENG_MONTHS_SHORT[i].toLowerCase()] = i;
+    map[ENG_MONTHS_FULL[i].toLowerCase()] = i;
+  }
+  map["พฤศจิก"] = 10;
+  map["sept"] = 8;
+  return map;
+})();
 
 export const parseThaiMonthYearQuery = (text) => {
   if (!text) return null;
-  // ตัดคำว่า "พ.ศ." / "ค.ศ." ที่ผู้ใช้อาจพิมพ์คั่นกลางระหว่างเดือนกับปีออกก่อน
-  // เช่น "มีนาคม พ.ศ. 2568" หรือ "มี.ค. ค.ศ. 2025" -> เหลือแค่ "มีนาคม 2568"
-  const q = text.trim().replace(/(?:พ\.ศ\.?|ค\.ศ\.?)\s*/g, '').trim();
-  if (!q) return null;
+  const raw = text.trim();
+  if (!raw) return null;
 
-  const match = q.match(/^([ก-๙.]+?)\s*(\d{4})?$/);
-  if (!match) return null;
-
-  const monthToken = match[1].trim();
-  const allMonthTokens = { ...THAI_MONTH_INDEX_MAP, ...THAI_FULL_MONTH_INDEX_MAP, ...THAI_MONTH_NO_DOT_INDEX_MAP };
-  const monthIndex = allMonthTokens[monthToken];
-  if (monthIndex === undefined) return null;
-
-  let year;
-  if (match[2]) {
-    year = parseInt(match[2], 10);
-    if (year > 2500) year -= 543; // พ.ศ. -> ค.ศ.
-  } else {
-    year = new Date().getFullYear();
+  const q = raw.toLowerCase();
+  const yearMatch = q.match(/^(?:ปี|พ\.?ศ\.?|ค\.?ศ\.?|year)\s*(\d{2,4})$/i) || q.match(/^(\d{4})$/);
+  if (yearMatch) {
+    let year = parseInt(yearMatch[1], 10);
+    if (yearMatch[1].length === 2) {
+      if (year >= 50 && year <= 99) year = 2500 + year; // พ.ศ. เช่น 67 -> 2567
+      else year = 2000 + year; // ค.ศ. เช่น 24 -> 2024
+    }
+    // ตรวจสอบว่าเป็นปีที่สมเหตุสมผล (ค.ศ. 1990 - 2100 หรือ พ.ศ. 2530 - 2650)
+    if ((year >= 1990 && year <= 2100) || (year >= 2530 && year <= 2650)) {
+      const beYear = year > 2500 ? year : year + 543;
+      const adYear = year > 2500 ? year - 543 : year;
+      const startDate = new Date(adYear, 0, 1, 0, 0, 0, 0);
+      const endDate = new Date(adYear + 1, 0, 1, 0, 0, 0, 0); // exclusive upper bound
+      return {
+        startDate,
+        endDate,
+        isYearOnly: true,
+        year: adYear,
+        beYear,
+        label: `ปี ${beYear} (${adYear})`
+      };
+    }
   }
 
-  const startDate = new Date(year, monthIndex, 1, 0, 0, 0, 0);
-  const endDate = new Date(year, monthIndex + 1, 1, 0, 0, 0, 0); // exclusive upper bound
+  const numericMonthYearMatch = q.match(/^(\d{4})[-/](\d{1,2})$/) || q.match(/^(\d{1,2})[-/](\d{4})$/);
+  if (numericMonthYearMatch) {
+    let year = parseInt(numericMonthYearMatch[1].length === 4 ? numericMonthYearMatch[1] : numericMonthYearMatch[2], 10);
+    let monthNum = parseInt(numericMonthYearMatch[1].length === 4 ? numericMonthYearMatch[2] : numericMonthYearMatch[1], 10) - 1;
+    if (monthNum >= 0 && monthNum <= 11) {
+      const beYear = year > 2500 ? year : year + 543;
+      const adYear = year > 2500 ? year - 543 : year;
+      const startDate = new Date(adYear, monthNum, 1, 0, 0, 0, 0);
+      const endDate = new Date(adYear, monthNum + 1, 1, 0, 0, 0, 0);
+      return {
+        startDate,
+        endDate,
+        monthIndex: monthNum,
+        year: adYear,
+        beYear,
+        label: `${THAI_MONTHS_FULL[monthNum]} ${beYear}`
+      };
+    }
+  }
 
-  return {
-    startDate,
-    endDate,
-    monthIndex,
-    year,
-    label: `${THAI_MONTHS_FULL[monthIndex]} ${year + 543}`
-  };
+  let cleaned = q.replace(/(?:เดือน|ปี|พ\.?ศ\.?|ค\.?ศ\.?|year)\s*/gi, ' ').trim();
+  const parts = cleaned.split(/\s+/).filter(Boolean);
+
+  let detectedMonthIndex = undefined;
+  let detectedYear = undefined;
+
+  for (const part of parts) {
+    const noDot = part.replace(/\./g, "");
+    if (ALL_MONTH_INDEX_MAP[part] !== undefined && detectedMonthIndex === undefined) {
+      detectedMonthIndex = ALL_MONTH_INDEX_MAP[part];
+    } else if (ALL_MONTH_INDEX_MAP[noDot] !== undefined && detectedMonthIndex === undefined) {
+      detectedMonthIndex = ALL_MONTH_INDEX_MAP[noDot];
+    } else if (/^\d{4}$/.test(part) && detectedYear === undefined) {
+      detectedYear = parseInt(part, 10);
+    } else if (/^\d{2}$/.test(part) && detectedYear === undefined) {
+      const shortYear = parseInt(part, 10);
+      if (shortYear >= 50 && shortYear <= 99) {
+        detectedYear = 2500 + shortYear; // พ.ศ.
+      } else if (shortYear >= 0 && shortYear <= 49) {
+        detectedYear = 2000 + shortYear; // ค.ศ.
+      }
+    } else {
+      // ถ้ามี token อื่นที่ไม่ใช่เดือนและไม่ใช่เลขปี แปลว่าอาจเป็นคำค้นหาอื่น (เช่น ชื่อสาขา)
+      return null;
+    }
+  }
+
+  if (detectedMonthIndex !== undefined) {
+    let adYear;
+    let beYear;
+    if (detectedYear !== undefined) {
+      beYear = detectedYear > 2500 ? detectedYear : detectedYear + 543;
+      adYear = detectedYear > 2500 ? detectedYear - 543 : detectedYear;
+    } else {
+      adYear = new Date().getFullYear();
+      beYear = adYear + 543;
+    }
+
+    const startDate = new Date(adYear, detectedMonthIndex, 1, 0, 0, 0, 0);
+    const endDate = new Date(adYear, detectedMonthIndex + 1, 1, 0, 0, 0, 0);
+
+    return {
+      startDate,
+      endDate,
+      monthIndex: detectedMonthIndex,
+      year: adYear,
+      beYear,
+      label: `${THAI_MONTHS_FULL[detectedMonthIndex]} ${beYear}`
+    };
+  }
+
+  return null;
 };
 
 export const getScoreStatus = (score) => {

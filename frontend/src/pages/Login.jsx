@@ -73,34 +73,41 @@ function Login({ onLoginSuccess }) {
         {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อผู้ใช้งาน (Username)</label>
+            <label htmlFor="login-username" className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อผู้ใช้งาน (Username)</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                 <User size={16} />
               </div>
               <input
+                id="login-username"
+                name="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
+                className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
                 placeholder="กรอกชื่อผู้ใช้ของคุณ..."
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
                 required
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">รหัสผ่าน (Password)</label>
+            <label htmlFor="login-password" className="block text-xs font-bold text-slate-700 mb-1.5">รหัสผ่าน (Password)</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                 <Lock size={16} />
               </div>
               <input
+                id="login-password"
+                name="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-3 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
+                className="w-full pl-10 pr-10 py-3 rounded-2xl border border-slate-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
                 placeholder="กรอกรหัสผ่าน..."
                 autoComplete="current-password"
                 required

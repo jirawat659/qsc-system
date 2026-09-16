@@ -66,12 +66,12 @@
     appearance: none;
   }
 
-  /* ขนาดเริ่มต้นบนมือถือเพื่อช่วยให้อ่านง่าย แต่เปิดให้คลาส text-xs / text-sm ปรับลดขนาดได้ */
+  /* ขนาดเริ่มต้นบนมือถือเพื่อป้องกัน iOS Safari Auto-Zoom (ต้องไม่ต่ำกว่า 16px) */
   @media screen and (max-width: 639px) {
     input:not([type="checkbox"]):not([type="radio"]),
     select,
     textarea {
-      font-size: 15px;
+      font-size: 16px !important;
     }
   }
 

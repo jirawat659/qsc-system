@@ -20,9 +20,12 @@ namespace QSC.Api.Controllers
 
         // 1. 📊 GET /api/ai/dashboard-insights
         [HttpGet("dashboard-insights")]
-        public async Task<IActionResult> GetDashboardInsights([FromQuery] DateTime? month)
+        public async Task<IActionResult> GetDashboardInsights(
+            [FromQuery] DateTime? month,
+            [FromQuery] string? period = "month",
+            [FromQuery] int? brandId = null)
         {
-            var result = await _aiService.GetDashboardInsightsAsync(User, month);
+            var result = await _aiService.GetDashboardInsightsAsync(User, month, period, brandId);
             return Ok(result);
         }
 
@@ -57,6 +60,17 @@ namespace QSC.Api.Controllers
         {
             var answer = await _aiService.AskScheduleQuestionAsync(User, dto?.Question ?? string.Empty);
             return Ok(new { answer });
+        }
+        // 5. 🩺 GET /api/ai/audit-analysis/{id}
+        [HttpGet("audit-analysis/{id}")]
+        public async Task<IActionResult> GetAuditDefectAnalysis(int id, [FromQuery] bool forceRefresh = false)
+        {
+            var result = await _aiService.AnalyzeAuditRecordDefectsAsync(User, id, forceRefresh);
+            if (result == null)
+            {
+                return Forbid();
+            }
+            return Ok(result);
         }
     }
 }

@@ -29,55 +29,12 @@ namespace QSC.Api.Controllers
 
         private static bool IsValidImageSignature(byte[] bytes)
         {
-            if (bytes == null || bytes.Length < 12) return false;
-
-            // JPEG: FF D8 FF
-            if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return true;
-
-            // PNG: 89 50 4E 47
-            if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return true;
-
-            // WebP: RIFF .... WEBP
-            if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
-                bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) return true;
-
-            // GIF: GIF8
-            if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x38) return true;
-
-            return false;
+            return UploadHelper.IsValidImageSignature(bytes, out _);
         }
 
-        private async Task<string> SaveBase64IfPresentAsync(string? input, string subfolder, string prefix)
+        private Task<string> SaveBase64IfPresentAsync(string? input, string subfolder, string prefix, long maxSizeBytes = 10 * 1024 * 1024)
         {
-            if (string.IsNullOrWhiteSpace(input) || !input.StartsWith("data:image/")) return input ?? string.Empty;
-
-            try
-            {
-                var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
-                var dir = Path.Combine(uploadsRoot, subfolder);
-                Directory.CreateDirectory(dir);
-
-                var base64Clean = input;
-                var ext = "webp";
-                if (input.Contains("data:image/png")) ext = "png";
-                else if (input.Contains("data:image/jpeg") || input.Contains("data:image/jpg")) ext = "jpg";
-                
-                if (base64Clean.Contains(",")) base64Clean = base64Clean.Split(',')[1];
-                var bytes = Convert.FromBase64String(base64Clean);
-
-                if (bytes.Length > 0 && bytes.Length <= 10 * 1024 * 1024 && IsValidImageSignature(bytes))
-                {
-                    var fileName = $"{prefix}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.{ext}";
-                    var filePath = Path.Combine(dir, fileName);
-                    await System.IO.File.WriteAllBytesAsync(filePath, bytes);
-                    return $"/uploads/{subfolder}/{fileName}";
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[AuditController] Base64 image conversion error ({prefix}): {ex.Message}");
-            }
-            return input;
+            return UploadHelper.SaveBase64IfPresentAsync(_env, input, subfolder, prefix, maxSizeBytes);
         }
 
         // ==========================================
@@ -156,6 +113,27 @@ namespace QSC.Api.Controllers
 
             var allDrafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
 
+            // 🛡️ Auto-clean and exclude drafts whose schedule is already completed or audited
+            var completedOrAuditedScheduleIds = await _context.AuditSchedules
+                .Where(s => s.Status == "completed")
+                .Select(s => s.Id)
+                .ToListAsync();
+
+            var auditRecordScheduleIds = await _context.AuditRecords
+                .Where(r => r.AuditScheduleId.HasValue)
+                .Select(r => r.AuditScheduleId!.Value)
+                .ToListAsync();
+
+            var excludeScheduleIds = completedOrAuditedScheduleIds.Union(auditRecordScheduleIds).ToHashSet();
+
+            var staleDrafts = allDrafts.Where(d => d.AuditScheduleId.HasValue && excludeScheduleIds.Contains(d.AuditScheduleId.Value)).ToList();
+            if (staleDrafts.Any())
+            {
+                _context.AuditDrafts.RemoveRange(staleDrafts);
+                await _context.SaveChangesAsync();
+                allDrafts = allDrafts.Except(staleDrafts).ToList();
+            }
+
             return Ok(allDrafts);
         }
 
@@ -179,103 +157,127 @@ namespace QSC.Api.Controllers
         [HttpPut("draft")]
         public async Task<IActionResult> SaveDraft([FromBody] DraftSaveDto dto)
         {
-            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
-
-            var canAccessLocation = await _context.Locations.AnyAsync(location =>
-                location.Id == dto.LocationId &&
-                (allowedLocationIds == null || allowedLocationIds.Contains(location.Id)) &&
-                (allowedBrandIds == null || location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))));
-            if (!canAccessLocation) return Forbid();
-
-            // 🎯 Do not save draft if no questions have been answered
-            if (dto.TotalAnswered <= 0)
+            try
             {
-                return Ok(new { message = "No answers yet, draft skipped", totalAnswered = 0 });
-            }
+                var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+                var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            // 🔒 IDOR FIX: dto.AuditorId came straight from the client with no ownership check —
-            // a non-admin could set it to another real auditor's id and have a brand-new draft
-            // silently attributed to that person. Non-admins are now always pinned to their own id;
-            // only ADMIN may explicitly attribute a draft to someone else.
-            int effectiveAuditorId = (role == "ADMIN" && dto.AuditorId > 0) ? dto.AuditorId : currentUserId;
+                var canAccessLocation = await _context.Locations.AnyAsync(location =>
+                    location.Id == dto.LocationId &&
+                    (allowedLocationIds == null || allowedLocationIds.Contains(location.Id)) &&
+                    (allowedBrandIds == null || location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))));
+                if (!canAccessLocation) return Forbid();
 
-            // Update schedule status if explicit schedule was provided
-            AuditSchedule? targetSchedule = null;
-            if (dto.AuditScheduleId.HasValue && dto.AuditScheduleId.Value > 0)
-            {
-                targetSchedule = await _context.AuditSchedules.FindAsync(dto.AuditScheduleId.Value);
-                if (targetSchedule != null && targetSchedule.Status == "pending")
+                // 🎯 Do not save draft if no questions have been answered
+                if (dto.TotalAnswered <= 0)
                 {
-                    targetSchedule.Status = "in_progress";
+                    return Ok(new { message = "No answers yet, draft skipped", totalAnswered = 0 });
                 }
-            }
 
-            int? effectiveScheduleId = (targetSchedule != null) ? targetSchedule.Id : null;
-
-            AuditDraft? draft = null;
-            // 1. If explicit Draft ID was passed, update that specific draft row
-            if (dto.Id.HasValue && dto.Id.Value > 0)
-            {
-                draft = await _context.AuditDrafts.FindAsync(dto.Id.Value);
-            }
-
-            // 2. If no Draft ID but an AuditScheduleId was provided, match draft by AuditScheduleId
-            if (draft == null && effectiveScheduleId.HasValue)
-            {
-                draft = await _context.AuditDrafts
-                    .Where(d => d.AuditScheduleId == effectiveScheduleId.Value)
-                    .OrderByDescending(d => d.UpdatedAt)
-                    .FirstOrDefaultAsync();
-            }
-
-            // 🔒 IDOR FIX: an existing draft found by id (or by schedule) was updated with zero
-            // ownership check beyond location scope — any AUDITOR/STANDARD with access to the same
-            // branch could pass another auditor's live draft id and overwrite their in-progress
-            // answers/photos/notes. Non-admins may only continue writing to their own drafts.
-            if (draft != null && role != "ADMIN" && draft.AuditorId != currentUserId)
-            {
-                return Forbid();
-            }
-
-            // 3. If still no draft, insert a brand-new row (ensures separate rows for ad-hoc drafts)
-            if (draft == null)
-            {
-                draft = new AuditDraft
+                // 🔒 IDOR FIX: dto.AuditorId came straight from the client with no ownership check
+                int effectiveAuditorId = (role == "ADMIN" && dto.AuditorId > 0) ? dto.AuditorId : currentUserId;
+                if (effectiveAuditorId <= 0 || !await _context.Users.AnyAsync(u => u.Id == effectiveAuditorId))
                 {
-                    LocationId = dto.LocationId,
-                    SurveyFormId = dto.SurveyFormId,
-                    AuditorId = effectiveAuditorId,
-                    AuditScheduleId = effectiveScheduleId,
-                    DraftPayloadJson = dto.DraftPayloadJson,
-                    CurrentSectionIdx = dto.CurrentSectionIdx,
-                    TotalAnswered = dto.TotalAnswered,
-                    TotalQuestions = dto.TotalQuestions,
-                    StartLatitude = dto.StartLatitude,
-                    StartLongitude = dto.StartLongitude,
-                    StartedAt = dto.StartedAt ?? DateTime.UtcNow,
-                    UpdatedAt = DateTime.UtcNow
-                };
-                _context.AuditDrafts.Add(draft);
-            }
-            else
-            {
-                draft.AuditScheduleId = effectiveScheduleId ?? draft.AuditScheduleId;
-                draft.DraftPayloadJson = dto.DraftPayloadJson;
-                draft.CurrentSectionIdx = dto.CurrentSectionIdx;
-                draft.TotalAnswered = dto.TotalAnswered;
-                draft.TotalQuestions = dto.TotalQuestions;
-                if (!draft.StartLatitude.HasValue && dto.StartLatitude.HasValue)
-                {
-                    draft.StartLatitude = dto.StartLatitude;
-                    draft.StartLongitude = dto.StartLongitude;
-                    draft.StartedAt = dto.StartedAt ?? DateTime.UtcNow;
+                    var fallbackUser = await _context.Users.FirstOrDefaultAsync(u => u.IsActive);
+                    effectiveAuditorId = fallbackUser != null ? fallbackUser.Id : (currentUserId > 0 ? currentUserId : 1);
                 }
-                draft.UpdatedAt = DateTime.UtcNow;
-            }
 
-            await _context.SaveChangesAsync();
-            return Ok(draft);
+                // Ensure valid SurveyFormId
+                int effectiveFormId = dto.SurveyFormId;
+                if (effectiveFormId <= 0 || !await _context.SurveyForms.AnyAsync(f => f.Id == effectiveFormId))
+                {
+                    var fallbackForm = await _context.SurveyForms.FirstOrDefaultAsync(f => f.IsActive);
+                    if (fallbackForm != null)
+                    {
+                        effectiveFormId = fallbackForm.Id;
+                    }
+                    else
+                    {
+                        return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจในระบบ" });
+                    }
+                }
+
+                // Update schedule status if explicit schedule was provided
+                AuditSchedule? targetSchedule = null;
+                if (dto.AuditScheduleId.HasValue && dto.AuditScheduleId.Value > 0)
+                {
+                    targetSchedule = await _context.AuditSchedules.FindAsync(dto.AuditScheduleId.Value);
+                    if (targetSchedule != null && targetSchedule.Status == "pending")
+                    {
+                        targetSchedule.Status = "in_progress";
+                    }
+                }
+
+                int? effectiveScheduleId = (targetSchedule != null) ? targetSchedule.Id : null;
+
+                AuditDraft? draft = null;
+                // 1. If explicit Draft ID was passed, update that specific draft row
+                if (dto.Id.HasValue && dto.Id.Value > 0)
+                {
+                    draft = await _context.AuditDrafts.FindAsync(dto.Id.Value);
+                }
+
+                // 2. If no Draft ID but an AuditScheduleId was provided, match draft by AuditScheduleId
+                if (draft == null && effectiveScheduleId.HasValue)
+                {
+                    draft = await _context.AuditDrafts
+                        .Where(d => d.AuditScheduleId == effectiveScheduleId.Value)
+                        .OrderByDescending(d => d.UpdatedAt)
+                        .FirstOrDefaultAsync();
+                }
+
+                // 🔒 IDOR FIX: an existing draft found by id (or by schedule) was updated with zero
+                // ownership check beyond location scope
+                if (draft != null && role != "ADMIN" && draft.AuditorId != currentUserId)
+                {
+                    return Forbid();
+                }
+
+                // 3. If still no draft, insert a brand-new row (ensures separate rows for ad-hoc drafts)
+                if (draft == null)
+                {
+                    draft = new AuditDraft
+                    {
+                        LocationId = dto.LocationId,
+                        SurveyFormId = effectiveFormId,
+                        AuditorId = effectiveAuditorId,
+                        AuditScheduleId = effectiveScheduleId,
+                        DraftPayloadJson = dto.DraftPayloadJson ?? "{}",
+                        CurrentSectionIdx = dto.CurrentSectionIdx,
+                        TotalAnswered = dto.TotalAnswered,
+                        TotalQuestions = dto.TotalQuestions,
+                        StartLatitude = dto.StartLatitude,
+                        StartLongitude = dto.StartLongitude,
+                        StartedAt = dto.StartedAt ?? DateTime.UtcNow,
+                        UpdatedAt = DateTime.UtcNow
+                    };
+                    _context.AuditDrafts.Add(draft);
+                }
+                else
+                {
+                    draft.SurveyFormId = effectiveFormId;
+                    draft.AuditScheduleId = effectiveScheduleId ?? draft.AuditScheduleId;
+                    draft.DraftPayloadJson = dto.DraftPayloadJson ?? "{}";
+                    draft.CurrentSectionIdx = dto.CurrentSectionIdx;
+                    draft.TotalAnswered = dto.TotalAnswered;
+                    draft.TotalQuestions = dto.TotalQuestions;
+                    if (!draft.StartLatitude.HasValue && dto.StartLatitude.HasValue)
+                    {
+                        draft.StartLatitude = dto.StartLatitude;
+                        draft.StartLongitude = dto.StartLongitude;
+                        draft.StartedAt = dto.StartedAt ?? DateTime.UtcNow;
+                    }
+                    draft.UpdatedAt = DateTime.UtcNow;
+                }
+
+                await _context.SaveChangesAsync();
+                return Ok(draft);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error saving audit draft: {Message}", ex.Message);
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการบันทึกแบบร่าง กรุณาลองใหม่อีกครั้ง" });
+            }
         }
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
@@ -283,81 +285,77 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> DiscardDraft([FromQuery] int? id, [FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId, [FromQuery] int? scheduleId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var query = _context.AuditDrafts.AsQueryable();
+            var draftsToDelete = new List<AuditDraft>();
 
+            // 1. By specific Draft ID
             if (id.HasValue && id.Value > 0)
             {
-                query = query.Where(d => d.Id == id.Value);
+                var specificDraft = await _context.AuditDrafts.FindAsync(id.Value);
+                if (specificDraft != null)
+                {
+                    if (role == "ADMIN" || specificDraft.AuditorId == currentUserId || (allowedLocationIds != null && allowedLocationIds.Contains(specificDraft.LocationId)))
+                    {
+                        draftsToDelete.Add(specificDraft);
+                    }
+                }
             }
-            else
+
+            // 2. By Schedule ID
+            if (scheduleId.HasValue && scheduleId.Value > 0)
             {
-                if (locationId.HasValue && locationId.Value > 0)
-                    query = query.Where(d => d.LocationId == locationId.Value);
+                var schedDrafts = await _context.AuditDrafts
+                    .Where(d => d.AuditScheduleId == scheduleId.Value)
+                    .ToListAsync();
+                draftsToDelete.AddRange(schedDrafts);
+            }
+
+            // 3. By Location ID & Form ID for this auditor (or all drafts for this loc/form if admin)
+            if (locationId.HasValue && locationId.Value > 0)
+            {
+                var locQuery = _context.AuditDrafts.Where(d => d.LocationId == locationId.Value);
 
                 if (surveyFormId.HasValue && surveyFormId.Value > 0)
-                    query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
-
-                // 🐛 FIX: without this, discarding by (locationId, surveyFormId) alone — with no
-                // explicit draft id — could delete a *different* schedule occurrence's draft for
-                // the same location/form. Scope to the specific schedule when one is given.
-                if (scheduleId.HasValue && scheduleId.Value > 0)
-                    query = query.Where(d => d.AuditScheduleId == scheduleId.Value);
-            }
-
-            if (allowedLocationIds != null)
-                query = query.Where(d => allowedLocationIds.Contains(d.LocationId));
-
-            if (allowedBrandIds != null)
-                query = query.Where(d => d.Location != null &&
-                    d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
-
-            // 🔒 CRITICAL FIX: this used to be
-            //   d.AuditorId == targetAuditorId || d.AuditorId == currentUserId || d.AuditorId == 1
-            // — an unconditional "|| d.AuditorId == 1" leftover (looks like debug/test code) meant
-            // ANY non-admin auditor/standard user could delete user #1's in-progress draft (and
-            // silently revert their assigned schedule back to "pending") just by knowing or
-            // guessing the draft id, regardless of who they actually were. It also let a non-admin
-            // pass ?auditorId=<someone else> to reach other people's drafts the same way the GET
-            // endpoints above did. Non-admins are now always scoped strictly to their own drafts.
-            if (role == "ADMIN")
-            {
-                if (auditorId.HasValue && auditorId.Value > 0)
                 {
-                    query = query.Where(d => d.AuditorId == auditorId.Value);
+                    locQuery = locQuery.Where(d => d.SurveyFormId == surveyFormId.Value);
                 }
-            }
-            else
-            {
-                query = query.Where(d => d.AuditorId == currentUserId);
+
+                if (role != "ADMIN")
+                {
+                    locQuery = locQuery.Where(d => d.AuditorId == currentUserId);
+                }
+                else if (auditorId.HasValue && auditorId.Value > 0)
+                {
+                    locQuery = locQuery.Where(d => d.AuditorId == auditorId.Value);
+                }
+
+                if (allowedLocationIds != null)
+                {
+                    locQuery = locQuery.Where(d => allowedLocationIds.Contains(d.LocationId));
+                }
+
+                var locDrafts = await locQuery.ToListAsync();
+                draftsToDelete.AddRange(locDrafts);
             }
 
-            var drafts = await query.ToListAsync();
-            if (drafts.Any())
+            // Deduplicate
+            var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
+            if (uniqueDrafts.Any())
             {
                 // Revert any related in_progress schedule back to pending
-                foreach (var d in drafts)
+                foreach (var d in uniqueDrafts)
                 {
-                    AuditSchedule? scheduleToRevert = null;
-                    if (d.AuditScheduleId.HasValue && d.AuditScheduleId.Value > 0)
+                    if (d.AuditScheduleId.HasValue)
                     {
-                        scheduleToRevert = await _context.AuditSchedules.FindAsync(d.AuditScheduleId.Value);
-                    }
-                    if (scheduleToRevert == null)
-                    {
-                        scheduleToRevert = await _context.AuditSchedules
-                            .Where(s => s.LocationId == d.LocationId && s.Status == "in_progress")
-                            .OrderByDescending(s => s.ScheduledDate)
-                            .FirstOrDefaultAsync();
-                    }
-                    if (scheduleToRevert != null && scheduleToRevert.Status == "in_progress")
-                    {
-                        scheduleToRevert.Status = "pending";
+                        var sched = await _context.AuditSchedules.FindAsync(d.AuditScheduleId.Value);
+                        if (sched != null && sched.Status == "in_progress")
+                        {
+                            sched.Status = "pending";
+                        }
                     }
                 }
 
-                _context.AuditDrafts.RemoveRange(drafts);
+                _context.AuditDrafts.RemoveRange(uniqueDrafts);
             }
 
             // Also revert schedule if explicit scheduleId was provided (even if no draft existed)
@@ -369,7 +367,7 @@ namespace QSC.Api.Controllers
                     directSchedule.Status = "pending";
                 }
             }
-            else if (!drafts.Any() && locationId.HasValue && locationId.Value > 0)
+            else if (locationId.HasValue && locationId.Value > 0)
             {
                 var locSchedule = await _context.AuditSchedules
                     .Where(s => s.LocationId == locationId.Value && s.Status == "in_progress")
@@ -398,87 +396,69 @@ namespace QSC.Api.Controllers
         [HttpPost("upload-image")]
         public async Task<IActionResult> UploadImage([FromBody] Base64UploadDto dto)
         {
-            if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest("No image data");
-
-            var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
-            var dir = Path.Combine(uploadsRoot, "audit_images");
-            Directory.CreateDirectory(dir);
+            if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest(new { message = "กรุณาแนบข้อมูลรูปภาพ" });
 
             // Clean previous image if exists
             if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/audit_images/"))
             {
                 try
                 {
+                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
+                    var dir = Path.Combine(uploadsRoot, "audit_images");
                     var oldFile = Path.Combine(dir, Path.GetFileName(dto.PreviousUrl));
                     if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
                 }
                 catch { }
             }
 
-            var fileName = $"img_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.webp";
-            var filePath = Path.Combine(dir, fileName);
-
-            var base64Clean = dto.Base64Data;
-            if (base64Clean.Contains(",")) base64Clean = base64Clean.Split(',')[1];
-            var bytes = Convert.FromBase64String(base64Clean);
-
-            if (bytes.Length > 10 * 1024 * 1024)
+            try
             {
-                return BadRequest(new { message = "ขนาดไฟล์รูปภาพเกินกำหนด (ไม่เกิน 10MB)" });
+                var relativeUrl = await SaveBase64IfPresentAsync(dto.Base64Data, "audit_images", "audit", 10 * 1024 * 1024);
+                return Ok(new { url = relativeUrl });
             }
-
-            if (!IsValidImageSignature(bytes))
+            catch (InvalidImageUploadException ex)
             {
-                return BadRequest(new { message = "ไฟล์รูปภาพไม่ถูกต้องหรือรูปแบบไม่ปลอดภัย (อนุญาตเฉพาะ JPEG, PNG, WebP)" });
+                return BadRequest(new { message = ex.Message });
             }
-
-            await System.IO.File.WriteAllBytesAsync(filePath, bytes);
-
-            var relativeUrl = $"/uploads/audit_images/{fileName}";
-            return Ok(new { url = relativeUrl });
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading audit image");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ กรุณาลองใหม่อีกครั้ง" });
+            }
         }
 
         [HttpPost("upload-signature")]
         public async Task<IActionResult> UploadSignature([FromBody] Base64UploadDto dto)
         {
-            if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest("No signature data");
-
-            var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
-            var dir = Path.Combine(uploadsRoot, "signatures");
-            Directory.CreateDirectory(dir);
+            if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest(new { message = "กรุณาแนบข้อมูลลายเซ็น" });
 
             // Clean previous signature file to prevent disk clutter
             if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/signatures/"))
             {
                 try
                 {
+                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
+                    var dir = Path.Combine(uploadsRoot, "signatures");
                     var oldFile = Path.Combine(dir, Path.GetFileName(dto.PreviousUrl));
                     if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
                 }
                 catch { }
             }
 
-            var fileName = $"sig_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.webp";
-            var filePath = Path.Combine(dir, fileName);
-
-            var base64Clean = dto.Base64Data;
-            if (base64Clean.Contains(",")) base64Clean = base64Clean.Split(',')[1];
-            var bytes = Convert.FromBase64String(base64Clean);
-
-            if (bytes.Length > 5 * 1024 * 1024)
+            try
             {
-                return BadRequest(new { message = "ขนาดไฟล์ลายเซ็นเกินกำหนด (ไม่เกิน 5MB)" });
+                var relativeUrl = await SaveBase64IfPresentAsync(dto.Base64Data, "signatures", "sig", 2 * 1024 * 1024);
+                return Ok(new { url = relativeUrl });
             }
-
-            if (!IsValidImageSignature(bytes))
+            catch (InvalidImageUploadException ex)
             {
-                return BadRequest(new { message = "ไฟล์ลายเซ็นไม่ถูกต้องหรือรูปแบบไม่ปลอดภัย" });
+                return BadRequest(new { message = ex.Message });
             }
-
-            await System.IO.File.WriteAllBytesAsync(filePath, bytes);
-
-            var relativeUrl = $"/uploads/signatures/{fileName}";
-            return Ok(new { url = relativeUrl });
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error uploading signature");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปโหลดลายเซ็น กรุณาลองใหม่อีกครั้ง" });
+            }
         }
 
         // ==========================================
@@ -537,6 +517,16 @@ namespace QSC.Api.Controllers
             public bool IsNa { get; set; }
             public string? Notes { get; set; }
             public List<string> ImageUrls { get; set; } = new();
+        }
+
+        private static string NormalizeAuditType(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return "announced";
+            var at = input.Trim().ToLowerInvariant();
+            if (at.Contains("spot") || at.Contains("unannounced") || at.Contains("นอกกำหนดการ")) return "spot";
+            if (at.Contains("undercover") || at.Contains("ปลอมตัว") || at.Contains("ไม่เปิดเผยตัว")) return "undercover";
+            if (at.Contains("announced") || at.Contains("ตามกำหนดการ")) return "announced";
+            return input.Trim().Length > 20 ? input.Trim().Substring(0, 20) : input.Trim();
         }
 
         // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
@@ -646,6 +636,8 @@ namespace QSC.Api.Controllers
             if (!canAccessLocation) return Forbid();
 
             var form = await _context.SurveyForms
+                .AsNoTracking()
+                .AsSplitQuery()
                 .Include(f => f.Sections)
                     .ThenInclude(s => s.Items)
                 .Include(f => f.FormBrands)
@@ -691,12 +683,49 @@ namespace QSC.Api.Controllers
                 if (await _context.AuditSchedules.AnyAsync(s => s.Id == dto.AuditScheduleId.Value))
                 {
                     validScheduleId = dto.AuditScheduleId.Value;
+                }
+            }
 
-                    // 🛡️ Check if this schedule has already been audited
-                    if (await _context.AuditRecords.AnyAsync(r => r.AuditScheduleId == validScheduleId.Value))
+            // Fallback 1: If no schedule ID directly provided, check if the targeted draft is linked to a schedule
+            if (!validScheduleId.HasValue && dto.DraftId.HasValue && dto.DraftId.Value > 0)
+            {
+                var draftCheck = await _context.AuditDrafts.FindAsync(dto.DraftId.Value);
+                if (draftCheck?.AuditScheduleId.HasValue == true && draftCheck.AuditScheduleId.Value > 0)
+                {
+                    if (await _context.AuditSchedules.AnyAsync(s => s.Id == draftCheck.AuditScheduleId.Value))
                     {
-                        return BadRequest(new { message = "รายการตรวจตามแผนนี้ได้รับการส่งผลประเมินเรียบร้อยแล้ว" });
+                        validScheduleId = draftCheck.AuditScheduleId.Value;
                     }
+                }
+            }
+
+            // Fallback 2: Check if there is an in-progress schedule for this branch & form
+            if (!validScheduleId.HasValue)
+            {
+                var baseSchedQuery = _context.AuditSchedules
+                    .Where(s => s.LocationId == dto.LocationId &&
+                                (s.SurveyFormId == 0 || s.SurveyFormId == dto.SurveyFormId) &&
+                                s.Status == "in_progress");
+
+                var inProgressSched = await baseSchedQuery
+                    .Where(s => s.Auditors.Any(a => a.AuditorId == primaryAuditorId) || s.CreatedBy == primaryAuditorId)
+                    .OrderByDescending(s => s.ScheduledDate)
+                    .FirstOrDefaultAsync()
+                    ?? await baseSchedQuery.OrderByDescending(s => s.ScheduledDate).FirstOrDefaultAsync();
+
+                if (inProgressSched != null)
+                {
+                    validScheduleId = inProgressSched.Id;
+                }
+            }
+
+            // 🛡️ Check if this schedule has already been audited
+            if (validScheduleId.HasValue)
+            {
+                if (await _context.AuditRecords.AnyAsync(r => r.AuditScheduleId == validScheduleId.Value))
+                {
+                    // If schedule was already audited, unlink to prevent constraint failure while allowing audit submission to succeed
+                    validScheduleId = null;
                 }
             }
 
@@ -743,9 +772,9 @@ namespace QSC.Api.Controllers
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                // Convert Base64 Signatures to Server Files
-                var auditorSigUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor");
-                var auditeeSigUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee");
+                // Convert Base64 Signatures to Server Files (จำกัดขนาดลายเซ็นไม่เกิน 2MB)
+                var auditorSigUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor", 2 * 1024 * 1024);
+                var auditeeSigUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee", 2 * 1024 * 1024);
 
                 // Create AuditRecord
                 var record = new AuditRecord
@@ -762,11 +791,11 @@ namespace QSC.Api.Controllers
                     PercentageScore = percentageScore,
                     IsPassed = isOverallPassed,
                     HasCriticalDefect = hasCriticalDefect,
-                    AuditType = dto.AuditType,
+                    AuditType = NormalizeAuditType(dto.AuditType),
                     Notes = dto.Notes,
                     MetadataValuesJson = dto.MetadataValuesJson,
-                    AuditorSignatureUrl = auditorSigUrl,
-                    AuditeeSignatureUrl = auditeeSigUrl,
+                    AuditorSignatureUrl = string.IsNullOrWhiteSpace(auditorSigUrl) ? null : auditorSigUrl,
+                    AuditeeSignatureUrl = string.IsNullOrWhiteSpace(auditeeSigUrl) ? null : auditeeSigUrl,
                     SignedAt = dto.SignedAt ?? DateTime.UtcNow,
                     StartLatitude = dto.StartLatitude,
                     StartLongitude = dto.StartLongitude,
@@ -801,13 +830,17 @@ namespace QSC.Api.Controllers
                     {
                         foreach (var imgUrl in computedResp.ImageUrls)
                         {
-                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit");
-                            response.Images.Add(new AuditResponseImage
+                            if (string.IsNullOrWhiteSpace(imgUrl)) continue;
+                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit", 10 * 1024 * 1024);
+                            if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
-                                ImageUrl = savedImgUrl,
-                                UploadedBy = primaryAuditorId,
-                                UploadedAt = DateTime.UtcNow
-                            });
+                                response.Images.Add(new AuditResponseImage
+                                {
+                                    ImageUrl = savedImgUrl,
+                                    UploadedBy = primaryAuditorId,
+                                    UploadedAt = DateTime.UtcNow
+                                });
+                            }
                         }
                     }
 
@@ -834,7 +867,8 @@ namespace QSC.Api.Controllers
                         });
                     }
                 }
-_context.AuditRecords.Add(record);
+
+                _context.AuditRecords.Add(record);
 
                 if (capTasksToCreate.Any())
                 {
@@ -851,34 +885,34 @@ _context.AuditRecords.Add(record);
                     }
                 }
 
-                // Delete Draft(s) specifically targeted
+                // Delete ALL matching Draft(s) comprehensively to prevent lingering drafts
+                var draftsToDelete = new List<AuditDraft>();
+
                 if (dto.DraftId.HasValue && dto.DraftId.Value > 0)
                 {
                     var targetDraft = await _context.AuditDrafts.FindAsync(dto.DraftId.Value);
-                    if (targetDraft != null)
-                    {
-                        _context.AuditDrafts.Remove(targetDraft);
-                    }
+                    if (targetDraft != null) draftsToDelete.Add(targetDraft);
                 }
-                else if (validScheduleId.HasValue)
+
+                if (validScheduleId.HasValue)
                 {
                     var schedDrafts = await _context.AuditDrafts
                         .Where(d => d.AuditScheduleId == validScheduleId.Value)
                         .ToListAsync();
-                    if (schedDrafts.Any())
-                    {
-                        _context.AuditDrafts.RemoveRange(schedDrafts);
-                    }
+                    draftsToDelete.AddRange(schedDrafts);
                 }
-                else
+
+                var relatedDrafts = await _context.AuditDrafts
+                    .Where(d => d.LocationId == dto.LocationId &&
+                                d.SurveyFormId == dto.SurveyFormId &&
+                                (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
+                    .ToListAsync();
+                draftsToDelete.AddRange(relatedDrafts);
+
+                var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
+                if (uniqueDrafts.Any())
                 {
-                    var adhocDrafts = await _context.AuditDrafts
-                        .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == dto.SurveyFormId && d.AuditScheduleId == null && (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
-                        .ToListAsync();
-                    if (adhocDrafts.Any())
-                    {
-                        _context.AuditDrafts.RemoveRange(adhocDrafts);
-                    }
+                    _context.AuditDrafts.RemoveRange(uniqueDrafts);
                 }
 
                 await _context.SaveChangesAsync();
@@ -916,6 +950,12 @@ _context.AuditRecords.Add(record);
                     message = "บันทึกและคำนวณผลการตรวจสำเร็จเรียบร้อยแล้ว"
                 });
             }
+            catch (InvalidImageUploadException ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogWarning(ex, "Invalid image uploaded during audit submission: {Message}", ex.Message);
+                return BadRequest(new { message = ex.Message });
+            }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
@@ -944,6 +984,7 @@ _context.AuditRecords.Add(record);
 
             var query = _context.AuditRecords
                 .AsNoTracking()
+                .AsSplitQuery()
                 .Include(r => r.Location)
                     .ThenInclude(l => l!.LocationBrands)
                         .ThenInclude(lb => lb.Brand)
@@ -1029,6 +1070,14 @@ _context.AuditRecords.Add(record);
             {
                 query = query.Take(Math.Clamp(limit.Value, 1, 500));
             }
+            else if (startDate.HasValue || endDate.HasValue)
+            {
+                // 🌟 ค้นหาแบบระบุช่วงวันที่ (เช่น พิมพ์เดือน/ปีในช่องค้นหา) ข้อมูลถูกจำกัดขอบเขต
+                // ด้วยช่วงวันที่อยู่แล้วโดยธรรมชาติ ไม่ควร cap ที่ 300 เหมือน browse ปกติ เพราะองค์กร
+                // ที่มีหลายสาขา/role กว้าง (เช่น แอดมิน) อาจมี audit ในเดือนเดียวเกิน 300 รายการ
+                // แล้วจะโดนตัดทิ้งแบบเงียบๆ โดยผู้ใช้ไม่รู้ตัว
+                query = query.Take(2000);
+            }
             else
             {
                 // Default safety ceiling: prevent dumping endless records in one single request
@@ -1057,6 +1106,7 @@ _context.AuditRecords.Add(record);
                     .ToList(),
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
+                surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
@@ -1106,6 +1156,7 @@ _context.AuditRecords.Add(record);
 
             var record = await _context.AuditRecords
                 .AsNoTracking()
+                .AsSplitQuery()
                 .Include(r => r.Location)
                     .ThenInclude(l => l!.LocationBrands)
                         .ThenInclude(lb => lb.Brand)
@@ -1156,6 +1207,7 @@ _context.AuditRecords.Add(record);
                 surveyForm = r.SurveyForm,
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
+                surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
@@ -1267,6 +1319,7 @@ _context.AuditRecords.Add(record);
             }
 
             var record = await _context.AuditRecords
+                .AsSplitQuery()
                 .Include(r => r.Location)
                     .ThenInclude(l => l!.LocationBrands)
                 .Include(r => r.SurveyForm)
@@ -1290,6 +1343,8 @@ _context.AuditRecords.Add(record);
             }
 
             var form = await _context.SurveyForms
+                .AsNoTracking()
+                .AsSplitQuery()
                 .Include(f => f.Sections)
                     .ThenInclude(s => s.Items)
                 .FirstOrDefaultAsync(f => f.Id == record.SurveyFormId);
@@ -1407,7 +1462,7 @@ _context.AuditRecords.Add(record);
                 // อัปเดตค่าหลักของ record
                 record.AuditeeUserId = validAuditeeUserId;
                 if (dto.AuditeeNameText != null) record.AuditeeNameText = dto.AuditeeNameText;
-                record.AuditType = dto.AuditType;
+                record.AuditType = NormalizeAuditType(dto.AuditType);
                 record.Notes = dto.Notes;
                 record.MetadataValuesJson = dto.MetadataValuesJson;
 
@@ -1416,21 +1471,21 @@ _context.AuditRecords.Add(record);
                 if (dto.SubmittedAt.HasValue) record.SubmittedAt = dto.SubmittedAt.Value;
                 if (dto.AuditDate.HasValue) record.AuditDate = dto.AuditDate.Value;
 
-                // ลายเซ็น
+                // ลายเซ็น (จำกัดขนาดไม่เกิน 2MB)
                 if (!string.IsNullOrWhiteSpace(dto.AuditorSignatureUrl))
                 {
-                    record.AuditorSignatureUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor");
+                    record.AuditorSignatureUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor", 2 * 1024 * 1024);
                 }
                 if (!string.IsNullOrWhiteSpace(dto.AuditeeSignatureUrl))
                 {
-                    record.AuditeeSignatureUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee");
+                    record.AuditeeSignatureUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee", 2 * 1024 * 1024);
                 }
 
-                // พิกัดสถานที่
-                if (dto.StartLatitude.HasValue) record.StartLatitude = dto.StartLatitude.Value;
-                if (dto.StartLongitude.HasValue) record.StartLongitude = dto.StartLongitude.Value;
-                if (dto.EndLatitude.HasValue) record.EndLatitude = dto.EndLatitude.Value;
-                if (dto.EndLongitude.HasValue) record.EndLongitude = dto.EndLongitude.Value;
+                // พิกัดสถานที่ (อนุญาตให้เป็น null ได้ หากไม่มี GPS หรือต้องการล้างค่า)
+                record.StartLatitude = dto.StartLatitude;
+                record.StartLongitude = dto.StartLongitude;
+                record.EndLatitude = dto.EndLatitude;
+                record.EndLongitude = dto.EndLongitude;
 
                 record.TotalScore = totalScore;
                 record.MaxScore = maxScore;
@@ -1438,9 +1493,53 @@ _context.AuditRecords.Add(record);
                 record.IsPassed = isOverallPassed;
                 record.HasCriticalDefect = hasCriticalDefect;
 
+                // 📸 1. รวบรวม Metadata ของรูปภาพเดิมทั้งหมด (URL -> UploadedBy, UploadedAt)
+                // เพื่อให้รูปเดิมที่ไม่ได้ถูกแก้ไข คงผู้อัปโหลดและวันเวลาที่ถ่ายจริงไว้ ไม่ถูกเขียนทับด้วยเวลาแก้ไข
+                var existingImageMetadata = new Dictionary<string, (int UploadedBy, DateTime UploadedAt)>(StringComparer.OrdinalIgnoreCase);
+                foreach (var oldResp in record.Responses)
+                {
+                    foreach (var img in oldResp.Images)
+                    {
+                        if (!string.IsNullOrWhiteSpace(img.ImageUrl) && !existingImageMetadata.ContainsKey(img.ImageUrl))
+                        {
+                            existingImageMetadata[img.ImageUrl] = (img.UploadedBy, img.UploadedAt);
+                        }
+                    }
+                }
+
+                // 🔗 2. โหลด CapTasks ทั้งหมดที่ผูกกับคำตอบเดิมของ AuditRecord นี้
+                // ปลด AuditResponseId = null ชั่วคราวเพื่อไม่ให้ชน Foreign Key Restrict
+                var oldResponseIds = record.Responses.Select(r => r.Id).ToList();
+                var linkedCaps = await _context.CapTasks
+                    .AsSplitQuery()
+                    .Include(c => c.Images)
+                    .Include(c => c.Comments)
+                    .Where(c => oldResponseIds.Contains(c.AuditResponseId ?? 0))
+                    .ToListAsync();
+
+                var linkedCapsBySurveyItem = new Dictionary<int, List<CapTask>>();
+                foreach (var cap in linkedCaps)
+                {
+                    var oldResp = record.Responses.FirstOrDefault(r => r.Id == cap.AuditResponseId);
+                    if (oldResp != null)
+                    {
+                        if (!linkedCapsBySurveyItem.TryGetValue(oldResp.SurveyItemId, out var list))
+                        {
+                            list = new List<CapTask>();
+                            linkedCapsBySurveyItem[oldResp.SurveyItemId] = list;
+                        }
+                        list.Add(cap);
+                    }
+                    cap.AuditResponseId = null; // ปลดลิงก์ชั่วคราวก่อนลบ AuditResponse เดิม
+                }
+
                 // ลบคำตอบเดิมทั้งหมดแล้วสร้างใหม่ตามชุดที่แก้ (ง่ายและชัวร์กว่าการไล่ diff ทีละข้อ)
                 _context.AuditResponses.RemoveRange(record.Responses);
                 record.Responses.Clear();
+
+                var newCapTasksToCreate = new List<CapTask>();
+                int capTasksDeletedCount = 0;
+                int capTasksCancelledCount = 0;
 
                 foreach (var computedResp in processedResponses)
                 {
@@ -1462,16 +1561,113 @@ _context.AuditRecords.Add(record);
                     {
                         foreach (var imgUrl in computedResp.ImageUrls)
                         {
-                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit");
-                            response.Images.Add(new AuditResponseImage
+                            if (string.IsNullOrWhiteSpace(imgUrl)) continue;
+                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit", 10 * 1024 * 1024);
+                            if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
-                                ImageUrl = savedImgUrl,
-                                UploadedBy = currentUserId,
-                                UploadedAt = DateTime.UtcNow
-                            });
+                                // 📸 คืนค่า metadata รูปภาพเดิมถ้ามี
+                                int imgUploadedBy = currentUserId;
+                                DateTime imgUploadedAt = DateTime.UtcNow;
+                                if (existingImageMetadata.TryGetValue(savedImgUrl, out var meta) || existingImageMetadata.TryGetValue(imgUrl, out meta))
+                                {
+                                    imgUploadedBy = meta.UploadedBy;
+                                    imgUploadedAt = meta.UploadedAt;
+                                }
+
+                                response.Images.Add(new AuditResponseImage
+                                {
+                                    ImageUrl = savedImgUrl,
+                                    UploadedBy = imgUploadedBy,
+                                    UploadedAt = imgUploadedAt
+                                });
+                            }
                         }
                     }
                     record.Responses.Add(response);
+
+                    // 🌟 3. จัดการ CAP แบบ Hybrid
+                    bool hasExistingOpenCap = false;
+                    if (linkedCapsBySurveyItem.TryGetValue(computedResp.SurveyItemId, out var capsForThisItem))
+                    {
+                        bool isResolvedNow = computedResp.IsNa || computedResp.IsPassed;
+                        foreach (var cap in capsForThisItem)
+                        {
+                            bool isAlreadyDone = string.Equals(cap.Status, "CLOSED", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(cap.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase);
+
+                            if (isResolvedNow && !isAlreadyDone)
+                            {
+                                // 👉 ตรวจสอบว่าสาขาเคยมีกิจกรรม/ส่งงานหรือยัง
+                                bool isUntouched = (cap.Images == null || !cap.Images.Any())
+                                    && (cap.Comments == null || !cap.Comments.Any())
+                                    && string.Equals(cap.Status, "OPEN", StringComparison.OrdinalIgnoreCase);
+
+                                if (isUntouched)
+                                {
+                                    // 🗑️ สาขายังไม่ได้แตะต้องเลย -> ลบออกทันที สะอาด 100%
+                                    _context.CapTasks.Remove(cap);
+                                    capTasksDeletedCount++;
+                                    continue;
+                                }
+                                else
+                                {
+                                    // 🔒 สาขาเคยส่งรูปหรือแชทแล้ว -> เปลี่ยนเป็น CANCELLED เพื่อรักษาหลักฐาน
+                                    cap.AuditResponse = response;
+                                    cap.Status = "CANCELLED";
+                                    cap.ClosedAt = DateTime.UtcNow;
+                                    cap.Comments ??= new List<CapTaskComment>();
+                                    cap.Comments.Add(new CapTaskComment
+                                    {
+                                        SenderId = currentUserId,
+                                        SenderRole = role,
+                                        Message = $"[ระบบ] ยกเลิกงานแก้ไขนี้อัตโนมัติ เนื่องจากผลการตรวจประเมินถูกแก้ไขเป็น \"ผ่าน\"/N.A. — เหตุผลการแก้ไข: {dto.Reason.Trim()}",
+                                        CreatedAt = DateTime.UtcNow
+                                    });
+                                    capTasksCancelledCount++;
+                                    isAlreadyDone = true;
+                                }
+                            }
+                            else
+                            {
+                                // ข้อนี้ยังไม่ผ่าน หรือเป็นงานที่จบแล้ว -> ผูกกลับเข้ากับ response ใหม่
+                                cap.AuditResponse = response;
+                            }
+
+                            if (!isAlreadyDone)
+                            {
+                                hasExistingOpenCap = true;
+                            }
+                        }
+                    }
+
+                    // 🆕 ถ้าแก้ไขแล้วพบว่าข้อนี้ "ไม่ผ่าน" และยังไม่มีงานแก้ไขที่เปิดอยู่ผูกอยู่เดิม
+                    // ให้สร้างงานแก้ไขใหม่อัตโนมัติ เหมือนตอน SubmitAudit
+                    if (!computedResp.IsNa && !computedResp.IsPassed && !hasExistingOpenCap)
+                    {
+                        var issueItem = itemMeta?.QuestionText ?? "ข้อบกพร่องมาตรฐาน";
+                        var desc = !string.IsNullOrWhiteSpace(computedResp.Notes)
+                            ? computedResp.Notes
+                            : $"ไม่ผ่านเกณฑ์การประเมิน (พบจากการแก้ไขบันทึกย้อนหลัง): {issueItem}";
+
+                        newCapTasksToCreate.Add(new CapTask
+                        {
+                            AuditRecord = record,
+                            AuditResponse = response,
+                            LocationId = record.LocationId,
+                            CategoryName = catName,
+                            IssueItem = issueItem.Length > 250 ? issueItem.Substring(0, 250) : issueItem,
+                            Description = desc,
+                            SubmissionDeadline = DateTime.UtcNow.AddDays(7),
+                            Status = "OPEN",
+                            AssignedTo = record.AuditeeUserId,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
+                }
+
+                if (newCapTasksToCreate.Any())
+                {
+                    _context.CapTasks.AddRange(newCapTasksToCreate);
                 }
 
                 _context.AuditRecordEditLogs.Add(new AuditRecordEditLog
@@ -1485,7 +1681,10 @@ _context.AuditRecords.Add(record);
                         before = beforeOverview,
                         after = afterOverview,
                         changedItemsCount = changedItems.Count,
-                        changedItems
+                        changedItems,
+                        newCapTasksCreated = newCapTasksToCreate.Count,
+                        capTasksDeleted = capTasksDeletedCount,
+                        capTasksCancelled = capTasksCancelledCount
                     })
                 });
 
@@ -1504,6 +1703,12 @@ _context.AuditRecords.Add(record);
                     hasCriticalDefect,
                     message = "แก้ไขบันทึกการตรวจสำเร็จ บันทึกเหตุผลไว้ในประวัติแล้ว"
                 });
+            }
+            catch (InvalidImageUploadException ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogWarning(ex, "Invalid image uploaded during audit edit: {Message}", ex.Message);
+                return BadRequest(new { message = ex.Message });
             }
             catch (Exception ex)
             {
@@ -1571,6 +1776,7 @@ _context.AuditRecords.Add(record);
             if (!hasDeletePermission) return Forbid();
 
             var record = await _context.AuditRecords
+                .AsSplitQuery()
                 .Include(r => r.Location).ThenInclude(l => l!.LocationBrands)
                 .Include(r => r.Responses).ThenInclude(res => res.Images)
                 .FirstOrDefaultAsync(r => r.Id == id);

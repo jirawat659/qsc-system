@@ -6,100 +6,71 @@ using QSC.Api.Models;
 
 namespace QSC.Api.Helpers
 {
+    public record UserFullScope(int UserId, string Role, List<int>? AllowedLocationIds, List<int>? AllowedBrandIds);
+
     public static class UserScopeHelper
     {
-        public static async Task<(int UserId, string Role, List<int>? AllowedLocationIds)> GetUserScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
+        public static async Task<UserFullScope> GetUserFullScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
         {
             var userIdStr = userPrincipal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (!int.TryParse(userIdStr, out int userId))
             {
-                return (0, string.Empty, new List<int>());
+                return new UserFullScope(0, string.Empty, new List<int>(), new List<int>());
+            }
+
+            var roleClaim = userPrincipal.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+            if (roleClaim == "ADMIN" || roleClaim == "EXEC")
+            {
+                return new UserFullScope(userId, roleClaim, null, null);
             }
 
             var user = await context.Users
                 .AsNoTracking()
                 .Include(u => u.Role)
+                .Include(u => u.UserLocations)
+                .Include(u => u.UserBrands)
                 .FirstOrDefaultAsync(u => u.Id == userId);
 
             if (user == null || !user.IsActive)
             {
-                return (0, string.Empty, new List<int>());
+                return new UserFullScope(0, string.Empty, new List<int>(), new List<int>());
             }
 
             var role = user.Role?.Code ?? string.Empty;
 
-            // AUDITEE (Store Manager) is ALWAYS strictly restricted to assigned branches
+            List<int>? allowedLocationIds = null;
             if (role == "AUDITEE" || user.BranchScope == "SPECIFIC")
             {
-                var allowedIds = await context.UserLocations
-                    .AsNoTracking()
-                    .Where(ul => ul.UserId == user.Id)
-                    .Select(ul => ul.LocationId)
-                    .ToListAsync();
-
-                return (user.Id, role, allowedIds);
+                allowedLocationIds = user.UserLocations.Select(ul => ul.LocationId).ToList();
             }
-
-            // ADMIN, STANDARD, AUDITOR, and EXEC have global organization visibility when BranchScope is ALL
-            if (role == "ADMIN" || role == "EXEC" || (role == "STANDARD" && user.BranchScope != "SPECIFIC") || user.BranchScope == "ALL")
+            else if (role != "ADMIN" && role != "EXEC" && (role != "STANDARD" || user.BranchScope == "SPECIFIC") && user.BranchScope != "ALL")
             {
-                return (user.Id, role, null); // null means access to ALL branches
+                allowedLocationIds = user.UserLocations.Select(ul => ul.LocationId).ToList();
             }
 
-            var defaultAllowedIds = await context.UserLocations
-                .AsNoTracking()
-                .Where(ul => ul.UserId == user.Id)
-                .Select(ul => ul.LocationId)
-                .ToListAsync();
-
-            return (user.Id, role, defaultAllowedIds);
-        }
-
-        public static async Task<(int UserId, String Role, List<int>? AllowedBrandIds)> GetUserBrandScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
-        {
-            var userIdStr = userPrincipal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!int.TryParse(userIdStr, out int userId))
-            {
-                return (0, string.Empty, new List<int>());
-            }
-
-            var user = await context.Users
-                .AsNoTracking()
-                .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.Id == userId);
-
-            if (user == null || !user.IsActive)
-            {
-                return (0, string.Empty, new List<int>());
-            }
-
-            var role = user.Role?.Code ?? string.Empty;
-
-            // AUDITEE (Store Manager) is ALWAYS strictly restricted to assigned brands
+            List<int>? allowedBrandIds = null;
             if (role == "AUDITEE" || user.BrandScope == "SPECIFIC")
             {
-                var allowedBrandIds = await context.UserBrands
-                    .AsNoTracking()
-                    .Where(ul => ul.UserId == user.Id)
-                    .Select(ul => ul.BrandId)
-                    .ToListAsync();
-
-                return (user.Id, role, allowedBrandIds);
+                allowedBrandIds = user.UserBrands.Select(ub => ub.BrandId).ToList();
             }
-
-            // ADMIN, STANDARD, AUDITOR, and EXEC have global organization visibility when BrandScope is ALL
-            if (role == "ADMIN" || role == "EXEC" || (role == "STANDARD" && user.BrandScope != "SPECIFIC") || user.BrandScope == "ALL")
+            else if (role != "ADMIN" && role != "EXEC" && (role != "STANDARD" || user.BrandScope == "SPECIFIC") && user.BrandScope != "ALL")
             {
-                return (user.Id, role, null); // null means access to ALL brands
+                allowedBrandIds = user.UserBrands.Select(ub => ub.BrandId).ToList();
             }
 
-            var defaultAllowedBrandIds = await context.UserBrands
-                .AsNoTracking()
-                .Where(ul => ul.UserId == user.Id)
-                .Select(ul => ul.BrandId)
-                .ToListAsync();
+            return new UserFullScope(user.Id, role, allowedLocationIds, allowedBrandIds);
+        }
 
-            return (user.Id, role, defaultAllowedBrandIds);
+        public static async Task<(int UserId, string Role, List<int>? AllowedLocationIds)> GetUserScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
+        {
+            var scope = await GetUserFullScopeAsync(userPrincipal, context);
+            return (scope.UserId, scope.Role, scope.AllowedLocationIds);
+        }
+
+        public static async Task<(int UserId, string Role, List<int>? AllowedBrandIds)> GetUserBrandScopeAsync(ClaimsPrincipal userPrincipal, AppDbContext context)
+        {
+            var scope = await GetUserFullScopeAsync(userPrincipal, context);
+            return (scope.UserId, scope.Role, scope.AllowedBrandIds);
         }
 
         // ใช้ร่วมกันในทุก controller ที่คืนรายการ Location

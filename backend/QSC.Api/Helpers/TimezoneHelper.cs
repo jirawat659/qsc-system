@@ -46,5 +46,47 @@ namespace QSC.Api.Helpers
             var unspecified = DateTime.SpecifyKind(bangkokDateTime, DateTimeKind.Unspecified);
             return TimeZoneInfo.ConvertTimeToUtc(unspecified, BangkokZone);
         }
+
+        public static (DateTime StartUtc, DateTime EndUtc, DateTime PrevStartUtc, DateTime PrevEndUtc) GetPeriodDateRanges(string? period)
+        {
+            var nowUtc = DateTime.UtcNow;
+            var nowBkk = ToBangkokTime(nowUtc);
+            var currentMonthStartBkk = new DateTime(nowBkk.Year, nowBkk.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+            DateTime startBkk, endBkk;
+
+            switch (period?.ToLower())
+            {
+                case "last_month":
+                    startBkk = currentMonthStartBkk.AddMonths(-1);
+                    endBkk = currentMonthStartBkk;
+                    break;
+                case "3m":
+                    startBkk = currentMonthStartBkk.AddMonths(-2);
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+                case "6m":
+                    startBkk = currentMonthStartBkk.AddMonths(-5);
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+                case "ytd":
+                    startBkk = new DateTime(nowBkk.Year, 1, 1, 0, 0, 0, DateTimeKind.Unspecified);
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+                case "month":
+                default:
+                    startBkk = currentMonthStartBkk;
+                    endBkk = currentMonthStartBkk.AddMonths(1);
+                    break;
+            }
+
+            var startUtc = ToUtcFromBangkok(startBkk);
+            var endUtc = ToUtcFromBangkok(endBkk);
+
+            var duration = endUtc - startUtc;
+            var prevEndUtc = startUtc;
+            var prevStartUtc = startUtc - duration;
+
+            return (startUtc, endUtc, prevStartUtc, prevEndUtc);
+        }
     }
 }

@@ -166,14 +166,15 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
             }
 
-            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == dto.Username.ToLower()))
+            var trimmedUsername = dto.Username.Trim();
+            if (await _context.Users.AnyAsync(u => u.Username == trimmedUsername))
             {
                 return BadRequest(new { message = "ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว" });
             }
 
             var user = new User
             {
-                Username = dto.Username,
+                Username = trimmedUsername,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 FullName = dto.FullName,
                 RoleId = dto.RoleId,

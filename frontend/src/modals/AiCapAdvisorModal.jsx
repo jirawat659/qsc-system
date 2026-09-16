@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Sparkles, CheckCircle2, AlertTriangle, RefreshCw, X, Save } from "lucide-react";
 import ModalWrapper from "../shared/ModalWrapper";
-import api from "../config/api";
+import api, { AI_REQUEST_TIMEOUT_MS } from "../config/api";
 
 export default function AiCapAdvisorModal({ taskId, onClose }) {
   const CAP_AI_CACHE_KEY = `qsc_ai_cap_cache_${taskId}`;
@@ -97,7 +97,7 @@ export default function AiCapAdvisorModal({ taskId, onClose }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get(`/ai/cap-analysis/${taskId}`);
+      const res = await api.get(`/ai/cap-analysis/${taskId}`, { timeout: AI_REQUEST_TIMEOUT_MS });
       if (res.data) {
         setData(res.data);
         try {

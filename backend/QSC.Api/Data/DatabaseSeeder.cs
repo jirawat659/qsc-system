@@ -383,6 +383,7 @@ namespace QSC.Api.Data
             {
                 EnsureBrandAndUserBrandData(context);
                 EnsurePermissionsAndRoles(context);
+                EnsureSurveyFormsPassingScore(context);
 
                 Console.WriteLine("[DatabaseSeeder] Database already initialized. Skipping seed to protect production data.");
                 return;
@@ -710,7 +711,7 @@ namespace QSC.Api.Data
                 Title = "แบบฟอร์มตรวจสอบมาตรฐานโรงงานและคลังสินค้า (GMP & HACCP Plant Audit)",
                 LocationTypeId = plantType.Id,
                 BrandId = brandDefs[0].Id,
-                PassingScore = 90.0,
+                PassingScore = 85.0,
                 TargetingMode = "ALL_LOCATIONS",
                 Version = "v2.1",
                 IsLatest = true,
@@ -1416,6 +1417,27 @@ namespace QSC.Api.Data
             catch (Exception ex)
             {
                 Console.WriteLine($"[DatabaseSeeder] EnsurePermissionsAndRoles warning: {ex.Message}");
+            }
+        }
+
+        private static void EnsureSurveyFormsPassingScore(AppDbContext context)
+        {
+            try
+            {
+                var nonStandardForms = context.SurveyForms.Where(f => f.PassingScore != 85.0).ToList();
+                if (nonStandardForms.Any())
+                {
+                    foreach (var f in nonStandardForms)
+                    {
+                        f.PassingScore = 85.0;
+                    }
+                    context.SaveChanges();
+                    Console.WriteLine($"[DatabaseSeeder] Updated {nonStandardForms.Count} survey form(s) to PassingScore = 85.0");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] EnsureSurveyFormsPassingScore warning: {ex.Message}");
             }
         }
 

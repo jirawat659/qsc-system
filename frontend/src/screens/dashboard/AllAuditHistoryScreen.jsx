@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, ArrowUpDown, ChevronDown, Download, X, Filter, ClipboardCheck, CalendarDays, Plus } from "lucide-react";
+import { Search, ArrowUpDown, ChevronDown, Download, X, Filter, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight } from "lucide-react";
 
 
 import { c, sans, mono } from "../../config/theme";
@@ -50,6 +50,7 @@ function buildCompletedLog(r, forms, activeLocations) {
   const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
   const directForm = r.surveyFormTitle || r.surveyForm?.title || r.formTitle || r.formName || r.form;
   const formVal = resolveFormTitle(formId, directForm, forms);
+  const formVersion = r.surveyFormVersion || r.surveyForm?.version || "";
   const brandNames = getBrandsForLoc(r.locationId, r.location, activeLocations);
 
   return {
@@ -66,6 +67,7 @@ function buildCompletedLog(r, forms, activeLocations) {
     score: score,
     auditor: auditorVal,
     formName: formVal,
+    formVersion: formVersion,
     auditType: (r.auditType === 'unannounced' || r.auditType === 'spot') ? "นอกกำหนดการ" : (r.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
     status: r.isPassed ? "pass" : "fail",
     record: {
@@ -81,6 +83,7 @@ function buildCompletedLog(r, forms, activeLocations) {
       form: formVal,
       formName: formVal,
       surveyFormTitle: formVal,
+      surveyFormVersion: formVersion,
       status: r.isPassed ? "pass" : "fail",
       isPassed: r.isPassed,
       hasCriticalDefect: r.hasCriticalDefect
@@ -301,7 +304,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         // Calculate totalCount accurately
         let totalCount = 0;
         const matchedForm = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
-        if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+        if (typeof matchedForm?.itemCount === 'number') {
+          totalCount = matchedForm.itemCount;
+        } else if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
           totalCount = matchedForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
         } else if (d.surveyForm?.sections && Array.isArray(d.surveyForm.sections) && d.surveyForm.sections.length > 0) {
           totalCount = d.surveyForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
@@ -309,6 +314,13 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           totalCount = Number(d.totalQuestions || d.TotalQuestions) || 0;
         }
         
+        // Check if this draft's schedule has already been audited or completed
+        if (d.auditScheduleId) {
+          const schedCompleted = (schedules || []).some(s => Number(s.id) === Number(d.auditScheduleId) && (s.status === 'completed' || s.status === 'done'));
+          const alreadyAudited = (auditRecords || []).some(ar => Number(ar.auditScheduleId) === Number(d.auditScheduleId));
+          if (schedCompleted || alreadyAudited) return;
+        }
+
         const brandNames = getBrandsForLoc(d.locationId, d.location, activeLocations);
 
         logs.push({
@@ -331,6 +343,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           record: {
             ...d,
             id: d.id,
+            auditScheduleId: d.auditScheduleId || d.scheduleId || null,
+            scheduleId: d.auditScheduleId || d.scheduleId || null,
             locationId: d.locationId,
             surveyFormId: formId,
             unit: d.location || { id: d.locationId, name: branchName, fullName: branchFullName },
@@ -353,7 +367,20 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     // 3. Schedules
     if (schedules && schedules.length > 0) {
       schedules.forEach((s) => {
-        if (s.status === 'completed') return; // skip completed schedules
+        const dateObj = new Date(s.scheduledDate);
+        const isCompleted = s.status === 'completed' || s.status === 'done' || s.isCompleted ||
+          (auditRecords || []).some(ar => {
+            if (ar.auditScheduleId && Number(ar.auditScheduleId) === Number(s.id)) return true;
+            if (Number(ar.locationId) === Number(s.locationId)) {
+              const ad = new Date(ar.auditDate || ar.submittedAt || ar.createdAt);
+              const diffDays = Math.abs((ad.getTime() - dateObj.getTime()) / (1000 * 60 * 60 * 24));
+              if (diffDays <= 2 && (!s.surveyFormId || !ar.surveyFormId || Number(ar.surveyFormId) === Number(s.surveyFormId))) {
+                return true;
+              }
+            }
+            return false;
+          });
+        if (isCompleted) return; // skip completed schedules
 
         const branchName = s.locationName || s.location?.name || "-";
         const branchFullName = s.locationName || s.location?.fullName || s.location?.name || "-";
@@ -382,14 +409,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
-          let totalCount = 0;
-          const matchedForm = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
-          if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
-            totalCount = matchedForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
-          } else if (s.surveyForm?.sections && Array.isArray(s.surveyForm.sections) && s.surveyForm.sections.length > 0) {
-            totalCount = s.surveyForm.sections.reduce((acc, sec) => acc + (sec.items?.length || 0), 0);
-          }
-
           logs.push({
             id: `schedule-progress-${s.id}`,
             originalId: s.id,
@@ -406,11 +425,12 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             formName: formVal,
             auditType: (s.auditType === 'unannounced' || s.auditType === 'spot') ? "นอกกำหนดการ" : (s.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
             status: "draft",
-            progressText: totalCount > 0 ? `ตอบแล้ว 0/${totalCount} ข้อ` : "กำลังดำเนินการตรวจ",
+            progressText: "กำลังดำเนินการตรวจ",
             record: {
               ...s,
               id: s.id,
               scheduleId: s.id,
+              auditScheduleId: s.id,
               locationId: s.locationId,
               locationName: branchName,
               locationFullName: branchFullName,
@@ -501,7 +521,22 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const filteredAndSortedLogs = useMemo(() => {
     // 🌟 โหมดค้นหาเดือน/ปี: ใช้ผลลัพธ์จาก request ตรงไป backend แทน buffer ปกติ
     // และไม่ต้องกรองด้วย searchTerm ซ้ำ เพราะ backend กรองตามช่วงวันที่ให้แล้ว
-    let list = monthQuery ? [...monthSearchLogs] : [...baseLogs];
+    let list;
+    if (monthQuery) {
+      const completedList = [...monthSearchLogs];
+      // ค้นหาฉบับร่าง (draft) หรือรายการตามแผน (schedule) ที่อยู่ในช่วงวันที่นี้ด้วย
+      const otherLogsInRange = baseLogs.filter(l => {
+        if (l.type === 'completed') return false;
+        if (!l.rawDate && !l.date) return false;
+        const d = new Date(l.rawDate || l.date);
+        const logTime = d.getTime();
+        if (isNaN(logTime)) return false;
+        return logTime >= monthQuery.startDate.getTime() && logTime < monthQuery.endDate.getTime();
+      });
+      list = [...completedList, ...otherLogsInRange];
+    } else {
+      list = [...baseLogs];
+    }
 
     if (statusFilter === "completed") {
       list = list.filter(l => l.type === "completed");
@@ -531,6 +566,17 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         const matchStatus = statusKeywords.some(k => k.includes(q) || q.includes(k));
 
+        // ค้นหาปี (ทั้ง ค.ศ. และ พ.ศ.) ใน client buffer เผื่อไว้
+        let matchYear = false;
+        if (l.rawDate || l.date) {
+          const d = new Date(l.rawDate || l.date);
+          if (!isNaN(d.getTime())) {
+            const rawYearAD = d.getFullYear().toString();
+            const rawYearBE = (d.getFullYear() + 543).toString();
+            matchYear = rawYearAD.includes(q) || rawYearBE.includes(q);
+          }
+        }
+
         return (
           (l.unitName && l.unitName.toLowerCase().includes(q)) ||
           (l.unitFullName && l.unitFullName.toLowerCase().includes(q)) ||
@@ -541,7 +587,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           (l.formName && l.formName.toLowerCase().includes(q)) ||
           (l.auditType && l.auditType.toLowerCase().includes(q)) ||
           (l.progressText && l.progressText.toLowerCase().includes(q)) ||
-          matchStatus
+          matchStatus ||
+          matchYear
         );
       });
     }
@@ -651,19 +698,31 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase().trim();
-      list = list.filter(l =>
-        (l.name && l.name.toLowerCase().includes(q)) ||
-        (l.fullName && l.fullName.toLowerCase().includes(q)) ||
-        (l.code && l.code.toLowerCase().includes(q)) ||
-        (l.region && l.region.toLowerCase().includes(q)) ||
-        (l.locationType && l.locationType.toLowerCase().includes(q)) ||
-        (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q)) ||
-        (l.locationBrands || l.rawLocation?.locationBrands || []).some(lb =>
-          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
-          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
-        ) ||
-        (l.brand?.name || l.brandName || l.rawLocation?.brand?.name || "").toLowerCase().includes(q)
-      );
+      list = list.filter(l => {
+        let matchYear = false;
+        if (l.lastAuditDate) {
+          const d = new Date(l.lastAuditDate);
+          if (!isNaN(d.getTime())) {
+            const rawYearAD = d.getFullYear().toString();
+            const rawYearBE = (d.getFullYear() + 543).toString();
+            matchYear = rawYearAD.includes(q) || rawYearBE.includes(q);
+          }
+        }
+        return (
+          (l.name && l.name.toLowerCase().includes(q)) ||
+          (l.fullName && l.fullName.toLowerCase().includes(q)) ||
+          (l.code && l.code.toLowerCase().includes(q)) ||
+          (l.region && l.region.toLowerCase().includes(q)) ||
+          (l.locationType && l.locationType.toLowerCase().includes(q)) ||
+          (l.dateFormatted && l.dateFormatted.toLowerCase().includes(q)) ||
+          (l.locationBrands || l.rawLocation?.locationBrands || []).some(lb =>
+            (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+            (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+          ) ||
+          (l.brand?.name || l.brandName || l.rawLocation?.brand?.name || "").toLowerCase().includes(q) ||
+          matchYear
+        );
+      });
     }
 
     if (filterCategory === "passed") {
@@ -712,17 +771,21 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   const endItem = Math.min(startIndex + pageSize, totalCount);
 
   // 🌟 โหลดเพิ่มเมื่อเลื่อน/พลิกหน้าใกล้ขอบข้อมูลที่โหลดไว้ใน buffer (lazy load)
-  // ใช้เฉพาะตอน browse ปกติเท่านั้น — โหมดค้นหาเดือน/ปี (monthQuery) ยิง request ตรงอยู่แล้ว ไม่ต้องโหลด buffer เพิ่ม
+  // ใช้เฉพาะตอน browse ดูรายการที่รวมผลตรวจแล้ว (all หรือ completed)
+  // ไม่โหลดเมื่อกรองดูเฉพาะ "กำลังตรวจ (draft)" หรือ "ยังไม่ตรวจ (pending)" เพื่อป้องกันลูปดึงข้อมูลไม่รู้จบ
   useEffect(() => {
     if (monthQuery) return;
     if (isLoadingAuditRecords) return;
+    if (statusFilter === "draft" || statusFilter === "pending") return;
     if (auditRecords.length >= auditRecordsTotalCount) return;
 
-    const nearEdge = totalPages - currentPage <= 2; // เหลืออีก ~2 หน้าก็จะหมดข้อมูลที่โหลดไว้
+    // คำนวณหน้าของ completed records ใน buffer โดยตรง
+    const completedBufferPages = Math.ceil(auditRecords.length / pageSize) || 1;
+    const nearEdge = completedBufferPages - currentPage <= 2;
     if (nearEdge) {
       loadMoreAuditRecords(false);
     }
-  }, [currentPage, totalPages, monthQuery, auditRecords.length, auditRecordsTotalCount, isLoadingAuditRecords, loadMoreAuditRecords]);
+  }, [currentPage, statusFilter, pageSize, monthQuery, auditRecords.length, auditRecordsTotalCount, isLoadingAuditRecords, loadMoreAuditRecords]);
 
   // Submit typed page number only on Enter or Blur
   const handlePageSubmit = () => {
@@ -882,33 +945,67 @@ const handleTriggerAudit = (record) => {
         </div>
       </div>
 
-      {/* ── 🌟 MASTER AUDIT LIST TABLE CARD ── */}
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
-        
-        {/* Status Filter Tabs & Action */}
-        <div className="px-3.5 py-2.5 border-b border-slate-200 bg-[#FAF9F5] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
-          <div className="flex items-center gap-2 overflow-x-auto custom-tab-scrollbar pb-1 sm:pb-0 w-full sm:w-auto">
-            {[
-              { key: "all", label: "ทั้งหมด (All)" },
-              { key: "completed", label: "ตรวจแล้ว" },
-              { key: "draft", label: "กำลังตรวจ" },
-              { key: "pending", label: "ยังไม่ตรวจ" },
-            ].map(({ key, label }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setStatusFilter(key)}
-                className={`whitespace-nowrap px-4 py-2 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
-                  statusFilter === key
-                    ? "bg-[#0F6659] text-white shadow-md"
-                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+      {/* ── 🌟 2. SEARCH & ACTION CONTROLS (สไตล์เดียวกับหน้าจัดการฟอร์ม) ── */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+        {/* Search Bar */}
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="ค้นหาชื่อสาขา, แบรนด์, วันที่, ผู้ตรวจ, สถานะ..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full text-xs sm:text-sm pl-9 pr-8 py-2.5 rounded-2xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
+              title="ล้างข้อความค้นหา"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+
+        {/* Filters and Actions */}
+        <div className="flex items-center gap-2">
+          {/* สาขา Dropdown Filter */}
+          <div className="relative flex-1 sm:flex-initial flex items-center">
+            <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0F6659] pointer-events-none" />
+            <select
+              value={filterCategory}
+              onChange={(e) => setFilterCategory(e.target.value)}
+              className="w-full sm:w-auto text-xs sm:text-sm font-semibold pl-8 pr-8 py-2.5 rounded-2xl bg-white border border-slate-200 shadow-2xs outline-none text-slate-700 hover:border-slate-300 focus:border-[#0F6659] transition-all cursor-pointer appearance-none"
+            >
+              <option value="all">ทุกสาขา</option>
+              <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
+              <option value="improve">ต้องปรับปรุง (&lt;85%)</option>
+              <option value="bkk">เขตกรุงเทพฯ</option>
+              <option value="north">เขตภาคเหนือ</option>
+              <option value="east">เขตภาคตะวันออก</option>
+              <option value="northeast">เขตภาคอีสาน</option>
+              <option value="south">เขตภาคใต้</option>
+            </select>
+            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
+          {/* Excel Export Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (onExportExcel) onExportExcel();
+              setShowExportModal(true);
+            }}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-bold text-slate-700 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
+            title="ส่งออกรายงานเป็น Excel"
+          >
+            <Download size={13} className="text-[#0F6659]" />
+            <span className="hidden sm:inline">Excel</span>
+          </button>
+
+          {/* ตรวจงานใหม่ Button */}
           <button
             type="button"
             onClick={() => {
@@ -918,344 +1015,480 @@ const handleTriggerAudit = (record) => {
                 handleTriggerAudit({ isNewAudit: true });
               }
             }}
-            className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-2xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
           >
             <Plus size={15} />
             <span>ตรวจงานใหม่</span>
           </button>
         </div>
+      </div>
 
-        {/* 🌟 Chip แสดงโหมดค้นหาเดือน/ปี — ยิง request ตรงไป backend ด้วย startDate/endDate แทนการกรอง buffer ปกติ */}
-        {monthQuery && (
-          <div className="px-3.5 pt-2.5 flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0F6659]/10 text-[#0F6659] text-xs font-bold border border-[#0F6659]/20">
-              <CalendarDays size={12} />
-              {isMonthSearching ? "กำลังค้นหา..." : `กำลังกรอง: ${monthQuery.label}`}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSearchTerm("")}
-              className="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer"
+      {/* 🌟 Chip แสดงโหมดค้นหาเดือน/ปี (แยกเป็นแถวอิสระตรงกลาง ไม่เบียดกับฟีลเตอร์สถานะ) */}
+      {monthQuery && (
+        <div className="flex items-center gap-2 px-1 animate-in fade-in duration-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#0F6659]/10 text-[#0F6659] text-xs font-bold border border-[#0F6659]/20 shadow-2xs">
+            <CalendarDays size={13} className="text-[#0F6659]" />
+            <span>{isMonthSearching ? "กำลังค้นหา..." : `กรอง: ${monthQuery.label}`}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setSearchTerm("")}
+            className="text-xs text-slate-400 hover:text-slate-600 underline cursor-pointer transition-colors"
+          >
+            ล้างตัวกรอง
+          </button>
+        </div>
+      )}
+
+      {/* ── 🌟 3. STATUS FILTER PILLS (เม็ดแคปซูลแบบเดียวกับหน้าจัดการฟอร์ม) ── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto custom-tab-scrollbar pb-0.5">
+        {[
+          { key: "all", label: "ทั้งหมด (All)" },
+          { key: "completed", label: "ตรวจแล้ว" },
+          { key: "draft", label: "กำลังตรวจ" },
+          { key: "pending", label: "ยังไม่ตรวจ" },
+        ].map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setStatusFilter(key)}
+            className={`whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-bold shrink-0 cursor-pointer transition-all active:scale-95 ${
+              statusFilter === key
+                ? "bg-[#0F6659] text-white shadow-2xs"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 🌟 4. AUDIT LIST / TABLE SECTION ── */}
+      {/* 📱 1. Mobile View (<768px): การ์ดเดี่ยวๆ ลอยบนพื้นหลัง สไตล์เดียวกับ FormsScreen */}
+      <div className="block md:hidden space-y-3">
+        {paginatedLogs.map((log, idx) => {
+          const isPassed = log.score >= 85;
+          const isCritical = log.score < 70;
+
+          let circleColor = "border-slate-200 text-slate-400 bg-slate-50";
+          let scoreDisplay = "-";
+          let statusBadge = "bg-slate-100 text-slate-800";
+          let statusText = "-";
+
+          if (log.type === 'completed') {
+            circleColor = isCritical
+              ? "border-rose-600 text-rose-700 bg-white"
+              : isPassed
+              ? "border-emerald-600 text-emerald-800 bg-white"
+              : "border-amber-600 text-amber-800 bg-white";
+            
+            scoreDisplay = log.score;
+            
+            statusBadge = isCritical
+              ? "bg-rose-100 text-rose-800"
+              : isPassed
+              ? "bg-emerald-100 text-emerald-800"
+              : "bg-amber-100 text-amber-900";
+            
+            statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+          } else if (log.type === 'draft') {
+            circleColor = "border-slate-200 text-slate-400 bg-slate-50";
+            scoreDisplay = "-";
+            statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
+            statusText = "กำลังตรวจ";
+          } else if (log.type === 'schedule') {
+            circleColor = "border-slate-200 text-slate-400 bg-slate-50";
+            scoreDisplay = "-";
+            statusBadge = "bg-slate-100 text-slate-600 border border-slate-200";
+            statusText = "ยังไม่ตรวจ";
+          }
+
+          return (
+            <div
+              key={log.id || idx}
+              onClick={() => {
+                if (log.type === 'completed') {
+                  if (onSelectLog) {
+                    onSelectLog({ unitName: log.unitFullName, record: log.record });
+                  } else {
+                    setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
+                  }
+                } else if (log.type === 'draft') {
+                  handleTriggerResume(log.record);
+                } else if (log.type === 'schedule') {
+                  handleTriggerAudit(log.record);
+                }
+              }}
+              className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs hover:border-[#0F6659] active:scale-[0.99] transition-all cursor-pointer space-y-2.5 group"
             >
-              ล้างตัวกรอง
-            </button>
+              {/* บรรทัดที่ 1: วงกลมคะแนน (ซ้าย) + ป้ายสถานะ (ขวา) */}
+              <div className="flex items-center justify-between">
+                <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono shadow-2xs shrink-0 ${circleColor}`}>
+                  {scoreDisplay}
+                </div>
+                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
+                  {statusText}
+                </span>
+              </div>
+
+              {/* บรรทัดที่ 2: ชื่อสาขา (ตัวหนา) + แบบฟอร์มการตรวจ & เขต */}
+              <div className="space-y-0.5">
+                <h3 className="text-sm font-bold text-slate-900 leading-snug break-words group-hover:text-[#0F6659] transition-colors">
+                  {log.unitName}
+                </h3>
+                {log.formName && (
+                  <p className="text-xs text-slate-500 font-medium truncate">
+                    {log.formName}
+                    {log.auditType && (
+                      <span className="text-slate-400 font-normal text-[11px] ml-1">
+                        ({log.auditType})
+                      </span>
+                    )}
+                  </p>
+                )}
+                {log.region && log.region !== '-' && (
+                  <p className="text-[11px] text-slate-400 font-normal truncate">
+                    {log.region}
+                  </p>
+                )}
+              </div>
+
+              {/* บรรทัดที่ 3: สถานะคืบหน้า (ถ้ามี) + วันที่ / ผู้ตรวจ */}
+              <div className="space-y-1 text-xs">
+                {log.type === 'draft' && log.progressText && (
+                  <div className="text-xs text-amber-600 font-bold">
+                    {log.progressText}
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 text-slate-400 font-normal">
+                  <Calendar size={12} className="text-slate-400 shrink-0" />
+                  <span>{log.date}</span>
+                  {log.auditor && log.auditor !== '-' && (
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="truncate">{log.auditor}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* บรรทัดที่ 4: ลิงก์ Action ตัวเล็ก ไม่แย่งสายตา */}
+              <div className="pt-2 border-t border-slate-100/80 flex items-center justify-end">
+                <span className="text-xs text-slate-400 group-hover:text-[#0F6659] font-medium flex items-center gap-0.5 transition-colors">
+                  <span>
+                    {log.type === 'completed'
+                      ? 'ดูรายงาน'
+                      : log.type === 'draft'
+                      ? 'ตรวจต่อ'
+                      : 'เริ่มตรวจ'}
+                  </span>
+                  <ChevronRight size={13} />
+                </span>
+              </div>
+            </div>
+          );
+        })}
+
+        {filteredAndSortedLogs.length === 0 && (
+          <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white rounded-2xl border border-slate-200 shadow-2xs">
+            ไม่พบข้อมูลผลการตรวจที่ตรงกับคำค้นหา
           </div>
         )}
 
-        {/* Filter bar */}
-        <div className="px-3.5 py-2.5 border-b border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          <div className="relative flex-1">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              placeholder="ค้นหาชื่อสาขา, แบรนด์, วันที่, ผู้ตรวจ, สถานะ..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-xs sm:text-sm pl-8.5 pr-7 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none font-medium text-slate-800 focus:bg-white focus:border-[#0F6659] transition-colors placeholder:text-slate-400 shadow-2xs"
-            />
-            {searchTerm && (
+        {/* 📱 Mobile Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs text-xs font-medium text-slate-500">
+            <span>หน้า {currentPage} / {totalPages} ({totalCount} รายการ)</span>
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                onClick={() => setSearchTerm("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer rounded-md transition-colors"
-                title="ล้างข้อความค้นหา"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
               >
-                <X size={12} />
+                ก่อนหน้า
               </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 flex-1 w-full">
-            <div className="relative flex items-center bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200 flex-1 w-full hover:border-[#0F6659] focus-within:border-[#0F6659] focus-within:bg-white transition-colors shadow-2xs">
-              <Filter size={13} className="text-[#0F6659] shrink-0 mr-1.5 pointer-events-none" />
-              <select
-                value={filterCategory}
-                onChange={(e) => setFilterCategory(e.target.value)}
-                className="w-full bg-transparent text-xs sm:text-sm font-semibold outline-none cursor-pointer text-slate-700 appearance-none pr-5"
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={handlePageSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePageSubmit();
+                    e.target.blur();
+                  }
+                }}
+                className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+              <button
+                type="button"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
               >
-                <option value="all">ทุกสาขา</option>
-                <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
-                <option value="improve">ต้องปรับปรุง (&lt;85%)</option>
-                <option value="bkk">เขตกรุงเทพฯ</option>
-                <option value="north">เขตภาคเหนือ</option>
-                <option value="east">เขตภาคตะวันออก</option>
-                <option value="northeast">เขตภาคอีสาน</option>
-                <option value="south">เขตภาคใต้</option>
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                ถัดไป
+              </button>
             </div>
-
-            {/* Excel Export Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (onExportExcel) onExportExcel();
-                setShowExportModal(true);
-              }}
-              className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-2xl bg-white border border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-extrabold text-slate-800 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
-              title="ส่งออกรายงานเป็น Excel"
-            >
-              <Download size={13} className="text-[#0F6659]" />
-              <span>Excel</span>
-            </button>
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* ── Master History Table ── */}
-        <div className="space-y-2">
-          <div className="overflow-x-auto custom-tab-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[1100px] table-fixed">
-                {/* Table Header */}
-                <thead>
-                  <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
-                    <th className="py-3 px-4 w-[50%]">
-                      <button 
-                        type="button" 
-                        onClick={() => setSortBy(prev => prev === 'branch-asc' ? 'branch-desc' : 'branch-asc')}
-                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
-                          sortBy.startsWith('branch') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
-                        }`}
-                        title="เรียงตามชื่อสาขา (ก-ฮ / ฮ-ก)"
-                      >
-                        <span className="truncate">รอบตรวจ & สาขา</span>
-                        {sortBy === 'branch-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲ ก-ฮ</span>}
-                        {sortBy === 'branch-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼ ฮ-ก</span>}
-                        {!sortBy.startsWith('branch') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
-                      </button>
-                    </th>
-                    <th className="py-3 px-4 w-[15%] text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
-                        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full border shadow-2xs text-xs font-bold transition-all cursor-pointer ${
-                          sortBy.startsWith('score')
-                            ? 'bg-emerald-50 border-emerald-400 text-[#0F6659] font-black ring-2 ring-emerald-500/20'
-                            : 'bg-white border-slate-200 text-slate-700 hover:border-[#0F6659] hover:text-[#0F6659]'
-                        }`}
-                        title="เรียงตามคะแนน (มากไปน้อย / น้อยไปมาก)"
-                      >
-                        <span>คะแนน</span>
-                        {sortBy === 'score-desc' && <span className="text-[10px] text-[#0F6659] font-black">▼</span>}
-                        {sortBy === 'score-asc' && <span className="text-[10px] text-[#0F6659] font-black">▲</span>}
-                        {!sortBy.startsWith('score') && <ArrowUpDown size={11} className="text-slate-400" />}
-                      </button>
-                    </th>
-                    <th className="py-3 px-4 w-[30%]">
-                      <span className="truncate">แบบฟอร์มการตรวจ</span>
-                    </th>
-                    <th className="py-3 px-4 w-[15%]">
-                      <button 
-                        type="button" 
-                        onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
-                        className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
-                          sortBy.startsWith('date') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
-                        }`}
-                        title="เรียงตามวันที่ตรวจ (ล่าสุด / เก่าสุด)"
-                      >
-                        <span className="truncate">วันที่ตรวจ</span>
-                        {sortBy === 'date-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼</span>}
-                        {sortBy === 'date-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲</span>}
-                        {!sortBy.startsWith('date') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
-                      </button>
-                    </th>
-                    <th className="py-3 px-4 w-[23%]">
-                      <span className="truncate">ผู้ตรวจประเมิน</span>
-                    </th>
-                    <th className="py-3 px-4 w-[12%] text-center">
-                      <span className="truncate">สถานะ</span>
-                    </th>
-                  </tr>
-                </thead>
-
-                {/* Table Body */}
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {paginatedLogs.map((log, idx) => {
-                    const rowNumber = (currentPage - 1) * pageSize + idx + 1;
-                    const isPassed = log.score >= 85;
-                    const isCritical = log.score < 70;
-
-                    let circleColor = "border-slate-200 text-slate-400 bg-slate-50";
-                    let scoreDisplay = "-";
-                    let scorePill = "bg-slate-50 text-slate-500 border border-slate-200/60";
-                    let statusBadge = "bg-slate-100 text-slate-800";
-                    let statusText = "-";
-
-                    if (log.type === 'completed') {
-                      circleColor = isCritical
-                        ? "border-rose-600 text-rose-700 bg-white"
-                        : isPassed
-                        ? "border-emerald-600 text-emerald-800 bg-white"
-                        : "border-amber-600 text-amber-800 bg-white";
-                      
-                      scoreDisplay = log.score;
-                      
-                      scorePill = isCritical
-                        ? "bg-rose-50 text-rose-700 border border-rose-200/60"
-                        : isPassed
-                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
-                        : "bg-amber-50 text-amber-700 border border-amber-200/60";
-                      
-                      statusBadge = isCritical
-                        ? "bg-rose-100 text-rose-800"
-                        : isPassed
-                        ? "bg-emerald-100 text-emerald-800"
-                        : "bg-amber-100 text-amber-900";
-                      
-                      statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
-                    } else if (log.type === 'draft') {
-                      statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
-                      statusText = "กำลังตรวจ";
-                    } else if (log.type === 'schedule') {
-                      statusBadge = "bg-slate-100 text-slate-600 border border-slate-200";
-                      statusText = "ยังไม่ตรวจ";
-                    }
-
-                    return (
-                      <tr
-                        key={log.id || idx}
-                        onClick={() => {
-                          if (log.type === 'completed') {
-                            if (onSelectLog) {
-                              onSelectLog({ unitName: log.unitFullName, record: log.record });
-                            } else {
-                              setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
-                            }
-                          } else if (log.type === 'draft') {
-                            handleTriggerResume(log.record);
-                          } else if (log.type === 'schedule') {
-                            handleTriggerAudit(log.record);
-                          }
-                        }}
-                        className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
-                      >
-                        {/* 1. รอบตรวจ & สาขา */}
-                        <td className="py-3.5 px-4 overflow-hidden">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
-                              {rowNumber}
-                            </span>
-                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono shadow-2xs ${circleColor}`}>
-                              {scoreDisplay}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
-                                {log.unitName}
-                              </div>
-                              <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.region}>
-                                {log.region}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 2. คะแนน */}
-                        <td className="py-3.5 px-4 text-center overflow-hidden">
-                          {log.type === 'completed' ? (
-                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
-                              {log.score}%
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 font-bold">-</span>
-                          )}
-                        </td>
-
-                        {/* 3. แบบฟอร์มการตรวจ */}
-                        <td className="py-3.5 px-4 overflow-hidden">
-                          <div className="min-w-0">
-                            <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate" title={log.formName}>
-                              {log.formName}
-                            </div>
-                            <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.auditType}>
-                              {log.auditType}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 4. วันที่ตรวจ */}
-                        <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
-                          <div className="truncate" title={log.date}>
-                            {log.date}
-                          </div>
-                          {log.type === 'draft' && log.progressText && (
-                            <div className="text-[10px] text-amber-600 font-semibold mt-0.5">
-                              {log.progressText}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* 5. ผู้ตรวจประเมิน */}
-                        <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
-                          <div className="truncate" title={log.auditor}>
-                            {log.auditor}
-                          </div>
-                        </td>
-
-                        {/* 6. สถานะ & การดำเนินการ */}
-                        {/* 6. สถานะ */}
-                        <td className="py-3.5 px-4 text-center overflow-hidden">
-                          <div className="flex items-center justify-center">
-                            <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
-                              {statusText}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              {filteredAndSortedLogs.length === 0 && (
-                <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white">
-                  ไม่พบข้อมูลผลการตรวจที่ตรงกับคำค้นหา
-                </div>
-              )}
-            </div>
-
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs font-medium text-slate-500 bg-white">
-                <span>หน้า {currentPage} จาก {totalPages} ({totalCount} รายการ)</span>
-                <div className="flex items-center gap-1.5">
+      {/* 💻 2. Tablet & Desktop View (>=768px): ตารางเต็มรูปแบบใน Card สวยงาม */}
+      <div className="hidden md:block bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden">
+        <div className="overflow-x-auto custom-tab-scrollbar">
+          <table className="w-full text-left border-collapse min-w-full lg:min-w-[1100px] table-fixed">
+            {/* Table Header */}
+            <thead>
+              <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
+                <th className="py-3 px-4 w-[42%] lg:w-[25%]">
+                  <button 
+                    type="button" 
+                    onClick={() => setSortBy(prev => prev === 'branch-asc' ? 'branch-desc' : 'branch-asc')}
+                    className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      sortBy.startsWith('branch') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
+                    }`}
+                    title="เรียงตามชื่อสาขา (ก-ฮ / ฮ-ก)"
+                  >
+                    <span className="truncate">รอบตรวจ & สาขา</span>
+                    {sortBy === 'branch-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲ ก-ฮ</span>}
+                    {sortBy === 'branch-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼ ฮ-ก</span>}
+                    {!sortBy.startsWith('branch') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
+                  </button>
+                </th>
+                <th className="py-3 px-2 w-[14%] lg:w-[8%] text-center">
                   <button
                     type="button"
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+                    onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border shadow-2xs text-xs font-bold transition-all cursor-pointer ${
+                      sortBy.startsWith('score')
+                        ? 'bg-emerald-50 border-emerald-400 text-[#0F6659] font-black ring-2 ring-emerald-500/20'
+                        : 'bg-white border-slate-200 text-slate-700 hover:border-[#0F6659] hover:text-[#0F6659]'
+                    }`}
+                    title="เรียงตามคะแนน (มากไปน้อย / น้อยไปมาก)"
                   >
-                    ก่อนหน้า
+                    <span>คะแนน</span>
+                    {sortBy === 'score-desc' && <span className="text-[10px] text-[#0F6659] font-black">▼</span>}
+                    {sortBy === 'score-asc' && <span className="text-[10px] text-[#0F6659] font-black">▲</span>}
+                    {!sortBy.startsWith('score') && <ArrowUpDown size={11} className="text-slate-400" />}
                   </button>
+                </th>
+                <th className="hidden lg:table-cell py-3 px-4 w-[20%]">
+                  <span className="truncate">แบบฟอร์มการตรวจ</span>
+                </th>
+                <th className="py-3 px-4 w-[30%] lg:w-[21%]">
+                  <button 
+                    type="button" 
+                    onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
+                    className={`flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      sortBy.startsWith('date') ? 'text-[#0F6659] font-black' : 'hover:text-[#0F6659]'
+                    }`}
+                    title="เรียงตามวันที่ตรวจ (ล่าสุด / เก่าสุด)"
+                  >
+                    <span className="truncate">วันที่ตรวจ</span>
+                    {sortBy === 'date-desc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▼</span>}
+                    {sortBy === 'date-asc' && <span className="text-[10px] font-black text-[#0F6659] bg-emerald-100 px-1.5 py-0.5 rounded-md shrink-0">▲</span>}
+                    {!sortBy.startsWith('date') && <ArrowUpDown size={13} className="text-slate-400 shrink-0" />}
+                  </button>
+                </th>
+                <th className="hidden lg:table-cell py-3 px-4 w-[16%]">
+                  <span className="truncate">ผู้ตรวจประเมิน</span>
+                </th>
+                <th className="py-3 px-4 w-[14%] lg:w-[10%] text-center">
+                  <span className="truncate">สถานะ</span>
+                </th>
+              </tr>
+            </thead>
+
+            {/* Table Body */}
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {paginatedLogs.map((log, idx) => {
+                const rowNumber = (currentPage - 1) * pageSize + idx + 1;
+                const isPassed = log.score >= 85;
+                const isCritical = log.score < 70;
+
+                let circleColor = "border-slate-200 text-slate-400 bg-slate-50";
+                let scoreDisplay = "-";
+                let scorePill = "bg-slate-50 text-slate-500 border border-slate-200/60";
+                let statusBadge = "bg-slate-100 text-slate-800";
+                let statusText = "-";
+
+                if (log.type === 'completed') {
+                  circleColor = isCritical
+                    ? "border-rose-600 text-rose-700 bg-white"
+                    : isPassed
+                    ? "border-emerald-600 text-emerald-800 bg-white"
+                    : "border-amber-600 text-amber-800 bg-white";
                   
-                  {/* ช่องเล็กสำหรับพิมพ์เลขหน้า (กด Enter หรือคลิกออกนอกช่องเพื่อเปลี่ยนหน้า) */}
-                  <input
-                    type="number"
-                    min="1"
-                    max={totalPages}
-                    value={pageInput}
-                    onChange={(e) => setPageInput(e.target.value)}
-                    onBlur={handlePageSubmit}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handlePageSubmit();
-                        e.target.blur();
+                  scoreDisplay = log.score;
+                  
+                  scorePill = isCritical
+                    ? "bg-rose-50 text-rose-700 border border-rose-200/60"
+                    : isPassed
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
+                    : "bg-amber-50 text-amber-700 border border-amber-200/60";
+                  
+                  statusBadge = isCritical
+                    ? "bg-rose-100 text-rose-800"
+                    : isPassed
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-amber-100 text-amber-900";
+                  
+                  statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+                } else if (log.type === 'draft') {
+                  statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
+                  statusText = "กำลังตรวจ";
+                } else if (log.type === 'schedule') {
+                  statusBadge = "bg-slate-100 text-slate-600 border border-slate-200";
+                  statusText = "ยังไม่ตรวจ";
+                }
+
+                return (
+                  <tr
+                    key={log.id || idx}
+                    onClick={() => {
+                      if (log.type === 'completed') {
+                        if (onSelectLog) {
+                          onSelectLog({ unitName: log.unitFullName, record: log.record });
+                        } else {
+                          setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
+                        }
+                      } else if (log.type === 'draft') {
+                        handleTriggerResume(log.record);
+                      } else if (log.type === 'schedule') {
+                        handleTriggerAudit(log.record);
                       }
                     }}
-                    className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+                    className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                   >
-                    ถัดไป
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+                    {/* 1. รอบตรวจ & สาขา */}
+                    <td className="py-3.5 px-4 overflow-hidden">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
+                          {rowNumber}
+                        </span>
+                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono shadow-2xs ${circleColor}`}>
+                          {scoreDisplay}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
+                            {log.unitName}
+                          </div>
+                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.region}>
+                            {log.region}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* 2. คะแนน */}
+                    <td className="py-3.5 px-2 text-center overflow-hidden">
+                      {log.type === 'completed' ? (
+                        <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
+                          {log.score}%
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-bold">-</span>
+                      )}
+                    </td>
+
+                    {/* 3. แบบฟอร์มการตรวจ (ซ่อนบนแท็บเล็ต) */}
+                    <td className="hidden lg:table-cell py-3.5 px-4 overflow-hidden">
+                      <div className="min-w-0">
+                        <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate" title={log.formName}>
+                          {log.formName}
+                        </div>
+                        <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.auditType}>
+                          {log.auditType}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* 4. วันที่ตรวจ */}
+                    <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
+                      <div className="whitespace-nowrap font-medium text-slate-800" title={log.date}>
+                        {log.date}
+                      </div>
+                      {log.type === 'draft' && log.progressText && (
+                        <div className="text-[10px] text-amber-600 font-semibold mt-0.5 whitespace-nowrap">
+                          {log.progressText}
+                        </div>
+                      )}
+                    </td>
+
+                    {/* 5. ผู้ตรวจประเมิน (ซ่อนบนแท็บเล็ต) */}
+                    <td className="hidden lg:table-cell py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
+                      <div className="truncate" title={log.auditor}>
+                        {log.auditor}
+                      </div>
+                    </td>
+
+                    {/* 6. สถานะ */}
+                    <td className="py-3.5 px-4 text-center overflow-hidden">
+                      <div className="flex items-center justify-center">
+                        <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
+                          {statusText}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {filteredAndSortedLogs.length === 0 && (
+            <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white">
+              ไม่พบข้อมูลผลการตรวจที่ตรงกับคำค้นหา
+            </div>
+          )}
         </div>
+
+        {/* 💻 Desktop Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between p-3 border-t border-slate-100 text-xs font-medium text-slate-500 bg-white">
+            <span>หน้า {currentPage} จาก {totalPages} ({totalCount} รายการ)</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+              >
+                ก่อนหน้า
+              </button>
+              
+              {/* ช่องเล็กสำหรับพิมพ์เลขหน้า (กด Enter หรือคลิกออกนอกช่องเพื่อเปลี่ยนหน้า) */}
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={handlePageSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePageSubmit();
+                    e.target.blur();
+                  }
+                }}
+                className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
+
+              <button
+                type="button"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
+              >
+                ถัดไป
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {showExportModal && (
         <ExcelExportModal onClose={() => setShowExportModal(false)} />

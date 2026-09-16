@@ -412,7 +412,7 @@ export default function AdminMoreScreen({
   }
 
   return (
-    <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
+    <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 sm:pb-32">
       {/* Page Header */}
       <div>
         <h2 className="text-base sm:text-lg font-bold text-slate-900">

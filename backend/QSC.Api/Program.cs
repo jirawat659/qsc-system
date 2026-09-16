@@ -16,7 +16,10 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditStampInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), sqlServerOptions =>
+    {
+        sqlServerOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+    });
     options.AddInterceptors(sp.GetRequiredService<AuditStampInterceptor>());
 });
 

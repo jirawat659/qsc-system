@@ -7,7 +7,7 @@ import { getDynamicBrandLines, getDynamicRegionLines } from "../../config/consta
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
 import { parseAuditDate } from "../../utils/formatters";
-import api from "../../config/api";
+import api, { AI_REQUEST_TIMEOUT_MS } from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -128,6 +128,9 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
 const DASHBOARD_AI_CACHE_KEY = "qsc_ai_dashboard_cache";
 const DASHBOARD_COOLDOWN_KEY = "qsc_ai_cooldown_dashboard";
 
+// 🌟 In-Memory Cache for Instant Tab Switching (Stale-While-Revalidate)
+const dashboardApiCache = new Map();
+
 const getRemainingDashboardCooldown = () => {
   try {
     const expiry = parseInt(sessionStorage.getItem(DASHBOARD_COOLDOWN_KEY) || "0", 10);
@@ -139,14 +142,31 @@ const getRemainingDashboardCooldown = () => {
 };
 
 export default function DashboardScreen({ role, isDesktop }) {
-  const { locations: visibleLocations, auditRecords, capTasks, currentUser, selectedBrandId } = React.useContext(DataContext);
+  const { locations: visibleLocations, auditRecords, capTasks, currentUser, selectedBrandId, brands } = React.useContext(DataContext);
   const activeLocations = useMemo(() => visibleLocations || [], [visibleLocations]);
 
   const userRole = (role || currentUser?.role || currentUser?.roleCode || '').toUpperCase();
   const isBranchManager = userRole === "AUDITEE" || userRole === "BRANCH_MANAGER" || currentUser?.branchScope === "SPECIFIC";
   
-  const dashboardCacheKey = useMemo(() => `qsc_ai_dashboard_cache_${currentUser?.id || 'default'}`, [currentUser?.id]);
-  const dashboardCooldownKey = useMemo(() => `qsc_ai_cooldown_dashboard_${currentUser?.id || 'default'}`, [currentUser?.id]);
+  const [periodFilter, setPeriodFilter] = useState("month");
+  const [aiInsightsData, setAiInsightsData] = useState(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [justUpdated, setJustUpdated] = useState(false);
+  const [aiCooldown, setAiCooldown] = useState(0);
+
+  // 🌟 Effective Brand: ถ้าผู้ใช้เลือกแบรนด์ หรือมีสิทธิ์เข้าถึงเพียงแบรนด์เดียว (เช่น After You) ให้ผูกแบรนด์นั้นทันที
+  const effectiveBrandId = selectedBrandId || (brands?.length === 1 ? brands[0].id : null);
+  const activeBrand = (brands || []).find(b => b.id === effectiveBrandId);
+  const brandDisplayName = activeBrand?.name || (effectiveBrandId ? "แบรนด์ที่เลือก" : "ทุกแบรนด์");
+
+  const dashboardCacheKey = useMemo(
+    () => `qsc_ai_dashboard_cache_${currentUser?.id || 'default'}_${effectiveBrandId || 'all'}_${periodFilter || 'month'}`,
+    [currentUser?.id, effectiveBrandId, periodFilter]
+  );
+  const dashboardCooldownKey = useMemo(
+    () => `qsc_ai_cooldown_dashboard_${currentUser?.id || 'default'}_${effectiveBrandId || 'all'}`,
+    [currentUser?.id, effectiveBrandId]
+  );
 
   const getRemainingDashboardCooldown = () => {
     try {
@@ -157,12 +177,6 @@ export default function DashboardScreen({ role, isDesktop }) {
       return 0;
     }
   };
-
-  const [periodFilter, setPeriodFilter] = useState("month");
-  const [aiInsightsData, setAiInsightsData] = useState(null);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [justUpdated, setJustUpdated] = useState(false);
-  const [aiCooldown, setAiCooldown] = useState(0);
 
   // ⏳ Keep countdown alive based on real wall-clock time even when navigating away & back
   useEffect(() => {
@@ -192,7 +206,7 @@ export default function DashboardScreen({ role, isDesktop }) {
   };
 
   const fetchAiDashboardInsights = async (isManual = false) => {
-    // 🌟 If automatic call and already cached in this session for this user, use cache without calling API!
+    // 🌟 ถ้าเป็นการเปิดหน้าจอ และมี Cache อยู่แล้วในเซสชันนี้ -> ดึงจาก Cache ทันที ไม่ยิง API ซ้ำ
     if (!isManual) {
       try {
         const cached = sessionStorage.getItem(dashboardCacheKey);
@@ -204,12 +218,20 @@ export default function DashboardScreen({ role, isDesktop }) {
           }
         }
       } catch (e) {}
+      // ถ้ายังไม่มี Cache (เพิ่งเข้าระบบมาครั้งแรก) จะไหลลงไปยิงขอคำแนะนำจาก AI อัตโนมัติ 1 ครั้งแรก
     }
 
     if (isAiLoading || (isManual && getRemainingDashboardCooldown() > 0)) return;
     setIsAiLoading(true);
     try {
-      const res = await api.get('/ai/dashboard-insights');
+      const params = {};
+      if (periodFilter) params.period = periodFilter;
+      if (effectiveBrandId) params.brandId = effectiveBrandId;
+
+      const res = await api.get('/ai/dashboard-insights', { 
+        params,
+        timeout: AI_REQUEST_TIMEOUT_MS 
+      });
       if (res.data) {
         try {
           sessionStorage.setItem(dashboardCacheKey, JSON.stringify(res.data));
@@ -237,158 +259,25 @@ export default function DashboardScreen({ role, isDesktop }) {
     fetchAiDashboardInsights(false);
   }, [dashboardCacheKey]);
 
-  const periodFilteredData = useMemo(() => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth(); 
-    let startDate = null;
-    let endDate = null;
+  // 🌟 Client fallback for top branches in case backend returns empty top5
+  const clientFallbackTopBranches = useMemo(() => {
+    if (!activeLocations || activeLocations.length === 0) return [];
+    return activeLocations
+      .filter(loc => (loc.lastScore ?? loc.percentageScore) !== undefined)
+      .sort((a, b) => (b.lastScore ?? b.percentageScore ?? 0) - (a.lastScore ?? a.percentageScore ?? 0))
+      .slice(0, 5)
+      .map(b => ({
+        ...b,
+        effectiveScore: Math.round(b.lastScore ?? b.percentageScore ?? 0),
+        hasAudit: true
+      }));
+  }, [activeLocations]);
 
-    if (periodFilter === "month") {
-      startDate = new Date(currentYear, currentMonth, 1, 0, 0, 0, 0);
-      endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
-    } else if (periodFilter === "last_month") {
-      startDate = new Date(currentYear, currentMonth - 1, 1, 0, 0, 0, 0);
-      endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999);
-    } else if (periodFilter === "3m") {
-      startDate = new Date(currentYear, currentMonth - 2, 1, 0, 0, 0, 0);
-      endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
-    } else if (periodFilter === "6m") {
-      startDate = new Date(currentYear, currentMonth - 5, 1, 0, 0, 0, 0);
-      endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
-    } else if (periodFilter === "ytd") {
-      startDate = new Date(currentYear, 0, 1, 0, 0, 0, 0);
-      endDate = new Date(currentYear, 11, 31, 23, 59, 59, 999);
-    }
+  // รับผลรวม KPI สรุปจาก Database (พร้อม Stale-While-Revalidate In-Memory Cache)
+  const cacheKey = `${periodFilter}_${effectiveBrandId || 'all'}`;
+  const initialCached = dashboardApiCache.get(cacheKey);
 
-    let rawAudits = auditRecords || [];
-    let filteredAudits = rawAudits.filter(r => {
-      if (!startDate || !endDate) return true;
-      const d = parseAuditDate(r.auditDate || r.createdAt);
-      if (!d) return false;
-      return d >= startDate && d <= endDate;
-    });
-
-    let fallbackAudits = [];
-    if (rawAudits.length === 0) {
-      activeLocations.forEach(u => {
-        (u.history || []).forEach(h => {
-          const d = parseAuditDate(h.date || h.auditDate);
-          if (!startDate || !endDate || (d && d >= startDate && d <= endDate)) {
-            fallbackAudits.push({
-              locationId: u.id, locationName: u.name, locationFullName: u.fullName || u.name,
-              locationRegion: u.region, auditDate: h.date, score: h.score, percentageScore: h.score,
-              auditorName: h.auditor, isPassed: h.score >= 85, ...h
-            });
-          }
-        });
-      });
-    }
-
-    const effectiveAudits = rawAudits.length > 0 ? filteredAudits : fallbackAudits;
-
-    const filteredCaps = (capTasks || []).filter(c => {
-      if (!startDate || !endDate) return true;
-      const d = parseAuditDate(c.createdAt || c.dueDate);
-      if (!d) return true;
-      return d >= startDate && d <= endDate;
-    });
-
-    const branchStats = activeLocations.map(loc => {
-      const locAudits = effectiveAudits
-        .filter(r => 
-          (r.locationId && r.locationId === loc.id) || 
-          (r.locationName && (r.locationName === loc.name || r.locationName === loc.fullName)) ||
-          (r.location?.name && (r.location.name === loc.name || r.location.name === loc.fullName))
-        )
-        .sort((a, b) => {
-          const tA = new Date(a.auditDate || a.createdAt || a.date || 0).getTime();
-          const tB = new Date(b.auditDate || b.createdAt || b.date || 0).getTime();
-          return tB - tA || (b.id || 0) - (a.id || 0);
-        });
-
-      const latestInPeriod = locAudits[0] || null;
-      const scoreInPeriod = latestInPeriod ? Math.round(latestInPeriod.percentageScore !== undefined ? latestInPeriod.percentageScore : (latestInPeriod.score || 0)) : null;
-      // 🐛 FIX: the "last_month" filter used to fabricate a fake score (lastScore - 3,
-      // floored at 72) for branches with no audit in the period, instead of just showing
-      // their real cached lastScore like every other period filter does.
-      const displayScore = scoreInPeriod !== null ? scoreInPeriod : (loc.lastScore || 85);
-
-      return {
-        ...loc, auditsInPeriod: locAudits, latestAuditInPeriod: latestInPeriod,
-        hasAuditInPeriod: locAudits.length > 0, scoreInPeriod, displayScore, lastScore: displayScore
-      };
-    });
-
-    const auditedBranchesInPeriod = branchStats.filter(b => b.hasAuditInPeriod);
-    const auditedCountInPeriod = effectiveAudits.length > 0 ? auditedBranchesInPeriod.length : 0;
-    const activeScored = auditedBranchesInPeriod.length > 0 ? auditedBranchesInPeriod : branchStats;
-    const periodAvgScore = activeScored.length > 0 ? Math.round(activeScored.reduce((acc, b) => acc + (b.displayScore || 0), 0) / activeScored.length) : 0;
-
-    // 🐛 FIX: prevPeriodAvgScore used to be fabricated as "current average - 2.5", which
-    // made trendPercent mathematically guaranteed to be positive (or exactly 0) no matter
-    // how the branches actually performed — the trend arrow on the dashboard always
-    // claimed improvement. Compute the previous window from real audit records instead,
-    // using the same length of time immediately preceding the selected period.
-    let prevPeriodAvgScore = null;
-    if (startDate && endDate) {
-      const durationMs = endDate.getTime() - startDate.getTime();
-      const prevEndDate = new Date(startDate.getTime() - 1);
-      const prevStartDate = new Date(prevEndDate.getTime() - durationMs);
-
-      const prevAudits = rawAudits.filter(r => {
-        const d = parseAuditDate(r.auditDate || r.createdAt);
-        return d && d >= prevStartDate && d <= prevEndDate;
-      });
-
-      const prevScoresByBranch = activeLocations.map(loc => {
-        const locPrevAudits = prevAudits
-          .filter(r =>
-            (r.locationId && r.locationId === loc.id) ||
-            (r.locationName && (r.locationName === loc.name || r.locationName === loc.fullName)) ||
-            (r.location?.name && (r.location.name === loc.name || r.location.name === loc.fullName))
-          )
-          .sort((a, b) => {
-            const tA = new Date(a.auditDate || a.createdAt || a.date || 0).getTime();
-            const tB = new Date(b.auditDate || b.createdAt || b.date || 0).getTime();
-            return tB - tA || (b.id || 0) - (a.id || 0);
-          });
-        const latest = locPrevAudits[0];
-        if (!latest) return null;
-        return Math.round(latest.percentageScore !== undefined ? latest.percentageScore : (latest.score || 0));
-      }).filter(s => s !== null);
-
-      if (prevScoresByBranch.length > 0) {
-        prevPeriodAvgScore = Math.round(prevScoresByBranch.reduce((a, b) => a + b, 0) / prevScoresByBranch.length);
-      }
-    }
-
-    // No real data for the previous period → don't invent a trend, leave it unavailable.
-    const trendPercent = (prevPeriodAvgScore !== null && prevPeriodAvgScore > 0)
-      ? (((periodAvgScore - prevPeriodAvgScore) / prevPeriodAvgScore) * 100).toFixed(1)
-      : null;
-
-    const passedInPeriod = activeScored.filter(b => (b.displayScore || 0) >= 85).length;
-    const totalCount = activeLocations.length || 1;
-    const passDenominator = auditedCountInPeriod > 0 ? auditedCountInPeriod : totalCount;
-    const passRateInPeriod = Math.round((passedInPeriod / passDenominator) * 100);
-    const isClosedStatus = (status) => {
-      if (!status) return false;
-      const s = String(status).trim().toUpperCase();
-      return s === "CLOSED" || s === "APPROVED" || s === "DONE";
-    };
-    const capList = filteredCaps.length > 0 ? filteredCaps : (capTasks || []);
-    const pendingCapInPeriod = capList.filter(c => !isClosedStatus(c.status)).length;
-
-    return {
-      filteredAudits: effectiveAudits, filteredCaps, branchStats, totalBranches: activeLocations.length,
-      auditedCount: auditedCountInPeriod, avgScore: periodAvgScore, trendPercent: trendPercent,
-      passedCount: passedInPeriod, passRate: passRateInPeriod, pendingCapCount: pendingCapInPeriod
-    };
-  }, [periodFilter, auditRecords, capTasks, activeLocations]);
-
-  // รับผลรวม KPI สรุปจาก Database
-  const [dashboardStats, setDashboardStats] = useState({
+  const [dashboardStats, setDashboardStats] = useState(() => initialCached?.stats || {
     totalBranches: 0,
     auditedCount: 0,
     passedCount: 0,
@@ -397,17 +286,33 @@ export default function DashboardScreen({ role, isDesktop }) {
     trendPercent: null,
     pendingCaps: 0
   });
-  const [topBranches, setTopBranches] = useState([]);
-  const [categoryScores, setCategoryScores] = useState([]);
-  const [isStatsLoading, setIsStatsLoading] = useState(false);
+  const [topBranches, setTopBranches] = useState(() => initialCached?.topBranches || []);
+  const [categoryScores, setCategoryScores] = useState(() => initialCached?.categoryScores || []);
+  const [isStatsLoading, setIsStatsLoading] = useState(() => !initialCached);
 
   useEffect(() => {
     let isMounted = true;
-    setIsStatsLoading(true);
+    const currentKey = `${periodFilter}_${effectiveBrandId || 'all'}`;
+    const cached = dashboardApiCache.get(currentKey);
+    const now = Date.now();
+
+    // ⚡ ถ้ามีแคช ให้แสดงข้อมูลทันที 0ms ไม่มีหน้าจอกระพริบ
+    if (cached) {
+      setDashboardStats(cached.stats);
+      setTopBranches(cached.topBranches);
+      setCategoryScores(cached.categoryScores);
+      setIsStatsLoading(false);
+      // ถ้าแคชยังใหม่มาก (< 45 วินาที) ไม่ต้องยิง API ซ้ำซ้อน
+      if (now - cached.timestamp < 45000) {
+        return;
+      }
+    } else {
+      setIsStatsLoading(true);
+    }
 
     const queryParams = { period: periodFilter };
-    if (selectedBrandId) {
-      queryParams.brandId = selectedBrandId;
+    if (effectiveBrandId) {
+      queryParams.brandId = effectiveBrandId;
     }
 
     // ยิงดึง Overview, Rankings และ CategoryScores พร้อมกันตามรอบ Period และ Brand
@@ -417,21 +322,32 @@ export default function DashboardScreen({ role, isDesktop }) {
       api.get('/dashboard/category-scores', { params: queryParams })
     ]).then(([overviewRes, rankingRes, categoryRes]) => {
       if (!isMounted) return;
-      if (overviewRes.status === 'fulfilled' && overviewRes.value.data) {
-        setDashboardStats(overviewRes.value.data);
-      }
-      if (rankingRes.status === 'fulfilled' && rankingRes.value.data?.top5) {
-        setTopBranches(rankingRes.value.data.top5);
-      }
-      if (categoryRes.status === 'fulfilled' && Array.isArray(categoryRes.value.data)) {
-        setCategoryScores(categoryRes.value.data);
-      }
+      const newStats = (overviewRes.status === 'fulfilled' && overviewRes.value.data) 
+        ? overviewRes.value.data 
+        : (cached?.stats || dashboardStats);
+      const newTopBranches = (rankingRes.status === 'fulfilled' && rankingRes.value.data?.top5) 
+        ? rankingRes.value.data.top5 
+        : (cached?.topBranches || []);
+      const newCategoryScores = (categoryRes.status === 'fulfilled' && Array.isArray(categoryRes.value.data)) 
+        ? categoryRes.value.data 
+        : (cached?.categoryScores || []);
+
+      setDashboardStats(newStats);
+      setTopBranches(newTopBranches);
+      setCategoryScores(newCategoryScores);
+
+      dashboardApiCache.set(currentKey, {
+        stats: newStats,
+        topBranches: newTopBranches,
+        categoryScores: newCategoryScores,
+        timestamp: Date.now()
+      });
     }).finally(() => {
       if (isMounted) setIsStatsLoading(false);
     });
 
     return () => { isMounted = false; };
-  }, [periodFilter, selectedBrandId]);
+  }, [periodFilter, effectiveBrandId]);
 
   // ดึงตัวแปรสรุปจาก State แทน
   const { totalBranches, auditedCount, passedCount, passRate, avgScore, pendingCaps: pendingCapCount, trendPercent } = dashboardStats;
@@ -516,40 +432,83 @@ export default function DashboardScreen({ role, isDesktop }) {
       }));
     }
 
-    // 🌟 2. Client fallback: ดึงจาก periodFilteredData.branchStats เฉพาะสาขาที่ตรวจในรอบเวลานี้จริง!
-    const auditedInPeriod = (periodFilteredData?.branchStats || [])
-      .filter(b => b.hasAuditInPeriod && b.scoreInPeriod !== null)
-      .sort((a, b) => (b.scoreInPeriod || 0) - (a.scoreInPeriod || 0))
-      .slice(0, 5)
-      .map(b => ({
-        ...b,
-        effectiveScore: b.scoreInPeriod,
-        hasAudit: true
-      }));
+    // 🌟 2. Client fallback: ดึงจาก clientFallbackTopBranches
+    return clientFallbackTopBranches;
+  }, [topBranches, clientFallbackTopBranches]);
 
-    if (auditedInPeriod.length > 0) {
-      return auditedInPeriod;
-    }
-
-    return [];
-  }, [topBranches, periodFilteredData]);
+  const topPendingCapTopic = useMemo(() => {
+    if (!capTasks || capTasks.length === 0) return "";
+    const active = capTasks.filter(c => c.status !== "CLOSED" && c.status !== "closed" && c.status !== "CANCELLED" && c.status !== "cancelled");
+    if (active.length === 0) return "";
+    const topics = active
+      .map(c => {
+        if (c.categoryName && c.categoryName.trim() && c.categoryName.trim() !== "ทั่วไป") {
+          return c.categoryName.trim();
+        }
+        let text = (c.issueItem || "").replace(/\./g, '').trim();
+        if (text.toLowerCase().includes("take home")) return "สินค้า Take Home";
+        if (text.includes("ป้ายสินค้า")) return "ป้ายสินค้า";
+        const parts = text.split(/[-/(,]/).filter(Boolean);
+        let cleaned = parts.length > 1 && /^ข้อ(ที่)?\s*\d+/i.test(parts[0].trim()) ? parts[1].trim() : (parts[0] ? parts[0].trim() : text);
+        cleaned = cleaned.replace(/^(ข้อที่?\s*\d+[\s\-.:]*|\d+[\s\-.:]+)/i, '').trim();
+        return cleaned;
+      })
+      .filter(s => s && !/^ข้อ(ที่)?\s*\d+$/i.test(s));
+    const unique = Array.from(new Set(topics));
+    return unique.slice(0, 3).join(", ");
+  }, [capTasks]);
 
   const aiInsightsList = useMemo(() => [
-    { type: "highlight", icon: "✨", title: "จุดเด่น", iconClass: "text-[#0F6659]", bgClass: "bg-[#EFF8F6] border-[#A7D7CE]", text: aiInsightsData?.highlight || `คะแนนเฉลี่ยภาพรวม ${avgScore}% ผ่านเกณฑ์ ${passRate}%` },
-    { type: "attention", icon: "⚠️", title: "จุดเฝ้าระวัง", iconClass: "text-amber-600", bgClass: "bg-amber-50 border-amber-200", text: aiInsightsData?.attention || `มีงานค้างส่ง CAP ${pendingCapCount} รายการที่ต้องติดตาม` },
-    { type: "action", icon: "🎯", title: "ข้อเสนอแนะ", iconClass: "text-[#0F6659]", bgClass: "bg-emerald-50 border-emerald-200", text: aiInsightsData?.action || "เน้นย้ำมาตรฐานจุดตรวจที่ตกบ่อยและติดตามสม่ำเสมอ" }
-  ], [aiInsightsData, avgScore, passRate, pendingCapCount]);
+    { 
+      type: "highlight", 
+      icon: "✨", 
+      title: "จุดเด่น", 
+      iconClass: "text-[#0F6659]", 
+      bgClass: "bg-[#EFF8F6] border-[#A7D7CE]", 
+      text: aiInsightsData?.highlight || `คะแนนเฉลี่ยภาพรวม (${brandDisplayName}) ${avgScore}% ผ่านเกณฑ์ ${passRate}%` 
+    },
+    { 
+      type: "attention", 
+      icon: "⚠️", 
+      title: "จุดเฝ้าระวัง", 
+      iconClass: "text-amber-600", 
+      bgClass: "bg-amber-50 border-amber-200", 
+      text: aiInsightsData?.attention || (pendingCapCount > 0 
+        ? (topPendingCapTopic ? `งาน CAP ค้าง ${pendingCapCount} รายการ (พบปัญหา: ${topPendingCapTopic})` : `มีงานค้างส่ง CAP ${pendingCapCount} รายการที่ต้องติดตาม`)
+        : "ไม่มีงานค้างส่ง CAP จัดการได้ตามกรอบเวลา")
+    },
+    { 
+      type: "action", 
+      icon: "🎯", 
+      title: "ข้อเสนอแนะ", 
+      iconClass: "text-[#0F6659]", 
+      bgClass: "bg-emerald-50 border-emerald-200", 
+      text: (() => {
+        const act = aiInsightsData?.action;
+        // ถ้า action จาก API หรือ Cache เก่ายังมีคำว่า "ข้อ 14" หรือ "ข้อ XX" ล้วนๆ ให้กรองและแสดงผลหัวข้อปัญหาจริง
+        if (act && /เรื่อง\s*["'«]?ข้อ(ที่)?\s*\d+["'»]?/i.test(act)) {
+          if (topPendingCapTopic) {
+            return `กวดขันและแก้ไขปัญหาเรื่อง "${topPendingCapTopic}" ทันที`;
+          }
+          return "ติดตามและกวดขันการปฏิบัติตามมาตรฐานการตรวจประเมินอย่างใกล้ชิด";
+        }
+        return act || (topPendingCapTopic 
+          ? `กวดขันและแก้ไขปัญหาเรื่อง "${topPendingCapTopic}" ทันที` 
+          : "เน้นย้ำการสุ่มตรวจประเมินตามมาตรฐานอย่างต่อเนื่อง");
+      })()
+    }
+  ], [aiInsightsData, avgScore, passRate, pendingCapCount, topPendingCapTopic, brandDisplayName]);
   if (viewUnit) return <BranchProfile unit={viewUnit} onBack={() => setViewUnit(null)} />;
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto bg-[#FBFBF9] min-h-screen font-sans">
+    <div className="p-3.5 sm:p-6 space-y-4 sm:space-y-5 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto bg-[#FBFBF9] min-h-screen font-sans pb-28 sm:pb-8">
       
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Dashboard ภาพรวมมาตรฐาน Q.S.C.</h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">ระบบสรุปผลการตรวจประเมินคุณภาพสาขา</p>
+          <h1 className="text-lg sm:text-2xl font-bold text-slate-800 tracking-tight">Dashboard ภาพรวมมาตรฐาน Q.S.C.</h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5 sm:mt-1">ระบบสรุปผลการตรวจประเมินคุณภาพสาขา</p>
         </div>
-        <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
           <PeriodDropdown
             value={periodFilter}
             onChange={setPeriodFilter}
@@ -563,14 +522,14 @@ export default function DashboardScreen({ role, isDesktop }) {
           />
           <button
             onClick={() => setShowMonthlyModal(true)}
-            className="px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+            className="px-2.5 sm:px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
           >
             <BarChart3 size={13} className="text-[#0F6659]" />
             <span>รายงานประจำเดือน</span>
           </button>
           <button
             onClick={() => setShowExportModal(true)}
-            className="px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
+            className="px-2.5 sm:px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
           >
             <FileSpreadsheet size={13} className="text-[#0F6659]" />
             <span>ส่งออก Excel</span>
@@ -578,72 +537,72 @@ export default function DashboardScreen({ role, isDesktop }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
+        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="text-xs font-semibold text-slate-500 mb-1">Overall Score</div>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Overall Score</div>
             <InfoPopover 
               align="left"
               title="Overall Score"
               description="คะแนนประเมินเฉลี่ยของทุกสาขาที่ได้รับการตรวจในช่วงเวลาที่เลือก"
             />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="text-3xl font-bold text-slate-900 font-mono">{avgScore}%</div>
-            <div className={`text-xs font-bold mb-1 ${trendPercent === null ? "text-slate-400" : Number(trendPercent) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+          <div className="flex items-end gap-1.5 sm:gap-2">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{avgScore}%</div>
+            <div className={`text-[10px] sm:text-xs font-bold mb-0.5 sm:mb-1 ${trendPercent === null ? "text-slate-400" : Number(trendPercent) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
               {trendPercent === null ? "ไม่มีข้อมูลเทียบ" : `${Number(trendPercent) > 0 ? "+" : ""}${trendPercent}%`}
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="text-xs font-semibold text-slate-500 mb-1">Audits</div>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Audits</div>
             <InfoPopover 
               title="Audits"
               description="จำนวนสาขาที่ได้รับการตรวจประเมินแล้วเทียบกับสาขาทั้งหมด"
             />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="text-3xl font-bold text-slate-900 font-mono">{auditedCount}</div>
-            <div className="text-xs font-medium text-slate-400 mb-1">/ {totalBranches} สาขา</div>
+          <div className="flex items-end gap-1 sm:gap-2">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{auditedCount}</div>
+            <div className="text-[10px] sm:text-xs font-medium text-slate-400 mb-0.5 sm:mb-1">/ {totalBranches} สาขา</div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="text-xs font-semibold text-slate-500 mb-1">Pass Rate</div>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Pass Rate</div>
             <InfoPopover 
               align="left"
               title="Pass Rate"
               description="สัดส่วนเปอร์เซ็นต์ของสาขาที่ได้คะแนนผ่านเกณฑ์มาตรฐาน (ตั้งแต่ 85% ขึ้นไป)"
             />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="text-3xl font-bold text-slate-900 font-mono">{passRate}%</div>
-            <div className="text-xs font-medium text-emerald-600 mb-1">({passedCount} ผ่าน)</div>
+          <div className="flex items-end gap-1 sm:gap-2">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{passRate}%</div>
+            <div className="text-[10px] sm:text-xs font-medium text-emerald-600 mb-0.5 sm:mb-1">({passedCount} ผ่าน)</div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col justify-between">
+        <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="text-xs font-semibold text-slate-500 mb-1">Pending</div>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Pending</div>
             <InfoPopover 
               title="Pending CAP"
               description="จำนวนรายการแผนปฏิบัติการแก้ไข (CAP) ที่ยังรอดำเนินการหรือยังไม่ได้รับการอนุมัติ"
             />
           </div>
-          <div className="flex items-end gap-2">
-            <div className="text-3xl font-bold text-rose-600 font-mono">{pendingCapCount}</div>
-            <div className="text-xs font-medium text-rose-400 mb-1">รายการ</div>
+          <div className="flex items-end gap-1 sm:gap-2">
+            <div className="text-2xl sm:text-3xl font-bold text-rose-600 font-mono">{pendingCapCount}</div>
+            <div className="text-[10px] sm:text-xs font-medium text-rose-400 mb-0.5 sm:mb-1">รายการ</div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="md:col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col items-center justify-center relative">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+        <div className="md:col-span-1 bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 flex flex-col items-center justify-center relative min-w-0">
           <h3 className="text-sm font-bold text-slate-700 self-start mb-2">เป้าหมายมาตรฐาน</h3>
-          <div className="w-full h-40 relative flex items-center justify-center">
+          <div className="w-full h-32 sm:h-40 relative flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -653,7 +612,7 @@ export default function DashboardScreen({ role, isDesktop }) {
                   ]}
                   cx="50%" cy="80%"
                   startAngle={180} endAngle={0}
-                  innerRadius={60} outerRadius={80}
+                  innerRadius={50} outerRadius={70}
                   dataKey="value"
                   stroke="none"
                   cornerRadius={4}
@@ -661,7 +620,7 @@ export default function DashboardScreen({ role, isDesktop }) {
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-              <div className="text-4xl font-extrabold text-slate-900 font-mono">{avgScore}%</div>
+              <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 font-mono">{avgScore}%</div>
             </div>
             <div className="absolute top-[35%] right-[15%] flex flex-col items-center">
               <div className="w-1 h-3 bg-[#0F6659] rounded-full mb-1"></div>
@@ -673,8 +632,8 @@ export default function DashboardScreen({ role, isDesktop }) {
           </div>
         </div>
 
-        <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col">
-          <h3 className="text-sm font-bold text-slate-700 mb-4">แนวโน้มผลประเมิน</h3>
+        <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 flex flex-col min-w-0">
+          <h3 className="text-sm font-bold text-slate-700 mb-3 sm:mb-4">แนวโน้มผลประเมิน</h3>
           <div className="flex-1 w-full min-h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={comparisonData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -699,10 +658,10 @@ export default function DashboardScreen({ role, isDesktop }) {
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 ${!isBranchManager ? "lg:grid-cols-2" : ""} gap-5`}>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <h3 className="text-sm font-bold text-slate-700 mb-4">คะแนนรายหมวดหมู่</h3>
-          <div className="space-y-4">
+      <div className={`grid grid-cols-1 ${!isBranchManager ? "lg:grid-cols-2" : ""} gap-4 sm:gap-5`}>
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 min-w-0">
+          <h3 className="text-sm font-bold text-slate-700 mb-3 sm:mb-4">คะแนนรายหมวดหมู่</h3>
+          <div className="space-y-3.5 sm:space-y-4">
             {categoryScores.map((cat, i) => (
               <div key={i}>
                 <div className="flex justify-between items-center mb-1.5">
@@ -722,8 +681,8 @@ export default function DashboardScreen({ role, isDesktop }) {
         </div>
 
         {!isBranchManager && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col">
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 flex flex-col min-w-0">
+            <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h3 className="text-sm font-bold text-slate-700">อันดับสาขา (Top 5)</h3>
             </div>
             <div className="overflow-x-auto flex-1">

@@ -2,10 +2,18 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Camera, Check, X, AlertTriangle, Wrench, MapPin, Store, ChevronRight, Plus, Calendar, FileText, Loader2, Layers, ClipboardList } from "lucide-react";
 
 import ModalWrapper from "../../shared/ModalWrapper";
-import { compressImageFile } from "../../utils/imageCompressor";
+import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import LocationSelectModal from "../../modals/LocationSelectModal";
 import api from "../../config/api";
+
+export const CORE_SCORE_CATEGORIES = [
+  "ความสะอาด",
+  "เอกสาร",
+  "กระบวนการทำงาน",
+  "คุณภาพสินค้า",
+  "การบริการ"
+];
 
 export default function NewRemediationModal({ onClose, onSuccess, locations = [], currentUser }) {
   const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || null);
@@ -65,19 +73,26 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
     }
   }, [applicableForms]);
 
-  // ดึงหมวดหมู่ (CategoryName) จากฟอร์มที่เลือก
+  // 🏷️ ดึงเฉพาะ "หมวดของคะแนน" (Score Categories) ไม่นำหมวดคำถาม/โซนการตรวจ (Section Title) มารวม
   const availableCategories = useMemo(() => {
-    if (!selectedFormId) return [];
-    const currentForm = applicableForms.find(f => f.id.toString() === selectedFormId.toString());
-    if (!currentForm || !currentForm.sections) return [];
-
     const catSet = new Set();
-    currentForm.sections.forEach(sec => {
-      if (sec.title) catSet.add(sec.title.trim());
-      (sec.items || []).forEach(item => {
-        if (item.categoryName) catSet.add(item.categoryName.trim());
-      });
-    });
+
+    // 1. ดึงจาก item.categoryName ในฟอร์มที่เลือก (เฉพาะหมวดของคะแนน)
+    if (selectedFormId) {
+      const currentForm = applicableForms.find(f => f.id.toString() === selectedFormId.toString());
+      if (currentForm && currentForm.sections) {
+        currentForm.sections.forEach(sec => {
+          (sec.items || []).forEach(item => {
+            let cat = (item.categoryName || item.category || "").trim();
+            if (cat === "คุณภาพสินค้า-วัตถุดิบ") cat = "คุณภาพสินค้า";
+            if (cat) catSet.add(cat);
+          });
+        });
+      }
+    }
+
+    // 2. ให้มี 5 หมวดคะแนนหลักตามมาตรฐาน QSC เป็นตัวเลือกเสมอ
+    CORE_SCORE_CATEGORIES.forEach(core => catSet.add(core));
 
     return Array.from(catSet);
   }, [selectedFormId, applicableForms]);
@@ -87,20 +102,42 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
     if (availableCategories.length > 0) {
       setSelectedCategoryName(availableCategories[0]);
     } else {
-      setSelectedCategoryName("ทั่วไป");
+      setSelectedCategoryName("ความสะอาด");
     }
   }, [availableCategories]);
 
   const handleFileChange = async (e) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+
+    const rawFileList = Array.from(files);
+    const validFiles = [];
+    const validationErrors = [];
+
+    for (const f of rawFileList) {
+      const check = validateImageFile(f);
+      if (!check.valid) {
+        validationErrors.push(`${f.name || "ไฟล์"}: ${check.message}`);
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      setFormError(validationErrors.join(" | "));
+      if (validFiles.length === 0) {
+        e.target.value = "";
+        return;
+      }
+    }
+
     try {
-      const fileList = Array.from(files);
-      const compressedUrls = await Promise.all(fileList.map(f => compressImageFile(f)));
+      const compressedUrls = await Promise.all(validFiles.map(f => compressImageFile(f)));
       setPhotos(prev => [...prev, ...compressedUrls]);
-      if (formError) setFormError(null);
+      if (formError && validationErrors.length === 0) setFormError(null);
     } catch (err) {
       console.error("Compression error:", err);
+      setFormError("เกิดข้อผิดพลาดในการประมวลผลรูปภาพ กรุณาลองใหม่อีกครั้ง");
     }
     e.target.value = "";
   };
@@ -174,7 +211,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
         <div className="space-y-1.5">
           <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
             <MapPin size={14} className="text-[#0F6659]" />
-            <span>1. สาขาที่ต้องการมอบหมายงานแก้ไข <span className="text-rose-500">*</span></span>
+            <span>สาขาที่ต้องการมอบหมายงานแก้ไข <span className="text-rose-500">*</span></span>
           </label>
           <div
             onClick={() => setShowLocationSelectModal(true)}
@@ -204,7 +241,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
               <ClipboardList size={14} className="text-[#0F6659]" />
-              <span>2. แบบฟอร์มตรวจประเมิน</span>
+              <span>แบบฟอร์มตรวจประเมิน</span>
             </label>
             <select
               value={selectedFormId}
@@ -225,7 +262,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
               <Layers size={14} className="text-[#0F6659]" />
-              <span>3. หมวดหมู่ข้อบกพร่อง</span>
+              <span>หมวดหมู่ข้อบกพร่อง</span>
             </label>
             <select
               value={selectedCategoryName}
@@ -309,7 +346,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
             )}
           </div>
 
-          <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+          <input type="file" accept="image/jpeg,image/png,image/webp" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" />
 
           {photos.length > 0 ? (
             <div className="grid grid-cols-4 gap-2">
