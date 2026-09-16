@@ -280,6 +280,9 @@ export default function DashboardScreen({ role, isDesktop }) {
   const [dashboardStats, setDashboardStats] = useState(() => initialCached?.stats || {
     totalBranches: 0,
     auditedCount: 0,
+    totalInspections: 0,
+    prevTotalInspections: 0,
+    inspectionDiff: null,
     passedCount: 0,
     passRate: 0,
     avgScore: 0,
@@ -350,7 +353,7 @@ export default function DashboardScreen({ role, isDesktop }) {
   }, [periodFilter, effectiveBrandId]);
 
   // ดึงตัวแปรสรุปจาก State แทน
-  const { totalBranches, auditedCount, passedCount, passRate, avgScore, pendingCaps: pendingCapCount, trendPercent } = dashboardStats;
+  const { totalBranches, auditedCount, totalInspections, prevTotalInspections, inspectionDiff, passedCount, passRate, avgScore, pendingCaps: pendingCapCount, trendPercent } = dashboardStats;
 
   const { currentMonthLabel, lastMonthLabel } = useMemo(() => {
     const now = new Date();
@@ -540,27 +543,25 @@ export default function DashboardScreen({ role, isDesktop }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
         <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Overall Score</div>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Total Audits</div>
             <InfoPopover 
               align="left"
-              title="Overall Score"
-              description="คะแนนประเมินเฉลี่ยของทุกสาขาที่ได้รับการตรวจในช่วงเวลาที่เลือก"
+              title="Total Audits"
+              description="จำนวนครั้งการตรวจประเมินทั้งหมดที่เกิดขึ้นจริงในช่วงเวลาที่เลือก (รวมการตรวจซ้ำของสาขา)"
             />
           </div>
-          <div className="flex items-end gap-1.5 sm:gap-2">
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{avgScore}%</div>
-            <div className={`text-[10px] sm:text-xs font-bold mb-0.5 sm:mb-1 ${trendPercent === null ? "text-slate-400" : Number(trendPercent) >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-              {trendPercent === null ? "ไม่มีข้อมูลเทียบ" : `${Number(trendPercent) > 0 ? "+" : ""}${trendPercent}%`}
-            </div>
+          <div className="flex items-end gap-1 sm:gap-2">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{totalInspections || auditedCount}</div>
+            <div className="text-[10px] sm:text-xs font-medium text-slate-400 mb-0.5 sm:mb-1">ครั้ง</div>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between">
-            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Audits</div>
+            <div className="text-[11px] sm:text-xs font-semibold text-slate-500 mb-0.5 sm:mb-1">Audited Branches</div>
             <InfoPopover 
-              title="Audits"
-              description="จำนวนสาขาที่ได้รับการตรวจประเมินแล้วเทียบกับสาขาทั้งหมด"
+              title="Audited Branches"
+              description="จำนวนสาขาที่ได้รับการตรวจประเมินแล้วอย่างน้อย 1 ครั้ง เทียบกับสาขาทั้งหมด"
             />
           </div>
           <div className="flex items-end gap-1 sm:gap-2">
@@ -622,14 +623,20 @@ export default function DashboardScreen({ role, isDesktop }) {
             <div className="absolute top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
               <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 font-mono">{avgScore}%</div>
             </div>
-            <div className="absolute top-[35%] right-[15%] flex flex-col items-center">
-              <div className="w-1 h-3 bg-[#0F6659] rounded-full mb-1"></div>
+            <div className="absolute top-[35%] right-[12%] sm:right-[15%] flex flex-col items-center pointer-events-none">
+              <div className="w-1 h-3 bg-[#0F6659] rounded-full mb-0.5"></div>
               <div className="text-[10px] font-bold text-slate-500">≥85%</div>
             </div>
           </div>
           <div className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${avgScore >= 85 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
             {avgScore >= 85 ? "✓ บรรลุเป้าหมายมาตรฐาน" : "⚠️ ต่ำกว่าเป้าหมายมาตรฐาน"}
           </div>
+          {trendPercent !== null && (
+            <div className={`mt-1.5 text-xs font-bold flex items-center justify-center gap-1 ${Number(trendPercent) >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+              <span>{Number(trendPercent) > 0 ? "▲ +" : Number(trendPercent) < 0 ? "▼ " : ""}{trendPercent}%</span>
+              <span className="text-[11px] font-normal text-slate-400">เทียบช่วงก่อน</span>
+            </div>
+          )}
         </div>
 
         <div className="md:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 flex flex-col min-w-0">

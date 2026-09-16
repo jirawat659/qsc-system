@@ -63,6 +63,10 @@ namespace QSC.Api.Controllers
                 .Select(g => g.OrderByDescending(a => a.AuditDate).ThenByDescending(a => a.Id).First())
                 .ToList();
 
+            int totalInspections = periodAudits.Count;
+            int prevTotalInspections = prevPeriodAudits.Count;
+            int? inspectionDiff = (prevPeriodAudits.Count > 0 || periodAudits.Count > 0) ? (totalInspections - prevTotalInspections) : null;
+
             int auditedCount = latestAuditsByLoc.Count;
             int passedCount = latestAuditsByLoc.Count(a => a.IsPassed);
             double passRate = auditedCount > 0 ? Math.Round((double)passedCount / auditedCount * 100.0, 1) : 0.0;
@@ -82,6 +86,9 @@ namespace QSC.Api.Controllers
             {
                 totalBranches,
                 auditedCount,
+                totalInspections,
+                prevTotalInspections,
+                inspectionDiff,
                 passedCount,
                 passRate,
                 avgScore,
