@@ -199,7 +199,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                   exportMode === "all" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                📊 รวมทุกสาขาทั่วประเทศ
+                รวมทุกสาขา
               </button>
               <button
                 type="button"
@@ -208,7 +208,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                   exportMode === "detailed_questions" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                🏢 ค้นหาเลือกรายสาขา
+                ค้นหาเลือกรายสาขา
               </button>
             </div>
 
@@ -222,7 +222,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                       onChange={(e) => setTimeRange(e.target.value)}
                       className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                     >
-                      <option value="all">ทั้งหมด (ทุกรอบตรวจที่บันทึกไว้)</option>
+                      <option value="all">ทั้งหมด</option>
                       <option value="1M">รอบตรวจ 1 เดือนล่าสุด (สิงหาคม 2569)</option>
                       <option value="3M">รอบตรวจย้อนหลัง 3 เดือน (Q3 2569)</option>
                       <option value="6M">รอบตรวจย้อนหลัง 6 เดือน (มี.ค. - ส.ค. 69)</option>
