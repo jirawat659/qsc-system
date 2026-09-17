@@ -203,6 +203,7 @@ export default function BrandManagementTab({ brands = [], loading, onRefresh, sh
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 rows={2}
                 className="w-full px-4.5 py-3 rounded-2xl border border-slate-200 text-sm focus:border-[#0F6659] outline-none shadow-xs resize-none"
+                placeholder="ระบุรายละเอียดของแบรนด์นี้..."
               />
             </div>
             <div 

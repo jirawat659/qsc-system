@@ -37,6 +37,21 @@ function getBrandsForLoc(locId, directLoc, activeLocations) {
   return brands.join(" ");
 }
 
+// 🌟 ฟังก์ชันแปลงวันที่ให้ล็อกเป็น Timezone ประเทศไทย (+07:00 Asia/Bangkok) เสมอ (L1)
+export function formatThaiAuditDate(rawDate) {
+  if (!rawDate) return "-";
+  try {
+    return new Date(rawDate).toLocaleDateString('th-TH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'Asia/Bangkok'
+    });
+  } catch {
+    return String(rawDate).split('T')[0] || "-";
+  }
+}
+
 // 🌟 แปลง audit record ดิบ (จาก /audit/records ไม่ว่าจะมาจาก buffer หรือ fetch ตรงด้วย startDate/endDate)
 // ให้เป็น log object ที่หน้านี้ใช้แสดงผล — แยกออกมาเป็นฟังก์ชันระดับโมดูลเพื่อใช้ซ้ำได้ทั้งสองทาง
 function buildCompletedLog(r, forms, activeLocations) {
@@ -44,7 +59,7 @@ function buildCompletedLog(r, forms, activeLocations) {
   const branchName = r.locationName || r.location?.name || "-";
   const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "-";
   const rawDate = r.auditDate || r.createdAt;
-  const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+  const dateFormatted = formatThaiAuditDate(rawDate);
   const timestamp = parseAuditTimestamp(rawDate, r.id);
   const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
   const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
@@ -273,7 +288,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const branchName = d.locationName || d.location?.name || "-";
         const branchFullName = d.locationFullName || d.locationName || d.location?.fullName || d.location?.name || "-";
         const rawDate = d.updatedAt || d.createdAt || d.startedAt || null;
-        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        const dateFormatted = formatThaiAuditDate(rawDate);
         const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher
         
         const formId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id;
@@ -385,7 +400,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const branchName = s.locationName || s.location?.name || "-";
         const branchFullName = s.locationName || s.location?.fullName || s.location?.name || "-";
         const rawDate = s.scheduledDate || null;
-        let dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        let dateFormatted = formatThaiAuditDate(rawDate);
         
         // Add time if available
         if (s.scheduledTime || s.time) {
@@ -642,7 +657,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       const mappedHistory = branchAudits.map(r => {
         const score = Math.round(r.percentageScore || 0);
         const rawDate = r.auditDate || r.createdAt;
-        const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
+        const dateFormatted = formatThaiAuditDate(rawDate);
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
         const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "-";
         return {
@@ -668,7 +683,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       const rawDate = lastAudit?.auditDate || lastAudit?.date || u.lastAuditDate || null;
       const timestamp = parseAuditTimestamp(rawDate, u.id);
       const lastScore = lastAudit ? lastAudit.score : (u.lastScore !== undefined ? u.lastScore : 0);
-      const dateFormatted = rawDate ? (lastAudit?.date || new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })) : "-";
+      const dateFormatted = rawDate ? (lastAudit?.date || formatThaiAuditDate(rawDate)) : "-";
       const locTypeName = u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "-";
 
       return {
@@ -995,8 +1010,11 @@ const handleTriggerAudit = (record) => {
           <button
             type="button"
             onClick={() => {
-              if (onExportExcel) onExportExcel();
-              setShowExportModal(true);
+              if (onExportExcel) {
+                onExportExcel();
+              } else {
+                setShowExportModal(true);
+              }
             }}
             className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-white border border-slate-200 hover:border-[#0F6659] hover:bg-emerald-50 text-xs font-bold text-slate-700 hover:text-[#0F6659] cursor-pointer shadow-2xs transition-all active:scale-95 shrink-0"
             title="ส่งออกรายงานเป็น Excel"

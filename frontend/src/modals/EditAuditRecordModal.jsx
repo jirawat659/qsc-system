@@ -710,6 +710,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setSubmittedAt(toDatetimeLocal(currentRecord.submittedAt || currentRecord.signedAt || currentRecord.auditDate || new Date().toISOString()));
   };
 
+  // 🛡️ L4: ป้องกัน memory leak / set state on unmounted component กรณีปิด Modal ขณะรอ GPS
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // 📍 ดึงพิกัด GPS ปัจจุบันมากรอกอัตโนมัติ — แยกอิสระตาม targetType ("start" หรือ "end")
   // (จุดที่แก้จากของเดิม: เดิมปุ่มของแต่ละช่วงเรียก fetchCurrentCoordinates("both") เหมือนกันหมด
   // ทำให้กดปุ่ม "พิกัดเริ่มตรวจ" แล้วดันไปทับพิกัด "หลังตรวจ" ด้วยโดยไม่ตั้งใจ)
@@ -730,6 +739,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
 
     const applyLocation = (coords) => {
+      if (!isMountedRef.current) return;
       if (!coords?.latitude || !coords?.longitude) {
         if (isStart) setIsFetchingStartGps(false);
         if (isEnd) setIsFetchingEndGps(false);
@@ -753,6 +763,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       setGpsSuccess({ start: isStart, end: isEnd });
 
       setTimeout(() => {
+        if (!isMountedRef.current) return;
         setGpsSuccess({ start: false, end: false });
       }, 3000);
     };
@@ -763,6 +774,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         applyLocation(pos.coords);
       },
       (err1) => {
+        if (!isMountedRef.current) return;
         if (err1.code === 1) {
           if (isStart) setIsFetchingStartGps(false);
           if (isEnd) setIsFetchingEndGps(false);
@@ -776,6 +788,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             applyLocation(pos.coords);
           },
           (err2) => {
+            if (!isMountedRef.current) return;
             if (isStart) setIsFetchingStartGps(false);
             if (isEnd) setIsFetchingEndGps(false);
             if (err2.code === 1) {

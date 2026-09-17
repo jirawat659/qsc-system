@@ -161,9 +161,9 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "กรุณาระบุชื่อผู้ใช้งาน" });
             }
 
-            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
+            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 4)
             {
-                return BadRequest(new { message = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
+                return BadRequest(new { message = "รหัสผ่านเริ่มต้นต้องมีความยาวอย่างน้อย 4 ตัวอักษร" });
             }
 
             var trimmedUsername = dto.Username.Trim();

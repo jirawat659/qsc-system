@@ -141,7 +141,7 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
             <div>
               <label htmlFor="change-new-password" className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
                 <Key size={13} className="text-[#0F6659]" />
-                <span>รหัสผ่านใหม่ (อย่างน้อย 8 ตัวอักษร)</span>
+                <span>รหัสผ่านใหม่ (อย่างน้อย 6 ตัวอักษร)</span>
                 <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
@@ -151,11 +151,11 @@ export default function ChangePasswordModal({ user, onClose, onSuccess }) {
                   type={showNew ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="กรอกรหัสผ่านใหม่อย่างน้อย 8 ตัวอักษร"
+                  placeholder="กรอกรหัสผ่านใหม่อย่างน้อย 6 ตัวอักษร"
                   className="w-full text-xs sm:text-sm px-3.5 py-2.5 pr-10 rounded-xl bg-slate-50 border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659] focus:bg-white transition-all shadow-2xs"
                   autoComplete="new-password"
                   required
-                  minLength={8}
+                  minLength={6}
                 />
                 <button
                   type="button"

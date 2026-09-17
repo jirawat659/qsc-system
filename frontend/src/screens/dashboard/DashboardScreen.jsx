@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { CalendarDays, ChevronDown, CheckCircle2, Sparkles, BarChart3, FileSpreadsheet, Info, X } from "lucide-react";
+import { CalendarDays, ChevronDown, CheckCircle2, Sparkles, BarChart3, FileSpreadsheet, Info, X, AlertCircle } from "lucide-react";
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, AreaChart, Area, PieChart, Pie } from "recharts";
 
 import { c, mono, cardStyle } from "../../config/theme";
@@ -289,6 +289,8 @@ export default function DashboardScreen({ role, isDesktop }) {
   const [topBranches, setTopBranches] = useState(() => initialCached?.topBranches || []);
   const [categoryScores, setCategoryScores] = useState(() => initialCached?.categoryScores || []);
   const [isStatsLoading, setIsStatsLoading] = useState(() => !initialCached);
+  const [isFetchError, setIsFetchError] = useState(false);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -302,8 +304,8 @@ export default function DashboardScreen({ role, isDesktop }) {
       setTopBranches(cached.topBranches);
       setCategoryScores(cached.categoryScores);
       setIsStatsLoading(false);
-      // ถ้าแคชยังใหม่มาก (< 45 วินาที) ไม่ต้องยิง API ซ้ำซ้อน
-      if (now - cached.timestamp < 45000) {
+      // ถ้าแคชยังใหม่มาก (< 45 วินาที) และไม่ได้กดลองใหม่ ไม่ต้องยิง API ซ้ำซ้อน
+      if (now - cached.timestamp < 45000 && retryTrigger === 0) {
         return;
       }
     } else {
@@ -322,6 +324,9 @@ export default function DashboardScreen({ role, isDesktop }) {
       api.get('/dashboard/category-scores', { params: queryParams })
     ]).then(([overviewRes, rankingRes, categoryRes]) => {
       if (!isMounted) return;
+      const isAnyFailed = overviewRes.status === 'rejected' || rankingRes.status === 'rejected' || categoryRes.status === 'rejected';
+      setIsFetchError(isAnyFailed);
+
       const newStats = (overviewRes.status === 'fulfilled' && overviewRes.value.data) 
         ? overviewRes.value.data 
         : (cached?.stats || dashboardStats);
@@ -336,18 +341,20 @@ export default function DashboardScreen({ role, isDesktop }) {
       setTopBranches(newTopBranches);
       setCategoryScores(newCategoryScores);
 
-      dashboardApiCache.set(currentKey, {
-        stats: newStats,
-        topBranches: newTopBranches,
-        categoryScores: newCategoryScores,
-        timestamp: Date.now()
-      });
+      if (!isAnyFailed) {
+        dashboardApiCache.set(currentKey, {
+          stats: newStats,
+          topBranches: newTopBranches,
+          categoryScores: newCategoryScores,
+          timestamp: Date.now()
+        });
+      }
     }).finally(() => {
       if (isMounted) setIsStatsLoading(false);
     });
 
     return () => { isMounted = false; };
-  }, [periodFilter, effectiveBrandId]);
+  }, [periodFilter, effectiveBrandId, retryTrigger]);
 
   // ดึงตัวแปรสรุปจาก State แทน
   const { totalBranches, auditedCount, totalInspections, prevTotalInspections, inspectionDiff, passedCount, passRate, avgScore, pendingCaps: pendingCapCount, trendPercent } = dashboardStats;
@@ -536,6 +543,26 @@ export default function DashboardScreen({ role, isDesktop }) {
           </button>
         </div>
       </div>
+
+      {/* ⚠️ L2: แจ้งเตือนกรณีไม่สามารถรีเฟรชข้อมูลล่าสุดได้ */}
+      {isFetchError && (
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold shadow-2xs">
+          <AlertCircle size={16} className="text-amber-600 shrink-0" />
+          <span className="flex-1">ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อรีเฟรชข้อมูลล่าสุดได้ ระบบกำลังแสดงข้อมูลแคชเดิม</span>
+          <button 
+            type="button"
+            onClick={() => {
+              dashboardApiCache.clear();
+              setIsStatsLoading(true);
+              setIsFetchError(false);
+              setRetryTrigger(prev => prev + 1);
+            }}
+            className="px-2.5 py-1 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 text-[11px] font-bold cursor-pointer transition-colors shrink-0"
+          >
+            ลองใหม่
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-4">
         <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-xs sm:shadow-sm flex flex-col justify-between">

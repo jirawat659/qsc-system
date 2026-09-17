@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag } from "lucide-react";
+import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag, Eye, EyeOff } from "lucide-react";
 import api from '../../config/api';
 import Header from '../../shared/Header';
 import ModalWrapper from '../../shared/ModalWrapper';
@@ -42,6 +42,7 @@ export default function MasterManagementScreen({ onBack }) {
   // ── Modals State ──
   // 1. User Modals
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAddUserPassword, setShowAddUserPassword] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [editUserForm, setEditUserForm] = useState({
     fullName: '',
@@ -278,6 +279,10 @@ export default function MasterManagementScreen({ onBack }) {
 
       // 2. If newPassword is provided, reset password
       if (editUserForm.newPassword && editUserForm.newPassword.trim()) {
+        if (editUserForm.newPassword.trim().length < 6) {
+          showToast('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร', true);
+          return;
+        }
         await api.post(`/auth/reset-password`, {
           userId: editUser.id,
           newPassword: editUserForm.newPassword.trim()
@@ -288,7 +293,7 @@ export default function MasterManagementScreen({ onBack }) {
       setEditUser(null);
       loadAllData(true);
     } catch (err) {
-      showToast('แก้ไขข้อมูลผู้ใช้ไม่สำเร็จ', true);
+      showToast(err.response?.data?.message || 'แก้ไขข้อมูลผู้ใช้ไม่สำเร็จ', true);
     }
   };
 
@@ -298,11 +303,16 @@ export default function MasterManagementScreen({ onBack }) {
       showToast('กรุณากรอกชื่อผู้ใช้และชื่อ-นามสกุลให้ครบถ้วน', true);
       return;
     }
+    if (!userForm.password || userForm.password.length < 4) {
+      showToast('รหัสผ่านเริ่มต้นต้องมีความยาวอย่างน้อย 4 ตัวอักษร', true);
+      return;
+    }
 
     try {
       await api.post('/user', {...userForm, brandIds: userForm.brandScope === 'SPECIFIC' ? userForm.allowedBrandIds : []});
       showToast(`✓ สร้างบัญชีผู้ใช้ "${userForm.fullName}" สำเร็จ`);
       setShowAddUserModal(false);
+      setShowAddUserPassword(false);
       setUserForm({
         username: '',
         fullName: '',
@@ -348,21 +358,10 @@ export default function MasterManagementScreen({ onBack }) {
         ...basicFields
       });
 
-      // 🌟 Sync การผูกแบรนด์ (LocationBrands) ให้ตรงกับที่เลือกไว้ในฟอร์ม
-      // 🌟 ไม่มีแนวคิด "แบรนด์หลัก" อีกต่อไป (คอลัมน์ IsPrimary ถูกถอดออกจาก
-      // LocationBrand แล้วตาม Phase 4.1) — ผูกทุกแบรนด์ที่เลือกไว้อย่างเท่าเทียมกัน
-      const originalIds = (editLocation.locationBrands || []).map(lb => lb.brandId);
-      const toBind = boundBrandIds.filter(id => !originalIds.includes(id));
-      const toUnbind = originalIds.filter(id => !boundBrandIds.includes(id));
-
-      await Promise.allSettled([
-        ...toBind.map(brandId =>
-          api.post(`/location/${editLocation.id}/brands`, { brandId })
-        ),
-        ...toUnbind.map(brandId =>
-          api.delete(`/location/${editLocation.id}/brands/${brandId}`)
-        ),
-      ]);
+      // 🌟 Sync การผูกแบรนด์ (LocationBrands) ให้ตรงกับที่เลือกไว้ในฟอร์มใน Transaction เดียว
+      await api.put(`/location/${editLocation.id}/brands`, {
+        brandIds: boundBrandIds
+      });
 
       showToast(`✓ บันทึกสถานที่ "${editLocationForm.name}" สำเร็จ`);
       setEditLocation(null);
@@ -384,14 +383,11 @@ export default function MasterManagementScreen({ onBack }) {
       const created = await api.post('/location', basicFields);
       const newLocationId = created.data?.id;
 
-      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้าง (ทีละตัว เท่ากันทุกแบรนด์
-      // ไม่มีแบรนด์หลักอีกต่อไป)
+      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้างใน Transaction เดียว
       if (newLocationId && boundBrandIds.length > 0) {
-        await Promise.allSettled(
-          boundBrandIds.map(brandId =>
-            api.post(`/location/${newLocationId}/brands`, { brandId })
-          )
-        );
+        await api.put(`/location/${newLocationId}/brands`, {
+          brandIds: boundBrandIds
+        });
       }
 
       showToast(`✓ เพิ่มสถานที่/สาขา "${locationForm.name}" สำเร็จ`);
@@ -1382,13 +1378,15 @@ export default function MasterManagementScreen({ onBack }) {
               <div className="p-4.5 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-2.5">
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
                   <Key size={17} className="text-[#0F6659]" />
-                  <span>รีเซ็ตรหัสผ่านใหม่ (Reset Password)</span>
+                  <span>รีเซ็ตรหัสผ่านใหม่</span>
+                  <span className="text-xs text-slate-400 font-normal">(อย่างน้อย 6 ตัว)</span>
                 </div>
                 <input
                   type="text"
                   placeholder="กรอกรหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)"
                   value={editUserForm.newPassword || ''}
                   onChange={(e) => setEditUserForm({ ...editUserForm, newPassword: e.target.value })}
+                  minLength={6}
                   className="w-full px-4.5 py-3 rounded-xl bg-white border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
                 />
               </div>
@@ -1492,13 +1490,26 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   รหัสผ่านเริ่มต้น <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="password"
-                  value={userForm.password}
-                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showAddUserPassword ? "text" : "password"}
+                    value={userForm.password}
+                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    className="w-full pl-4.5 pr-12 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                    placeholder="กรอกรหัสผ่านเริ่มต้น..."
+                    minLength={4}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUserPassword(prev => !prev)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 active:text-[#0F6659] cursor-pointer rounded-lg transition-colors"
+                    aria-label={showAddUserPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                    title={showAddUserPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  >
+                    {showAddUserPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
+                </div>
               </div>
 
               <div>

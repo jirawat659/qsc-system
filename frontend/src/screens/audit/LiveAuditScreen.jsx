@@ -498,6 +498,215 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
   );
 }
 
+// 📱 Mobile Pull-to-Dismiss Quick Navigation Drawer (แตะแล้วดึง/ลากลงมาเพื่อปิด)
+function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, onSelectCategory }) {
+  const [mounted, setMounted] = useState(false);
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const startYRef = useRef(0);
+  const currentYRef = useRef(0);
+  const startTimeRef = useRef(0);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      setMounted(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const triggerClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 220);
+  }, [isClosing, onClose]);
+
+  // Touch handlers for Grab Handle & Header Bar
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    startYRef.current = touch.clientY;
+    currentYRef.current = touch.clientY;
+    startTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - startYRef.current;
+    if (deltaY > 0) {
+      currentYRef.current = touch.clientY;
+      setDragY(deltaY);
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+
+    const deltaY = currentYRef.current - startYRef.current;
+    const elapsed = Math.max(1, Date.now() - startTimeRef.current);
+    const velocity = deltaY / elapsed;
+
+    if (deltaY >= 65 || (deltaY > 20 && velocity >= 0.25)) {
+      triggerClose();
+    } else {
+      setDragY(0);
+    }
+  };
+
+  // Mouse handlers for desktop testing / devtools
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    startYRef.current = e.clientY;
+    currentYRef.current = e.clientY;
+    startTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+
+    const onMouseMove = (moveEvent) => {
+      const deltaY = moveEvent.clientY - startYRef.current;
+      if (deltaY > 0) {
+        currentYRef.current = moveEvent.clientY;
+        setDragY(deltaY);
+      } else {
+        setDragY(0);
+      }
+    };
+
+    const onMouseUp = (upEvent) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      isDraggingRef.current = false;
+      setIsDragging(false);
+
+      const deltaY = upEvent.clientY - startYRef.current;
+      const elapsed = Math.max(1, Date.now() - startTimeRef.current);
+      const velocity = deltaY / elapsed;
+
+      if (deltaY >= 65 || (deltaY > 20 && velocity >= 0.25)) {
+        triggerClose();
+      } else {
+        setDragY(0);
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const currentTranslateY = isClosing
+    ? '100%'
+    : !mounted
+      ? '100%'
+      : dragY > 0
+        ? `${dragY}px`
+        : '0px';
+
+  const backdropAlpha = isClosing || !mounted
+    ? 0
+    : dragY > 0
+      ? Math.max(0.05, 0.6 * (1 - dragY / 320))
+      : 0.6;
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] flex flex-col justify-end backdrop-blur-xs"
+      style={{
+        backgroundColor: `rgba(0, 0, 0, ${backdropAlpha})`,
+        transition: isDragging ? 'none' : 'background-color 0.22s ease-out',
+      }}
+    >
+      <div className="fixed inset-0" onClick={triggerClose} />
+
+      <div
+        className="relative z-10 w-full max-w-lg mx-auto bg-white rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col overflow-hidden"
+        style={{
+          transform: `translateY(${currentTranslateY})`,
+          transition: isDragging ? 'none' : 'transform 0.22s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
+        {/* แถบลากลง (Drag Handle Bar) */}
+        <div
+          className="w-full pt-3.5 pb-2 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none hover:bg-slate-50/50 transition-colors"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+        >
+          <div className="w-12 h-1.5 bg-slate-300 active:bg-slate-400 rounded-full mx-auto transition-colors" />
+        </div>
+
+        {/* Header Bar */}
+        <div
+          className="px-5 pb-2.5 flex items-center justify-between border-b border-slate-100 shrink-0 cursor-grab active:cursor-grabbing touch-none select-none"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+        >
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">QUICK NAVIGATION</p>
+            <h2 className="text-base font-black text-slate-800">ไปยังหัวข้อที่ต้องการ</h2>
+          </div>
+          <button
+            type="button"
+            onTouchStart={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={triggerClose}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Category List */}
+        <div className="space-y-2 overflow-y-auto px-5 py-3 flex-1">
+          {categoryItems.map((item, itemIndex) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                if (dragY > 8) return;
+                onSelectCategory(item);
+              }}
+              className={`w-full p-3 rounded-2xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                item.id === "details" && activeTab === 1
+                  ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/30"
+                  : "bg-slate-50/80 border-slate-200 hover:bg-slate-100/80"
+              }`}
+            >
+              <span className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+                {item.icon}
+              </span>
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
+                {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
+              </div>
+              {item.count && (
+                <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
+                  {item.count} ตอบแล้ว
+                </span>
+              )}
+              {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LiveAuditScreen({
   preselectedPlan,
   onClearPlan,
@@ -911,6 +1120,15 @@ export default function LiveAuditScreen({
   const [auditorSignature, setAuditorSignature] = useState(() => parsedDraftPayload?.auditorSignature || preselectedPlan?.auditorSignature || null);
   const [auditeeSignName, setAuditeeSignName] = useState(() => parsedDraftPayload?.auditeeSignName || preselectedPlan?.auditeeSignName || unit?.managerName || "ผู้จัดการสาขา");
   const [auditStartedAt, setAuditStartedAt] = useState(() => parsedDraftPayload?.startedAt || new Date().toISOString());
+  const auditStartedAtRef = useRef(parsedDraftPayload?.startedAt || null);
+  if (!auditStartedAtRef.current && auditStartedAt) {
+    auditStartedAtRef.current = auditStartedAt;
+  }
+  const saveSeqRef = useRef(0);
+  const realStartGpsRef = useRef(realStartGps);
+  useEffect(() => {
+    realStartGpsRef.current = realStartGps;
+  }, [realStartGps]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
@@ -1084,6 +1302,10 @@ export default function LiveAuditScreen({
       if (parsedDraftPayload.unit && !unit) {
         setUnit(parsedDraftPayload.unit);
       }
+      if (parsedDraftPayload.startedAt) {
+        setAuditStartedAt(parsedDraftPayload.startedAt);
+        auditStartedAtRef.current = parsedDraftPayload.startedAt;
+      }
       if (parsedDraftPayload.formId && (!selectedForm || selectedForm.id !== parsedDraftPayload.formId)) {
         const foundForm = formList.find(f => f.id === parsedDraftPayload.formId);
         if (foundForm) setSelectedForm(foundForm);
@@ -1213,6 +1435,7 @@ export default function LiveAuditScreen({
       setSyncStatus("idle");
       return;
     }
+    const currentSeq = ++saveSeqRef.current;
     try {
       setSyncStatus("saving");
       const currentAnswers = overrideData.answers !== undefined ? overrideData.answers : answers;
@@ -1263,7 +1486,14 @@ export default function LiveAuditScreen({
         auditeeSignature: currentAuditeeSignature,
         auditorSignature: currentAuditorSignature,
         auditeeSignName: currentAuditeeSignName,
-        startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
+        startedAt: (() => {
+          const effective = auditStartedAtRef.current || auditStartedAt || parsedDraftPayload?.startedAt || new Date().toISOString();
+          if (!auditStartedAtRef.current) {
+            auditStartedAtRef.current = effective;
+            setAuditStartedAt(effective);
+          }
+          return effective;
+        })()
       };
 
       const totalQuestions = (currentForm?.sections || []).reduce(
@@ -1293,10 +1523,15 @@ export default function LiveAuditScreen({
         currentSectionIdx: currentSectionIdx,
         totalAnswered,
         totalQuestions,
-        startLatitude: realStartGps?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
-        startLongitude: realStartGps?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
         startedAt: payload.startedAt
       });
+
+      // 🌟 M2: ป้องกัน race condition ถ้ามี auto-save รอบใหม่กว่าถูกส่งออกไปแล้วขณะที่ request นี้กำลังเดินทาง
+      if (currentSeq !== saveSeqRef.current) {
+        return;
+      }
 
       if (res?.data?.id) {
         draftIdRef.current = res.data.id;
@@ -1340,7 +1575,9 @@ export default function LiveAuditScreen({
 
       if (onSaveDraft) onSaveDraft(draftObj);
     } catch (err) {
-      setSyncStatus("error");
+      if (currentSeq === saveSeqRef.current) {
+        setSyncStatus("error");
+      }
     }
   };
 
@@ -1641,9 +1878,24 @@ export default function LiveAuditScreen({
       };
     });
 
+    // 🌟 Sort categories strictly by the custom sequence (1, 2, 3...) defined in selectedForm
+    // (บนสุด 1, รองลงมา 2, 3... ไม่เกี่ยวกับ % คะแนน ตามที่ผู้ใช้กำหนด)
+    let formCategoryOrder = null;
+    if (selectedForm?.categoryOrderJson) {
+      try {
+        const parsed = JSON.parse(selectedForm.categoryOrderJson);
+        if (Array.isArray(parsed) && parsed.length > 0) formCategoryOrder = parsed;
+      } catch (e) {}
+    }
+    if (!formCategoryOrder && Array.isArray(selectedForm?.categories) && selectedForm.categories.length > 0) {
+      formCategoryOrder = selectedForm.categories;
+    }
+
+    const effectiveOrder = formCategoryOrder || CORE_CATEGORY_ORDER;
+
     categories.sort((a, b) => {
-      const idxA = CORE_CATEGORY_ORDER.indexOf(a.name);
-      const idxB = CORE_CATEGORY_ORDER.indexOf(b.name);
+      const idxA = effectiveOrder.indexOf(a.name);
+      const idxB = effectiveOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
@@ -1651,7 +1903,7 @@ export default function LiveAuditScreen({
     });
 
     return categories;
-  }, [currentSections, answers]);
+  }, [currentSections, answers, selectedForm?.categoryOrderJson, selectedForm?.categories]);
 
   const checkUnansweredQuestions = () => {
     const unanswered = [];
@@ -1924,7 +2176,7 @@ export default function LiveAuditScreen({
 
       const effectiveStartedAt = isBackdated && backdatedStartDate
         ? new Date(backdatedStartDate).toISOString()
-        : (parsedDraftPayload?.startedAt || auditStartedAt || new Date().toISOString());
+        : (auditStartedAtRef.current || auditStartedAt || parsedDraftPayload?.startedAt || new Date().toISOString());
 
       const effectiveSubmittedAt = isBackdated && backdatedEndDate
         ? new Date(backdatedEndDate).toISOString()
@@ -1951,11 +2203,12 @@ export default function LiveAuditScreen({
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
-        startLatitude: realStartGps?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
-        startLongitude: realStartGps?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
         endLatitude: endLat,
         endLongitude: endLng,
         isBackdated: Boolean(isBackdated),
+        auditDate: effectiveStartedAt,
         startedAt: effectiveStartedAt,
         submittedAt: effectiveSubmittedAt,
         responses
@@ -2454,58 +2707,12 @@ export default function LiveAuditScreen({
     return (
       <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20 pt-2">
         {isCategoryDrawerOpen && typeof document !== "undefined" && createPortal(
-          <div className="fixed inset-0 z-[99999] flex flex-col justify-end bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-            <div 
-              className="fixed inset-0" 
-              onClick={() => setIsCategoryDrawerOpen(false)} 
-            />
-            <div className="relative z-10 w-full max-w-lg mx-auto bg-white rounded-t-3xl p-5 shadow-2xl space-y-3 max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-200">
-              <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto shrink-0 mb-1" />
-              
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 shrink-0">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">QUICK NAVIGATION</p>
-                  <h2 className="text-base font-black text-slate-800">ไปยังหัวข้อที่ต้องการ</h2>
-                </div>
-                <button 
-                  type="button" 
-                  onClick={() => setIsCategoryDrawerOpen(false)} 
-                  className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-
-              <div className="space-y-2 overflow-y-auto pr-1 flex-1 py-1">
-                {categoryItems.map((item, itemIndex) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => jumpToCategory(item)}
-                    className={`w-full p-3 rounded-2xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
-                      item.id === "details" && activeTab === 1
-                        ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/30"
-                        : "bg-slate-50/80 border-slate-200 hover:bg-slate-100/80"
-                    }`}
-                  >
-                    <span className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
-                      {item.icon}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
-                      {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
-                    </div>
-                    {item.count && (
-                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
-                        {item.count} ตอบแล้ว
-                      </span>
-                    )}
-                    {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>,
+          <CategoryNavigationDrawer
+            onClose={() => setIsCategoryDrawerOpen(false)}
+            categoryItems={categoryItems}
+            activeTab={activeTab}
+            onSelectCategory={jumpToCategory}
+          />,
           document.body
         )}
 
@@ -2690,7 +2897,7 @@ export default function LiveAuditScreen({
                             setAuditorName(val);
                             performSaveDraft({ auditorName: val });
                           }}
-                          className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                          className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
@@ -2759,7 +2966,7 @@ export default function LiveAuditScreen({
                             setMetadataValues(nextMeta);
                             performSaveDraft({ staffCount: val, metadataValues: nextMeta });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
                         />
                         <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
@@ -2790,7 +2997,7 @@ export default function LiveAuditScreen({
                             performSaveDraft({ metadataValues: next });
                           }}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         />
                         {field.unit && (
                           <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
@@ -2814,11 +3021,11 @@ export default function LiveAuditScreen({
                           type="date"
                           value={currentVal || ""}
                           onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                          className="w-full text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
                         />
                         <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
                         {!currentVal && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
                             วว/ดด/ปปปป
                           </div>
                         )}
@@ -2839,11 +3046,11 @@ export default function LiveAuditScreen({
                           type="time"
                           value={currentVal || ""}
                           onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                          className="w-full text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
                         />
                         <Clock size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
                         {!currentVal && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
                             --:--
                           </div>
                         )}
@@ -2881,7 +3088,7 @@ export default function LiveAuditScreen({
                           <select
                             value={currentVal || ""}
                             onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                            className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                            className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                           >
                             <option value="">-- เลือก --</option>
                             {opts.map(opt => (
@@ -2931,7 +3138,7 @@ export default function LiveAuditScreen({
                       value={currentVal || ""}
                       onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                       placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
-                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
+                      className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
                     />
                   </div>
                 );
@@ -2997,7 +3204,7 @@ export default function LiveAuditScreen({
                             setBackdatedStartDate(val);
                             performSaveDraft({ backdatedStartDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
                         <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedStartDate && (
@@ -3021,7 +3228,7 @@ export default function LiveAuditScreen({
                             setBackdatedEndDate(val);
                             performSaveDraft({ backdatedEndDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
                         <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedEndDate && (

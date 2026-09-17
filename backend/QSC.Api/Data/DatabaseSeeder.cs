@@ -30,6 +30,20 @@ namespace QSC.Api.Data
                 {
                     context.Database.EnsureCreated();
                 }
+
+                try
+                {
+                    context.Database.ExecuteSqlRaw(@"
+                        IF NOT EXISTS (
+                            SELECT 1 FROM sys.columns 
+                            WHERE object_id = OBJECT_ID('SurveyForms') AND name = 'CategoryOrderJson'
+                        )
+                        BEGIN
+                            ALTER TABLE SurveyForms ADD CategoryOrderJson NVARCHAR(MAX) NULL;
+                        END
+                    ");
+                }
+                catch {}
             }
             else
             {
@@ -249,6 +263,29 @@ namespace QSC.Api.Data
                     {
                         using var alterCmd = conn.CreateCommand();
                         alterCmd.CommandText = "ALTER TABLE SurveyForms ADD COLUMN MetadataConfigJson TEXT;";
+                        alterCmd.ExecuteNonQuery();
+                    }
+                }
+
+                // 7.1 SurveyForms.CategoryOrderJson
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "PRAGMA table_info(SurveyForms);";
+                    using var reader = cmd.ExecuteReader();
+                    bool hasCol = false;
+                    while (reader.Read())
+                    {
+                        if (string.Equals(reader["name"]?.ToString(), "CategoryOrderJson", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasCol = true;
+                            break;
+                        }
+                    }
+                    reader.Close();
+                    if (!hasCol)
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = "ALTER TABLE SurveyForms ADD COLUMN CategoryOrderJson TEXT;";
                         alterCmd.ExecuteNonQuery();
                     }
                 }

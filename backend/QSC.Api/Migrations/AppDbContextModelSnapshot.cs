@@ -17,7 +17,7 @@ namespace QSC.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.11")
+                .HasAnnotation("ProductVersion", "10.0.12")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -1084,6 +1084,9 @@ namespace QSC.Api.Migrations
 
                     b.Property<int?>("BrandId")
                         .HasColumnType("int");
+
+                    b.Property<string>("CategoryOrderJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");

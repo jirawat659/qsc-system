@@ -147,10 +147,43 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               const mapped = mapApiSectionsToState(formData.sections);
               setSections(mapped);
 
-              const catSet = new Set();
-              mapped.forEach(s => s.items.forEach(i => { if (i.categoryName) catSet.add(i.categoryName); }));
-              DEFAULT_CATEGORIES.forEach(c => catSet.add(c));
-              setCategories(Array.from(catSet));
+              if (formData.categoryOrderJson) {
+                try {
+                  const parsed = JSON.parse(formData.categoryOrderJson);
+                  if (Array.isArray(parsed) && parsed.length > 0) {
+                    const catList = [...parsed];
+                    mapped.forEach(s => s.items.forEach(i => {
+                      const cName = i.categoryName || i.category;
+                      if (cName && !catList.includes(cName)) catList.push(cName);
+                    }));
+                    setCategories(catList);
+                  } else {
+                    const catList = [];
+                    mapped.forEach(s => s.items.forEach(i => {
+                      const cName = i.categoryName || i.category;
+                      if (cName && !catList.includes(cName)) catList.push(cName);
+                    }));
+                    DEFAULT_CATEGORIES.forEach(c => { if (!catList.includes(c)) catList.push(c); });
+                    setCategories(catList);
+                  }
+                } catch (e) {
+                  const catList = [];
+                  mapped.forEach(s => s.items.forEach(i => {
+                    const cName = i.categoryName || i.category;
+                    if (cName && !catList.includes(cName)) catList.push(cName);
+                  }));
+                  DEFAULT_CATEGORIES.forEach(c => { if (!catList.includes(c)) catList.push(c); });
+                  setCategories(catList);
+                }
+              } else {
+                const catList = [];
+                mapped.forEach(s => s.items.forEach(i => {
+                  const cName = i.categoryName || i.category;
+                  if (cName && !catList.includes(cName)) catList.push(cName);
+                }));
+                DEFAULT_CATEGORIES.forEach(c => { if (!catList.includes(c)) catList.push(c); });
+                setCategories(catList);
+              }
             }
 
             if (formData.title && !formName) setFormName(formData.title);
@@ -227,17 +260,28 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   });
 
   const [categories, setCategories] = useState(() => {
-    const fromItems = new Set();
+    if (form?.categoryOrderJson) {
+      try {
+        const parsed = JSON.parse(form.categoryOrderJson);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    }
+    if (Array.isArray(form?.categories) && form.categories.length > 0) {
+      return form.categories;
+    }
+    const fromItems = [];
     if (form?.sections) {
       form.sections.forEach(s => {
         (s.items || []).forEach(i => {
-          if (i.categoryName) fromItems.add(i.categoryName);
-          else if (i.category) fromItems.add(i.category);
+          const cName = i.categoryName || i.category;
+          if (cName && !fromItems.includes(cName)) fromItems.push(cName);
         });
       });
     }
-    DEFAULT_CATEGORIES.forEach(c => fromItems.add(c));
-    return Array.from(fromItems);
+    DEFAULT_CATEGORIES.forEach(c => {
+      if (!fromItems.includes(c)) fromItems.push(c);
+    });
+    return fromItems;
   });
   const [newCategoryInput, setNewCategoryInput] = useState("");
 
@@ -577,6 +621,116 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       catName,
       count
     });
+  };
+
+  // Move category Up/Down (ลำดับ 1, 2, 3...)
+  const moveCategory = (idx, direction) => {
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= categories.length) return;
+    setCategories(prev => {
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[targetIdx];
+      next[targetIdx] = temp;
+      return next;
+    });
+  };
+
+  const categoryRefs = useRef({});
+  const categoryDragRef = useRef(null);
+  const [categoryDragUI, setCategoryDragUI] = useState(null);
+
+  const handleCategoryPointerDown = (e, cat) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault();
+    const startIdx = categories.indexOf(cat);
+    if (startIdx === -1) return;
+
+    const tops = [];
+    const heights = [];
+    categories.forEach(c => {
+      const el = categoryRefs.current[c];
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        tops.push(rect.top + window.scrollY);
+        heights.push(rect.height);
+      } else {
+        tops.push(0);
+        heights.push(48);
+      }
+    });
+
+    const step = tops.length > 1 && tops[1] > tops[0] 
+      ? (tops[1] - tops[0]) 
+      : ((heights[startIdx] || 48) + 8);
+
+    const startPointerY = e.clientY;
+    categoryDragRef.current = {
+      cat,
+      startIdx,
+      currentIdx: startIdx,
+      categoriesList: [...categories],
+      tops,
+      heights,
+      step,
+      startPointerY
+    };
+
+    setCategoryDragUI({ cat, deltaY: 0, displace: {} });
+
+    const handlePointerMove = (moveEvent) => {
+      if (!categoryDragRef.current) return;
+      const d = categoryDragRef.current;
+      const deltaY = moveEvent.clientY - d.startPointerY;
+      const currentCenterY = d.tops[d.startIdx] + deltaY + d.heights[d.startIdx] / 2;
+
+      let newIdx = d.startIdx;
+      for (let i = 0; i < d.tops.length; i++) {
+        const itemCenter = d.tops[i] + d.heights[i] / 2;
+        if (i < d.startIdx && currentCenterY < itemCenter) {
+          newIdx = i;
+          break;
+        } else if (i > d.startIdx && currentCenterY > itemCenter) {
+          newIdx = i;
+        }
+      }
+
+      d.currentIdx = newIdx;
+      const displace = {};
+      d.categoriesList.forEach((c, i) => {
+        if (c === d.cat) return;
+        if (d.startIdx < newIdx && i > d.startIdx && i <= newIdx) {
+          displace[c] = -d.step;
+        } else if (d.startIdx > newIdx && i >= newIdx && i < d.startIdx) {
+          displace[c] = d.step;
+        } else {
+          displace[c] = 0;
+        }
+      });
+
+      setCategoryDragUI({ cat: d.cat, deltaY, displace });
+    };
+
+    const handlePointerUp = () => {
+      if (categoryDragRef.current) {
+        const d = categoryDragRef.current;
+        if (d.startIdx !== d.currentIdx) {
+          setCategories(prev => {
+            const next = [...prev];
+            const [moved] = next.splice(d.startIdx, 1);
+            next.splice(d.currentIdx, 0, moved);
+            return next;
+          });
+        }
+      }
+      categoryDragRef.current = null;
+      setCategoryDragUI(null);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
   };
 
   // Toggle Critical Failure Flag
@@ -1028,6 +1182,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       targetingMode: "ALL_LOCATIONS",
       version: form?.version || "v1.0",
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
+      categoryOrderJson: JSON.stringify(categories),
       sections: sections.map((sec, sIdx) => ({
         id: typeof sec.id === 'number' ? sec.id : undefined,
         title: sec.title,
@@ -1082,6 +1237,8 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       passingScore: Number(passingScore) || 85,
       metadataConfig: cleanMetadataConfig,
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
+      categoryOrderJson: JSON.stringify(categories),
+      categories: categories,
       sections: sections,
       itemCount: totalQuestions,
       updatedAt: "วันนี้"
@@ -1319,13 +1476,13 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 
                 <div className="border-t border-slate-100 my-1" />
 
-                {/* Individual Brands */}
-                {brands.length === 0 ? (
+                {/* Individual Brands (Active Only) */}
+                {brands.filter(b => b.isActive !== false).length === 0 ? (
                   <div className="p-3 text-xs text-slate-400 text-center">
                     ไม่มีรายการแบรนด์ในระบบ
                   </div>
                 ) : (
-                  brands.map(b => {
+                  brands.filter(b => b.isActive !== false).map(b => {
                     const bid = Number(b.id);
                     const isChecked = brandIds.map(Number).includes(bid);
                     return (
@@ -1452,33 +1609,106 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               </span>
             </div>
 
-        {/* Categories Badges List */}
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          {categories.map((cat, idx) => {
-            const count = categoryCounts[cat] || 0;
-            return (
-              <div
-                key={idx}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-900 text-xs font-bold group shadow-2xs transition-all"
-              >
-                <span>{cat}</span>
-                <span className="px-1.5 py-0.5 rounded-md bg-white border border-emerald-200 text-[#0F6659] text-[10px] font-black font-mono">
-                  {count} ข้อ
-                </span>
-                {!isReadOnly && categories.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveCategory(cat)}
-                    className="text-emerald-400 hover:text-rose-600 p-0.5 rounded hover:bg-white cursor-pointer transition-colors"
-                    title={`ลบหมวดคะแนน "${cat}"`}
+            {/* Categories Orderly List (ตามแบบร่าง: จุด 6 จุด, ชื่อหมวด, จำนวนข้อ, ข้อ, ลบ) */}
+            <div className="space-y-2 pt-1">
+              {categories.map((cat, idx) => {
+                const count = categoryCounts[cat] || 0;
+                const isDragging = categoryDragUI?.cat === cat;
+                const displaceY = categoryDragUI?.displace?.[cat] || 0;
+                const translateY = isDragging ? categoryDragUI.deltaY : displaceY;
+
+                return (
+                  <div
+                    key={cat}
+                    ref={el => { categoryRefs.current[cat] = el; }}
+                    style={{
+                      transform: translateY ? `translateY(${translateY}px)` : 'none',
+                      zIndex: isDragging ? 50 : 1,
+                      willChange: categoryDragUI ? 'transform' : 'auto',
+                      transition: (isDragging || !categoryDragUI) ? 'none' : 'transform 0.18s cubic-bezier(0.2, 0, 0, 1)'
+                    }}
+                    className={`flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl bg-white border transition-all ${
+                      isDragging
+                        ? 'border-[#0F6659] shadow-lg ring-2 ring-[#0F6659]/20 bg-emerald-50/40'
+                        : 'border-slate-200 hover:border-emerald-300 shadow-2xs'
+                    }`}
                   >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                    {/* Left: จุด 6 จุด + ปุ่มเลื่อนขึ้น-ลง + ลำดับที่ + ชื่อหมวด */}
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {!isReadOnly && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* จุด 6 จุด (Grip Handle) */}
+                          <div
+                            onPointerDown={(e) => handleCategoryPointerDown(e, cat)}
+                            className="cursor-grab active:cursor-grabbing p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors touch-none"
+                            title="ลากเพื่อจัดลำดับหมวดคะแนน"
+                          >
+                            <GripVertical size={16} />
+                          </div>
+
+                          {/* ปุ่มเลื่อน ขึ้น - ลง */}
+                          <div className="flex flex-col -space-y-1">
+                            <button
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={() => moveCategory(idx, 'up')}
+                              className="p-0.5 text-slate-400 hover:text-[#0F6659] disabled:opacity-20 disabled:pointer-events-none rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="เลื่อนขึ้นด้านบน"
+                            >
+                              <ChevronUp size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={idx === categories.length - 1}
+                              onClick={() => moveCategory(idx, 'down')}
+                              className="p-0.5 text-slate-400 hover:text-[#0F6659] disabled:opacity-20 disabled:pointer-events-none rounded hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="เลื่อนลงด้านล่าง"
+                            >
+                              <ChevronDown size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* หมายเลขลำดับ (1, 2, 3...) */}
+                      <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono text-[11px] font-extrabold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+
+                      {/* ชื่อหมวด */}
+                      <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                        {cat}
+                      </span>
+                    </div>
+
+                    {/* Right: จำนวนข้อ + ข้อ + ลบ (X) */}
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <div className="flex items-center gap-1">
+                        <span className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono border ${
+                          count > 0 
+                            ? 'bg-emerald-50 text-[#0F6659] border-emerald-200' 
+                            : 'bg-slate-50 text-slate-400 border-slate-200'
+                        }`}>
+                          {count}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-500">ข้อ</span>
+                      </div>
+
+                      {!isReadOnly && categories.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCategory(cat)}
+                          className="w-7 h-7 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 cursor-pointer transition-all"
+                          title={`ลบหมวดคะแนน "${cat}"`}
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
 
         {/* Add Category Input Bar */}
         {!isReadOnly && (

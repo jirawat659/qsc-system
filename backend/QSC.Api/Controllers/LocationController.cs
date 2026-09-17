@@ -221,6 +221,46 @@ namespace QSC.Api.Controllers
 
             return NoContent();
         }
+
+        public class SyncLocationBrandsDto
+        {
+            public List<int> BrandIds { get; set; } = new List<int>();
+        }
+
+        [Authorize(Roles = "ADMIN")]
+        [HttpPut("{id}/brands")]
+        public async Task<IActionResult> SyncBrands(int id, [FromBody] SyncLocationBrandsDto dto)
+        {
+            var location = await _context.Locations.FindAsync(id);
+            if (location == null) return NotFound(new { message = "ไม่พบสถานที่ที่ระบุ" });
+
+            var existingLinks = await _context.LocationBrands
+                .Where(lb => lb.LocationId == id)
+                .ToListAsync();
+
+            var targetBrandIds = (dto.BrandIds ?? new List<int>()).Distinct().ToList();
+
+            if (targetBrandIds.Any())
+            {
+                var validBrandCount = await _context.Brands.CountAsync(b => targetBrandIds.Contains(b.Id));
+                if (validBrandCount != targetBrandIds.Count)
+                {
+                    return BadRequest(new { message = "บางแบรนด์ที่ระบุไม่พบในระบบ" });
+                }
+            }
+
+            var toRemove = existingLinks.Where(lb => !targetBrandIds.Contains(lb.BrandId)).ToList();
+            var existingBrandIds = existingLinks.Select(lb => lb.BrandId).ToHashSet();
+            var toAdd = targetBrandIds.Where(bid => !existingBrandIds.Contains(bid))
+                .Select(bid => new LocationBrand { LocationId = id, BrandId = bid })
+                .ToList();
+
+            if (toRemove.Any()) _context.LocationBrands.RemoveRange(toRemove);
+            if (toAdd.Any()) _context.LocationBrands.AddRange(toAdd);
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "บันทึกการผูกแบรนด์สำเร็จ", count = targetBrandIds.Count });
+        }
     }
 
     [Authorize]
@@ -400,9 +440,8 @@ namespace QSC.Api.Controllers
             var brand = await _context.Brands.FindAsync(id);
             if (brand == null) return NotFound();
 
-            // LocationBrand ใช้ Cascade delete: ลบ Brand แล้วลบเฉพาะแถว join ที่เกี่ยวข้อง
-            // ไม่ลบ Location เพื่อไม่ให้สถานที่เสียหายหรือถูกลบตามแบรนด์
-            _context.Brands.Remove(brand);
+            // Soft delete: ปิดการใช้งานแบรนด์ เพื่อรักษาประวัติการตรวจและความสัมพันธ์ในอดีตไม่ให้สูญหาย
+            brand.IsActive = false;
             await _context.SaveChangesAsync();
             return NoContent();
         }

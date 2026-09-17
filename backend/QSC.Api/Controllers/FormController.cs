@@ -141,6 +141,7 @@ namespace QSC.Api.Controllers
                     isLatest = f.IsLatest,
                     isActive = f.IsActive,
                     metadataConfigJson = f.MetadataConfigJson,
+                    categoryOrderJson = f.CategoryOrderJson,
                     createdAt = f.CreatedAt,
                     usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
                     scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
@@ -236,6 +237,7 @@ namespace QSC.Api.Controllers
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
                 metadataConfigJson = f.MetadataConfigJson,
+                categoryOrderJson = f.CategoryOrderJson,
                 createdAt = f.CreatedAt,
                 usedCount = auditCount,
                 scheduledCount = scheduleCount,
@@ -285,6 +287,7 @@ namespace QSC.Api.Controllers
             public string TargetingMode { get; set; } = "ALL_LOCATIONS";
             public string Version { get; set; } = "v1.0";
             public string? MetadataConfigJson { get; set; }
+            public string? CategoryOrderJson { get; set; }
             public int? CreatedBy { get; set; }
             public List<int> TargetLocationIds { get; set; } = new();
             public List<SectionDto> Sections { get; set; } = new();
@@ -353,6 +356,7 @@ namespace QSC.Api.Controllers
                     TargetingMode = dto.TargetingMode,
                     Version = dto.Version,
                     MetadataConfigJson = dto.MetadataConfigJson,
+                    CategoryOrderJson = dto.CategoryOrderJson,
                     IsLatest = true,
                     IsActive = true,
                     CreatedBy = dto.CreatedBy,
@@ -515,6 +519,7 @@ namespace QSC.Api.Controllers
                     form.TargetingMode = dto.TargetingMode;
                     form.Version = dto.Version;
                     form.MetadataConfigJson = dto.MetadataConfigJson;
+                    form.CategoryOrderJson = dto.CategoryOrderJson;
 
                     // Sync Brands (SurveyFormBrands)
                     var existingBrands = await _context.SurveyFormBrands.Where(b => b.SurveyFormId == id).ToListAsync();
@@ -643,6 +648,7 @@ namespace QSC.Api.Controllers
                         TargetingMode = dto.TargetingMode,
                         Version = nextVersion,
                         MetadataConfigJson = dto.MetadataConfigJson,
+                        CategoryOrderJson = dto.CategoryOrderJson,
                         IsLatest = true,
                         IsActive = true,
                         CreatedBy = dto.CreatedBy ?? form.CreatedBy,
@@ -736,9 +742,9 @@ namespace QSC.Api.Controllers
                         await _context.SaveChangesAsync();
                     }
 
-                    // 🌟 Migrate pending schedules from old form version to new version
+                    // 🌟 Migrate pending schedules from old form version to new version (ไม่แตะ in_progress เพื่อให้คนที่ตรวจอยู่ไม่หลุดจากข้อเดิม)
                     var pendingSchedules = await _context.AuditSchedules
-                        .Where(s => s.SurveyFormId == id && (s.Status == "pending" || s.Status == "in_progress"))
+                        .Where(s => s.SurveyFormId == id && s.Status == "pending")
                         .ToListAsync();
                     foreach (var ps in pendingSchedules)
                     {

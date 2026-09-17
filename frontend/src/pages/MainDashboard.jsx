@@ -109,14 +109,16 @@ export default function MainDashboard({ onLogout }) {
     else localStorage.removeItem('qsc_selected_brand_id');
   };
 
+  const activeBrands = useMemo(() => brands.filter(b => b.isActive !== false), [brands]);
+
   // 🌟 Auto-select brand if user only has access to 1 brand (e.g. After You)
   useEffect(() => {
-    if (brands.length === 1 && selectedBrandId !== brands[0].id) {
-      setSelectedBrandId(brands[0].id);
-    } else if (brands.length > 1 && selectedBrandId && !brands.some(b => b.id === selectedBrandId)) {
+    if (activeBrands.length === 1 && selectedBrandId !== activeBrands[0].id) {
+      setSelectedBrandId(activeBrands[0].id);
+    } else if (activeBrands.length > 1 && selectedBrandId && !activeBrands.some(b => b.id === selectedBrandId)) {
       setSelectedBrandId(null);
     }
-  }, [brands, selectedBrandId]);
+  }, [activeBrands, selectedBrandId]);
 
   const visibleLocations = useMemo(() => {
     if (!selectedBrandId) return locations;
@@ -336,10 +338,13 @@ export default function MainDashboard({ onLogout }) {
     }, 180000);
 
     // 📡 Real-time SignalR Event: รีเฟรชข้อมูลอัตโนมัติเฉพาะเมื่อมีผลตรวจใหม่เข้ามาจริงๆ
+    let isMounted = true;
     let unsubscribeAudit = null;
     signalRService.getConnection()
       .then(() => {
+        if (!isMounted) return;
         unsubscribeAudit = signalRService.onAuditCreated(() => {
+          if (!isMounted) return;
           refreshData(true);
           resyncAuditRecords();
           loadMoreCapTasks(true);
@@ -349,6 +354,7 @@ export default function MainDashboard({ onLogout }) {
 
     window.addEventListener('focus', handleFocus);
     return () => {
+      isMounted = false;
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
       if (unsubscribeAudit) unsubscribeAudit();
@@ -733,7 +739,7 @@ export default function MainDashboard({ onLogout }) {
                 </div>
               </div>
 
-              {brands.length > 1 ? (
+              {activeBrands.length > 1 ? (
                 <div className="shrink-0">
                   <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5 px-1">แบรนด์ที่แสดง</label>
                   <div className="relative">
@@ -743,16 +749,16 @@ export default function MainDashboard({ onLogout }) {
                       className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                     >
                       <option value="">ทุกแบรนด์</option>
-                      {brands.filter(b => b.isActive).map(b => (
+                      {activeBrands.map(b => (
                         <option key={b.id} value={b.id}>{b.name}</option>
                       ))}
                     </select>
                     <ChevronDown size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                   </div>
                 </div>
-              ) : brands.length === 1 ? (
+              ) : activeBrands.length === 1 ? (
                 <div className="px-3.5 py-2 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200 text-xs font-bold flex items-center gap-2 shrink-0">
-                  <span className="truncate">🏪 {brands[0].name}</span>
+                  <span className="truncate">🏪 {activeBrands[0].name}</span>
                 </div>
               ) : null}
 
@@ -920,7 +926,7 @@ export default function MainDashboard({ onLogout }) {
 
                   {/* Right Group: Brand Selector + Profile Badge */}
                   <div className="flex items-center gap-2 shrink-0 min-w-0 ml-auto">
-                    {brands.length > 1 ? (
+                    {activeBrands.length > 1 ? (
                       <div className="flex items-center min-w-0 max-w-[140px] sm:max-w-[190px] scale-[0.85] origin-right">
                         <div className="relative w-full">
                           <select
@@ -930,16 +936,16 @@ export default function MainDashboard({ onLogout }) {
                             title="เลือกแบรนด์ที่ต้องการแสดง"
                           >
                             <option value="">ทุกแบรนด์</option>
-                            {brands.filter(b => b.isActive).map(b => (
+                            {activeBrands.map(b => (
                               <option key={b.id} value={b.id}>{b.name}</option>
                             ))}
                           </select>
                           <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         </div>
                       </div>
-                    ) : brands.length === 1 ? (
+                    ) : activeBrands.length === 1 ? (
                       <div className="flex items-center px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold shrink-0 max-w-[130px] scale-[0.85] origin-right">
-                        <span className="truncate">{brands[0].name}</span>
+                        <span className="truncate">{activeBrands[0].name}</span>
                       </div>
                     ) : null}
 

@@ -182,19 +182,11 @@ namespace QSC.Api.Controllers
                     effectiveAuditorId = fallbackUser != null ? fallbackUser.Id : (currentUserId > 0 ? currentUserId : 1);
                 }
 
-                // Ensure valid SurveyFormId
+                // Ensure valid SurveyFormId (H2: ห้าม fallback สุ่มผูกฟอร์มอื่น หากฟอร์มไม่ถูกต้องให้แจ้งเตือนทันที)
                 int effectiveFormId = dto.SurveyFormId;
                 if (effectiveFormId <= 0 || !await _context.SurveyForms.AnyAsync(f => f.Id == effectiveFormId))
                 {
-                    var fallbackForm = await _context.SurveyForms.FirstOrDefaultAsync(f => f.IsActive);
-                    if (fallbackForm != null)
-                    {
-                        effectiveFormId = fallbackForm.Id;
-                    }
-                    else
-                    {
-                        return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจในระบบ" });
-                    }
+                    return BadRequest(new { message = "แบบฟอร์มการตรวจไม่ถูกต้องหรือไม่พบในระบบ" });
                 }
 
                 // Update schedule status if explicit schedule was provided
@@ -222,6 +214,16 @@ namespace QSC.Api.Controllers
                 {
                     draft = await _context.AuditDrafts
                         .Where(d => d.AuditScheduleId == effectiveScheduleId.Value)
+                        .OrderByDescending(d => d.UpdatedAt)
+                        .FirstOrDefaultAsync();
+                }
+
+                // 2.1 M1: If ad-hoc audit (no schedule), match existing active draft for this auditor + location + form
+                // เพื่อป้องกันการสร้างดราฟต์ซ้ำซ้อนกรณี client ส่ง auto-save ติดๆ กันก่อนได้ id กลับไป
+                if (draft == null && !effectiveScheduleId.HasValue)
+                {
+                    draft = await _context.AuditDrafts
+                        .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == effectiveFormId && d.AuditorId == effectiveAuditorId && d.AuditScheduleId == null)
                         .OrderByDescending(d => d.UpdatedAt)
                         .FirstOrDefaultAsync();
                 }
@@ -265,6 +267,9 @@ namespace QSC.Api.Controllers
                     {
                         draft.StartLatitude = dto.StartLatitude;
                         draft.StartLongitude = dto.StartLongitude;
+                    }
+                    if (!draft.StartedAt.HasValue)
+                    {
                         draft.StartedAt = dto.StartedAt ?? DateTime.UtcNow;
                     }
                     draft.UpdatedAt = DateTime.UtcNow;
@@ -489,6 +494,7 @@ namespace QSC.Api.Controllers
             public double? EndLatitude { get; set; }
             public double? EndLongitude { get; set; }
             public bool IsBackdated { get; set; } = false;
+            public DateTime? AuditDate { get; set; }
             public DateTime? StartedAt { get; set; }
             public DateTime? SubmittedAt { get; set; }
 
@@ -776,6 +782,10 @@ namespace QSC.Api.Controllers
                 var auditorSigUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor", 2 * 1024 * 1024);
                 var auditeeSigUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee", 2 * 1024 * 1024);
 
+                // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ
+                var effectiveStartedAt = dto.StartedAt ?? dto.AuditDate ?? DateTime.UtcNow;
+                var effectiveSubmittedAt = dto.SubmittedAt ?? DateTime.UtcNow;
+
                 // Create AuditRecord
                 var record = new AuditRecord
                 {
@@ -785,7 +795,7 @@ namespace QSC.Api.Controllers
                     AuditeeUserId = validAuditeeUserId,
                     AuditeeNameText = dto.AuditeeNameText,
                     AuditScheduleId = validScheduleId,
-                    AuditDate = DateTime.UtcNow,
+                    AuditDate = effectiveStartedAt,
                     TotalScore = totalScore,
                     MaxScore = maxScore,
                     PercentageScore = percentageScore,
@@ -802,8 +812,8 @@ namespace QSC.Api.Controllers
                     EndLatitude = dto.EndLatitude,
                     EndLongitude = dto.EndLongitude,
                     IsBackdated = dto.IsBackdated,
-                    StartedAt = dto.StartedAt ?? DateTime.UtcNow,
-                    SubmittedAt = dto.SubmittedAt ?? DateTime.UtcNow
+                    StartedAt = effectiveStartedAt,
+                    SubmittedAt = effectiveSubmittedAt
                 };
 
                 // Save Responses & Images + Auto-create CAP Tasks for failed items
@@ -1466,8 +1476,12 @@ namespace QSC.Api.Controllers
                 record.Notes = dto.Notes;
                 record.MetadataValuesJson = dto.MetadataValuesJson;
 
-                // เวลาเริ่ม-สิ้นสุด
-                if (dto.StartedAt.HasValue) record.StartedAt = dto.StartedAt.Value;
+                // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
+                if (dto.StartedAt.HasValue)
+                {
+                    record.StartedAt = dto.StartedAt.Value;
+                    record.AuditDate = dto.StartedAt.Value;
+                }
                 if (dto.SubmittedAt.HasValue) record.SubmittedAt = dto.SubmittedAt.Value;
                 if (dto.AuditDate.HasValue) record.AuditDate = dto.AuditDate.Value;
 
@@ -1507,14 +1521,13 @@ namespace QSC.Api.Controllers
                     }
                 }
 
-                // 🔗 2. โหลด CapTasks ทั้งหมดที่ผูกกับคำตอบเดิมของ AuditRecord นี้
-                // ปลด AuditResponseId = null ชั่วคราวเพื่อไม่ให้ชน Foreign Key Restrict
+                // 🔗 2. โหลด CapTasks ทั้งหมดที่ผูกกับบันทึกนี้
                 var oldResponseIds = record.Responses.Select(r => r.Id).ToList();
                 var linkedCaps = await _context.CapTasks
                     .AsSplitQuery()
                     .Include(c => c.Images)
                     .Include(c => c.Comments)
-                    .Where(c => oldResponseIds.Contains(c.AuditResponseId ?? 0))
+                    .Where(c => c.AuditRecordId == record.Id || oldResponseIds.Contains(c.AuditResponseId ?? 0))
                     .ToListAsync();
 
                 var linkedCapsBySurveyItem = new Dictionary<int, List<CapTask>>();
@@ -1530,12 +1543,14 @@ namespace QSC.Api.Controllers
                         }
                         list.Add(cap);
                     }
-                    cap.AuditResponseId = null; // ปลดลิงก์ชั่วคราวก่อนลบ AuditResponse เดิม
                 }
 
-                // ลบคำตอบเดิมทั้งหมดแล้วสร้างใหม่ตามชุดที่แก้ (ง่ายและชัวร์กว่าการไล่ diff ทีละข้อ)
-                _context.AuditResponses.RemoveRange(record.Responses);
-                record.Responses.Clear();
+                // 🔄 3. Diff / In-place Update AuditResponse แทนการลบแล้วสร้างใหม่
+                // รักษา AuditResponse.Id เดิมไว้ ไม่ต้องปลดลิงก์ AuditResponseId = null
+                var existingResponsesByItem = record.Responses
+                    .GroupBy(r => r.SurveyItemId)
+                    .ToDictionary(g => g.Key, g => g.First());
+                var processedItemIds = new HashSet<int>();
 
                 var newCapTasksToCreate = new List<CapTask>();
                 int capTasksDeletedCount = 0;
@@ -1543,20 +1558,13 @@ namespace QSC.Api.Controllers
 
                 foreach (var computedResp in processedResponses)
                 {
+                    processedItemIds.Add(computedResp.SurveyItemId);
                     allItems.TryGetValue(computedResp.SurveyItemId, out var itemMeta);
                     var catName = itemMeta?.CategoryName ?? itemMeta?.SurveySection?.Title ?? "ทั่วไป";
                     if (catName.Length > 100) catName = catName.Substring(0, 100);
 
-                    var response = new AuditResponse
-                    {
-                        SurveyItemId = computedResp.SurveyItemId,
-                        ScoreGiven = computedResp.ScoreGiven,
-                        IsPassed = computedResp.IsPassed,
-                        IsNa = computedResp.IsNa,
-                        Notes = computedResp.Notes,
-                        CategoryName = catName
-                    };
-
+                    // รวบรวมรูปภาพที่ต้องการของข้อนี้ (บันทึก Base64 ถ้ามี)
+                    var targetImageUrls = new List<string>();
                     if (computedResp.ImageUrls != null && computedResp.ImageUrls.Any())
                     {
                         foreach (var imgUrl in computedResp.ImageUrls)
@@ -1565,10 +1573,44 @@ namespace QSC.Api.Controllers
                             var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit", 10 * 1024 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
-                                // 📸 คืนค่า metadata รูปภาพเดิมถ้ามี
+                                targetImageUrls.Add(savedImgUrl);
+                            }
+                        }
+                    }
+
+                    AuditResponse response;
+                    if (existingResponsesByItem.TryGetValue(computedResp.SurveyItemId, out var existingResp))
+                    {
+                        // 🟢 In-place Update คำตอบเดิม (Id เดิมไม่เปลี่ยน, FK ไม่หลุด)
+                        response = existingResp;
+                        response.ScoreGiven = computedResp.ScoreGiven;
+                        response.IsPassed = computedResp.IsPassed;
+                        response.IsNa = computedResp.IsNa;
+                        response.Notes = computedResp.Notes;
+                        response.CategoryName = catName;
+
+                        // ลบรูปภาพที่ถูกนำออก
+                        var imagesToRemove = response.Images
+                            .Where(img => !targetImageUrls.Contains(img.ImageUrl, StringComparer.OrdinalIgnoreCase))
+                            .ToList();
+                        foreach (var remImg in imagesToRemove)
+                        {
+                            response.Images.Remove(remImg);
+                            _context.AuditResponseImages.Remove(remImg);
+                        }
+
+                        // เพิ่มรูปภาพใหม่
+                        var currentImageUrls = response.Images
+                            .Select(img => img.ImageUrl)
+                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                        foreach (var targetUrl in targetImageUrls)
+                        {
+                            if (!currentImageUrls.Contains(targetUrl))
+                            {
                                 int imgUploadedBy = currentUserId;
                                 DateTime imgUploadedAt = DateTime.UtcNow;
-                                if (existingImageMetadata.TryGetValue(savedImgUrl, out var meta) || existingImageMetadata.TryGetValue(imgUrl, out meta))
+                                if (existingImageMetadata.TryGetValue(targetUrl, out var meta))
                                 {
                                     imgUploadedBy = meta.UploadedBy;
                                     imgUploadedAt = meta.UploadedAt;
@@ -1576,16 +1618,47 @@ namespace QSC.Api.Controllers
 
                                 response.Images.Add(new AuditResponseImage
                                 {
-                                    ImageUrl = savedImgUrl,
+                                    ImageUrl = targetUrl,
                                     UploadedBy = imgUploadedBy,
                                     UploadedAt = imgUploadedAt
                                 });
                             }
                         }
                     }
-                    record.Responses.Add(response);
+                    else
+                    {
+                        // 🟢 ข้อใหม่ที่เพิ่งเพิ่มเข้ามาในฟอร์ม
+                        response = new AuditResponse
+                        {
+                            SurveyItemId = computedResp.SurveyItemId,
+                            ScoreGiven = computedResp.ScoreGiven,
+                            IsPassed = computedResp.IsPassed,
+                            IsNa = computedResp.IsNa,
+                            Notes = computedResp.Notes,
+                            CategoryName = catName
+                        };
 
-                    // 🌟 3. จัดการ CAP แบบ Hybrid
+                        foreach (var targetUrl in targetImageUrls)
+                        {
+                            int imgUploadedBy = currentUserId;
+                            DateTime imgUploadedAt = DateTime.UtcNow;
+                            if (existingImageMetadata.TryGetValue(targetUrl, out var meta))
+                            {
+                                imgUploadedBy = meta.UploadedBy;
+                                imgUploadedAt = meta.UploadedAt;
+                            }
+
+                            response.Images.Add(new AuditResponseImage
+                            {
+                                ImageUrl = targetUrl,
+                                UploadedBy = imgUploadedBy,
+                                UploadedAt = imgUploadedAt
+                            });
+                        }
+                        record.Responses.Add(response);
+                    }
+
+                    // 🌟 4. จัดการ CAP แบบ Hybrid ตาม Logic เดิมที่มีอยู่แล้ว 100%
                     bool hasExistingOpenCap = false;
                     if (linkedCapsBySurveyItem.TryGetValue(computedResp.SurveyItemId, out var capsForThisItem))
                     {
@@ -1629,7 +1702,7 @@ namespace QSC.Api.Controllers
                             }
                             else
                             {
-                                // ข้อนี้ยังไม่ผ่าน หรือเป็นงานที่จบแล้ว -> ผูกกลับเข้ากับ response ใหม่
+                                // ข้อนี้ยังไม่ผ่าน หรือเป็นงานที่จบแล้ว -> ผูกกลับเข้ากับ response
                                 cap.AuditResponse = response;
                             }
 
@@ -1663,6 +1736,31 @@ namespace QSC.Api.Controllers
                             CreatedAt = DateTime.UtcNow
                         });
                     }
+                }
+
+                // 🧹 5. ลบ AuditResponse ที่ไม่มีในแบบฟอร์มแล้ว (ถ้ามี)
+                var orphanedResponses = record.Responses.Where(r => !processedItemIds.Contains(r.SurveyItemId)).ToList();
+                foreach (var orphan in orphanedResponses)
+                {
+                    if (linkedCapsBySurveyItem.TryGetValue(orphan.SurveyItemId, out var orphanCaps))
+                    {
+                        foreach (var cap in orphanCaps)
+                        {
+                            if ((cap.Images == null || !cap.Images.Any()) && (cap.Comments == null || !cap.Comments.Any()))
+                            {
+                                _context.CapTasks.Remove(cap);
+                                capTasksDeletedCount++;
+                            }
+                            else
+                            {
+                                cap.AuditResponseId = null;
+                                cap.Status = "CANCELLED";
+                                capTasksCancelledCount++;
+                            }
+                        }
+                    }
+                    _context.AuditResponses.Remove(orphan);
+                    record.Responses.Remove(orphan);
                 }
 
                 if (newCapTasksToCreate.Any())

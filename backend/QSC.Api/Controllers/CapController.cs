@@ -781,9 +781,10 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(task.Status, "CLOSED", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(task.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase))
             {
-                return BadRequest(new { message = "Cannot add comments to a closed CAP task" });
+                return BadRequest(new { message = "ไม่สามารถเพิ่มความคิดเห็นในงานที่ปิดหรือยกเลิกแล้วได้" });
             }
 
             string? processedImageUrl = null;
