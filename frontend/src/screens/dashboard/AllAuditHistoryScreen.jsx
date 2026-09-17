@@ -400,12 +400,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const branchName = s.locationName || s.location?.name || "-";
         const branchFullName = s.locationName || s.location?.fullName || s.location?.name || "-";
         const rawDate = s.scheduledDate || null;
-        let dateFormatted = formatThaiAuditDate(rawDate);
-        
-        // Add time if available
-        if (s.scheduledTime || s.time) {
-          dateFormatted += ` ${s.scheduledTime || s.time}`;
-        }
+        const dateFormatted = formatThaiAuditDate(rawDate);
         
         const timestamp = parseAuditTimestamp(rawDate, s.id) + 2000000000; // prioritize schedules (future)
         const auditorVal = s.auditorName || s.primaryAuditor?.fullName || (s.auditors?.[0]?.fullName) || "-";
@@ -1261,7 +1256,7 @@ const handleTriggerAudit = (record) => {
             {/* Table Header */}
             <thead>
               <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
-                <th className="py-3 px-4 w-[42%] lg:w-[25%]">
+                <th className="py-3 px-4 w-[48%] lg:w-[28%]">
                   <button 
                     type="button" 
                     onClick={() => setSortBy(prev => prev === 'branch-asc' ? 'branch-desc' : 'branch-asc')}
@@ -1293,10 +1288,10 @@ const handleTriggerAudit = (record) => {
                     {!sortBy.startsWith('score') && <ArrowUpDown size={11} className="text-slate-400" />}
                   </button>
                 </th>
-                <th className="hidden lg:table-cell py-3 px-4 w-[20%]">
+                <th className="hidden lg:table-cell py-3 px-4 w-[24%]">
                   <span className="truncate">แบบฟอร์มการตรวจ</span>
                 </th>
-                <th className="py-3 px-4 w-[30%] lg:w-[21%]">
+                <th className="py-3 px-4 w-[24%] lg:w-[14%]">
                   <button 
                     type="button" 
                     onClick={() => setSortBy(prev => prev === 'date-desc' ? 'date-asc' : 'date-desc')}
