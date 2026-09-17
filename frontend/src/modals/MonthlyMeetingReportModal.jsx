@@ -108,21 +108,24 @@ export default function MonthlyMeetingReportModal({ onClose }) {
     ? Math.round(excellentCount / monthRecords.length * 100)
     : 0;
 
-  // ── คะแนนแยกหมวดหมู่ ──────────────────────────────────────────────────────
+  // ── คะแนนเฉลี่ยแยกตามหมวดหมู่มาตรฐาน QSC ──────────────────────────────────
   const sectionBreakdown = useMemo(() => {
-    const sectionScores = {};
+    const categoryScores = {};
     monthRecords.forEach(r => {
       (r.responses || []).forEach(resp => {
-        const sec = resp.sectionTitle || resp.surveySection?.title || 'อื่นๆ';
-        if (!sectionScores[sec]) sectionScores[sec] = { total: 0, count: 0 };
-        sectionScores[sec].total += (resp.scoreGiven || 0);
-        sectionScores[sec].count += (resp.fullScore || 10);
+        if (resp.isNa) return;
+        const cat = (resp.categoryName || resp.surveyItem?.categoryName || resp.sectionTitle || 'ทั่วไป').trim();
+        if (!categoryScores[cat]) categoryScores[cat] = { total: 0, count: 0 };
+        categoryScores[cat].total += (resp.scoreGiven || 0);
+        categoryScores[cat].count += (resp.fullScore > 0 ? resp.fullScore : 10);
       });
     });
-    return Object.entries(sectionScores).map(([title, s]) => ({
-      title,
-      percent: s.count > 0 ? Math.round(s.total / s.count * 100) : 0,
-    }));
+    return Object.entries(categoryScores)
+      .map(([title, s]) => ({
+        title,
+        percent: s.count > 0 ? Math.round((s.total / s.count) * 100) : 0,
+      }))
+      .sort((a, b) => b.percent - a.percent);
   }, [monthRecords]);
 
   // ── Top 5 Defects ─────────────────────────────────────────────────────────
