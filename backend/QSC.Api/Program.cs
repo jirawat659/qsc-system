@@ -113,6 +113,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<QSC.Api.Services.LoginRateLimiterService>();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
+builder.Services.AddHostedService<QSC.Api.Services.OrphanFileCleanupService>();
 
 // 6. Rate Limiting for AI and Login Endpoints
 builder.Services.AddRateLimiter(options =>

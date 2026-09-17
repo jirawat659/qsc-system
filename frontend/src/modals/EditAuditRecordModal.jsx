@@ -965,18 +965,49 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
     setIsUploadingPhoto((prev) => ({ ...prev, [itemId]: true }));
     try {
-      const compressedUrls = await Promise.all(validFiles.map((f) => compressImageFile(f)));
-      setAnswersState((prev) => {
-        const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
-        const existing = Array.isArray(current.imageUrls) ? current.imageUrls : [];
-        return {
-          ...prev,
-          [itemId]: { ...current, imageUrls: [...existing, ...compressedUrls] }
-        };
-      });
+      // 1. บีบอัดรูปภาพฝั่ง client ก่อนอัปโหลด
+      const compressedBase64List = await Promise.all(validFiles.map((f) => compressImageFile(f)));
+
+      // 2. อัปโหลดตรงไปยัง /audit/upload-image (เหมือน LiveAuditScreen) เพื่อไม่ให้ JSON payload บวม
+      const lastBackendError = { msg: null };
+      const uploadResults = await Promise.all(
+        compressedBase64List.map(async (base64) => {
+          try {
+            const res = await api.post('/audit/upload-image', { base64Data: base64 });
+            const url = res.data?.url;
+            if (!url) throw new Error("Upload response missing url");
+            return { ok: true, url };
+          } catch (uploadErr) {
+            console.warn("Photo upload failed:", uploadErr);
+            const serverMsg = uploadErr?.response?.data?.message;
+            if (serverMsg) lastBackendError.msg = serverMsg;
+            return { ok: false };
+          }
+        })
+      );
+
+      const successfulUrls = uploadResults.filter(r => r.ok).map(r => r.url);
+      const failedCount = uploadResults.length - successfulUrls.length;
+
+      if (successfulUrls.length > 0) {
+        setAnswersState((prev) => {
+          const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
+          const existing = Array.isArray(current.imageUrls) ? current.imageUrls : [];
+          return {
+            ...prev,
+            [itemId]: { ...current, imageUrls: [...existing, ...successfulUrls] }
+          };
+        });
+      }
+
+      if (failedCount > 0) {
+        alert(lastBackendError.msg || (failedCount === validFiles.length
+          ? "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+          : `อัปโหลดสำเร็จ ${successfulUrls.length} รูป แต่มี ${failedCount} รูปที่ล้มเหลว กรุณาลองใหม่`));
+      }
     } catch (e) {
-      console.error("Compression error:", e);
-      alert("เกิดข้อผิดพลาดในการประมวลผลรูปภาพ กรุณาลองใหม่อีกครั้ง");
+      console.error("Upload error:", e);
+      alert("เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsUploadingPhoto((prev) => ({ ...prev, [itemId]: false }));
     }
