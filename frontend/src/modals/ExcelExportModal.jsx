@@ -47,6 +47,44 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
     return all;
   };
 
+  const timeRangeOptions = useMemo(() => {
+    const now = new Date();
+    const thaiMonths = [
+      "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+      "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+    ];
+    const thaiShortMonths = [
+      "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+      "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ];
+
+    const curMonth = now.getMonth();
+    const curYearBE = now.getFullYear() + 543;
+    const curYearShort = curYearBE % 100;
+
+    // 1 เดือนล่าสุด (เดือนปัจจุบัน)
+    const label1M = `รอบตรวจ 1 เดือนล่าสุด (${thaiMonths[curMonth]} ${curYearBE})`;
+
+    // ย้อนหลัง 3 เดือน
+    const d3M = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+    const label3M = `รอบตรวจย้อนหลัง 3 เดือน (${thaiShortMonths[d3M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
+
+    // ย้อนหลัง 6 เดือน
+    const d6M = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    const label6M = `รอบตรวจย้อนหลัง 6 เดือน (${thaiShortMonths[d6M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
+
+    // ทั้งปี (YTD)
+    const label1Y = `รอบตรวจทั้งปี (YTD ${curYearBE})`;
+
+    return [
+      { value: "all", label: "ทั้งหมด" },
+      { value: "1M", label: label1M },
+      { value: "3M", label: label3M },
+      { value: "6M", label: label6M },
+      { value: "1Y", label: label1Y }
+    ];
+  }, []);
+
   const filteredUnits = useMemo(() => {
     if (!searchQuery.trim()) return visibleLocations;
     const q = searchQuery.toLowerCase();
@@ -68,10 +106,13 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
         isBranchScoped && selectedUnit?.id ? { locationId: selectedUnit.id } : {}
       );
 
+      const selectedTimeOption = timeRangeOptions.find(opt => opt.value === timeRange);
+
       exportToExcel({
         mode: exportMode,
         targetUnit: selectedUnit,
         timeRange: isBranchScoped ? selectedRound : timeRange,
+        timeRangeLabel: isBranchScoped ? null : selectedTimeOption?.label,
         region: regionFilter,
         locations: visibleLocations || [],
         auditRecords: fullAuditRecords || []
@@ -222,11 +263,11 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                       onChange={(e) => setTimeRange(e.target.value)}
                       className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                     >
-                      <option value="all">ทั้งหมด</option>
-                      <option value="1M">รอบตรวจ 1 เดือนล่าสุด (สิงหาคม 2569)</option>
-                      <option value="3M">รอบตรวจย้อนหลัง 3 เดือน (Q3 2569)</option>
-                      <option value="6M">รอบตรวจย้อนหลัง 6 เดือน (มี.ค. - ส.ค. 69)</option>
-                      <option value="1Y">รอบตรวจทั้งปี (YTD 2569)</option>
+                      {timeRangeOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
                     </select>
                     <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                       <ChevronDown size={18} />
