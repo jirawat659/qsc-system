@@ -754,7 +754,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         title="ผลการตรวจ"
         subtitle="รายละเอียดผลการตรวจ"
         onBack={onBack}
-        isAudit={true}
         action={headerAction}
       />
       

@@ -13,10 +13,11 @@ import { DataContext } from "../context/DataContext";
 import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 // ✍️ Digital Signature Pad Modal (High-DPI Touch & Mouse)
-function SignaturePadModal({ title, onDone, onCancel }) {
+function SignaturePadModal({ title, initialSignatureUrl, onDone, onCancel }) {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [hasSigned, setHasSigned] = useState(false);
+  const [hasSigned, setHasSigned] = useState(Boolean(initialSignatureUrl));
+  const [isLoadingOldSignature, setIsLoadingOldSignature] = useState(Boolean(initialSignatureUrl));
 
   useEffect(() => {
     lockBodyScroll();
@@ -38,7 +39,35 @@ function SignaturePadModal({ title, onDone, onCancel }) {
     ctx.lineWidth = 2.5;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-  }, []);
+
+    // 🎨 Load existing / old signature onto canvas if present
+    if (initialSignatureUrl) {
+      setIsLoadingOldSignature(true);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        if (!canvasRef.current) return;
+        const currentCtx = canvasRef.current.getContext("2d");
+        const padding = 16;
+        const availableW = Math.max(10, rect.width - (padding * 2));
+        const availableH = Math.max(10, rect.height - (padding * 2));
+        const imgW = img.naturalWidth || img.width || 1;
+        const imgH = img.naturalHeight || img.height || 1;
+        const scale = Math.min(availableW / imgW, availableH / imgH, 1);
+        const drawW = imgW * scale;
+        const drawH = imgH * scale;
+        const offsetX = (rect.width - drawW) / 2;
+        const offsetY = (rect.height - drawH) / 2;
+        currentCtx.drawImage(img, offsetX, offsetY, drawW, drawH);
+        setHasSigned(true);
+        setIsLoadingOldSignature(false);
+      };
+      img.onerror = () => {
+        setIsLoadingOldSignature(false);
+      };
+      img.src = getFullImageUrl(initialSignatureUrl);
+    }
+  }, [initialSignatureUrl]);
 
   const getCoordinates = (e) => {
     const canvas = canvasRef.current;
@@ -86,14 +115,23 @@ function SignaturePadModal({ title, onDone, onCancel }) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
-    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
     setHasSigned(false);
   };
 
   const confirmSign = () => {
     const canvas = canvasRef.current;
     if (!canvas || !hasSigned) return;
-    onDone(canvas.toDataURL("image/png"));
+    try {
+      const dataUrl = canvas.toDataURL("image/png");
+      onDone(dataUrl);
+    } catch (e) {
+      console.warn("Canvas toDataURL failed, falling back to initial signature", e);
+      if (initialSignatureUrl) {
+        onDone(initialSignatureUrl);
+      }
+    }
   };
 
   return (
@@ -125,7 +163,13 @@ function SignaturePadModal({ title, onDone, onCancel }) {
             onTouchEnd={stopDrawing}
             className="w-full h-52 cursor-crosshair block bg-white"
           />
-          {!hasSigned && (
+          {isLoadingOldSignature && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none text-slate-500 text-xs font-semibold gap-2">
+              <Loader2 size={16} className="animate-spin text-[#0F6659]" />
+              <span>กำลังโหลดลายเซ็นเดิม...</span>
+            </div>
+          )}
+          {!hasSigned && !isLoadingOldSignature && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium gap-1.5 select-none">
               <Edit3 size={14} />
               <span>ใช้นิ้วหรือเมาส์ลากเพื่อเซ็นชื่อ</span>
@@ -145,7 +189,7 @@ function SignaturePadModal({ title, onDone, onCancel }) {
           <button
             type="button"
             onClick={confirmSign}
-            disabled={!hasSigned}
+            disabled={!hasSigned || isLoadingOldSignature}
             className="flex-1 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <CheckCircle2 size={14} />
@@ -1644,12 +1688,12 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
 
             <div className="space-y-4">
-              {/* 1. ผู้รับการตรวจ / ผจก.สาขา */}
+              {/* 1. ผู้รับการตรวจ */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <PenTool size={13} className="text-[#0F6659]" />
-                    <span>1. ผู้รับการตรวจ / ผจก.สาขา ({currentRecord?.location?.name || currentRecord?.locationName || "สาขา"})</span>
+                    <span>1. ผู้รับการตรวจ ({currentRecord?.location?.name || currentRecord?.locationName || "สาขา"})</span>
                   </span>
                   {auditeeSignature && (
                     <button
@@ -2012,7 +2056,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       {/* ✍️ Signature Drawing Pad Modal */}
       {activeSignModal && (
         <SignaturePadModal
-          title={activeSignModal === 'auditor' ? 'เซ็นชื่อผู้ตรวจประเมิน' : 'เซ็นชื่อผู้รับการตรวจ / ผจก.สาขา'}
+          title={activeSignModal === 'auditor' ? 'เซ็นชื่อผู้ตรวจประเมิน' : 'เซ็นชื่อผู้รับการตรวจ'}
+          initialSignatureUrl={activeSignModal === 'auditor' ? auditorSignature : auditeeSignature}
           onDone={(sigDataUrl) => {
             if (activeSignModal === 'auditor') {
               setAuditorSignature(sigDataUrl);

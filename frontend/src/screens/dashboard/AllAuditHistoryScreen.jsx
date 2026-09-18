@@ -857,14 +857,13 @@ const handleTriggerAudit = (record) => {
   }
 
   return (
-    <div className="page-transition p-3.5 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-28 lg:pb-12 font-sans">
+    <div className="page-transition px-3.5 sm:px-6 pt-6 sm:pt-8 pb-28 lg:pb-12 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto font-sans">
 
       {onBack ? (
         <Header
           title={title}
           subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length}`}
           onBack={onBack}
-          isAudit={true}
           action={
             <div className="flex items-center gap-2">
               {onStartNewAudit && (
@@ -906,7 +905,7 @@ const handleTriggerAudit = (record) => {
       {/* ── 🌟 1. UNIFIED DASHBOARD SUMMARY HERO CARDS (ตรงตามหน้า Dashboard เป๊ะๆ) ── */}
       <div className="space-y-2.5">
         {/* 📱 Card 1 (บน): วงแหวนคะแนนซ้าย + ข้อความสรุปขวา */}
-        <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center gap-3.5">
+        {/*<div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center gap-3.5">
           <ScoreRing score={avgScore} size={48} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
@@ -931,7 +930,7 @@ const handleTriggerAudit = (record) => {
               </div>
             )}
           </div>
-        </div>
+        </div>*/}
 
         {/* 📱 Card 2 (ล่าง): ไอคอนสถิติตรวจแล้ว & งานค้าง CAP */}
         <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center gap-3.5">
