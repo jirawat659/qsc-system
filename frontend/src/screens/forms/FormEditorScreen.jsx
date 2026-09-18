@@ -907,7 +907,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       case "select": return "ตัวเลือก (Dropdown/Badges)";
       case "text":
       case "textarea": return "ข้อความ / หมายเหตุ";
-      case "toggle": return "สวิตช์ ใช่/ไม่ใช่";
+      case "toggle": return "ใช่/ไม่ใช่";
       case "auditor": return "ผู้ตรวจประเมิน";
       default: return type || "ทั่วไป";
     }

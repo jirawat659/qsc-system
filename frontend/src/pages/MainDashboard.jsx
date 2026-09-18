@@ -35,6 +35,140 @@ const ScreenLoader = () => (
   </div>
 );
 
+// 🌟 เนื้อหาของแถบบนสุด (ชื่อ/หมวดหมู่) แยกออกมาเพื่อให้ของเก่า-ของใหม่ render พร้อมกันตอนดันสลับกัน
+function HeaderTitleContent({ subHeader }) {
+  if (subHeader?.sectionBadgeNumber) {
+    return (
+      <div
+        className="flex items-center gap-2 min-w-0 cursor-pointer group"
+        onClick={subHeader.onMenuClick}
+        title="แตะเพื่อเลือกหมวดการตรวจ"
+      >
+        <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-emerald-700 transition-colors shadow-2xs">
+          {subHeader.sectionBadgeNumber}
+        </span>
+        <span className="text-sm font-black text-slate-900 truncate leading-tight min-w-0 group-hover:text-[#0F6659] transition-colors">
+          {subHeader.title}
+        </span>
+        {subHeader?.subtitle && (
+          <span className="text-[10px] font-bold text-[#0F6659] bg-white px-2.5 py-1 rounded-lg border border-[#CCE3DC] shadow-2xs shrink-0">
+            {subHeader.subtitle}
+          </span>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="min-w-0 w-full">
+      <div className="text-sm font-extrabold text-slate-900 truncate leading-tight">
+        {subHeader?.title || "รายละเอียด"}
+      </div>
+      {subHeader?.subtitle && (
+        <div className="text-[11px] font-medium text-slate-400 truncate leading-none mt-0.5">
+          {subHeader.subtitle}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 🌟 ตัวดันจริง: ของเก่าเลื่อนขึ้นหายไปด้านบน + ของใหม่เลื่อนขึ้นมาแทนที่ พร้อมกันในจังหวะเดียว
+// ใช้ @keyframes ที่เตรียมไว้แล้วใน index.css (animate-push-up-out / animate-push-up-in)
+function PushingHeaderTitle({ subHeader }) {
+  const titleKey = subHeader?.title || "รายละเอียด";
+  const [current, setCurrent] = useState({ key: titleKey, subHeader });
+  const [previous, setPrevious] = useState(null);
+  const timeoutRef = useRef(null);
+
+  useEffect(() => {
+    if (titleKey === current.key) {
+      // หัวข้อเดิม แค่รายละเอียดย่อยเปลี่ยน (เช่นจำนวนข้อที่ตอบ) ไม่ต้องเล่นแอนิเมชันดัน
+      setCurrent({ key: titleKey, subHeader });
+      return;
+    }
+
+    setPrevious(current);
+    setCurrent({ key: titleKey, subHeader });
+
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      setPrevious(null);
+    }, 280);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [titleKey]);
+
+  return (
+    <div className="relative h-9 overflow-hidden">
+      {previous && (
+        <div className="absolute inset-0 flex items-center animate-push-up-out">
+          <HeaderTitleContent subHeader={previous.subHeader} />
+        </div>
+      )}
+      <div
+        className={`${previous ? "absolute inset-0" : "relative h-full"} flex items-center ${
+          previous ? "animate-push-up-in" : ""
+        }`}
+      >
+        <HeaderTitleContent subHeader={current.subHeader} />
+      </div>
+    </div>
+  );
+}
+
+// 🌟 แถบ TopBar ย่อยสำหรับหน้ารายละเอียด และหน้าตรวจประเมิน (Live Audit)
+function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
+  return (
+    <div className="flex items-center justify-between gap-2 min-w-0 w-full">
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        {(subHeader?.onBack || subHeader?.onMenuClick) && (
+          <button
+            type="button"
+            onClick={subHeader.leftActionType === "menu" ? subHeader.onMenuClick : subHeader.onBack}
+            className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border shrink-0 group ${
+              subHeader?.sectionBadgeNumber
+                ? "bg-white/95 text-[#0F6659] border-[#CCE3DC] hover:bg-emerald-50"
+                : "bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 border-slate-200"
+            }`}
+            title={subHeader.leftActionType === "menu" ? "เปิดหมวดหมู่" : "ย้อนกลับ"}
+          >
+            <div className="relative flex items-center justify-center w-full h-full">
+              {subHeader.leftActionType === "menu" ? (
+                <Menu size={18} strokeWidth={2.4} className="text-[#0F6659] animate-in zoom-in-75 duration-200" />
+              ) : (
+                <ChevronLeft size={20} strokeWidth={2.5} className="text-slate-700 group-hover:text-[#0F6659] transition-colors -ml-0.5 animate-in zoom-in-75 duration-200" />
+              )}
+            </div>
+          </button>
+        )}
+
+        {/* ส่วนแสดงชื่อ/หัวข้อในแถบบนมือถือ พร้อม Effect ดันขึ้นเปลี่ยนหัวข้อหมวดหมู่ */}
+        <div className="min-w-0 flex-1">
+          <PushingHeaderTitle subHeader={subHeader} />
+        </div>
+      </div>
+
+
+      <div className="flex items-center gap-2 shrink-0">
+        {subHeader?.action}
+        <button
+          type="button"
+          onClick={() => setShowProfileModal(true)}
+          className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
+          title="ดูโปรไฟล์และบัญชีผู้ใช้"
+        >
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+            {currentUser?.avatar || "ผ"}
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function MainDashboard({ onLogout }) {
 
   const [locations, setLocations] = useState([]);
@@ -487,19 +621,46 @@ export default function MainDashboard({ onLogout }) {
     smoothScrollToTop();
   };
 
+  const headerRef = useRef(null);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [auditHeaderOffset, setAuditHeaderOffset] = useState(0);
 
   // Scroll to top automatically whenever screen changes
   useEffect(() => {
     smoothScrollToTop();
     setIsScrolled(false);
+    setAuditHeaderOffset(0);
   }, [screen]);
 
-  // 🌟 Dynamic Scroll Listener for Option 3 Glassmorphism Header
+  const isLiveAuditScreen = screen === "audit" && Boolean(subHeader?.isAudit);
+
+  // 🌟 Dynamic Scroll Listener: แถบหลักจะไม่ยุบจนกว่าจุดมาร์คของหมวดแรก (Section 1) จะเลื่อนขึ้นมาชน
   useEffect(() => {
     const handleScroll = () => {
-      const scrollY = window.scrollY || document.documentElement.scrollTop || (mainContentRef.current?.scrollTop || 0);
+      const mainEl = mainContentRef.current;
+      const scrollY = window.scrollY || document.documentElement.scrollTop || (mainEl?.scrollTop || 0);
       setIsScrolled(scrollY > 12);
+
+      if (isLiveAuditScreen) {
+        // หาจุดมาร์คของหมวดแรก
+        const marker0 = document.getElementById("audit-section-header-0") || document.getElementById("audit-section-0");
+        if (marker0) {
+          const topBarH = headerRef.current?.offsetHeight || 58;
+          const rect = marker0.getBoundingClientRect();
+          // เมื่อจุดมาร์คของหมวดแรกยังอยู่ต่ำกว่าแถบบนสุด (rect.top >= topBarH) -> ไม่ต้องยุบแถบหลัก (offset = 0)
+          // เมื่อจุดมาร์คเลื่อนขึ้นมาชนแถบบนสุด (rect.top < topBarH) -> แถบหลักจะค่อยๆ เลื่อนขึ้นไป 1:1 ตามการเลื่อนของจุดมาร์ค
+          if (rect.top < topBarH) {
+            const offset = Math.min(topBarH, Math.max(0, topBarH - rect.top));
+            setAuditHeaderOffset(offset);
+          } else {
+            setAuditHeaderOffset(0);
+          }
+        } else {
+          setAuditHeaderOffset(0);
+        }
+      } else {
+        setAuditHeaderOffset(0);
+      }
     };
 
     window.addEventListener("scroll", handleScroll, { passive: true });
@@ -514,7 +675,7 @@ export default function MainDashboard({ onLogout }) {
         mainEl.removeEventListener("scroll", handleScroll);
       }
     };
-  }, []);
+  }, [isLiveAuditScreen]);
 
   const showToast = (msg) => {
     setToastText(msg);
@@ -854,58 +1015,32 @@ export default function MainDashboard({ onLogout }) {
             </div>
           </aside>
           
-          {/* 🌟 MOBILE HEADER (Dynamic Scroll Transparency - Option 3 for ALL Screens) */}
+          {/* 🌟 MOBILE & AUDIT HEADER: แถบบนสุด (จะโดนจุดมาร์คของหมวดแรกดันเลื่อนเก็บขึ้นไป 1:1 ตามนิ้ว) */}
           <header
-            className={`flex lg:hidden flex-col shrink-0 px-3.5 pt-3.5 pb-3 sticky top-0 z-30 transition-all duration-300 gap-2 border-b ${
-              isScrolled
-                ? "bg-white/85 backdrop-blur-md border-slate-200/60 shadow-xs"
+            ref={headerRef}
+            style={
+              isLiveAuditScreen
+                ? {
+                    transform: `translateY(-${auditHeaderOffset}px)`,
+                    marginBottom: `-58px`,
+                    opacity: auditHeaderOffset >= 54 ? 0 : 1 - auditHeaderOffset / 65,
+                    pointerEvents: auditHeaderOffset >= 54 ? "none" : "auto",
+                  }
+                : undefined
+            }
+            className={`${(subHeader?.isAudit || subHeader?.onBack || subHeader?.hasBack) ? "flex" : "flex lg:hidden"} flex-col shrink-0 sticky top-0 z-30 px-3.5 pt-3.5 pb-3 border-b ${
+              (isScrolled || subHeader)
+                ? "bg-white/90 backdrop-blur-md border-slate-200/60 shadow-xs"
                 : "bg-transparent border-transparent shadow-none"
             }`}
           >
             {/* กรณีเปิดหน้ารายละเอียด/ผลตรวจที่มีปุ่มย้อนกลับ: ใช้แถบเดี่ยวที่มีปุ่มย้อนกลับแทนแถบโลโก้ */}
             {(subHeader?.isAudit || subHeader?.onBack || subHeader?.hasBack) ? (
-              <div className="flex items-center justify-between gap-2 min-w-0">
-                <div className="flex items-center gap-2 min-w-0 flex-1">
-                  {(subHeader?.onBack || subHeader?.onMenuClick) && (
-                    <button
-                      type="button"
-                      onClick={subHeader.leftActionType === "menu" ? subHeader.onMenuClick : subHeader.onBack}
-                      className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border border-slate-200 shrink-0 group"
-                      title={subHeader.leftActionType === "menu" ? "เปิดหมวดหมู่" : "ย้อนกลับ"}
-                    >
-                      {subHeader.leftActionType === "menu" ? (
-                        <Menu size={18} strokeWidth={2.4} className="text-[#0F6659]" />
-                      ) : (
-                        <ChevronLeft size={20} strokeWidth={2.5} className="text-slate-700 group-hover:text-[#0F6659] transition-colors -ml-0.5" />
-                      )}
-                    </button>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-extrabold text-slate-900 truncate leading-tight">
-                      {subHeader?.title || "รายละเอียด"}
-                    </div>
-                    {subHeader?.subtitle && (
-                      <div className="text-[11px] font-medium text-slate-400 truncate leading-none mt-0.5">
-                        {subHeader.subtitle}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {subHeader?.action}
-                  <button
-                    type="button"
-                    onClick={() => setShowProfileModal(true)}
-                    className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all"
-                    title="ดูโปรไฟล์และบัญชีผู้ใช้"
-                  >
-                    <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
-                      {currentUser.avatar}
-                    </div>
-                  </button>
-                </div>
-              </div>
+              <TopBarHeader
+                subHeader={subHeader}
+                currentUser={currentUser}
+                setShowProfileModal={setShowProfileModal}
+              />
             ) : (
               /* หน้าจอทั่วไป: แสดงแถบ Logo ปกติ */
               <>
@@ -966,8 +1101,8 @@ export default function MainDashboard({ onLogout }) {
           </header>
 
           {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
-          <main ref={mainContentRef} className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden min-h-screen lg:min-h-0 lg:h-full pb-16 lg:pb-8 w-full max-w-full">
-            <div key={`${role}_${screen}`} className="page-transition flex-1 flex flex-col w-full max-w-full overflow-x-hidden">
+          <main ref={mainContentRef} className={`flex-1 flex flex-col min-h-screen pb-16 lg:pb-8 w-full max-w-full ${isLiveAuditScreen ? 'overflow-visible lg:h-auto' : 'overflow-y-auto lg:min-h-0 lg:h-full'}`}>
+            <div key={`${role}_${screen}`} className={`${isLiveAuditScreen ? '' : 'page-transition'} flex-1 flex flex-col w-full max-w-full`}>
               {renderCurrentScreen()}
             </div>
           </main>

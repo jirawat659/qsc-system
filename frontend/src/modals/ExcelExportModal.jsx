@@ -63,18 +63,18 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
     const curYearShort = curYearBE % 100;
 
     // 1 เดือนล่าสุด (เดือนปัจจุบัน)
-    const label1M = `รอบตรวจ 1 เดือนล่าสุด (${thaiMonths[curMonth]} ${curYearBE})`;
+    const label1M = `เดือนล่าสุด (${thaiMonths[curMonth]} ${curYearBE})`;
 
     // ย้อนหลัง 3 เดือน
     const d3M = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    const label3M = `รอบตรวจย้อนหลัง 3 เดือน (${thaiShortMonths[d3M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
+    const label3M = `ย้อนหลัง 3 เดือน (${thaiShortMonths[d3M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
 
     // ย้อนหลัง 6 เดือน
     const d6M = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const label6M = `รอบตรวจย้อนหลัง 6 เดือน (${thaiShortMonths[d6M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
+    const label6M = `ย้อนหลัง 6 เดือน (${thaiShortMonths[d6M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
 
     // ทั้งปี (YTD)
-    const label1Y = `รอบตรวจทั้งปี (YTD ${curYearBE})`;
+    const label1Y = `ทั้งปี (YTD ${curYearBE})`;
 
     return [
       { value: "all", label: "ทั้งหมด" },
@@ -283,7 +283,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                       onChange={(e) => setRegionFilter(e.target.value)}
                       className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                     >
-                      <option value="all">ทุกภูมิภาคทั่วประเทศ (100+ สาขา)</option>
+                      <option value="all">ทุกภูมิภาค</option>
                       <option value="กรุงเทพ">เขตกรุงเทพฯ และปริมณฑล</option>
                       <option value="เหนือ">เขตภาคเหนือ</option>
                       <option value="ตะวันออก">เขตภาคตะวันออก</option>
