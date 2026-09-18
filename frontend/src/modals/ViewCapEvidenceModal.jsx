@@ -10,12 +10,32 @@ import Section from "../shared/Section";
 import ScoreRing from "../shared/ScoreRing";
 import HistoryList from "../shared/HistoryList";
 import ErrorBoundary from "../shared/ErrorBoundary";
-
-
+import { getFullImageUrl } from "../config/api";
+import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 export default function ViewCapEvidenceModal({ cap, onClose }) {
+  const [previewPhoto, setPreviewPhoto] = useState(null);
+
+  useEffect(() => {
+    if (!previewPhoto) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [previewPhoto]);
+
+  const afterPhotos = useMemo(() => {
+    if (!cap) return [];
+    if (Array.isArray(cap.imageUrls) && cap.imageUrls.length > 0) return cap.imageUrls;
+    if (Array.isArray(cap.photos) && cap.photos.length > 0) return cap.photos;
+    if (Array.isArray(cap.images) && cap.images.length > 0) return cap.images;
+    if (cap.photo) return [cap.photo];
+    return [];
+  }, [cap]);
+
   return (
-    <ModalWrapper onClose={onClose} maxWidth="max-w-md">
+    <>
+      <ModalWrapper onClose={onClose} maxWidth="max-w-md">
         <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
           <div className="flex items-center gap-2">
             <CheckCheck size={18} className="text-emerald-700" />
@@ -38,17 +58,43 @@ export default function ViewCapEvidenceModal({ cap, onClose }) {
           </div>
 
           <div className="p-3 rounded-xl bg-slate-50 border space-y-2">
-            <div className="text-xs font-bold text-slate-500">รูปถ่ายหลักฐานเปรียบเทียบ (Before / After):</div>
-            <div className="grid grid-cols-2 gap-2 text-center">
-              <div className="p-2.5 rounded-lg bg-red-50 border border-red-200">
-                <span className="text-xs font-bold text-red-700 block mb-1">📷 ก่อนแก้ไข (Before)</span>
-                <span className="text-xs text-slate-500">รูปถ่ายขณะตรวจ</span>
-              </div>
-              <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
-                <span className="text-xs font-bold text-emerald-700 block mb-1">✓ หลังแก้ไข (After)</span>
-                <span className="text-xs text-slate-500">รูปถ่ายหลักฐานสาขา</span>
-              </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-600">รูปถ่ายหลักฐานหลังการแก้ไข (After Photos):</span>
+              {afterPhotos.length > 0 && (
+                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                  {afterPhotos.length} รูป
+                </span>
+              )}
             </div>
+
+            {afterPhotos.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {afterPhotos.map((img, idx) => {
+                  const url = getFullImageUrl(img);
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => setPreviewPhoto(url)}
+                      className="relative aspect-square rounded-xl overflow-hidden border border-slate-200 bg-slate-100 shadow-2xs group cursor-pointer hover:border-emerald-500 transition-all"
+                    >
+                      <img
+                        src={url}
+                        alt={`Evidence ${idx + 1}`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                      />
+                      <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
+                        #{idx + 1}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-center">
+                <span className="text-xs font-bold text-emerald-700 block">✓ ส่งมอบงานแล้ว</span>
+                <span className="text-xs text-slate-500">ไม่มีรูปถ่ายแนบ</span>
+              </div>
+            )}
           </div>
 
           <div className="text-xs space-y-1 border-t pt-2" style={{ borderColor: c.border, color: c.muted }}>
@@ -63,6 +109,31 @@ export default function ViewCapEvidenceModal({ cap, onClose }) {
             ปิดหน้าต่าง
           </button>
         </div>
-    </ModalWrapper>
+      </ModalWrapper>
+
+      {/* 🔍 MODAL ขยายรูปภาพขนาดเต็ม (Lightbox) */}
+      {previewPhoto && (
+        <div 
+          className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <div className="relative max-w-2xl max-h-[85dvh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setPreviewPhoto(null)}
+              className="absolute -top-10 right-0 w-8 h-8 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center cursor-pointer transition-all shadow-md"
+              title="ปิด"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={previewPhoto}
+              alt="Preview"
+              className="max-h-[80dvh] w-auto max-w-full rounded-2xl object-contain shadow-2xl border border-white/10"
+            />
+          </div>
+        </div>
+      )}
+    </>
   );
 }

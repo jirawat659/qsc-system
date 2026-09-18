@@ -1,130 +1,205 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
-import { Camera, Check, Trash2, X, AlertTriangle, Wrench, ChevronDown, MapPin, Store, ChevronRight, Plus } from "lucide-react";
-
-
-import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE } from "../../config/roles";
-import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
-import { TopBarContext } from "../../context/TopBarContext";
-import { DataContext } from "../../context/DataContext";
-import { exportToExcel } from "../../utils/exportToExcel";
+import { Camera, Check, X, AlertTriangle, Wrench, MapPin, Store, ChevronRight, Plus, Calendar, FileText, Loader2, Layers, ClipboardList } from "lucide-react";
 
 import ModalWrapper from "../../shared/ModalWrapper";
-import Header from "../../shared/Header";
-import Section from "../../shared/Section";
-import ScoreRing from "../../shared/ScoreRing";
-import HistoryList from "../../shared/HistoryList";
-import ErrorBoundary from "../../shared/ErrorBoundary";
-import { compressImageFile } from "../../utils/imageCompressor";
+import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
+import { isFormApplicableToLocation } from "../../utils/formMatching";
 import LocationSelectModal from "../../modals/LocationSelectModal";
+import api from "../../config/api";
 
-export default function NewRemediationModal({ onClose, onSubmit, locations = [], currentUser }) {
-  const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || 1);
+export const CORE_SCORE_CATEGORIES = [
+  "ความสะอาด",
+  "เอกสาร",
+  "กระบวนการทำงาน",
+  "คุณภาพสินค้า",
+  "การบริการ"
+];
+
+export default function NewRemediationModal({ onClose, onSuccess, locations = [], currentUser }) {
+  const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || null);
   const [showLocationSelectModal, setShowLocationSelectModal] = useState(false);
-  const [selectedIssue, setSelectedIssue] = useState("q1");
-  const [remediationNote, setRemediationNote] = useState("");
+
+  // Cascading Form & Category States
+  const [forms, setForms] = useState([]);
+  const [selectedFormId, setSelectedFormId] = useState("");
+  const [selectedCategoryName, setSelectedCategoryName] = useState("");
+  const [isLoadingForms, setIsLoadingForms] = useState(false);
+
+  const [issueItem, setIssueItem] = useState("");
+  const [description, setDescription] = useState("");
+  
+  const [deadlineDate, setDeadlineDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().split("T")[0];
+  });
+  
   const [photos, setPhotos] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState(null);
   const fileInputRef = useRef(null);
-
-  const handleFileChange = async (e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    try {
-      const fileList = Array.from(files);
-      const compressedUrls = await Promise.all(fileList.map(f => compressImageFile(f)));
-      setPhotos(prev => [...prev, ...compressedUrls]);
-      if (formError) setFormError(null);
-    } catch (err) {
-      console.error("Compression error:", err);
-      // Fallback if compression fails
-      Array.from(files).forEach(file => {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          setPhotos(prev => [...prev, ev.target.result]);
-          if (formError) setFormError(null);
-        };
-        reader.readAsDataURL(file);
-      });
-    }
-    e.target.value = "";
-  };
-
-  const handleRemovePhoto = (idx) => {
-    setPhotos(prev => prev.filter((_, i) => i !== idx));
-  };
 
   const selectedLoc = useMemo(() => {
     return locations.find(l => String(l.id) === String(selectedLocationId)) || locations[0];
   }, [locations, selectedLocationId]);
 
-  const availableIssues = [
-    { id: "q1", title: "ข้อ 1: พื้น ผนัง และโต๊ะรับประทานอาหารสะอาด ปราศจากคราบไขมัน" },
-    { id: "q2", title: "ข้อ 2: พนักงานแต่งกายถูกสุขลักษณะ สวมหมวกคลุมผมและผ้ากันเปื้อน" },
-    { id: "q7", title: "ข้อ 7: อุณหภูมิตู้แช่เย็นวัตถุดิบไม่เกินเกณฑ์กำหนด (≤ 4.0°C)" },
-  ];
-
-  const handleSubmit = () => {
-    if (!remediationNote.trim()) {
-      setFormError("กรุณากรอกรายละเอียดการแก้ไข");
-      return;
-    }
-    if (photos.length === 0) {
-      setFormError("กรุณาแนบรูปภาพหลักฐานหลังแก้ไขอย่างน้อย 1 รูป");
-      return;
-    }
-    setFormError(null);
-    onSubmit({
-      id: "CAP-" + Date.now().toString().slice(-3),
-      locationId: selectedLoc?.id || 1,
-      title: availableIssues.find(x => x.id === selectedIssue)?.title.split(":")[1]?.trim() || "งานแก้ไขสุขอนามัย",
-      unit: selectedLoc?.name || selectedLoc?.fullName || "สาขาสยาม",
-      status: "submitted",
-      due: "รอผู้ตรวจอนุมัติ",
-      overdue: false,
-      issueItem: availableIssues.find(x => x.id === selectedIssue)?.title,
-      desc: remediationNote,
-      photo: photos[0],
-      photos: photos,
-      images: photos,
-      assignedTo: currentUser?.name || "ผู้จัดการสาขา",
-      deadline: "24 ส.ค. 2569",
-      auditScore: 76,
-      timeline: [
-        { 
-          who: `${currentUser?.name || "ผู้จัดการสาขา"} (${selectedLoc?.name || "สาขา"})`, 
-          text: remediationNote, 
-          photo: photos[0],
-          photos: photos,
-          time: "เมื่อสักครู่",
-          isMe: true
+  // ดึงรายการแบบฟอร์มทั้งหมดตอนเปิด Modal
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoadingForms(true);
+    api.get("/form")
+      .then(res => {
+        if (isMounted && Array.isArray(res.data)) {
+          setForms(res.data.filter(f => f.isActive));
         }
-      ]
-    });
-    onClose();
+      })
+      .catch(err => console.warn("Failed to fetch forms:", err))
+      .finally(() => { if (isMounted) setIsLoadingForms(false); });
+    return () => { isMounted = false; };
+  }, []);
+
+  // กรองฟอร์มที่เข้ากับสาขาที่เลือก (isFormApplicableToLocation)
+  const applicableForms = useMemo(() => {
+    if (!selectedLoc) return [];
+    return forms.filter(f => isFormApplicableToLocation(f, selectedLoc));
+  }, [forms, selectedLoc]);
+
+  // เลือกลำดับฟอร์มอัตโนมัติเมื่อสาขาเปลี่ยน
+  useEffect(() => {
+    if (applicableForms.length > 0) {
+      setSelectedFormId(applicableForms[0].id.toString());
+    } else {
+      setSelectedFormId("");
+    }
+  }, [applicableForms]);
+
+  // 🏷️ ดึงเฉพาะ "หมวดของคะแนน" (Score Categories) ไม่นำหมวดคำถาม/โซนการตรวจ (Section Title) มารวม
+  const availableCategories = useMemo(() => {
+    const catSet = new Set();
+
+    // 1. ดึงจาก item.categoryName ในฟอร์มที่เลือก (เฉพาะหมวดของคะแนน)
+    if (selectedFormId) {
+      const currentForm = applicableForms.find(f => f.id.toString() === selectedFormId.toString());
+      if (currentForm && currentForm.sections) {
+        currentForm.sections.forEach(sec => {
+          (sec.items || []).forEach(item => {
+            let cat = (item.categoryName || item.category || "").trim();
+            if (cat === "คุณภาพสินค้า-วัตถุดิบ") cat = "คุณภาพสินค้า";
+            if (cat) catSet.add(cat);
+          });
+        });
+      }
+    }
+
+    // 2. ให้มี 5 หมวดคะแนนหลักตามมาตรฐาน QSC เป็นตัวเลือกเสมอ
+    CORE_SCORE_CATEGORIES.forEach(core => catSet.add(core));
+
+    return Array.from(catSet);
+  }, [selectedFormId, applicableForms]);
+
+  // เลือกลำดับหมวดหมู่อัตโนมัติ
+  useEffect(() => {
+    if (availableCategories.length > 0) {
+      setSelectedCategoryName(availableCategories[0]);
+    } else {
+      setSelectedCategoryName("ความสะอาด");
+    }
+  }, [availableCategories]);
+
+  const handleFileChange = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const rawFileList = Array.from(files);
+    const validFiles = [];
+    const validationErrors = [];
+
+    for (const f of rawFileList) {
+      const check = validateImageFile(f);
+      if (!check.valid) {
+        validationErrors.push(`${f.name || "ไฟล์"}: ${check.message}`);
+      } else {
+        validFiles.push(f);
+      }
+    }
+
+    if (validationErrors.length > 0) {
+      setFormError(validationErrors.join(" | "));
+      if (validFiles.length === 0) {
+        e.target.value = "";
+        return;
+      }
+    }
+
+    try {
+      const compressedUrls = await Promise.all(validFiles.map(f => compressImageFile(f)));
+      setPhotos(prev => [...prev, ...compressedUrls]);
+      if (formError && validationErrors.length === 0) setFormError(null);
+    } catch (err) {
+      console.error("Compression error:", err);
+      setFormError("เกิดข้อผิดพลาดในการประมวลผลรูปภาพ กรุณาลองใหม่อีกครั้ง");
+    }
+    e.target.value = "";
+  };
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!selectedLoc?.id) {
+      setFormError("กรุณาเลือกสาขาที่ต้องการมอบหมายงานแก้ไข");
+      return;
+    }
+    if (!issueItem.trim()) {
+      setFormError("กรุณาระบุหัวข้อข้อบกพร่องหรือปัญหาที่ตรวจพบ");
+      return;
+    }
+    if (!description.trim()) {
+      setFormError("กรุณาระบุรายละเอียดคำแนะนำสิ่งที่สาขาต้องดำเนินการแก้ไข");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      const deadlineIso = deadlineDate ? new Date(`${deadlineDate}T23:59:59.000Z`).toISOString() : null;
+      
+      const payload = {
+        locationId: selectedLoc.id,
+        categoryName: selectedCategoryName || "ทั่วไป",
+        issueItem: issueItem.trim(),
+        description: description.trim(),
+        submissionDeadline: deadlineIso,
+        imageUrls: photos
+      };
+
+      const res = await api.post("/cap", payload);
+      if (onSuccess) onSuccess(res.data);
+      onClose();
+    } catch (err) {
+      setFormError(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการสร้างงานแก้ไข");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
-      {/* Pinned Header */}
       <div className="p-4 border-b flex items-center justify-between shrink-0 bg-slate-50 border-slate-100">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center text-[#0F6659] shrink-0 font-bold">
             <Wrench size={16} />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-800">ส่งมอบงานแก้ไขใหม่ (Manual CAP)</h3>
-            <p className="text-[11px] text-slate-500">สำหรับสาขาที่ต้องการส่งหลักฐานแก้ไขเพิ่มเติม</p>
+            <h3 className="text-sm font-bold text-slate-800">สร้างงานแก้ไขใหม่ให้สาขา (Assign CAP Task)</h3>
+            <p className="text-[11px] text-slate-500">มอบหมายข้อบกพร่องเพื่อให้ผู้จัดการร้านดำเนินการปรับปรุงแก้ไข</p>
           </div>
         </div>
-        <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 cursor-pointer transition-colors">
+        <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition-colors">
           <X size={16} />
         </button>
       </div>
 
-      {/* Scrollable Form Body */}
-      <div className="p-4 sm:p-5 space-y-4 flex-1 overflow-y-auto min-h-0 custom-tab-scrollbar">
+      <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 flex-1 overflow-y-auto min-h-0 custom-tab-scrollbar">
         {formError && (
           <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-2">
             <AlertTriangle size={15} className="shrink-0 text-rose-600" />
@@ -132,202 +207,202 @@ export default function NewRemediationModal({ onClose, onSubmit, locations = [],
           </div>
         )}
 
-        {/* 1. Dedicated Interactive Branch Selector */}
-        <div className="min-w-0 w-full">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <MapPin size={14} className="text-[#0F6659]" />
-              <span>สาขาเป้าหมายที่ต้องเข้าตรวจ</span>
-            </label>
-          </div>
-
+        {/* 1. เลือกสาขา (Location) */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <MapPin size={14} className="text-[#0F6659]" />
+            <span>สาขาที่ต้องการมอบหมายงานแก้ไข <span className="text-rose-500">*</span></span>
+          </label>
           <div
             onClick={() => setShowLocationSelectModal(true)}
-            className="w-full p-3.5 sm:p-4 rounded-2xl bg-white border border-slate-200/90 hover:border-[#0F6659] hover:bg-emerald-50/20 cursor-pointer transition-all flex items-center justify-between gap-3 shadow-2xs group active:scale-[0.99] min-w-0"
+            className="w-full p-3.5 rounded-2xl bg-white border border-slate-200 hover:border-[#0F6659] cursor-pointer transition-all flex items-center justify-between gap-3 shadow-2xs group"
           >
             <div className="flex items-center gap-3 min-w-0 flex-1">
-              <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/60 flex items-center justify-center shrink-0 font-bold group-hover:bg-[#0F6659] group-hover:text-white transition-all shadow-2xs">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0">
                 <Store size={20} />
               </div>
-
               <div className="min-w-0 flex-1">
                 {selectedLoc ? (
-                  <div className="space-y-1">
-                    <div className="text-sm sm:text-base font-bold text-slate-800 line-clamp-2 group-hover:text-[#0F6659] transition-colors leading-snug">
-                      {selectedLoc.fullName || selectedLoc.name}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                      {selectedLoc.code && (
-                        <span className="font-mono font-bold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-md text-[11px]">
-                          {selectedLoc.code}
-                        </span>
-                      )}
-                      {selectedLoc.region && (
-                        <span className="text-xs text-slate-500 font-medium flex items-center gap-1">
-                          <span>📍 {selectedLoc.region}</span>
-                        </span>
-                      )}
-                    </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-800 line-clamp-1">{selectedLoc.fullName || selectedLoc.name}</div>
+                    <div className="text-xs text-slate-500">รหัส: {selectedLoc.code} | {selectedLoc.region}</div>
                   </div>
                 ) : (
-                  <div>
-                    <div className="text-sm font-bold text-slate-700 group-hover:text-[#0F6659] transition-colors">
-                      แตะเพื่อเลือกสาขา
-                    </div>
-                    <div className="text-xs text-slate-400 mt-0.5">
-                      ค้นหาตามชื่อสาขา, แบรนด์ หรือเขตพื้นที่
-                    </div>
-                  </div>
+                  <div className="text-sm font-bold text-slate-700">แตะเพื่อเลือกสาขา</div>
                 )}
               </div>
             </div>
-
-            <ChevronRight size={18} className="text-slate-400 group-hover:text-[#0F6659] group-hover:translate-x-0.5 transition-all shrink-0" />
+            <ChevronRight size={18} className="text-slate-400 group-hover:text-[#0F6659]" />
           </div>
         </div>
 
-        <div>
-          <label className="text-xs font-bold text-slate-700 block mb-1.5">ข้อบกพร่องที่ต้องการแก้ไข</label>
-          <div className="relative">
+        {/* 2. เลือกแบบฟอร์ม (Form) & 3. เลือกหมวดหมู่ (Category) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <ClipboardList size={14} className="text-[#0F6659]" />
+              <span>แบบฟอร์มตรวจประเมิน</span>
+            </label>
             <select
-              value={selectedIssue}
-              onChange={(e) => setSelectedIssue(e.target.value)}
-              className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+              value={selectedFormId}
+              onChange={(e) => setSelectedFormId(e.target.value)}
+              disabled={isLoadingForms || applicableForms.length === 0}
+              className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 focus:border-[#0F6659] outline-none"
             >
-              {availableIssues.map(issue => (
-                <option key={issue.id} value={issue.id}>{issue.title}</option>
-              ))}
+              {applicableForms.length > 0 ? (
+                applicableForms.map(f => (
+                  <option key={f.id} value={f.id}>{f.title}</option>
+                ))
+              ) : (
+                <option value="">ไม่มีฟอร์มที่ตรงกับสาขานี้</option>
+              )}
             </select>
-            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-              <ChevronDown size={18} />
-            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <Layers size={14} className="text-[#0F6659]" />
+              <span>หมวดหมู่ข้อบกพร่อง</span>
+            </label>
+            <select
+              value={selectedCategoryName}
+              onChange={(e) => setSelectedCategoryName(e.target.value)}
+              className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-800 focus:border-[#0F6659] outline-none"
+            >
+              {availableCategories.length > 0 ? (
+                availableCategories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))
+              ) : (
+                <option value="ทั่วไป">ทั่วไป</option>
+              )}
+            </select>
           </div>
         </div>
 
-        <div>
-          <label className="text-xs font-bold text-slate-700 block mb-1.5">รายละเอียดการดำเนินการแก้ไข</label>
-          <textarea
-            value={remediationNote}
+        {/* 4. หัวข้อข้อบกพร่อง */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <FileText size={14} className="text-[#0F6659]" />
+            <span>หัวข้อข้อบกพร่อง / ปัญหาที่ตรวจพบ <span className="text-rose-500">*</span></span>
+          </label>
+          <input
+            type="text"
+            required
+            value={issueItem}
             onChange={(e) => {
-              setRemediationNote(e.target.value);
+              setIssueItem(e.target.value);
               if (formError) setFormError(null);
             }}
-            placeholder="อธิบายสิ่งที่สาขาได้ดำเนินการปรับปรุงแก้ไข..."
-            rows={3}
-            className="w-full p-3 rounded-2xl border border-slate-200 text-xs sm:text-sm font-medium bg-white text-slate-800 placeholder-slate-400 focus:border-[#0F6659] outline-none shadow-2xs"
+            placeholder="เช่น อุณหภูมิตู้แช่เย็นไม่ได้มาตรฐาน, ป้ายราคาสินค้าไม่ตรง..."
+            className="w-full text-xs sm:text-sm px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 outline-none font-semibold text-slate-800 focus:border-[#0F6659]"
           />
         </div>
 
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
+        {/* 5. รายละเอียด */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 block">
+            รายละเอียดและคำแนะนำสิ่งที่สาขาต้องแก้ไข <span className="text-rose-500">*</span>
+          </label>
+          <textarea
+            value={description}
+            required
+            rows={3}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              if (formError) setFormError(null);
+            }}
+            placeholder="ระบุสิ่งที่ควรปรับปรุงแก้ไขอย่างละเอียด..."
+            className="w-full p-3 rounded-xl border border-slate-200 text-xs sm:text-sm font-medium bg-white text-slate-800 focus:border-[#0F6659] outline-none"
+          />
+        </div>
+
+        {/* 6. กำหนดส่งมอบ */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Calendar size={14} className="text-[#0F6659]" />
+            <span>กำหนดส่งมอบงานแก้ไข (Deadline) <span className="text-rose-500">*</span></span>
+          </label>
+          <input
+            type="date"
+            required
+            value={deadlineDate}
+            onChange={(e) => setDeadlineDate(e.target.value)}
+            className="w-full text-xs sm:text-sm p-2.5 rounded-xl bg-white border border-slate-200 outline-none font-bold text-slate-800 focus:border-[#0F6659]"
+          />
+        </div>
+
+        {/* 7. รูปถ่าย Defect ก่อนแก้ไข */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
             <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <span>รูปภาพหลักฐานหลังแก้ไข</span>
-              <span className="text-red-500">*</span>
+              <Camera size={14} className="text-slate-500" />
+              <span>แนบรูปถ่ายปัญหาตอนตรวจพบ (Audit Finding Photo - ถ้ามี)</span>
             </label>
             {photos.length > 0 && (
-              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                แนบแล้ว {photos.length} รูป
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                {photos.length} รูป
               </span>
             )}
           </div>
 
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            ref={fileInputRef}
-            onChange={handleFileChange}
-            className="hidden"
-          />
+          <input type="file" accept="image/jpeg,image/png,image/webp" multiple ref={fileInputRef} onChange={handleFileChange} className="hidden" />
 
           {photos.length > 0 ? (
-            <div className="space-y-2.5">
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2.5">
-                {photos.map((img, idx) => (
-                  <div
-                    key={idx}
-                    className="relative aspect-square rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 shadow-2xs group"
+            <div className="grid grid-cols-4 gap-2">
+              {photos.map((img, idx) => (
+                <div key={idx} className="relative aspect-square rounded-xl overflow-hidden border border-slate-200">
+                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => setPhotos(prev => prev.filter((_, i) => i !== idx))}
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center text-xs"
                   >
-                    <img
-                      src={img}
-                      alt={`Evidence ${idx + 1}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30 pointer-events-none" />
-
-                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/60 backdrop-blur-xs text-white text-[10px] font-bold font-mono">
-                      #{idx + 1}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemovePhoto(idx)}
-                      className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center cursor-pointer transition-all shadow-sm active:scale-90"
-                      title="ลบรูปนี้"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                ))}
-
-                {/* Add More Tile */}
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="aspect-square rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] hover:bg-emerald-50/40 bg-slate-50 flex flex-col items-center justify-center gap-1.5 text-slate-500 hover:text-[#0F6659] cursor-pointer transition-all active:scale-95 group"
-                >
-                  <div className="w-8 h-8 rounded-xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 transition-colors shadow-2xs">
-                    <Plus size={16} className="text-slate-500 group-hover:text-[#0F6659]" />
-                  </div>
-                  <span className="text-[11px] font-bold text-slate-600 group-hover:text-[#0F6659]">เพิ่มรูป</span>
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] text-slate-400 px-0.5">
-                <span>เลือกเพิ่มได้หลายรูปพร้อมกัน</span>
-                <button
-                  type="button"
-                  onClick={() => setPhotos([])}
-                  className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
-                >
-                  ลบทั้งหมด
-                </button>
-              </div>
+                    <X size={11} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="aspect-square rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-500 hover:text-[#0F6659]"
+              >
+                <Plus size={18} />
+              </button>
             </div>
           ) : (
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full p-4 sm:p-5 rounded-2xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] bg-slate-50 hover:bg-emerald-50/40 flex flex-col items-center justify-center gap-2 text-slate-600 transition-all cursor-pointer group"
+              className="w-full p-3 rounded-xl border-2 border-dashed border-slate-300 hover:border-[#0F6659] bg-slate-50 flex items-center justify-center gap-2 text-xs font-semibold text-slate-600"
             >
-              <div className="w-11 h-11 rounded-2xl bg-white border border-slate-200 flex items-center justify-center group-hover:border-emerald-300 group-hover:scale-105 transition-all shadow-2xs">
-                <Camera size={22} className="text-slate-400 group-hover:text-[#0F6659]" />
-              </div>
-              <div className="text-center">
-                <div className="text-xs sm:text-sm font-bold text-slate-700 group-hover:text-[#0F6659] transition-colors">
-                  แตะเพื่อถ่ายรูปหรือเลือกรูปหลักฐาน (เลือกได้หลายรูป)
-                </div>
-                <div className="text-[11px] text-slate-400 mt-0.5">
-                  รองรับไฟล์ภาพ JPG, PNG พร้อมบีบอัดให้อัตโนมัติ
-                </div>
-              </div>
+              <Camera size={16} className="text-[#0F6659]" />
+              <span>แตะเพื่อแนบรูปถ่ายข้อบกพร่อง</span>
             </button>
           )}
         </div>
-      </div>
+      </form>
 
-      {/* Pinned Bottom Action Footer */}
       <div className="p-4 border-t border-slate-100 bg-white shrink-0">
         <button
           type="button"
+          disabled={isSubmitting}
           onClick={handleSubmit}
-          className="w-full py-3.5 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 cursor-pointer shadow-md bg-[#0F6659] hover:bg-emerald-800 text-white transition-all active:scale-[0.99]"
+          className="w-full py-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 bg-[#0F6659] hover:bg-emerald-800 text-white disabled:opacity-60"
         >
-          <Check size={16} /> <span>ส่งรายงานและหลักฐานการแก้งาน</span>
+          {isSubmitting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              <span>กำลังมอบหมายงาน...</span>
+            </>
+          ) : (
+            <>
+              <Check size={16} /> <span>มอบหมายงานแก้ไขให้สาขา</span>
+            </>
+          )}
         </button>
       </div>
 
-      {/* 🏬 Dedicated Full-Screen Branch Selector Modal */}
       {showLocationSelectModal && (
         <LocationSelectModal
           currentLocationId={selectedLoc?.id}

@@ -46,12 +46,35 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
     if (dbUsers.length > 0) {
       return dbUsers.map(u => {
         const uName = u.fullName || u.username;
-        // Compute real active audit tasks for this auditor from live schedules
+        // Compute real active audit tasks for this auditor from live schedules (strictly exact match)
         const activeCount = (schedules || []).filter(s => {
-          const matchAuditor = (s.auditorName && s.auditorName.includes(uName)) ||
-            (s.auditor && s.auditor.includes(uName)) ||
-            (s.auditors && s.auditors.some(a => a.fullName && a.fullName.includes(uName)));
-          return matchAuditor && s.status !== "completed";
+          if (s.status === "completed" || s.status === "done") return false;
+
+          // 1. Match by exact user/auditor ID
+          const hasId = (s.auditors || []).some(a => (a.id === u.id || a.auditorId === u.id)) ||
+                        (s.auditorIds || []).includes(u.id) ||
+                        s.auditorId === u.id;
+          if (hasId) return true;
+
+          // 2. Match by exact name token
+          const target = uName.toLowerCase().trim();
+          const rawList = [
+            s.auditor,
+            s.auditorName,
+            ...(Array.isArray(s.auditorNames) ? s.auditorNames : []),
+            ...(Array.isArray(s.auditors) ? s.auditors.map(a => a?.fullName || a?.name || a?.username) : [])
+          ];
+          const tokens = [];
+          rawList.filter(Boolean).forEach(item => {
+            if (typeof item === "string") {
+              tokens.push(item.trim().toLowerCase());
+              item.split(/[,;/|\n]|\s+และ\s+|\s+&\s+/).forEach(p => {
+                const cleaned = p.trim().toLowerCase();
+                if (cleaned) tokens.push(cleaned);
+              });
+            }
+          });
+          return tokens.includes(target);
         }).length;
 
         return {
@@ -120,9 +143,9 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
         {/* List of Auditors - Clean, spacious cards without divide-y clashing */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain max-h-[60dvh] sm:max-h-[68dvh] p-3 pb-12 space-y-2" style={{ background: "#FAF9F5" }}>
           {/* Quick Option: All Auditors Card */}
-          {/*<button
+          <button
             type="button"
-            onClick={() => { onSelect("ทั้งหมด"); onClose(); }}
+            onClick={() => { onSelect("ทั้งหมด", null); onClose(); }}
             className={`w-full flex items-center justify-between p-3 rounded-2xl text-left cursor-pointer transition-all ${
               currentAuditor === "ทั้งหมด"
                 ? 'bg-emerald-50/90 border-2 border-emerald-600 shadow-xs'
@@ -145,7 +168,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
                 <Check size={13} strokeWidth={3} />
               </div>
             )}
-          </button>*/}
+          </button>
           {/* Individual Auditor Cards */}
           {filteredAuditors.map((auditor) => {
             const isSelected = currentAuditor === auditor.name;
@@ -153,7 +176,7 @@ export default function AuditorSelectModal({ currentAuditor, onSelect, onClose }
               <button
                 key={auditor.id}
                 type="button"
-                onClick={() => { onSelect(auditor.name); onClose(); }}
+                onClick={() => { onSelect(auditor.name, auditor.id); onClose(); }}
                 className={`w-full flex items-center justify-between p-3 rounded-2xl text-left cursor-pointer transition-all ${
                   isSelected
                     ? 'bg-emerald-50/90 border-2 border-emerald-600 shadow-xs'

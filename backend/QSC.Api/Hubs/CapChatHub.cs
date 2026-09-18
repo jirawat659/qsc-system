@@ -25,46 +25,12 @@ namespace QSC.Api.Hubs
 
         private static bool IsValidImageSignature(byte[] bytes)
         {
-            if (bytes == null || bytes.Length < 12) return false;
-            if (bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF) return true;
-            if (bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) return true;
-            if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 &&
-                bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) return true;
-            if (bytes[0] == 0x47 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x38) return true;
-            return false;
+            return UploadHelper.IsValidImageSignature(bytes, out _);
         }
 
-        private async Task<string> SaveBase64IfPresentAsync(string? input, string subfolder, string prefix)
+        private Task<string> SaveBase64IfPresentAsync(string? input, string subfolder, string prefix, long maxSizeBytes = 10 * 1024 * 1024)
         {
-            if (string.IsNullOrWhiteSpace(input) || !input.StartsWith("data:image/")) return input ?? string.Empty;
-
-            try
-            {
-                var webRoot = _env.WebRootPath ?? Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
-                var dir = Path.Combine(webRoot, "uploads", subfolder);
-                Directory.CreateDirectory(dir);
-
-                var base64Clean = input;
-                var ext = "webp";
-                if (input.Contains("data:image/png")) ext = "png";
-                else if (input.Contains("data:image/jpeg") || input.Contains("data:image/jpg")) ext = "jpg";
-
-                if (base64Clean.Contains(",")) base64Clean = base64Clean.Split(',')[1];
-                var bytes = Convert.FromBase64String(base64Clean);
-
-                if (bytes.Length > 0 && bytes.Length <= 10 * 1024 * 1024 && IsValidImageSignature(bytes))
-                {
-                    var fileName = $"{prefix}_{DateTime.UtcNow:yyyyMMdd_HHmmss}_{Guid.NewGuid().ToString().Substring(0, 8)}.{ext}";
-                    var filePath = Path.Combine(dir, fileName);
-                    await System.IO.File.WriteAllBytesAsync(filePath, bytes);
-                    return $"/uploads/{subfolder}/{fileName}";
-                }
-            }
-            catch
-            {
-                // Fallback
-            }
-            return input;
+            return UploadHelper.SaveBase64IfPresentAsync(_env, input, subfolder, prefix, maxSizeBytes);
         }
 
         public async Task JoinCapRoom(int capTaskId)
@@ -133,7 +99,14 @@ namespace QSC.Api.Hubs
             string? processedImageUrl = null;
             if (!string.IsNullOrWhiteSpace(imageUrl))
             {
-                processedImageUrl = await SaveBase64IfPresentAsync(imageUrl, "cap_images", "cap");
+                try
+                {
+                    processedImageUrl = await SaveBase64IfPresentAsync(imageUrl, "cap_images", "cap", 10 * 1024 * 1024);
+                }
+                catch (InvalidImageUploadException ex)
+                {
+                    throw new HubException(ex.Message);
+                }
             }
 
             var comment = new CapTaskComment
@@ -147,20 +120,6 @@ namespace QSC.Api.Hubs
             };
 
             _context.CapTaskComments.Add(comment);
-
-            // If image attachment is present, also log in CapTaskImages for remediation records
-            if (!string.IsNullOrWhiteSpace(processedImageUrl))
-            {
-                _context.CapTaskImages.Add(new CapTaskImage
-                {
-                    CapTaskId = capTaskId,
-                    Phase = "AFTER",
-                    ImageUrl = processedImageUrl,
-                    UploadedBy = currentUserId,
-                    UploadedAt = DateTime.UtcNow
-                });
-            }
-
             await _context.SaveChangesAsync();
 
             bool isAuditorComment = string.Equals(role, "AUDITOR", StringComparison.OrdinalIgnoreCase)

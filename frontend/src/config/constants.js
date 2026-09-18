@@ -24,6 +24,8 @@ export const CAP_STATUS_MAP = {
   done: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   approved: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   closed: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
+  cancelled: { label: "ยกเลิกงาน (แก้ไขเป็นผ่าน)", fg: "#64748B", bg: "#F1F5F9" },
+  CANCELLED: { label: "ยกเลิกงาน (แก้ไขเป็นผ่าน)", fg: "#64748B", bg: "#F1F5F9" },
 };
 
 // Color Palette for dynamic Brands & Regions in Charts
@@ -68,7 +70,18 @@ export const getDynamicBrandLines = (locations = []) => {
   if (!locations || !Array.isArray(locations) || locations.length === 0) {
     return DEFAULT_BRAND_LINES;
   }
-  const distinctBrands = [...new Set(locations.map(l => l.brandName || l.brand).filter(Boolean))];
+  const brandNames = [];
+  locations.forEach(l => {
+    if (l.locationBrands && Array.isArray(l.locationBrands)) {
+      l.locationBrands.forEach(lb => {
+        const name = lb.brand?.name || lb.brandName;
+        if (name) brandNames.push(name);
+      });
+    } else if (l.brand) {
+      brandNames.push(typeof l.brand === 'object' ? l.brand.name : l.brand);
+    }
+  });
+  const distinctBrands = [...new Set(brandNames.filter(Boolean))];
   if (distinctBrands.length === 0) return DEFAULT_BRAND_LINES;
 
   return distinctBrands.map((brand, idx) => {

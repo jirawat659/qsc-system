@@ -9,4 +9,3 @@ namespace QSC.Api.Models
         public Location? Location { get; set; }
     }
 }
-

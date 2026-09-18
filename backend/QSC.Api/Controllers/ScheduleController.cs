@@ -34,13 +34,21 @@ namespace QSC.Api.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetSchedules([FromQuery] int? auditorId, [FromQuery] int? locationId)
+        public async Task<IActionResult> GetSchedules(
+            [FromQuery] int? auditorId,
+            [FromQuery] int? locationId,
+            [FromQuery] DateTime? startDate,
+            [FromQuery] DateTime? endDate,
+            [FromQuery] int? limit,
+            [FromQuery] int? page,
+            [FromQuery] int? pageSize)
         {
             var (userId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var query = _context.AuditSchedules
                 .AsNoTracking()
+                .AsSplitQuery()
                 .Include(s => s.Location)
                 .Include(s => s.SurveyForm)
                 .Include(s => s.Auditors)
@@ -58,15 +66,14 @@ namespace QSC.Api.Controllers
                     return Ok(new List<object>());
                 }
             }
-            else if (role == "AUDITOR")
+            else if (string.Equals(role, "AUDITOR", StringComparison.OrdinalIgnoreCase))
             {
-                if (auditorId.HasValue)
+                // 🔒 QC (Auditor) can ONLY see their own assigned schedules
+                query = query.Where(s => s.Auditors.Any(a => a.AuditorId == userId) || s.CreatedBy == userId);
+
+                if (allowedLocationIds != null)
                 {
-                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == auditorId.Value));
-                }
-                else if (allowedLocationIds != null)
-                {
-                    query = query.Where(s => s.Auditors.Any(a => a.AuditorId == userId) || allowedLocationIds.Contains(s.LocationId));
+                    query = query.Where(s => allowedLocationIds.Contains(s.LocationId));
                 }
             }
             else
@@ -82,6 +89,12 @@ namespace QSC.Api.Controllers
                 }
             }
 
+            if (allowedBrandIds != null)
+            {
+                query = query.Where(s => s.Location != null &&
+                    s.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+            }
+
             if (locationId.HasValue)
             {
                 if (allowedLocationIds != null && !allowedLocationIds.Contains(locationId.Value))
@@ -91,12 +104,92 @@ namespace QSC.Api.Controllers
                 query = query.Where(s => s.LocationId == locationId.Value);
             }
             
-            if (allowedBrandIds != null)
+            if (startDate.HasValue)
             {
-                query = query.Where(s => s.Location != null && s.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                query = query.Where(s => s.ScheduledDate >= startDate.Value);
             }
 
-            var schedules = await query.OrderByDescending(s => s.ScheduledDate).ToListAsync();
+            if (endDate.HasValue)
+            {
+                query = query.Where(s => s.ScheduledDate <= endDate.Value);
+            }
+
+            query = query.OrderByDescending(s => s.ScheduledDate);
+
+            // 🚀 Pagination support: If page or pageSize is specified, apply pagination
+            int totalCount = 0;
+            if (page.HasValue || pageSize.HasValue)
+            {
+                totalCount = await query.CountAsync();
+                int currentPage = Math.Max(1, page ?? 1);
+                int currentPageSize = Math.Clamp(pageSize ?? 50, 1, 100);
+                query = query.Skip((currentPage - 1) * currentPageSize).Take(currentPageSize);
+            }
+            else if (limit.HasValue)
+            {
+                query = query.Take(Math.Clamp(limit.Value, 1, 500));
+            }
+            else
+            {
+                // Default safety ceiling: prevent dumping unlimited historical schedules
+                query = query.Take(300);
+            }
+
+            var schedules = await query.ToListAsync();
+
+            // 🛡️ Auto-heal: Ensure schedules that have already been audited are marked as completed
+            var scheduleIds = schedules.Select(s => s.Id).ToList();
+            var auditedScheduleIds = await _context.AuditRecords
+                .Where(r => r.AuditScheduleId.HasValue && scheduleIds.Contains(r.AuditScheduleId.Value))
+                .Select(r => r.AuditScheduleId!.Value)
+                .Distinct()
+                .ToListAsync();
+
+            var uncompletedSchedules = schedules.Where(s => s.Status != "completed").ToList();
+            if (uncompletedSchedules.Any())
+            {
+                var locIds = uncompletedSchedules.Select(s => s.LocationId).Distinct().ToList();
+                var recentAudits = await _context.AuditRecords
+                    .Where(r => locIds.Contains(r.LocationId))
+                    .Select(r => new { r.Id, r.LocationId, r.SurveyFormId, r.AuditDate, r.AuditScheduleId })
+                    .ToListAsync();
+
+                var healedScheduleIds = new List<int>();
+                foreach (var s in uncompletedSchedules)
+                {
+                    bool isAudited = auditedScheduleIds.Contains(s.Id) ||
+                        recentAudits.Any(r => 
+                            (r.AuditScheduleId == s.Id) ||
+                            (r.LocationId == s.LocationId && 
+                             (s.SurveyFormId == 0 || r.SurveyFormId == s.SurveyFormId) &&
+                             Math.Abs((r.AuditDate.Date - s.ScheduledDate.Date).TotalDays) <= 2));
+
+                    if (isAudited)
+                    {
+                        s.Status = "completed";
+                        healedScheduleIds.Add(s.Id);
+                    }
+                }
+
+                if (healedScheduleIds.Any())
+                {
+                    try
+                    {
+                        var dbSchedules = await _context.AuditSchedules
+                            .Where(s => healedScheduleIds.Contains(s.Id) && s.Status != "completed")
+                            .ToListAsync();
+                        foreach (var dbs in dbSchedules)
+                        {
+                            dbs.Status = "completed";
+                        }
+                        await _context.SaveChangesAsync();
+                    }
+                    catch
+                    {
+                        // Ignore background healing exceptions
+                    }
+                }
+            }
 
             var result = schedules.Select(s => new
             {
@@ -124,13 +217,102 @@ namespace QSC.Api.Controllers
                 }).ToList()
             });
 
+            // 🚀 When paginated (page/pageSize provided), wrap with totalCount so the
+            // frontend can drive "load more" correctly.
+            if (page.HasValue || pageSize.HasValue)
+            {
+                return Ok(new
+                {
+                    items = result,
+                    totalCount,
+                    page = Math.Max(1, page ?? 1),
+                    pageSize = Math.Clamp(pageSize ?? 50, 1, 100)
+                });
+            }
+
             return Ok(result);
         }
+
+        private async Task<string?> ValidateFormForLocationAsync(int locationId, int surveyFormId)
+        {
+            var location = await _context.Locations
+                .Include(l => l.LocationBrands)
+                .FirstOrDefaultAsync(l => l.Id == locationId);
+            if (location == null)
+            {
+                return "ไม่พบสาขาที่ระบุในระบบ";
+            }
+
+            var form = await _context.SurveyForms
+                .Include(f => f.FormBrands)
+                .Include(f => f.TargetLocations)
+                .FirstOrDefaultAsync(f => f.Id == surveyFormId);
+            if (form == null || !form.IsActive)
+            {
+                return "ไม่พบแบบฟอร์มการตรวจหรือแบบฟอร์มถูกปิดการใช้งาน";
+            }
+
+            if (form.LocationTypeId.HasValue && form.LocationTypeId.Value > 0 && form.LocationTypeId.Value != location.LocationTypeId)
+            {
+                return "แบบฟอร์มนี้ไม่ตรงกับประเภทสถานที่ของสาขานี้";
+            }
+
+            if (string.Equals(form.TargetingMode, "SPECIFIC_LOCATIONS", StringComparison.OrdinalIgnoreCase) && form.TargetLocations.Any())
+            {
+                if (!form.TargetLocations.Any(tl => tl.LocationId == location.Id))
+                {
+                    return "แบบฟอร์มนี้ไม่ได้กำหนดให้ใช้กับสาขานี้";
+                }
+            }
+
+            var formBrandIds = form.FormBrands.Select(fb => fb.BrandId).ToList();
+            if (form.BrandId.HasValue && !formBrandIds.Contains(form.BrandId.Value))
+            {
+                formBrandIds.Add(form.BrandId.Value);
+            }
+
+            if (formBrandIds.Any())
+            {
+                var locBrandIds = location.LocationBrands.Select(lb => lb.BrandId).ToList();
+                if (!locBrandIds.Any(lbid => formBrandIds.Contains(lbid)))
+                {
+                    return "แบบฟอร์มนี้ใช้ได้เฉพาะแบรนด์ที่กำหนดไว้เท่านั้น";
+                }
+            }
+
+            return null;
+        }
+        
 
         [Authorize(Roles = "ADMIN,STANDARD")]
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] ScheduleSaveDto dto)
         {
+            var (currentUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
+            var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
+            if (formValidationError != null)
+            {
+                return BadRequest(new { message = formValidationError });
+            }
+
+            var auditorIds = (dto.AuditorIds ?? new List<int>())
+                .Distinct()
+                .ToList();
+
+            if (auditorIds.Any())
+            {
+                var validAuditorCount = await _context.Users.CountAsync(
+                    u => auditorIds.Contains(u.Id) && u.IsActive);
+
+                if (validAuditorCount != auditorIds.Count)
+                {
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบหรือถูกปิดการใช้งาน" });
+                }
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
             var schedule = new AuditSchedule
             {
                 LocationId = dto.LocationId,
@@ -140,17 +322,17 @@ namespace QSC.Api.Controllers
                 AuditType = dto.AuditType,
                 Status = "pending",
                 Notes = dto.Notes,
-                CreatedBy = dto.CreatedBy > 0 ? dto.CreatedBy : 1,
+                CreatedBy = currentUserId > 0 ? currentUserId : (dto.CreatedBy > 0 ? dto.CreatedBy : 1),
                 CreatedAt = DateTime.UtcNow
             };
 
             _context.AuditSchedules.Add(schedule);
             await _context.SaveChangesAsync();
 
-            if (dto.AuditorIds.Any())
+            if (auditorIds.Any())
             {
                 bool isLead = true;
-                foreach (var audId in dto.AuditorIds)
+                foreach (var audId in auditorIds)
                 {
                     _context.AuditScheduleAuditors.Add(new AuditScheduleAuditor
                     {
@@ -160,8 +342,24 @@ namespace QSC.Api.Controllers
                     });
                     isLead = false;
                 }
-                await _context.SaveChangesAsync();
             }
+
+            // 📌 Link & update pending CAP recommendations for this branch to USED
+            var pendingCaps = await _context.CapTasks
+                .Where(c => c.LocationId == dto.LocationId && c.FollowUpStatus == "PENDING")
+                .ToListAsync();
+
+            if (pendingCaps.Any())
+            {
+                foreach (var cap in pendingCaps)
+                {
+                    cap.FollowUpStatus = "USED";
+                    cap.FollowUpScheduleId = schedule.Id;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             return Ok(schedule);
         }
@@ -176,6 +374,26 @@ namespace QSC.Api.Controllers
 
             if (schedule == null) return NotFound();
 
+            var formValidationError = await ValidateFormForLocationAsync(dto.LocationId, dto.SurveyFormId);
+            if (formValidationError != null)
+            {
+                return BadRequest(new { message = formValidationError });
+            }
+            var auditorIds = (dto.AuditorIds ?? new List<int>())
+                .Distinct()
+                .ToList();
+
+            if (auditorIds.Any())
+            {
+                var validAuditorCount = await _context.Users.CountAsync(
+                    u => auditorIds.Contains(u.Id) && u.IsActive);
+
+                if (validAuditorCount != auditorIds.Count)
+                {
+                    return BadRequest(new { message = "ผู้ตรวจบางรายไม่พบในระบบหรือถูกปิดการใช้งาน" });
+                }
+            }
+
             if (schedule.Status == "completed")
             {
                 return BadRequest(new { message = "ไม่สามารถแก้ไขนัดหมายที่ตรวจเสร็จสมบูรณ์แล้วได้ (ล็อกถาวร)" });
@@ -187,15 +405,27 @@ namespace QSC.Api.Controllers
             schedule.Time = dto.Time;
             schedule.AuditType = dto.AuditType;
             schedule.Notes = dto.Notes;
-            if (!string.IsNullOrEmpty(dto.Status)) schedule.Status = dto.Status;
+
+            if (!string.IsNullOrWhiteSpace(dto.Status))
+            {
+                var allowedStatuses = new[] { "pending", "in_progress", "completed", "cancelled" };
+                var status = dto.Status.Trim().ToLowerInvariant();
+
+                if (!allowedStatuses.Contains(status))
+                {
+                    return BadRequest(new { message = "สถานะนัดหมายไม่ถูกต้อง" });
+                }
+
+                schedule.Status = status;
+            }
 
             // Sync auditors
             _context.AuditScheduleAuditors.RemoveRange(schedule.Auditors);
 
-            if (dto.AuditorIds.Any())
+            if (auditorIds.Any())
             {
                 bool isLead = true;
-                foreach (var audId in dto.AuditorIds)
+                foreach (var audId in auditorIds)
                 {
                     _context.AuditScheduleAuditors.Add(new AuditScheduleAuditor
                     {
@@ -221,6 +451,17 @@ namespace QSC.Api.Controllers
             if (schedule.Status == "completed")
             {
                 return BadRequest(new { message = "ไม่สามารถลบนัดหมายที่ตรวจเสร็จสมบูรณ์แล้วได้ (ล็อกถาวร)" });
+            }
+
+            // 📌 Revert any linked CAP recommendations back to PENDING
+            var linkedCaps = await _context.CapTasks
+                .Where(c => c.FollowUpScheduleId == id && c.FollowUpStatus == "USED")
+                .ToListAsync();
+
+            foreach (var cap in linkedCaps)
+            {
+                cap.FollowUpStatus = "PENDING";
+                cap.FollowUpScheduleId = null;
             }
 
             _context.AuditSchedules.Remove(schedule);

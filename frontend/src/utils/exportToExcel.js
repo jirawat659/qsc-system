@@ -1,19 +1,36 @@
-export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "all", region = "all", locations = [], auditRecords = [] }) {
+export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "all", timeRangeLabel = null, region = "all", locations = [], auditRecords = [] }) {
   let csvContent = "\uFEFF"; // UTF-8 BOM so Excel opens Thai characters correctly
   let filename = "QSC_Report.csv";
 
-  const timeLabels = {
+  const now = new Date();
+  const thaiMonths = [
+    "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+    "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+  ];
+  const thaiShortMonths = [
+    "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+    "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+  ];
+  const curMonth = now.getMonth();
+  const curYearBE = now.getFullYear() + 543;
+  const curYearShort = curYearBE % 100;
+  const d3 = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  const d6 = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+  const defaultTimeLabels = {
     all: "ทั้งหมด (ทุกรอบตรวจ)",
-    "1M": "ย้อนหลัง 1 เดือน (ส.ค. 69)",
-    "3M": "ย้อนหลัง 3 เดือน (มิ.ย. - ส.ค. 69)",
-    "6M": "ย้อนหลัง 6 เดือน (มี.ค. - ส.ค. 69)",
-    "1Y": "ทั้งปี (YTD 2569)"
+    "1M": `ย้อนหลัง 1 เดือน (${thaiMonths[curMonth]} ${curYearBE})`,
+    "3M": `ย้อนหลัง 3 เดือน (${thaiShortMonths[d3.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`,
+    "6M": `ย้อนหลัง 6 เดือน (${thaiShortMonths[d6.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`,
+    "1Y": `ทั้งปี (YTD ${curYearBE})`
   };
+
+  const resolvedTimeLabel = timeRangeLabel || defaultTimeLabels[timeRange] || "ทั้งหมด (ทุกรอบตรวจ)";
 
   if (mode === "all") {
     filename = `QSC_Master_Audit_Report_${timeRange}_${new Date().toISOString().slice(0, 10)}.csv`;
     csvContent += `รายงานสรุปผลการตรวจมาตรฐาน Q.S.C. ระดับองค์กร\n`;
-    csvContent += `ช่วงเวลา: ${timeLabels[timeRange] || 'ทั้งหมด'}, วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH')}\n`;
+    csvContent += `ช่วงเวลา: ${resolvedTimeLabel}, วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH')}\n`;
     csvContent += `เกณฑ์คะแนนผ่านการตรวจมาตรฐาน: 85%, เกณฑ์ดีเยี่ยม: 90%\n\n`;
     csvContent += "ลำดับ,รหัสสาขา,ชื่อสาขา,ชื่อเต็ม,ภูมิภาค,ที่อยู่,เบอร์โทรศัพท์,คะแนนตรวจล่าสุด(%),ผลการตรวจ(เกณฑ์ 85%),วันที่ตรวจล่าสุด\n";
     
@@ -32,25 +49,41 @@ export function exportToExcel({ mode = "all", targetUnit = null, timeRange = "al
     filename = `QSC_${targetUnit.name}_Audit_History_${timeRange}_${new Date().toISOString().slice(0, 10)}.csv`;
     csvContent += `รายงานประวัติการตรวจสาขา: ${targetUnit.fullName || targetUnit.name}\n`;
     csvContent += `ภูมิภาค: ${targetUnit.region || '-'}, เบอร์โทรศัพท์: ${targetUnit.phone || '-'}\n`;
-    csvContent += `ช่วงเวลาที่เลือก: ${timeLabels[timeRange] || 'ทั้งหมด'}, วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH')}\n\n`;
+    csvContent += `ช่วงเวลาที่เลือก: ${resolvedTimeLabel}, วันที่ออกรายงาน: ${new Date().toLocaleDateString('th-TH')}\n\n`;
     csvContent += "ครั้งที่,วันที่ตรวจ,คะแนนที่ได้(%),เกณฑ์ผ่าน(85%),ผู้ตรวจประเมิน,ผลการประเมิน\n";
     
-    // Filter matching audit records for this unit
-    const unitRecords = (auditRecords || []).filter(r => r.locationId === targetUnit.id || r.locationName === targetUnit.name);
+    // Filter matching audit records for this unit and optional time range
+    let unitRecords = (auditRecords || []).filter(r => r.locationId === targetUnit.id || r.locationName === targetUnit.name);
+    if (timeRange && timeRange !== "all") {
+      let cutoff = null;
+      if (timeRange === "1M") cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
+      else if (timeRange === "3M") cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+      else if (timeRange === "6M") cutoff = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+      else if (timeRange === "1Y") cutoff = new Date(now.getFullYear(), 0, 1);
+
+      if (cutoff) {
+        unitRecords = unitRecords.filter(r => {
+          const d = new Date(r.auditDate || r.date);
+          return !isNaN(d.getTime()) && d >= cutoff;
+        });
+      }
+    }
     
     if (unitRecords.length > 0) {
       unitRecords.forEach((r, i) => {
         const score = Math.round(r.percentageScore || r.score || 0);
         const isPassed = score >= 90 ? "ดีเยี่ยม" : score >= 85 ? "ผ่านเกณฑ์" : "ต่ำกว่าเกณฑ์";
         const dateStr = r.auditDate ? new Date(r.auditDate).toLocaleDateString('th-TH') : (r.date || "-");
-        const auditor = r.auditorName || r.auditor || "สมชาย ใจดี";
+        // 🐛 FIX: don't fabricate a fake auditor name ("สมชาย ใจดี") when the record
+        // has none — that placeholder looked like real audit data in an exported report.
+        const auditor = r.auditorName || r.auditor || "-";
         csvContent += `"${i + 1}","${dateStr}","${score}","85%","${auditor}","${isPassed}"\n`;
       });
     } else {
-      const score = targetUnit.lastScore || 0;
-      const isPassed = score >= 85 ? "ผ่านเกณฑ์" : "ต่ำกว่าเกณฑ์";
-      const dateStr = targetUnit.lastAuditDate ? new Date(targetUnit.lastAuditDate).toLocaleDateString('th-TH') : "-";
-      csvContent += `"1","${dateStr}","${score}","85%","สมชาย ใจดี","${isPassed}"\n`;
+      // 🐛 FIX: previously fabricated a fake "audit #1" row (using cached lastScore and a
+      // hardcoded auditor name "สมชาย ใจดี") even when the branch has zero real audit
+      // records. That made an unaudited branch look audited in the exported report.
+      csvContent += `"-","-","-","-","-","ยังไม่มีประวัติการตรวจ"\n`;
     }
   } else if (mode === "detailed_questions" && targetUnit) {
     filename = `QSC_${targetUnit.name}_Detailed_Report_${new Date().toISOString().slice(0, 10)}.csv`;

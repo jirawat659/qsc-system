@@ -16,7 +16,10 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<AuditStampInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), sqlServerOptions =>
+    {
+        sqlServerOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
+    });
     options.AddInterceptors(sp.GetRequiredService<AuditStampInterceptor>());
 });
 
@@ -107,17 +110,24 @@ builder.Services.AddSignalR(options =>
 
 // 5. Application Services
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<QSC.Api.Services.LoginRateLimiterService>();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
+builder.Services.AddHostedService<QSC.Api.Services.OrphanFileCleanupService>();
 
-// 6. Rate Limiting for AI Endpoints
+// 6. Rate Limiting for AI and Login Endpoints
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+        var isLogin = context.HttpContext.Request.Path.StartsWithSegments("/api/auth/login");
+        var msg = isLogin
+            ? "มีการพยายามเข้าสู่ระบบถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่อีกครั้ง"
+            : "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่";
         await context.HttpContext.Response.WriteAsync(
-            "{\"message\": \"คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่\", \"status\": 429}", 
+            $"{{\"message\": \"{msg}\", \"status\": 429, \"isLocked\": {isLogin.ToString().ToLower()}, \"retryAfterSeconds\": 60}}", 
             token);
     };
 
@@ -132,6 +142,23 @@ builder.Services.AddRateLimiter(options =>
             factory: _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
+
+    options.AddPolicy("LoginRateLimit", httpContext =>
+    {
+        var clientIp = httpContext.Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor) && !string.IsNullOrWhiteSpace(forwardedFor)
+            ? forwardedFor.ToString().Split(',')[0].Trim()
+            : httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
+
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: clientIp,
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 15,
                 Window = TimeSpan.FromMinutes(1),
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
@@ -162,19 +189,7 @@ app.UseCors("AllowReact");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Protect static uploads with authentication
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/uploads"))
-    {
-        if (!context.User.Identity?.IsAuthenticated ?? true)
-        {
-            context.Response.StatusCode = 401;
-            return;
-        }
-    }
-    await next();
-});
+
 
 app.UseStaticFiles();
 app.UseRateLimiter();
@@ -198,7 +213,12 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: false);
+        // Seed check (use --seed-fresh argument or SEED_FORCE_RECREATE env var if full reseed needed)
+        bool shouldRecreate = builder.Configuration.GetValue<bool>("Seed:ForceRecreate", false)
+            || Environment.GetEnvironmentVariable("SEED_FORCE_RECREATE") == "true"
+            || args.Contains("--seed-fresh");
+
+        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: shouldRecreate);
         Console.WriteLine("✅ Database migration and enterprise seeding checked successfully!");
     }
     catch (Exception ex)
@@ -206,5 +226,4 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"⚠️ Seeder error: {ex.Message}");
     }
 }
-
 app.Run();

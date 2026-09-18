@@ -72,9 +72,12 @@ export default function AssignedAuditPlanScreen({ auditorName, onStart, activeDr
       const distance = getDistanceInMeters(userCoords.latitude, userCoords.longitude, lat, lng);
 
       const matchedDraft = allDrafts.find(d => 
-        (plan.locationId && (d.locationId === plan.locationId || d.location?.id === plan.locationId || d.unit?.id === plan.locationId)) ||
-        (plan.locationName && (d.locationName === plan.locationName || d.unit?.name === plan.locationName || (d.locationFullName && d.locationFullName.includes(plan.locationName)))) ||
-        (plan.unit && (d.locationName === plan.unit || d.unit?.name === plan.unit || (d.locationFullName && d.locationFullName.includes(plan.unit))))
+        (d.auditScheduleId && (Number(d.auditScheduleId) === Number(plan.id) || Number(d.scheduleId) === Number(plan.id))) ||
+        (!d.auditScheduleId && (
+          (plan.locationId && (d.locationId === plan.locationId || d.location?.id === plan.locationId || d.unit?.id === plan.locationId)) ||
+          (plan.locationName && (d.locationName === plan.locationName || d.unit?.name === plan.locationName || (d.locationFullName && d.locationFullName.includes(plan.locationName)))) ||
+          (plan.unit && (d.locationName === plan.unit || d.unit?.name === plan.unit || (d.locationFullName && d.locationFullName.includes(plan.unit))))
+        ) && (!plan.surveyFormId || d.surveyFormId === plan.surveyFormId || d.formId === plan.surveyFormId))
       );
 
       return {

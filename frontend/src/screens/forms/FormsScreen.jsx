@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, ChevronRight, CheckCircle2, Plus, Trash2, X, Search, Filter, AlertTriangle, Info } from "lucide-react";
+import { List, ClipboardCheck, Store, ChevronRight, ChevronDown, CheckCircle2, Plus, Trash2, X, Search, Filter, AlertTriangle, Info, Eye, Edit3, Loader2 } from "lucide-react";
 import { Bar } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -20,10 +20,11 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import FormEditorScreen from "./FormEditorScreen";
 
 
-export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
-  const { forms, refreshData, currentUser } = React.useContext(DataContext);
-  const { selectedBrand } = React.useContext(TopBarContext);
+export default function FormsScreen({ isDesktop, onBack, role }) {
+  const { forms, refreshData, currentUser, brands, selectedBrandId, setSelectedBrandId, getFormDetail } = React.useContext(DataContext);
+  const [localBrandFilter, setLocalBrandFilter] = useState("all");
   const [editing, setEditing] = useState(undefined);
+  const [loadingFormId, setLoadingFormId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [locationTypes, setLocationTypes] = useState([]);
@@ -33,13 +34,46 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
   const [successToast, setSuccessToast] = useState(null);
   const toastTimerRef = useRef(null);
 
+  const handleOpenForm = async (f) => {
+    if (!f) {
+      setEditing(null);
+      return;
+    }
+    setLoadingFormId(f.id);
+    try {
+      let fullForm = null;
+      if (getFormDetail) {
+        fullForm = await getFormDetail(f.id);
+      } else {
+        const res = await api.get(`/form/${f.id}`);
+        fullForm = res.data;
+      }
+      if (fullForm && Array.isArray(fullForm.sections)) {
+        setEditing({
+          ...f,
+          ...fullForm,
+          sections: fullForm.sections
+        });
+      } else {
+        setEditing(f);
+      }
+    } catch (err) {
+      console.error("Failed to load full form details:", err);
+      setEditing(f);
+    } finally {
+      setLoadingFormId(null);
+    }
+  };
+
   const showSuccessToast = (msg) => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setSuccessToast(msg);
     toastTimerRef.current = setTimeout(() => setSuccessToast(null), 3000);
   };
 
-  const canManageForms = role === "STANDARD" || role === "ADMIN" || currentUser?.role === "ADMIN" || (currentUser?.permissions || []).includes("forms.manage");
+  const userRole = (currentUser?.role || currentUser?.roleCode || role || "").toUpperCase();
+  const isAuditorOrAuditee = userRole === "AUDITOR" || userRole === "AUDITEE";
+  const canManageForms = !isAuditorOrAuditee && (userRole === "ADMIN" || userRole === "STANDARD" || (currentUser?.permissions || []).includes("forms.manage"));
 
   const handleDeleteForm = async () => {
     if (!deleteModalForm) return;
@@ -74,7 +108,8 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
 
   const formsList = useMemo(() => {
     if (forms && forms.length > 0) {
-      return forms.map(f => ({
+      const activeLatestForms = forms.filter(f => f.isLatest !== false && f.isLatest !== 0 && f.isActive !== false && f.isActive !== 0);
+      return activeLatestForms.map(f => ({
         id: f.id,
         name: f.title,
         title: f.title,
@@ -91,9 +126,21 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         usedCount: f.usedCount !== undefined ? f.usedCount : (f.auditRecords?.length || 0),
         scheduledCount: f.scheduledCount || 0,
         isInUse: f.isInUse || (f.usedCount > 0) || (f.scheduledCount > 0),
-        itemCount: f.sections ? f.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0) : 0,
-        totalScore: f.sections ? f.sections.reduce((acc, s) => acc + (s.items ? s.items.reduce((iAcc, i) => iAcc + (Number(i.fullScore) || 10), 0) : 0), 0) : 0,
+        // 🌟 /form?detail=summary ส่ง itemCount/totalScore มาให้แล้ว (คำนวณฝั่ง server)
+        // ใช้ค่านั้นก่อนเสมอ ไม่ต้องรอ sections โหลดเต็ม — fallback ไปนับจาก sections
+        // ไว้เผื่อกรณี forms context ถูก hydrate เต็มแล้วจากที่อื่น
+        itemCount: f.itemCount !== undefined && f.itemCount !== null
+          ? f.itemCount
+          : (f.sections ? f.sections.reduce((acc, s) => acc + (s.items?.length || 0), 0) : 0),
+        totalScore: f.totalScore !== undefined && f.totalScore !== null
+          ? f.totalScore
+          : (f.sections ? f.sections.reduce((acc, s) => acc + (s.items ? s.items.reduce((iAcc, i) => iAcc + (Number(i.fullScore) || 10), 0) : 0), 0) : 0),
         passingScore: f.passingScore !== undefined ? f.passingScore : 85,
+        sectionCount: f.sectionCount !== undefined && f.sectionCount !== null
+          ? f.sectionCount
+          : (f.sections ? f.sections.length : 0),
+        metadataConfig: f.metadataConfig,
+        metadataConfigJson: f.metadataConfigJson,
         sections: f.sections || []
       }));
     }
@@ -152,9 +199,11 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
     );
   }
 
+  const effectiveBrandId = localBrandFilter !== "all" ? Number(localBrandFilter) : (selectedBrandId ? Number(selectedBrandId) : null);
+
   const filteredForms = formsList.filter(f => {
-    if (selectedBrand && selectedBrand !== "all") {
-      const bMatch = !f.brandIds || f.brandIds.length === 0 || f.brandIds.map(String).includes(String(selectedBrand)) || (f.brandNames && f.brandNames.some(bn => bn.toLowerCase() === selectedBrand.toLowerCase()));
+    if (effectiveBrandId) {
+      const bMatch = !f.brandIds || f.brandIds.length === 0 || f.brandIds.map(Number).includes(effectiveBrandId) || (f.brandId && Number(f.brandId) === effectiveBrandId);
       if (!bMatch) return false;
     }
     let matchType = filterType === "all";
@@ -209,16 +258,41 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
           )}
         </div>
 
-        {canManageForms && (
-          <button
-            type="button"
-            onClick={() => setEditing(null)}
-            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
-          >
-            <Plus size={15} />
-            <span>สร้างฟอร์มใหม่</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Brand Filter Dropdown */}
+          {brands && brands.length > 0 && (
+            <div className="relative flex-1 sm:flex-initial flex items-center">
+              <select
+                value={effectiveBrandId ? String(effectiveBrandId) : "all"}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setLocalBrandFilter(val);
+                  if (setSelectedBrandId) {
+                    setSelectedBrandId(val === "all" ? null : Number(val));
+                  }
+                }}
+                className="w-full sm:w-auto text-xs sm:text-sm font-semibold pl-3 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none text-slate-700 hover:border-slate-300 focus:border-[#0F6659] transition-all cursor-pointer appearance-none"
+              >
+                <option value="all">ทุกแบรนด์</option>
+                {brands.filter(b => b.isActive !== false).map(b => (
+                  <option key={b.id} value={String(b.id)}>{b.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            </div>
+          )}
+
+          {canManageForms && (
+            <button
+              type="button"
+              onClick={() => handleOpenForm(null)}
+              className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
+            >
+              <Plus size={15} />
+              <span>สร้างฟอร์มใหม่</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Dynamic Filter Pills from Database */}
@@ -244,7 +318,7 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
         {filteredForms.map((f) => (
           <div
             key={f.id}
-            onClick={() => setEditing(f)}
+            onClick={() => handleOpenForm(f)}
             className="w-full rounded-2xl p-4 sm:p-5 bg-white border border-slate-200 shadow-2xs hover:border-[#0F6659] hover:shadow-xs transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left group"
           >
             {/* Left Info */}
@@ -292,14 +366,30 @@ export default function FormsScreen({ isDesktop, onBack, role = "STANDARD" }) {
             <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
               <button
                 type="button"
+                disabled={loadingFormId === f.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  setEditing(f);
+                  handleOpenForm(f);
                 }}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 border border-slate-200 group-hover:bg-[#0F6659] group-hover:text-white group-hover:border-[#0F6659] cursor-pointer shadow-2xs active:scale-95 flex items-center gap-1 bg-slate-50/80 transition-all"
+                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 border border-slate-200 group-hover:bg-[#0F6659] group-hover:text-white group-hover:border-[#0F6659] cursor-pointer shadow-2xs active:scale-95 flex items-center gap-1.5 bg-slate-50/80 transition-all disabled:opacity-60"
               >
-                <span>แก้ไขฟอร์ม</span>
-                <ChevronRight size={14} />
+                {loadingFormId === f.id ? (
+                  <>
+                    <Loader2 size={13} className="shrink-0 animate-spin text-[#0F6659] group-hover:text-white" />
+                    <span>กำลังโหลด...</span>
+                  </>
+                ) : canManageForms ? (
+                  <>
+                    <Edit3 size={13} className="shrink-0" />
+                    <span>แก้ไขฟอร์ม</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye size={13} className="shrink-0 text-slate-500 group-hover:text-white" />
+                    <span>ดูแบบฟอร์ม</span>
+                  </>
+                )}
+                <ChevronRight size={14} className="shrink-0" />
               </button>
 
               {canManageForms && (

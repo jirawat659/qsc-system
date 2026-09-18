@@ -8,22 +8,22 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
   onBackRef.current = onBack;
   const actionRef = React.useRef(action);
   actionRef.current = action;
+  const titleRef = React.useRef(title);
+  titleRef.current = title;
   const hasBack = Boolean(onBack);
 
-  // Sync with mobile TopBarContext without triggering infinite re-render loops
+  // 1. Sync with mobile TopBarContext without triggering infinite re-render loops
   React.useEffect(() => {
     if (!title || !setSubHeader) return;
 
-    const ActionComponent = () => actionRef.current;
-
     setSubHeader(prev => {
+      // If already matched, return identical reference so React bails out of re-renders
       if (
         prev &&
         prev.title === title &&
         prev.subtitle === subtitle &&
         prev.isAudit === isAudit &&
-        prev.hasBack === hasBack &&
-        prev.rawAction === action
+        prev.hasBack === hasBack
       ) {
         return prev;
       }
@@ -31,8 +31,7 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
       return {
         title,
         subtitle,
-        action: <ActionComponent />,
-        rawAction: action,
+        action: <ActionRenderer actionRef={actionRef} />,
         isAudit,
         hasBack,
         onBack: hasBack ? () => {
@@ -40,13 +39,16 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         } : null
       };
     });
+  }, [title, subtitle, hasBack, isAudit, setSubHeader]);
 
+  // 2. Clear subHeader ONLY when this Header component actually unmounts
+  React.useEffect(() => {
     return () => {
       if (setSubHeader) {
-        setSubHeader(prev => (prev?.title === title ? null : prev));
+        setSubHeader(prev => (prev?.title === titleRef.current ? null : prev));
       }
     };
-  }, [title, subtitle, hasBack, isAudit, action, setSubHeader]);
+  }, [setSubHeader]);
 
   if (!title && !onBack) return null;
 
@@ -82,4 +84,8 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
       )}
     </div>
   );
+}
+
+function ActionRenderer({ actionRef }) {
+  return actionRef.current || null;
 }

@@ -1,4 +1,19 @@
-import { LayoutDashboard, ClipboardCheck, CalendarDays, FileText, AlertCircle, BarChart3, MoreHorizontal, Plus, Settings, MessageSquare } from "lucide-react";
+import { 
+  LayoutDashboard, 
+  ClipboardCheck, 
+  CalendarDays, 
+  FileText, 
+  AlertCircle, 
+  BarChart3, 
+  MoreHorizontal, 
+  Plus, 
+  Settings, 
+  MessageSquare,
+  Layers,
+  Store,
+  UserCheck,
+  Key
+} from "lucide-react";
 
 export const ROLES = [
   { id: "STANDARD", label: "ผู้ดูแลมาตรฐาน", desc: "จัดการเกณฑ์ ตาราง และฟอร์ม" },
@@ -268,3 +283,170 @@ export const NAV_BY_ROLE = {
     { key: "audit", label: "ตรวจหน้างาน", icon: ClipboardCheck },
   ],
 };
+
+// 🌟 MASTER SYSTEM TOOLS DICTIONARY
+export const SYSTEM_TOOLS = [
+  {
+    key: "master_management",
+    icon: Layers,
+    label: "การจัดการข้อมูลหลัก",
+    fullLabel: "การจัดการระบบและข้อมูลหลัก",
+    desc: "จัดการข้อมูลผู้ใช้งาน, เพิ่มสถานที่/สาขา และประเภทสถานที่",
+    perm: "menu.admin",
+    roles: ["ADMIN"],
+    group: "system"
+  },
+  {
+    key: "reports",
+    icon: BarChart3,
+    label: "รายงานผลการตรวจ",
+    desc: "ดูผลตรวจรายครั้งในตาราง กรองข้อมูล และส่งออก Excel",
+    route: "reports",
+    perm: "menu.analytics",
+    roles: ["STANDARD", "EXEC", "ADMIN"],
+    group: "workflow"
+  },
+  {
+    key: "schedule",
+    icon: CalendarDays,
+    label: "แผนการตรวจ",
+    desc: "ดูแผนตรวจและสาขาที่ถูกมอบหมายให้ผู้ตรวจ",
+    route: "schedule",
+    perm: "menu.schedules",
+    roles: ["STANDARD", "ADMIN", "AUDITOR", "EXEC"],
+    group: "workflow"
+  },
+  {
+    key: "forms",
+    icon: FileText,
+    label: "จัดการแบบฟอร์ม",
+    fullLabel: "จัดการแบบฟอร์มการตรวจ",
+    desc: "สร้าง แก้ไข และกำหนดเกณฑ์สำหรับแบบฟอร์มตรวจประเมิน",
+    route: "forms",
+    perm: "menu.forms",
+    roles: ["STANDARD", "ADMIN", "EXEC"],
+    group: "workflow"
+  },
+  { 
+    key: "cap",
+    icon: AlertCircle,
+    label: "แชทแก้งาน (CAP)",
+    fullLabel: "ติดตามและพิจารณางานแก้ไข (CAP)",
+    desc: "ตรวจสอบหลักฐานการแก้ไขข้อบกพร่องและอนุมัติปิดงาน",
+    route: "cap",
+    perm: "menu.cap",
+    roles: ["STANDARD", "ADMIN", "AUDITOR"],
+    group: "workflow"
+  },
+  { 
+    key: "settings", 
+    icon: Settings, 
+    label: "ตั้งค่านโยบายและเกณฑ์", 
+    fullLabel: "ตั้งค่านโยบายและเกณฑ์มาตรฐาน",
+    desc: "เกณฑ์คะแนนผ่าน ≥85% และกำหนดเวลาส่งงาน SLA",
+    perm: "menu.admin",
+    roles: ["STANDARD", "ADMIN"],
+    group: "system"
+  },
+  { 
+    key: "integrations", 
+    icon: Key, 
+    label: "การเชื่อมต่อ API", 
+    fullLabel: "การเชื่อมต่อ API & Webhook",
+    desc: "ระบบเชื่อมต่อ ERP, POS และ LINE Notify",
+    perm: "menu.admin",
+    roles: ["ADMIN"],
+    group: "system"
+  },
+  {
+    key: "auditor_profile",
+    icon: UserCheck,
+    label: "ข้อมูลผู้ตรวจและสังกัด",
+    desc: "ดูข้อมูลโปรไฟล์และพื้นที่ความรับผิดชอบ",
+    roles: ["AUDITOR"],
+    group: "info"
+  },
+  {
+    key: "branch_info",
+    icon: Store,
+    label: "ข้อมูลสาขาและคู่มือ SOP",
+    desc: "ดูข้อมูลประจำสาขาและเอกสารเกณฑ์มาตรฐานร้าน",
+    roles: ["AUDITEE"],
+    group: "info"
+  },
+  {
+    key: "contact_qa",
+    icon: MessageSquare,
+    label: "ติดต่อฝ่ายมาตรฐาน",
+    fullLabel: "ติดต่อฝ่ายมาตรฐาน (QA Support)",
+    desc: "สอบถามข้อสงสัยเกี่ยวกับเกณฑ์การตรวจประเมิน",
+    roles: ["AUDITEE"],
+    group: "info"
+  }
+];
+
+/**
+ * Checks if a user has access to a tool based on role and permissions
+ */
+export function hasToolAccess(tool, role, permissions = []) {
+  const normRole = String(role || "").trim().toUpperCase();
+  if (normRole === "ADMIN") return true;
+  if (tool.perm && Array.isArray(permissions) && permissions.includes(tool.perm)) return true;
+  if (tool.roles && tool.roles.map(r => r.toUpperCase()).includes(normRole)) return true;
+  return false;
+}
+
+/**
+ * Generates desktop sidebar navigation groups based on role, permissions, and mobile nav config.
+ * Replaces 'more' with individual tool items grouped into operational workflows and system/info tools.
+ */
+export function getDesktopNavGroups(role, permissions = [], userNavConfig = null) {
+  const mobileNav = getRoleNavConfig(role, userNavConfig);
+  // Filter out the 'more' slot on desktop
+  const coreNavItems = mobileNav.filter(item => item.key !== "more" && item.slot !== "right");
+  
+  // Track keys and routes already present in core nav to avoid duplication
+  const existingKeys = new Set();
+  coreNavItems.forEach(item => {
+    if (item.key) existingKeys.add(item.key);
+    if (item.defaultRoute) existingKeys.add(item.defaultRoute);
+  });
+  
+  // Filter available system tools that are not already present in core nav
+  const availableTools = SYSTEM_TOOLS.filter(tool => {
+    if (existingKeys.has(tool.key) || (tool.route && existingKeys.has(tool.route))) {
+      return false;
+    }
+    return hasToolAccess(tool, role, permissions);
+  });
+
+  // Group 1: เมนูการทำงาน (Core Workflows)
+  const workflowTools = availableTools.filter(t => t.group === "workflow");
+  const workflows = [
+    ...coreNavItems.map(item => ({
+      ...item,
+      group: "workflow"
+    })),
+    ...workflowTools
+  ];
+
+  // Group 2: ระบบและการจัดการ / ข้อมูลและบริการ (System / Info / Admin)
+  const normRole = String(role || "").trim().toUpperCase();
+  const systemTools = availableTools.filter(t => t.group === "system" || t.group === "info");
+
+  let systemGroupTitle = "ระบบและการตั้งค่า";
+  if (normRole === "AUDITEE") {
+    systemGroupTitle = "ข้อมูลและบริการ";
+  } else if (normRole === "AUDITOR") {
+    systemGroupTitle = "ข้อมูลและสังกัด";
+  } else if (normRole === "ADMIN") {
+    systemGroupTitle = "การจัดการระบบ";
+  }
+
+  return {
+    workflows,
+    systemTools,
+    systemGroupTitle
+  };
+}
+
