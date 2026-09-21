@@ -6,13 +6,14 @@ import { compressImageFile, validateImageFile } from "../../utils/imageCompresso
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import LocationSelectModal from "../../modals/LocationSelectModal";
 import api from "../../config/api";
+import { getCategoryDisplay } from "../../config/constants";
 
 export const CORE_SCORE_CATEGORIES = [
-  "ความสะอาด",
-  "เอกสาร",
-  "กระบวนการทำงาน",
-  "คุณภาพสินค้า",
-  "การบริการ"
+  "Product",
+  "Process",
+  "Service",
+  "Cleanliness",
+  "Documents"
 ];
 
 export default function NewRemediationModal({ onClose, onSuccess, locations = [], currentUser }) {
@@ -77,24 +78,32 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
   const availableCategories = useMemo(() => {
     const catSet = new Set();
 
-    // 1. ดึงจาก item.categoryName ในฟอร์มที่เลือก (เฉพาะหมวดของคะแนน)
+    // 1. ดึงจาก item.categoryName ในฟอร์มที่เลือก และกรองให้อยู่ใน 5 หมวดหลัก
     if (selectedFormId) {
       const currentForm = applicableForms.find(f => f.id.toString() === selectedFormId.toString());
       if (currentForm && currentForm.sections) {
         currentForm.sections.forEach(sec => {
           (sec.items || []).forEach(item => {
             let cat = (item.categoryName || item.category || "").trim();
-            if (cat === "คุณภาพสินค้า-วัตถุดิบ") cat = "คุณภาพสินค้า";
+            const upper = cat.toUpperCase();
+            if (cat === "Product" || upper === "PD" || upper === "QLT" || cat.includes("คุณภาพ")) cat = "Product";
+            else if (cat === "Process" || upper === "PC" || upper === "OPS" || cat.includes("กระบวนการ")) cat = "Process";
+            else if (cat === "Service" || upper === "S" || upper === "SVC" || cat.includes("บริการ")) cat = "Service";
+            else if (cat === "Cleanliness" || upper === "C" || upper === "CLN" || cat.includes("สะอาด")) cat = "Cleanliness";
+            else if (cat === "Documents" || upper === "DM" || upper === "DOC" || cat.includes("เอกสาร")) cat = "Documents";
+            else cat = "Product";
             if (cat) catSet.add(cat);
           });
         });
       }
     }
 
-    // 2. ให้มี 5 หมวดคะแนนหลักตามมาตรฐาน QSC เป็นตัวเลือกเสมอ
+    // 2. ให้มี 5 หมวดคะแนนหลักตามมาตรฐาน QSC เป็นตัวเลือกเสมอ (เรียงตามลำดับมาตรฐาน)
     CORE_SCORE_CATEGORIES.forEach(core => catSet.add(core));
 
-    return Array.from(catSet);
+    const result = Array.from(catSet);
+    result.sort((a, b) => CORE_SCORE_CATEGORIES.indexOf(a) - CORE_SCORE_CATEGORIES.indexOf(b));
+    return result;
   }, [selectedFormId, applicableForms]);
 
   // เลือกลำดับหมวดหมู่อัตโนมัติ
@@ -102,7 +111,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
     if (availableCategories.length > 0) {
       setSelectedCategoryName(availableCategories[0]);
     } else {
-      setSelectedCategoryName("ความสะอาด");
+      setSelectedCategoryName("Product");
     }
   }, [availableCategories]);
 
@@ -271,7 +280,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
             >
               {availableCategories.length > 0 ? (
                 availableCategories.map(cat => (
-                  <option key={cat} value={cat}>{cat}</option>
+                  <option key={cat} value={cat}>{getCategoryDisplay(cat)}</option>
                 ))
               ) : (
                 <option value="ทั่วไป">ทั่วไป</option>

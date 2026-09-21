@@ -7,6 +7,7 @@ import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { getDistanceInMeters, formatDistance, DEFAULT_USER_COORDS } from "../../utils/geo";
 import api, { getFullImageUrl } from "../../config/api";
+import { getCategoryDisplay } from "../../config/constants";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -57,38 +58,34 @@ const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
-  "ความสะอาด",
-  "เอกสาร",
-  "กระบวนการทำงาน",
-  "คุณภาพสินค้า",
-  "การบริการ"
+  "Product",
+  "Process",
+  "Service",
+  "Cleanliness",
+  "Documents"
 ];
 
 // 🏷️ ดึงชื่อหมวดคะแนนของคำถามแต่ละข้อ (แยกอิสระจากหมวดคำถามของฟอร์ม)
 export const getQuestionCategory = (q, sec) => {
-  let name = (q?.categoryName || q?.category || "").trim();
-  if (name) {
-    if (name === "คุณภาพสินค้า-วัตถุดิบ") return "คุณภาพสินค้า";
-    return name;
-  }
-  if (q?.categoryCode) {
-    const code = q.categoryCode.toUpperCase();
-    if (code === "CLN") return "ความสะอาด";
-    if (code === "DOC") return "เอกสาร";
-    if (code === "OPS") return "กระบวนการทำงาน";
-    if (code === "QLT") return "คุณภาพสินค้า";
-    if (code === "SVC") return "การบริการ";
-    if (code === "REG" || code === "RULE") return "ความถูกระเบียบ";
-    if (code === "SAF") return "ความปลอดภัย";
-  }
-  if (sec?.title) {
-    if (sec.title.includes("สะอาด") || sec.title.includes("สุขอนามัย") || sec.title.includes("CLN")) return "ความสะอาด";
-    if (sec.title.includes("เอกสาร") || sec.title.includes("DOC")) return "เอกสาร";
-    if (sec.title.includes("บริการ") || sec.title.includes("SVC")) return "การบริการ";
-    if (sec.title.includes("คุณภาพ") || sec.title.includes("QLT")) return "คุณภาพสินค้า";
-    if (sec.title.includes("กระบวนการ") || sec.title.includes("โรงงาน") || sec.title.includes("OPS") || sec.title.includes("GMP")) return "กระบวนการทำงาน";
-  }
-  return "ความสะอาด";
+  const name = (q?.categoryName || q?.category || "").trim();
+  const code = (q?.categoryCode || "").trim().toUpperCase();
+
+  // 1. ตรวจสอบจากชื่อหมวด หรือรหัสย่อ (รองรับทั้ง PD/PC/S/C/DM และรหัสเดิม QLT/OPS/SVC/CLN/DOC)
+  if (name === "Product" || code === "PD" || code === "QLT" || name.includes("คุณภาพ")) return "Product";
+  if (name === "Process" || code === "PC" || code === "OPS" || name.includes("กระบวนการ") || name.includes("โรงงาน") || name.includes("GMP")) return "Process";
+  if (name === "Service" || code === "S" || code === "SVC" || name.includes("บริการ")) return "Service";
+  if (name === "Cleanliness" || code === "C" || code === "CLN" || name.includes("สะอาด") || name.includes("สุขอนามัย")) return "Cleanliness";
+  if (name === "Documents" || code === "DM" || code === "DOC" || name.includes("เอกสาร")) return "Documents";
+
+  // 2. ตรวจสอบชื่อหมวดหมู่ของฟอร์ม (Section Title)
+  const title = sec?.title || "";
+  if (title.includes("คุณภาพ") || title.includes("QLT") || title.includes("Product")) return "Product";
+  if (title.includes("กระบวนการ") || title.includes("โรงงาน") || title.includes("OPS") || title.includes("Process") || title.includes("GMP")) return "Process";
+  if (title.includes("บริการ") || title.includes("SVC") || title.includes("Service")) return "Service";
+  if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN") || title.includes("Cleanliness")) return "Cleanliness";
+  if (title.includes("เอกสาร") || title.includes("DOC") || title.includes("Documents")) return "Documents";
+
+  return "Product";
 };
 
 // 🌟 QuestionCard — แยกออกมาจาก inline JSX เดิมที่อยู่ในลูป .map() ตรงๆ ในคอมโพเนนต์หลัก
@@ -143,7 +140,7 @@ const QuestionCard = React.memo(function QuestionCard({
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-            {getQuestionCategory(q, sec)}
+            {getCategoryDisplay(getQuestionCategory(q, sec))}
           </span>
           {q.isCritical && (
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
@@ -990,6 +987,134 @@ export function AuditStepIndicator({ currentStep = 1, onGoToStep1, onGoToStep2, 
   );
 }
 
+// 🌟 ฟังก์ชันจับคู่คำตอบ/รูปภาพ/คอมเมนต์ของแบบร่างเดิมเข้ากับข้อตรวจของฟอร์มปัจจุบัน
+// ป้องกันปัญหาข้อมูลหายเมื่อแบบฟอร์มถูกแก้ไขหรือ Clone เวอร์ชันใหม่ในฐานข้อมูล ทำให้ Item IDs เปลี่ยนไป
+export function remapDraftItemsToCurrentForm(draftPayload, form) {
+  if (!draftPayload || !form?.sections || !Array.isArray(form.sections) || form.sections.length === 0) {
+    return {
+      answers: draftPayload?.answers || {},
+      photos: draftPayload?.photos || {},
+      comments: draftPayload?.comments || {},
+      oldToNewIdMap: {}
+    };
+  }
+
+  const currentItemsFlat = [];
+  const currentItemIds = new Set();
+  for (const sec of form.sections) {
+    for (const item of (sec.items || [])) {
+      currentItemIds.add(String(item.id));
+      currentItemsFlat.push(item);
+    }
+  }
+
+  const draftAnswers = draftPayload.answers || {};
+  const draftPhotos = draftPayload.photos || {};
+  const draftComments = draftPayload.comments || {};
+
+  const allDraftKeys = Array.from(new Set([
+    ...Object.keys(draftAnswers),
+    ...Object.keys(draftPhotos),
+    ...Object.keys(draftComments)
+  ]));
+
+  const oldToNewIdMap = {};
+  const unmatchedDraftKeys = [];
+
+  for (const k of allDraftKeys) {
+    if (currentItemIds.has(String(k))) {
+      oldToNewIdMap[String(k)] = String(k);
+    } else {
+      unmatchedDraftKeys.push(String(k));
+    }
+  }
+
+  // 🌟 Fallback สำหรับกรณีที่มีการอัปเดตหรือ Clone ฟอร์มใหม่ ทำให้ ID ของข้อตรวจเปลี่ยนไป (เช่น 5877-5896 -> 5897-5916)
+  if (unmatchedDraftKeys.length > 0 && currentItemsFlat.length > 0) {
+    unmatchedDraftKeys.sort((a, b) => {
+      const numA = Number(a);
+      const numB = Number(b);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b);
+    });
+
+    const numericKeys = unmatchedDraftKeys
+      .map(k => Number(k))
+      .filter(n => !isNaN(n))
+      .sort((a, b) => a - b);
+
+    const isAllNumeric = numericKeys.length === unmatchedDraftKeys.length;
+    const minOldId = isAllNumeric && numericKeys.length > 0 ? numericKeys[0] : null;
+    const maxOldId = isAllNumeric && numericKeys.length > 0 ? numericKeys[numericKeys.length - 1] : null;
+    const oldSpan = (minOldId !== null && maxOldId !== null) ? (maxOldId - minOldId + 1) : 0;
+
+    const usedNewIds = new Set(Object.values(oldToNewIdMap));
+
+    // กลยุทธ์ A: ถ้าช่วง ID เก่าเป็นช่วงตัวเลขออโต้รันที่พอดีกับช่วง index ของข้อปัจจุบัน
+    if (isAllNumeric && minOldId !== null && oldSpan <= currentItemsFlat.length) {
+      for (const oldNum of numericKeys) {
+        const targetIdx = oldNum - minOldId;
+        if (targetIdx >= 0 && targetIdx < currentItemsFlat.length) {
+          const targetItem = currentItemsFlat[targetIdx];
+          if (targetItem && !usedNewIds.has(String(targetItem.id))) {
+            oldToNewIdMap[String(oldNum)] = String(targetItem.id);
+            usedNewIds.add(String(targetItem.id));
+          }
+        }
+      }
+    }
+
+    // กลยุทธ์ B: สำหรับคีย์ที่ยังไม่ได้จับคู่ ให้จับคู่ตามลำดับข้อที่ยังว่างอยู่
+    let fallbackIdx = 0;
+    for (const oldK of unmatchedDraftKeys) {
+      if (!oldToNewIdMap[oldK]) {
+        while (fallbackIdx < currentItemsFlat.length && usedNewIds.has(String(currentItemsFlat[fallbackIdx].id))) {
+          fallbackIdx++;
+        }
+        if (fallbackIdx < currentItemsFlat.length) {
+          const targetItem = currentItemsFlat[fallbackIdx];
+          oldToNewIdMap[oldK] = String(targetItem.id);
+          usedNewIds.add(String(targetItem.id));
+          fallbackIdx++;
+        }
+      }
+    }
+  }
+
+  const resolveMappedKey = (key) => oldToNewIdMap[String(key)] || (currentItemIds.has(String(key)) ? String(key) : null);
+
+  const mappedAnswers = {};
+  for (const [key, val] of Object.entries(draftAnswers)) {
+    const mk = resolveMappedKey(key);
+    if (mk && currentItemIds.has(mk)) {
+      mappedAnswers[mk] = val;
+    }
+  }
+
+  const mappedPhotos = {};
+  for (const [key, val] of Object.entries(draftPhotos)) {
+    const mk = resolveMappedKey(key);
+    if (mk && currentItemIds.has(mk)) {
+      mappedPhotos[mk] = val;
+    }
+  }
+
+  const mappedComments = {};
+  for (const [key, val] of Object.entries(draftComments)) {
+    const mk = resolveMappedKey(key);
+    if (mk && currentItemIds.has(mk)) {
+      mappedComments[mk] = val;
+    }
+  }
+
+  return {
+    answers: Object.keys(mappedAnswers).length > 0 ? mappedAnswers : draftAnswers,
+    photos: Object.keys(mappedPhotos).length > 0 ? mappedPhotos : draftPhotos,
+    comments: Object.keys(mappedComments).length > 0 ? mappedComments : draftComments,
+    oldToNewIdMap
+  };
+}
+
 export default function LiveAuditScreen({
   preselectedPlan,
   onClearPlan,
@@ -1231,10 +1356,15 @@ export default function LiveAuditScreen({
     }
   }, [step, applicableForms, getFormDetail]);
 
+  const initialRemappedDraft = useMemo(() => {
+    if (!isResumeDraft || !parsedDraftPayload) return null;
+    return remapDraftItemsToCurrentForm(parsedDraftPayload, selectedForm);
+  }, [isResumeDraft, parsedDraftPayload, selectedForm]);
+
   const [sectionIdx, setSectionIdx] = useState(isResumeDraft ? (parsedDraftPayload?.sectionIdx || 0) : 0);
-  const [answers, setAnswers] = useState(isResumeDraft ? (parsedDraftPayload?.answers || {}) : {});
-  const [photos, setPhotos] = useState(isResumeDraft ? (parsedDraftPayload?.photos || {}) : {});
-  const [comments, setComments] = useState(isResumeDraft ? (parsedDraftPayload?.comments || {}) : {});
+  const [answers, setAnswers] = useState(() => initialRemappedDraft?.answers || (isResumeDraft ? (parsedDraftPayload?.answers || {}) : {}));
+  const [photos, setPhotos] = useState(() => initialRemappedDraft?.photos || (isResumeDraft ? (parsedDraftPayload?.photos || {}) : {}));
+  const [comments, setComments] = useState(() => initialRemappedDraft?.comments || (isResumeDraft ? (parsedDraftPayload?.comments || {}) : {}));
   const [openComments, setOpenComments] = useState({});
   const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
   const [auditorName, setAuditorName] = useState(() => {
@@ -1420,9 +1550,9 @@ export default function LiveAuditScreen({
   const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
   const [isAuditHeaderScrolled, setIsAuditHeaderScrolled] = useState(false);
   const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
-  // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ใช้ดันแถบบนสุดให้กลายเป็นหัวข้อหมวดแทน)
-  const [activeSectionIndex, setActiveSectionIndex] = useState(null);
-  const activeSectionIdx = activeSectionIndex !== null ? activeSectionIndex : 0;
+  // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ใช้บันทึกหมวดหมู่ที่ถูกล็อคไว้ด้านบน และนำไปใช้ไฮไลต์ในเมนู drawer)
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const activeSectionIdx = activeSectionIndex ?? 0;
 
   useEffect(() => {
     if (!isCategoryDrawerOpen) return;
@@ -1450,44 +1580,50 @@ export default function LiveAuditScreen({
   
   const currentSectionsForHeader = selectedForm?.sections || [];
 
-  // 🌟 ติดตามว่ากำลังเลื่อนผ่านหมวดคำถามไหนอยู่ (Tab 2 เท่านั้น) เพื่อดันแถบบนสุดให้กลายเป็นหัวข้อหมวดนั้นแทน
+  // 🌟 ติดตามว่ากำลังเลื่อนผ่านหมวดคำถามไหนอยู่ (Tab 2 เท่านั้น) บันทึกหมวดที่ล็อคติดขอบบนลงใน activeSectionIndex
   useEffect(() => {
     if (step !== "audit") {
       setIsAuditHeaderScrolled(false);
-      setActiveSectionIndex(null);
       return undefined;
     }
 
-    const TOPBAR_HEIGHT = 70; // ความสูงโดยประมาณของแถบบนสุดบนมือถือ
-
     const computeActiveSection = () => {
-      const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+      const scrollY = window.scrollY || document.documentElement.scrollTop || (document.querySelector('main')?.scrollTop || 0);
       setIsAuditHeaderScrolled(scrollY > 60);
 
       if (activeTab === 2 && currentSectionsForHeader.length > 0) {
-        let current = null;
+        let current = 0;
         for (let i = 0; i < currentSectionsForHeader.length; i++) {
+          const sectionEl = document.getElementById(`audit-section-${i}`);
           const headerEl = document.getElementById(`audit-section-header-${i}`);
-          if (!headerEl) continue;
-          const rect = headerEl.getBoundingClientRect();
-          // 🌟 ตรวจจับว่าจุดมาร์คหมวดไหนกำลังล็อคติดขอบบนสุดของจออยู่ ณ ขณะนี้
-          if (rect.top <= 4 && rect.bottom > 4) {
-            current = i;
-            break;
+          
+          if (sectionEl) {
+            const rect = sectionEl.getBoundingClientRect();
+            // เมื่อขอบบนของหมวดเลื่อนขึ้นมาถึง/ใกล้ขอบบน (top <= 95px) และขอบล่างยังไม่พ้นจอ (bottom > 50px)
+            if (rect.top <= 95 && rect.bottom > 50) {
+              current = i;
+              break;
+            }
+          } else if (headerEl) {
+            const rect = headerEl.getBoundingClientRect();
+            if (rect.top <= 95 && rect.bottom > 0) {
+              current = i;
+              break;
+            }
           }
         }
         setActiveSectionIndex(current);
-      } else {
-        setActiveSectionIndex(null);
       }
     };
 
     computeActiveSection();
     window.addEventListener("scroll", computeActiveSection, { passive: true });
+    document.addEventListener("scroll", computeActiveSection, { passive: true });
     const mainEl = document.querySelector('main');
     if (mainEl) mainEl.addEventListener("scroll", computeActiveSection, { passive: true });
     return () => {
       window.removeEventListener("scroll", computeActiveSection);
+      document.removeEventListener("scroll", computeActiveSection);
       if (mainEl) mainEl.removeEventListener("scroll", computeActiveSection);
     };
   }, [step, activeTab, currentSectionsForHeader]);
@@ -1542,60 +1678,16 @@ export default function LiveAuditScreen({
 
       hasHydratedDraftRef.current = true;
 
-      const currentItemIds = new Set();
-      if (currentForm?.sections) {
-        for (const sec of currentForm.sections) {
-          for (const item of (sec.items || [])) {
-            currentItemIds.add(String(item.id));
-          }
-        }
+      const { answers: remappedAnswers, photos: remappedPhotos, comments: remappedComments, oldToNewIdMap } =
+        remapDraftItemsToCurrentForm(parsedDraftPayload, currentForm);
+
+      if (oldToNewIdMap && Object.keys(oldToNewIdMap).length > 0) {
+        console.log(`[Draft] ✅ Hydrated & mapped ${Object.keys(remappedAnswers).length} answer(s), ${Object.keys(remappedPhotos).length} photo(s) to current form items`);
       }
 
-      if (parsedDraftPayload.answers && Object.keys(parsedDraftPayload.answers).length > 0) {
-        if (currentItemIds.size > 0) {
-          const validAnswers = {};
-          const staleKeys = [];
-          for (const [key, val] of Object.entries(parsedDraftPayload.answers)) {
-            if (currentItemIds.has(String(key))) {
-              validAnswers[key] = val;
-            } else {
-              staleKeys.push(key);
-            }
-          }
-          if (staleKeys.length > 0) {
-            console.warn(`[Draft] ⚠️ Discarded ${staleKeys.length} stale answer(s)`);
-          }
-          setAnswers(validAnswers);
-        } else {
-          setAnswers(parsedDraftPayload.answers);
-        }
-      }
-      if (parsedDraftPayload.photos && Object.keys(parsedDraftPayload.photos).length > 0) {
-        if (currentItemIds.size > 0) {
-          const validPhotos = {};
-          for (const [key, val] of Object.entries(parsedDraftPayload.photos)) {
-            if (currentItemIds.has(String(key))) {
-              validPhotos[key] = val;
-            }
-          }
-          setPhotos(validPhotos);
-        } else {
-          setPhotos(parsedDraftPayload.photos);
-        }
-      }
-      if (parsedDraftPayload.comments && Object.keys(parsedDraftPayload.comments).length > 0) {
-        if (currentItemIds.size > 0) {
-          const validComments = {};
-          for (const [key, val] of Object.entries(parsedDraftPayload.comments)) {
-            if (currentItemIds.has(String(key))) {
-              validComments[key] = val;
-            }
-          }
-          setComments(validComments);
-        } else {
-          setComments(parsedDraftPayload.comments);
-        }
-      }
+      setAnswers(remappedAnswers);
+      setPhotos(remappedPhotos);
+      setComments(remappedComments);
       if (parsedDraftPayload.staffCount) {
         setStaffCount(parsedDraftPayload.staffCount);
       }
@@ -1732,6 +1824,23 @@ export default function LiveAuditScreen({
     }
   }, [syncStatus, step]);
 
+  const handleDesktopBack = useCallback(() => {
+    if (step === "select-form") {
+      setStep("select-unit");
+    } else if (step === "audit") {
+      if (isResumeDraft || isFromAssignedPlan) {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+          performSaveDraft();
+        }
+        if (onBackRef.current) onBackRef.current(true);
+        return;
+      }
+      setStep("select-form");
+    }
+  }, [step, isResumeDraft, isFromAssignedPlan]);
+
   const scrollToTop = () => {
     try {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -1779,6 +1888,12 @@ export default function LiveAuditScreen({
 
   const performSaveDraft = async (overrideData = {}) => {
     if (isDiscardingRef.current) {
+      setSyncStatus("idle");
+      return;
+    }
+
+    // 🛡️ ป้องกันไม่ให้บันทึกทับก่อนที่ข้อมูลร่างเดิมจะถูก hydrate เข้าสู่ state
+    if (isResumeDraft && !hasHydratedDraftRef.current) {
       setSyncStatus("idle");
       return;
     }
@@ -1952,6 +2067,11 @@ export default function LiveAuditScreen({
   useEffect(() => {
     if (!unit?.id || !selectedForm?.id || step !== "audit") {
       setSyncStatus("idle");
+      return;
+    }
+
+    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับร่างเดิมก่อน hydrate เสร็จสมบูรณ์
+    if (isResumeDraft && !hasHydratedDraftRef.current) {
       return;
     }
 
@@ -2933,7 +3053,15 @@ export default function LiveAuditScreen({
 
     return (
       <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16 animate-in fade-in slide-in-from-bottom-2 duration-300">
-        <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDesktopBack}
+            className="hidden lg:flex items-center justify-center w-8 h-8 rounded-xl bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 shadow-2xs transition-colors shrink-0 cursor-pointer"
+            title="ย้อนกลับไปเลือกสาขา"
+          >
+            <ChevronLeft size={18} />
+          </button>
           <Breadcrumbs
             items={[
               { label: "ตรวจหน้างาน", onClick: onClearPlan },
@@ -3104,6 +3232,9 @@ export default function LiveAuditScreen({
         return;
       }
       // ไม่ให้เด้งขึ้นมาบนสุด
+      if (item.index !== undefined) {
+        setActiveSectionIndex(item.index);
+      }
       if (activeTab !== 2) {
         skipScrollToTopRef.current = true;
         setActiveTab(2);
@@ -3142,6 +3273,14 @@ export default function LiveAuditScreen({
             <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDesktopBack}
+                    className="hidden lg:flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shrink-0 cursor-pointer mr-0.5"
+                    title="ย้อนกลับ / บันทึกร่าง"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
                   <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
                   {syncStatus !== "idle" && (
                     syncStatus === "saving" ? (
@@ -3247,8 +3386,8 @@ export default function LiveAuditScreen({
 
                       return (
                         <div key={cat.name} className="flex items-center gap-2.5 py-0.5">
-                          <div className="w-28 sm:w-32 shrink-0 truncate text-xs font-bold text-slate-700" title={cat.name}>
-                            {cat.name}
+                          <div className="w-44 sm:w-52 shrink-0 truncate text-xs font-bold text-slate-700" title={getCategoryDisplay(cat.name)}>
+                            {getCategoryDisplay(cat.name)}
                           </div>
 
                           <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
@@ -3691,7 +3830,10 @@ export default function LiveAuditScreen({
                   {/* 🌟 จุดมาร์คหัวข้อหมวดหมู่: ขนาดเท่าแถบด้านบนหลัก สีเดียวกับพื้นหลัง ตอนปกติไร้เส้นขอบ เมื่อเลื่อนล็อคบนสุดจะเพิ่มเส้นขอบล่างอัตโนมัติ */}
                   <div
                     id={`audit-section-header-${sIdx}`}
-                    onClick={() => setIsCategoryDrawerOpen(true)}
+                    onClick={() => {
+                      setActiveSectionIndex(sIdx);
+                      setIsCategoryDrawerOpen(true);
+                    }}
                     className={`sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 min-h-[58px] py-2.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2 transition-all duration-200 cursor-pointer group select-none ${
                       activeSectionIndex === sIdx
                         ? "border-b border-slate-200/90 shadow-2xs"
@@ -3706,13 +3848,15 @@ export default function LiveAuditScreen({
                       <span className="truncate group-hover:text-[#0F6659] font-black text-slate-800">
                         {sec.title || `หมวดที่ ${sIdx + 1}`}
                       </span>
-                      <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] transition-all shrink-0 ml-0.5 shadow-2xs ${isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""}`}>
-                        <ChevronDown size={13} strokeWidth={2.8} className="transition-transform" />
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] transition-all shrink-0 shadow-2xs ${isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""}`}>
+                        <ChevronDown size={18} strokeWidth={4} className="transition-transform" />
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs shrink-0 group-hover:border-emerald-200 transition-colors">
+                        {sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length}/{sec.items?.length || 0} ตอบแล้ว
                       </span>
                     </div>
-                    <span className="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs shrink-0 group-hover:border-emerald-200 transition-colors">
-                      {sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length}/{sec.items?.length || 0} ตอบแล้ว
-                    </span>
                   </div>
 
                   <div className="space-y-4">
@@ -3924,13 +4068,13 @@ export default function LiveAuditScreen({
             }}
             aria-label="เลื่อนขึ้นบนสุดของหน้า"
             title="เลื่อนขึ้นบนสุดของหน้า"
-            className={`fixed bottom-5 right-4 sm:right-6 z-40 w-8 h-8 rounded-full bg-white/80 hover:bg-white active:bg-slate-100 text-slate-400 hover:text-slate-600 border border-slate-200/80 shadow-2xs backdrop-blur-md flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 ${
+            className={`fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-40 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] active:bg-[#093e36] text-white shadow-lg shadow-[#0F6659]/30 border border-emerald-600/30 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 ${
               isAuditHeaderScrolled
                 ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
                 : "opacity-0 translate-y-3 scale-75 pointer-events-none"
             }`}
           >
-            <ChevronUp size={16} strokeWidth={2.4} />
+            <ChevronUp size={20} strokeWidth={2.8} />
           </button>,
           document.body
         )}

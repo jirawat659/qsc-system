@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { CAP_STATUS_MAP } from "../../config/constants";
+import { CAP_STATUS_MAP, getCategoryDisplay } from "../../config/constants";
 import Header from "../../shared/Header";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api, { getFullImageUrl } from "../../config/api";
@@ -541,7 +541,7 @@ export default function CapDetailScreen({ item, onBack, role = "STANDARD", curre
           </div>
           {(capDetail?.categoryName || item.categoryName) && (
             <span className="px-2 py-0.5 rounded-md bg-amber-100/80 text-amber-800 text-[10px] font-bold">
-              {capDetail?.categoryName || item.categoryName}
+              {getCategoryDisplay(capDetail?.categoryName || item.categoryName)}
             </span>
           )}
         </div>

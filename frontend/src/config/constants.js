@@ -122,3 +122,36 @@ export const getDynamicRegionLines = (locations = []) => {
     };
   });
 };
+
+/**
+ * 🏷️ Mapping และฟังก์ชันแสดงผลชื่อหมวดหมู่บนหน้าเว็บ (Display Only)
+ * โครงสร้างข้อมูลและฐานข้อมูลจะยังคงเก็บเป็น "Product", "Process", etc.
+ * แต่ส่วนการแสดงผลให้ผู้ใช้เห็นจะแสดงเป็นชื่อภาษาอังกฤษพร้อมคำอธิบายภาษาไทย
+ */
+export const CATEGORY_DISPLAY_MAP = {
+  "Product": "Product (คุณภาพสินค้า - วัตถุดิบ)",
+  "Process": "Process (กระบวนการทำงาน)",
+  "Service": "Service (การบริการ)",
+  "Cleanliness": "Cleanliness (ความสะอาด)",
+  "Documents": "Documents (เอกสาร)",
+  "PD": "Product (คุณภาพสินค้า - วัตถุดิบ)",
+  "PC": "Process (กระบวนการทำงาน)",
+  "S": "Service (การบริการ)",
+  "C": "Cleanliness (ความสะอาด)",
+  "DM": "Documents (เอกสาร)",
+};
+
+export const getCategoryDisplay = (cat) => {
+  if (!cat) return "";
+  const s = String(cat).trim();
+  if (CATEGORY_DISPLAY_MAP[s]) return CATEGORY_DISPLAY_MAP[s];
+  const u = s.toUpperCase();
+  if (CATEGORY_DISPLAY_MAP[u]) return CATEGORY_DISPLAY_MAP[u];
+  if (u === "QLT" || s.includes("คุณภาพ")) return CATEGORY_DISPLAY_MAP["Product"];
+  if (u === "OPS" || s.includes("กระบวนการ") || s.includes("โรงงาน") || s.includes("GMP")) return CATEGORY_DISPLAY_MAP["Process"];
+  if (u === "SVC" || s.includes("บริการ")) return CATEGORY_DISPLAY_MAP["Service"];
+  if (u === "CLN" || s.includes("สะอาด") || s.includes("สุขอนามัย")) return CATEGORY_DISPLAY_MAP["Cleanliness"];
+  if (u === "DOC" || s.includes("เอกสาร")) return CATEGORY_DISPLAY_MAP["Documents"];
+  return s;
+};
+

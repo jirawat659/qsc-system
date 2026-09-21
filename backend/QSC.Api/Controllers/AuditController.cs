@@ -1018,21 +1018,44 @@ namespace QSC.Api.Controllers
             [FromQuery] int? page,
             [FromQuery] int? pageSize,
             [FromQuery] DateTime? startDate,
-            [FromQuery] DateTime? endDate)
+            [FromQuery] DateTime? endDate,
+            [FromQuery] bool includeResponses = false)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var query = _context.AuditRecords
-                .AsNoTracking()
-                .AsSplitQuery()
-                .Include(r => r.Location)
-                    .ThenInclude(l => l!.LocationBrands)
-                        .ThenInclude(lb => lb.Brand)
-                .Include(r => r.SurveyForm)
-                .Include(r => r.PrimaryAuditor)
-                .Include(r => r.AuditeeUser)
-                .AsQueryable();
+            // 🌟 includeResponses=true: ใช้สำหรับ Excel export เท่านั้น — โหลด Responses+SurveyItem
+            // เพื่อสร้างชีท "คำตอบรายข้อ" โดยไม่กระทบ performance ของ list view ปกติ
+            IQueryable<AuditRecord> query;
+            if (includeResponses)
+            {
+                query = _context.AuditRecords
+                    .AsNoTracking()
+                    .AsSplitQuery()
+                    .Include(r => r.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                            .ThenInclude(lb => lb.Brand)
+                    .Include(r => r.SurveyForm)
+                    .Include(r => r.PrimaryAuditor)
+                    .Include(r => r.AuditeeUser)
+                    .Include(r => r.Responses)
+                        .ThenInclude(res => res.SurveyItem)
+                            .ThenInclude(item => item!.SurveySection)
+                    .AsQueryable();
+            }
+            else
+            {
+                query = _context.AuditRecords
+                    .AsNoTracking()
+                    .AsSplitQuery()
+                    .Include(r => r.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                            .ThenInclude(lb => lb.Brand)
+                    .Include(r => r.SurveyForm)
+                    .Include(r => r.PrimaryAuditor)
+                    .Include(r => r.AuditeeUser)
+                    .AsQueryable();
+            }
 
             if (role == "AUDITEE")
             {
@@ -1170,7 +1193,28 @@ namespace QSC.Api.Controllers
                 endLongitude = r.EndLongitude,
                 startedAt = r.StartedAt,
                 submittedAt = r.SubmittedAt,
-                isBackdated = r.IsBackdated
+                isBackdated = r.IsBackdated,
+                // 🌟 responses: จะส่งเฉพาะเมื่อ includeResponses=true (Excel export)
+                // เพื่อให้สร้างชีท "คำตอบรายข้อ" ได้ครบโดยไม่ต้องยิง API เพิ่มทีละ record
+                responses = includeResponses
+                    ? r.Responses?
+                        .OrderBy(res => res.SurveyItem?.SurveySection?.OrderIndex ?? 0)
+                        .ThenBy(res => res.SurveyItem?.OrderIndex ?? 0)
+                        .Select(res => new
+                        {
+                            surveyItemId = res.SurveyItemId,
+                            questionText = res.SurveyItem?.QuestionText,
+                            sectionTitle = res.SurveyItem?.SurveySection?.Title,
+                            categoryCode = res.SurveyItem?.CategoryCode,
+                            categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
+                            fullScore = res.SurveyItem?.FullScore ?? 0,
+                            scoreGiven = res.ScoreGiven,
+                            isPassed = res.IsPassed,
+                            isNa = res.IsNa,
+                            isCritical = res.SurveyItem?.IsCritical ?? false,
+                            notes = res.Notes
+                        }).ToList()
+                    : null
             });
 
             // 🚀 When paginated (page/pageSize provided), wrap with totalCount so the
