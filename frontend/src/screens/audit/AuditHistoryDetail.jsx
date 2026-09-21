@@ -4,8 +4,7 @@ import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, Pen
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
-import { ROLES, NAV_BY_ROLE } from "../../config/roles";
-import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES } from "../../config/constants";
+import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES, CATEGORY_DISPLAY_MAP, getCategoryDisplay } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
@@ -24,47 +23,42 @@ import AiAuditDefectModal from "../../modals/AiAuditDefectModal";
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
-  "ความสะอาด",
-  "เอกสาร",
-  "กระบวนการทำงาน",
-  "คุณภาพสินค้า",
-  "การบริการ"
+  "Product",
+  "Process",
+  "Service",
+  "Cleanliness",
+  "Documents"
 ];
 
 // 🏷️ ดึงชื่อหมวดคะแนนของคำถามแต่ละข้อ (แยกอิสระจากหมวดคำถามของฟอร์ม)
 export const getQuestionCategory = (q, sec) => {
-  let name = (q?.categoryName || q?.category || "").trim();
-  if (name) {
-    if (name === "คุณภาพสินค้า-วัตถุดิบ") return "คุณภาพสินค้า";
-    return name;
-  }
-  if (q?.categoryCode) {
-    const code = q.categoryCode.toUpperCase();
-    if (code === "CLN") return "ความสะอาด";
-    if (code === "DOC") return "เอกสาร";
-    if (code === "OPS") return "กระบวนการทำงาน";
-    if (code === "QLT") return "คุณภาพสินค้า";
-    if (code === "SVC") return "การบริการ";
-    if (code === "REG" || code === "RULE") return "ความถูกระเบียบ";
-    if (code === "SAF") return "ความปลอดภัย";
-  }
+  const name = (q?.categoryName || q?.category || "").trim();
+  const code = (q?.categoryCode || "").trim().toUpperCase();
+
+  // 1. ตรวจสอบจากชื่อหมวด หรือรหัสย่อ (รองรับทั้ง PD/PC/S/C/DM และรหัสเดิม QLT/OPS/SVC/CLN/DOC)
+  if (name === "Product" || code === "PD" || code === "QLT" || name.includes("คุณภาพ")) return "Product";
+  if (name === "Process" || code === "PC" || code === "OPS" || name.includes("กระบวนการ") || name.includes("โรงงาน") || name.includes("GMP")) return "Process";
+  if (name === "Service" || code === "S" || code === "SVC" || name.includes("บริการ")) return "Service";
+  if (name === "Cleanliness" || code === "C" || code === "CLN" || name.includes("สะอาด") || name.includes("สุขอนามัย")) return "Cleanliness";
+  if (name === "Documents" || code === "DM" || code === "DOC" || name.includes("เอกสาร")) return "Documents";
+
+  // 2. ตรวจสอบชื่อหมวดหมู่ของฟอร์ม (Section Title)
   const title = sec?.title || q?.sectionTitle || "";
-  if (title) {
-    if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN")) return "ความสะอาด";
-    if (title.includes("เอกสาร") || title.includes("DOC")) return "เอกสาร";
-    if (title.includes("บริการ") || title.includes("SVC")) return "การบริการ";
-    if (title.includes("คุณภาพ") || title.includes("QLT")) return "คุณภาพสินค้า";
-    if (title.includes("กระบวนการ") || title.includes("โรงงาน") || title.includes("OPS") || title.includes("GMP")) return "กระบวนการทำงาน";
-  }
+  if (title.includes("คุณภาพ") || title.includes("QLT") || title.includes("Product")) return "Product";
+  if (title.includes("กระบวนการ") || title.includes("โรงงาน") || title.includes("OPS") || title.includes("Process") || title.includes("GMP")) return "Process";
+  if (title.includes("บริการ") || title.includes("SVC") || title.includes("Service")) return "Service";
+  if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN") || title.includes("Cleanliness")) return "Cleanliness";
+  if (title.includes("เอกสาร") || title.includes("DOC") || title.includes("Documents")) return "Documents";
+
+  // 3. ตรวจสอบข้อความของคำถาม (Fallback)
   const text = q?.text || q?.questionText || "";
-  if (text) {
-    if (text.includes("สะอาด") || text.includes("ฆ่าเชื้อ") || text.includes("ล้างมือ")) return "ความสะอาด";
-    if (text.includes("เอกสาร") || text.includes("Log") || text.includes("FIFO") || text.includes("บันทึก") || text.includes("รายงาน")) return "เอกสาร";
-    if (text.includes("บริการ") || text.includes("ทักทาย") || text.includes("เสิร์ฟ")) return "การบริการ";
-    if (text.includes("คุณภาพ") || text.includes("อุณหภูมิ") || text.includes("TPM")) return "คุณภาพสินค้า";
-    if (text.includes("กระบวนการ") || text.includes("เครื่องจักร") || text.includes("พาหะ") || text.includes("แต่งกาย") || text.includes("หนีไฟ")) return "กระบวนการทำงาน";
-  }
-  return "ความสะอาด";
+  if (text.includes("คุณภาพ") || text.includes("อุณหภูมิ") || text.includes("TPM")) return "Product";
+  if (text.includes("กระบวนการ") || text.includes("เครื่องจักร") || text.includes("พาหะ") || text.includes("แต่งกาย") || text.includes("หนีไฟ")) return "Process";
+  if (text.includes("บริการ") || text.includes("ทักทาย") || text.includes("เสิร์ฟ")) return "Service";
+  if (text.includes("สะอาด") || text.includes("ฆ่าเชื้อ") || text.includes("ล้างมือ")) return "Cleanliness";
+  if (text.includes("เอกสาร") || text.includes("Log") || text.includes("FIFO") || text.includes("บันทึก") || text.includes("รายงาน")) return "Documents";
+
+  return "Product";
 };
 
 export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
@@ -1038,7 +1032,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap mt-1">
                                 <span className="inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                                  {getQuestionCategory(q, sec)}
+                                  {getCategoryDisplay(getQuestionCategory(q, sec))}
                                 </span>
                                 {q.isCritical && (
                                   <span className="inline-block text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
@@ -1357,7 +1351,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                 return (
                   <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-bold text-slate-800">{s.title}</span>
+                      <span className="text-xs font-bold text-slate-800">{getCategoryDisplay(s.title)}</span>
                       <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({s.percent}%)</span>
                     </div>
                     <div className="h-2 rounded-full overflow-hidden bg-slate-100">
