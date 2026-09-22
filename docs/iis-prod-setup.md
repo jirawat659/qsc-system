@@ -319,6 +319,13 @@ curl.exe -sk --max-time 8 https://192.168.20.5:7076/api/brands
   request แค่ตกไป SPA fallback เฉย ๆ
 - **แก้ web.config บนเครื่องตรง ๆ** — robocopy รอบหน้าทับหมด ต้องแก้ที่
   `frontend/public/web.config` ในโปรเจกต์
+- **ปิด WebDAV แค่ฝั่ง frontend** — frontend กับ backend เป็นคนละ IIS site
+  `<remove name="WebDAVModule" />` มีผลแค่ site ตัวเอง ถ้าปิดแค่ frontend แล้ว
+  request PUT/DELETE จะผ่าน frontend ได้ แต่ไปตาย 405 ที่ backend site
+  หลัง ARR rewrite แทน (อาการ: ทุก PUT ตอบ 405 ทั้งที่ controller มี `[HttpPut]`
+  และ GET path เดียวกันใช้ได้) จึงต้องมี `backend/QSC.Api/web.config` ปิดซ้ำอีกชั้น —
+  `dotnet publish` จะ merge `<aspNetCore>` handler เข้าไฟล์นี้ให้เอง ห้ามเขียน
+  section นั้นเองเพราะ `processPath` อาจไม่ตรงกับ output จริง
 - **แก้ appsettings.json บนเครื่องตรง ๆ** — CI เขียนทับจาก variable `ENV_FILE`
   ต้องแก้ที่ CI/CD variable
 - **ลำดับ rule สลับ** — `API proxy` ต้องอยู่บน `SPA fallback` เพราะมี `stopProcessing="true"`
