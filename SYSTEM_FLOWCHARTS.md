@@ -1,7 +1,7 @@
 # 📊 Q.S.C. System — ผังกระบวนการทำงานแยกตามเคส (System Flowcharts by Use Case)
 
-> **เวอร์ชัน:** 3.0 (รองรับ AI Advisor, Dynamic Role Navigation, Real-Time CAP Chat, Master Data CRUD, Dynamic RBAC, N/A Scoring & ลายเซ็นดิจิทัล)  
-> **อัปเดตล่าสุด:** 28 สิงหาคม 2569
+> **เวอร์ชัน:** 3.1 (รองรับ AI Advisor via Ollama/Smart Analytics, Dynamic Role Navigation, Real-Time CAP Chat, Master Data CRUD, Dynamic RBAC, N/A Scoring & ลายเซ็นดิจิทัล)  
+> **อัปเดตล่าสุด:** 16 กันยายน 2569
 
 ---
 
@@ -238,7 +238,7 @@ flowchart TD
 
 ## Case 6: ระบบ AI ผู้ช่วยอัจฉริยะและการวิเคราะห์สถิติ (AI Advisor & Smart Analytics Workflow)
 > **ผู้ใช้งาน:** ผู้ตรวจประเมิน (Auditor) / ผู้ดูแลมาตรฐาน (QA Lead) / ผู้บริหาร (Executive)  
-> **บริการที่เกี่ยวข้อง:** `AiService.cs`, `AiController.cs`, `Google Gemini REST API`, `AppDbContext`
+> **บริการที่เกี่ยวข้อง:** `AiService.cs`, `AiController.cs`, `Ollama Local API (Qwen 2.5)`, `AppDbContext`
 
 ```mermaid
 flowchart TD
@@ -262,11 +262,11 @@ flowchart TD
     AggregateStats --> CallAiService
 
     %% AI Hybrid Engine Processing
-    CallAiService --> CheckApiKey{"มี Gemini API Key หรือไม่?"}
-    CheckApiKey -->|"มี Key"| CallGemini["⚡ เรียก Google Gemini API (gemini-1.5-flash / Generative AI)"]
-    CheckApiKey -->|"ไม่มี Key / Offline"| SmartFallback["🛡️ Smart Analytics Engine (คำนวณจากสถิติใน SQLite)"]
+    CallAiService --> CheckAiAvailable{"เปิดใช้งาน Ollama Local AI หรือไม่?"}
+    CheckAiAvailable -->|"เชื่อมต่อได้"| CallOllama["⚡ เรียก Ollama Local API (Qwen 2.5:9b) วิเคราะห์ข้อบกพร่อง/สรุปจุดเฝ้าระวัง"]
+    CheckAiAvailable -->|"ออฟไลน์ / ปิดใช้งาน"| SmartFallback["🛡️ Smart Analytics Engine (คำนวณจากสถิติใน SQL Server)"]
     
-    CallGemini --> ParseAiResult["แปลง JSON คำแนะนำ: จุดเด่น, จุดควรระวัง, ข้อเสนอแนะ"]
+    CallOllama --> ParseAiResult["แปลง JSON คำแนะนำ: จุดเด่น, จุดควรระวัง, ข้อเสนอแนะ"]
     SmartFallback --> ParseAiResult
     
     ParseAiResult --> RenderAdvisorModal["แสดงผลใน Modal / Dashboard Card ให้ผู้ใช้พิจารณาประกอบการตัดสินใจ"]

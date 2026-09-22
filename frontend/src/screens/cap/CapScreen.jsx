@@ -22,7 +22,10 @@ import api from "../../config/api";
 import signalrService from "../../services/signalrService";
 
 export default function CapScreen({ isDesktop, onBack, role = "STANDARD", currentUser }) {
-  const { capTasks, locations: visibleLocations, refreshData } = React.useContext(DataContext);
+  const {
+    capTasks, locations: visibleLocations, refreshData,
+    capTasksTotalCount, isLoadingCapTasks, loadMoreCapTasks
+  } = React.useContext(DataContext);
   const [selected, setSelected] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -47,6 +50,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     }
 
     const mapped = tasks.map(t => {
+      const isCancelled = (t.status === "CANCELLED" || t.status === "cancelled");
       const isDone = (t.status === "CLOSED" || t.status === "approved" || t.status === "done" || t.status === "closed");
       const deadlineDate = t.submissionDeadline ? new Date(t.submissionDeadline) : null;
       const deadlineTime = deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.getTime() : Infinity;
@@ -60,10 +64,13 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         locationId: t.locationId || t.location?.id,
         issueItem: t.issueItem || t.description,
         desc: t.description || t.desc || "ต้องดำเนินการแก้ไขตามมาตรฐาน Q.S.C.",
-        status: isDone ? "done" : "pending",
+        status: isCancelled ? "cancelled" : (isDone ? "done" : "pending"),
         statusRaw: t.status,
         deadline: deadlineDate && !isNaN(deadlineDate.getTime()) ? deadlineDate.toLocaleDateString('th-TH') : "-",
         createdAt: createdDate && !isNaN(createdDate.getTime()) ? createdDate.toLocaleDateString('th-TH') : "-",
+        auditor: t.auditorName || t.verifierName || "-",
+        auditorName: t.auditorName || t.verifierName || "-",
+        auditScore: t.auditScore,
         deadlineTime,
         createdTime,
         raw: t
@@ -73,10 +80,12 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     // 🌟 จัดเรียง: สถานะกำลังแก้ไขงาน (pending) อยู่บนสุด เรียงตามวันครบกำหนดที่ถึงก่อน (Ascending)
     // จากนั้นสถานะอนุมัติปิดงานแล้ว (done) อยู่ทีหลัง เรียงตามวันที่ล่าสุด (Descending)
     return mapped.sort((a, b) => {
-      if (a.status !== b.status) {
-        return a.status === "pending" ? -1 : 1;
+      const aIsDoneOrCancelled = a.status === "done" || a.status === "cancelled";
+      const bIsDoneOrCancelled = b.status === "done" || b.status === "cancelled";
+      if (aIsDoneOrCancelled !== bIsDoneOrCancelled) {
+        return aIsDoneOrCancelled ? 1 : -1;
       }
-      if (a.status === "pending") {
+      if (!aIsDoneOrCancelled) {
         return a.deadlineTime - b.deadlineTime;
       }
       return b.createdTime - a.createdTime;
@@ -89,7 +98,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
 
   const filteredCapList = useMemo(() => {
     return capList.filter(item => {
-      const matchStatus = statusFilter === "all" || item.status === statusFilter;
+      const matchStatus = statusFilter === "all" || item.status === statusFilter || (statusFilter === "done" && (item.status === "done" || item.status === "cancelled"));
       const q = searchTerm.toLowerCase();
       const matchSearch =
         !searchTerm.trim() ||
@@ -125,6 +134,19 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
     }
   };
 
+  // 🌟 Phase 3.3: capTasks is a growing buffer (50 at a time) from the API.
+  // When the visible page (10/page) approaches the edge of what's currently
+  // buffered — and more exists on the server — fetch the next buffer page.
+  useEffect(() => {
+    if (!capTasks || isLoadingCapTasks) return;
+    if (capTasksTotalCount <= capTasks.length) return;
+    const start = (listPage - 1) * LIST_PAGE_SIZE;
+    const nearEndOfBuffer = start + LIST_PAGE_SIZE >= capTasks.length - LIST_PAGE_SIZE;
+    if (nearEndOfBuffer) {
+      loadMoreCapTasks();
+    }
+  }, [listPage, capTasks, capTasksTotalCount, isLoadingCapTasks]);
+
   if (selected) return (
     <CapDetailScreen
       item={selected}
@@ -146,14 +168,14 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
         onBack={onBack}
       />
 
-      {/* 🌟 ปุ่มส่งงานแก้ไขใหม่ (อยู่บนช่องค้นหา) */}
+      {/* 🌟 ปุ่มสร้างงานแก้ไขใหม่ (มอบหมายให้ผู้จัดการร้าน/สาขา) */}
       <div className="flex justify-end sm:justify-start">
         <button
           type="button"
           onClick={() => setShowNewModal(true)}
           className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold cursor-pointer shadow-sm hover:bg-emerald-800 active:scale-[0.98] transition-all text-white bg-[#0F6659]"
         >
-          <Plus size={18} /> ส่งงานแก้ไขใหม่
+          <Plus size={18} /> {role === "AUDITEE" ? "แจ้งรายการแก้ไขใหม่" : "สร้างงานแก้ไขใหม่ (มอบหมายสาขา)"}
         </button>
       </div>
 
@@ -180,11 +202,11 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           )}
         </div>
 
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
+        {<div className="flex gap-1.5 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
           {[
             { key: "all", label: "ทั้งหมด" },
             { key: "pending", label: "กำลังแก้ไขงาน" },
-            { key: "done", label: "อนุมัติปิดงานแล้ว" },
+            { key: "done", label: "ปิดงาน/ยกเลิกแล้ว" },
           ].map(tab => (
             <button
               key={tab.key}
@@ -199,7 +221,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
               {tab.label}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       {/* Long Vertical List (ปุ่มหัวข้อใหญ่ ชัดเจน เน้นๆ ทีละ 10 รายการ) */}
@@ -221,7 +243,7 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
                   <Wrench size={22} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors break-words [overflow-wrap:anywhere]">
                     {item.title}
                   </h3>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -313,25 +335,8 @@ export default function CapScreen({ isDesktop, onBack, role = "STANDARD", curren
           locations={visibleLocations}
           currentUser={currentUser}
           onClose={() => setShowNewModal(false)}
-          onSubmit={async (createdData) => {
-            try {
-              if (createdData?.locationId) {
-                const res = await api.post('/cap', {
-                  locationId: createdData.locationId,
-                  issueItem: createdData.issueItem || "ข้อบกพร่องจากการตรวจ",
-                  description: createdData.desc || "",
-                  assignedTo: currentUser?.id || 1
-                });
-                const allPhotos = createdData.photos || createdData.images || (createdData.photo ? [createdData.photo] : []);
-                if (res.data?.id && allPhotos.length > 0) {
-                  await api.post(`/cap/${res.data.id}/submit`, {
-                    message: createdData.desc || "ส่งหลักฐานการแก้ไขเพิ่มเติมเรียบร้อยแล้ว",
-                    imageUrls: allPhotos
-                  });
-                }
-              }
-              if (refreshData) await refreshData();
-            } catch (err) {}
+          onSuccess={async () => {
+            if (refreshData) await refreshData();
           }}
         />
       )}

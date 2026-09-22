@@ -42,9 +42,22 @@ namespace QSC.Api.Controllers
             public List<int> BrandIds { get; set; } = new();
         }
 
+        // 🔒 RBAC FIX: GetUsers used to return the FULL directory (branch scope, location/brand
+        // assignments, mustChangePassword flag, createdAt) to ANY authenticated user — including
+        // AUDITEE store managers — because only [Authorize] (no Roles=) was applied. The Master
+        // Management screen is hidden from non-admins in the UI, but the API itself had no such
+        // check, so anyone could call GET /api/user directly and dump the entire org's user list.
+        // Non-admin callers (e.g. AuditorSelectModal / NewScheduleModal / Live Audit's auditor
+        // picker) only ever need id/name/role/active-state to populate an assignee dropdown, so
+        // they get a minimal projection unless their role has been granted "users.manage" —
+        // checked dynamically via RolePermission (same pattern as UpdateAuditRecord below), so an
+        // Admin can still delegate full Master Management access to another role at runtime.
         [HttpGet]
         public async Task<IActionResult> GetUsers([FromQuery] bool? activeOnly)
         {
+            var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            bool canManageUsers = await UserScopeHelper.HasPermissionAsync(callerRole, "users.manage", _context);
+
             var query = _context.Users
                 .AsNoTracking()
                 .Include(u => u.Role)
@@ -61,6 +74,25 @@ namespace QSC.Api.Controllers
                 .OrderByDescending(u => u.IsActive)
                 .ThenBy(u => u.Id)
                 .ToListAsync();
+
+            if (!canManageUsers)
+            {
+                var minimal = users.Select(u => new
+                {
+                    id = u.Id,
+                    username = u.Username,
+                    fullName = u.FullName,
+                    roleId = u.RoleId,
+                    roleCode = u.Role?.Code,
+                    roleName = u.Role?.Name,
+                    branchScope = u.BranchScope,
+                    brandScope = u.BrandScope,
+                    locationIds = u.UserLocations.Select(ul => ul.LocationId).ToList(),
+                    brandIds = u.UserBrands.Select(ub => ub.BrandId).ToList(),
+                    isActive = u.IsActive
+                });
+                return Ok(minimal);
+            }
 
             var result = users.Select(u => new
             {
@@ -82,9 +114,17 @@ namespace QSC.Api.Controllers
             return Ok(result);
         }
 
+        // 🔒 RBAC FIX: not consumed by any non-admin screen — gated on the "users.manage"
+        // permission (dynamic, same as GetUsers above) instead of a hardcoded ADMIN role.
         [HttpGet("{id}")]
         public async Task<IActionResult> GetUser(int id)
         {
+            var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            if (!await UserScopeHelper.HasPermissionAsync(callerRole, "users.manage", _context))
+            {
+                return Forbid();
+            }
+
             var user = await _context.Users
                 .AsNoTracking()
                 .Include(u => u.Role)
@@ -121,19 +161,20 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "กรุณาระบุชื่อผู้ใช้งาน" });
             }
 
-            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 6)
+            if (string.IsNullOrWhiteSpace(dto.Password) || dto.Password.Length < 4)
             {
-                return BadRequest(new { message = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร" });
+                return BadRequest(new { message = "รหัสผ่านเริ่มต้นต้องมีความยาวอย่างน้อย 4 ตัวอักษร" });
             }
 
-            if (await _context.Users.AnyAsync(u => u.Username.ToLower() == dto.Username.ToLower()))
+            var trimmedUsername = dto.Username.Trim();
+            if (await _context.Users.AnyAsync(u => u.Username == trimmedUsername))
             {
                 return BadRequest(new { message = "ชื่อผู้ใช้นี้มีอยู่ในระบบแล้ว" });
             }
 
             var user = new User
             {
-                Username = dto.Username,
+                Username = trimmedUsername,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
                 FullName = dto.FullName,
                 RoleId = dto.RoleId,
@@ -143,6 +184,20 @@ namespace QSC.Api.Controllers
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow
             };
+
+            if (dto.BranchScope == "SPECIFIC" && dto.LocationIds.Any())
+            {
+                var validLocCount = await _context.Locations.CountAsync(l => dto.LocationIds.Contains(l.Id));
+                if (validLocCount != dto.LocationIds.Distinct().Count())
+                    return BadRequest(new { message = "สาขาบางรายการไม่พบในระบบ" });
+            }
+
+            if (dto.BrandScope == "SPECIFIC" && dto.BrandIds.Any())
+            {
+                var validBrandCount = await _context.Brands.CountAsync(b => dto.BrandIds.Contains(b.Id));
+                if (validBrandCount != dto.BrandIds.Distinct().Count())
+                    return BadRequest(new { message = "แบรนด์บางรายการไม่พบในระบบ" });
+            }
 
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
@@ -176,6 +231,20 @@ namespace QSC.Api.Controllers
         {
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
+
+            if (dto.BranchScope == "SPECIFIC" && dto.LocationIds.Any())
+            {
+                var validLocCount = await _context.Locations.CountAsync(l => dto.LocationIds.Contains(l.Id));
+                if (validLocCount != dto.LocationIds.Distinct().Count())
+                    return BadRequest(new { message = "สาขาบางรายการไม่พบในระบบ" });
+            }
+
+            if (dto.BrandScope == "SPECIFIC" && dto.BrandIds.Any())
+            {
+                var validBrandCount = await _context.Brands.CountAsync(b => dto.BrandIds.Contains(b.Id));
+                if (validBrandCount != dto.BrandIds.Distinct().Count())
+                    return BadRequest(new { message = "แบรนด์บางรายการไม่พบในระบบ" });
+            }
 
             user.FullName = dto.FullName;
             user.RoleId = dto.RoleId;
@@ -248,9 +317,19 @@ namespace QSC.Api.Controllers
             public string? NavConfigJson { get; set; }
         }
 
+        // 🔒 RBAC FIX: was [Authorize] only, so any logged-in user (any role) could pull the full
+        // Roles ➜ Permissions matrix. Gated on the "roles.manage" permission (dynamic, same
+        // RolePermission-lookup pattern as UpdateAuditRecord/GetUsers) instead of a hardcoded role,
+        // so Admin can still delegate this screen to another role via the Roles tab.
         [HttpGet]
         public async Task<IActionResult> GetRoles()
         {
+            var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            if (!await UserScopeHelper.HasPermissionAsync(callerRole, "roles.manage", _context))
+            {
+                return Forbid();
+            }
+
             var roles = await _context.Roles
                 .Include(r => r.RolePermissions)
                 .ThenInclude(rp => rp.Permission)
@@ -393,9 +472,17 @@ namespace QSC.Api.Controllers
             return Ok(role);
         }
 
+        // 🔒 RBAC FIX: same issue as GetRoles above — gated on "roles.manage" instead of being
+        // open to any authenticated role.
         [HttpGet("permissions")]
         public async Task<IActionResult> GetPermissions()
         {
+            var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            if (!await UserScopeHelper.HasPermissionAsync(callerRole, "roles.manage", _context))
+            {
+                return Forbid();
+            }
+
             var permissions = await _context.Permissions
                 .AsNoTracking()
                 .OrderBy(p => p.Code)

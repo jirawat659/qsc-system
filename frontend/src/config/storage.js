@@ -66,6 +66,11 @@ export const authStorage = {
 
   clearSession: () => {
     Object.values(KEYS).forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem('qsc_selected_brand_id');
+    localStorage.removeItem('fullName');
+    try {
+      sessionStorage.clear();
+    } catch (e) {}
   }
 };
 

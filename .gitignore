@@ -72,6 +72,8 @@ secrets.json
 !**/wwwroot/uploads/cap_images/.gitkeep
 **/wwwroot/uploads/temp/*
 !**/wwwroot/uploads/temp/.gitkeep
+**/public/uploads/*
+!**/public/uploads/.gitkeep
 *.log
 logs/
 
@@ -97,6 +99,7 @@ $RECYCLE.BIN/
 # ==========================================
 qsc-clean-source/
 *.zip
+!qsc-code.zip
 *.tar.gz
 *.rar
 *.7z
@@ -112,3 +115,9 @@ backend/QSC.Api/Data/Seed/seed-user-brandscope.sql
 # Claude Code local session state (permission allowlist ต่อเครื่อง/ผู้ใช้ — เคยมี
 # GitLab token หลุดฝังอยู่ในนี้มาแล้ว ห้าม commit เด็ดขาด)
 .claude/
+
+# ==========================================
+# 🛑 AI Agent Scratch & Workspaces
+# ==========================================
+.agent/
+.agents/

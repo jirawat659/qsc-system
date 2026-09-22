@@ -14,7 +14,6 @@ namespace QSC.Api.Models
         public double Latitude { get; set; }
         public double Longitude { get; set; }
         public string Region { get; set; } = string.Empty;
-        public string BrandName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
         public string Phone { get; set; } = string.Empty;
         public double LastScore { get; set; } = 0.0; // Cache

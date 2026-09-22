@@ -1,7 +1,7 @@
 # 🗺️ Q.S.C. System — แผนผังความสัมพันธ์ฐานข้อมูล (ER Diagram)
 
-> **เวอร์ชัน:** 4.0 (SQL Server Migration — 25 ตาราง + Standard Audit Columns)
-> **อัปเดตล่าสุด:** 8 กันยายน 2569
+> **เวอร์ชัน:** 4.1 (SQL Server Migration — 25 ตาราง + AI Analysis + Standard Audit Columns)
+> **อัปเดตล่าสุด:** 16 กันยายน 2569
 > **ฐานข้อมูลเป้าหมาย:** Microsoft SQL Server (`QSCDB`)
 > **อ้างอิงจาก:** [`backend/QSC.Api/Data/AppDbContext.cs`](backend/QSC.Api/Data/AppDbContext.cs) และ [`backend/QSC.Api/Models/`](backend/QSC.Api/Models/)
 
@@ -257,6 +257,7 @@ erDiagram
         string AuditType "20 - announced/spot/undercover"
         string Notes "nullable"
         string MetadataValuesJson "nullable"
+        string AiAnalysisJson "nullable"
         string AuditorSignatureUrl "500, nullable"
         string AuditeeSignatureUrl "500, nullable"
         datetime SignedAt "nullable"

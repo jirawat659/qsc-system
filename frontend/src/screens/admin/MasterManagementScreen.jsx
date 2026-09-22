@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag } from "lucide-react";
+import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag, Eye, EyeOff } from "lucide-react";
 import api from '../../config/api';
 import Header from '../../shared/Header';
 import ModalWrapper from '../../shared/ModalWrapper';
@@ -24,6 +24,7 @@ export default function MasterManagementScreen({ onBack }) {
   const [users, setUsers] = useState([]);
   const [locations, setLocations] = useState([]);
   const [brands, setBrands] = useState([]); // [{id, code, name, description, isActive}]
+  const activeBrands = useMemo(() => brands.filter(b => b.isActive !== false), [brands]);
   const [locationTypes, setLocationTypes] = useState([]);
   const [roles, setRoles] = useState([]);
   const [availablePermissions, setAvailablePermissions] = useState([]);
@@ -41,6 +42,7 @@ export default function MasterManagementScreen({ onBack }) {
   // ── Modals State ──
   // 1. User Modals
   const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [showAddUserPassword, setShowAddUserPassword] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [editUserForm, setEditUserForm] = useState({
     fullName: '',
@@ -87,9 +89,7 @@ export default function MasterManagementScreen({ onBack }) {
   const [editLocationForm, setEditLocationForm] = useState({
     code: '',
     name: '',
-    brandName: '',
     boundBrandIds: [],
-    primaryBrandId: null,
     locationTypeId: 1,
     region: '',
     address: '',
@@ -127,7 +127,7 @@ export default function MasterManagementScreen({ onBack }) {
   const handleSaveNavSuccess = (updatedRole, newNavConfig) => {
     showToast(`✓ บันทึกการตั้งค่าแถบเมนูสำหรับบทบาท "${updatedRole.name || updatedRole.code}" สำเร็จ`);
     setCustomizingNavRole(null);
-    loadAllData();
+    loadAllData(true);
 
     // If the logged-in user shares the updated role, synchronize their session immediately
     const currentUser = authStorage.getUser();
@@ -156,9 +156,7 @@ export default function MasterManagementScreen({ onBack }) {
   const [locationForm, setLocationForm] = useState({
     code: '',
     name: '',
-    brandName: '',
     boundBrandIds: [],
-    primaryBrandId: null,
     locationTypeId: 1,
     region: 'กรุงเทพฯ และปริมณฑล',
     address: '',
@@ -186,7 +184,7 @@ export default function MasterManagementScreen({ onBack }) {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const loadAllData = async () => {
+  const loadAllData = async (syncGlobal = false) => {
     setLoading(true);
     setLoadError(false);
     try {
@@ -229,7 +227,7 @@ export default function MasterManagementScreen({ onBack }) {
         const sortedPerms = [...pRes.value.data].sort((a, b) => (a.code || '').localeCompare(b.code || ''));
         setAvailablePermissions(sortedPerms);
       }
-      if (anySuccess && refreshData) {
+      if (syncGlobal && anySuccess && refreshData) {
         refreshData();
       }
     } catch (err) {
@@ -242,7 +240,7 @@ export default function MasterManagementScreen({ onBack }) {
   };
 
   useEffect(() => {
-    loadAllData();
+    loadAllData(false);
   }, []);
 
   // ── 👥 USER HANDLERS ──
@@ -281,6 +279,10 @@ export default function MasterManagementScreen({ onBack }) {
 
       // 2. If newPassword is provided, reset password
       if (editUserForm.newPassword && editUserForm.newPassword.trim()) {
+        if (editUserForm.newPassword.trim().length < 6) {
+          showToast('รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร', true);
+          return;
+        }
         await api.post(`/auth/reset-password`, {
           userId: editUser.id,
           newPassword: editUserForm.newPassword.trim()
@@ -289,9 +291,9 @@ export default function MasterManagementScreen({ onBack }) {
 
       showToast(`✓ บันทึกการแก้ไข "${editUserForm.fullName}" สำเร็จ`);
       setEditUser(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
-      showToast('แก้ไขข้อมูลผู้ใช้ไม่สำเร็จ', true);
+      showToast(err.response?.data?.message || 'แก้ไขข้อมูลผู้ใช้ไม่สำเร็จ', true);
     }
   };
 
@@ -301,11 +303,16 @@ export default function MasterManagementScreen({ onBack }) {
       showToast('กรุณากรอกชื่อผู้ใช้และชื่อ-นามสกุลให้ครบถ้วน', true);
       return;
     }
+    if (!userForm.password || userForm.password.length < 4) {
+      showToast('รหัสผ่านเริ่มต้นต้องมีความยาวอย่างน้อย 4 ตัวอักษร', true);
+      return;
+    }
 
     try {
       await api.post('/user', {...userForm, brandIds: userForm.brandScope === 'SPECIFIC' ? userForm.allowedBrandIds : []});
       showToast(`✓ สร้างบัญชีผู้ใช้ "${userForm.fullName}" สำเร็จ`);
       setShowAddUserModal(false);
+      setShowAddUserPassword(false);
       setUserForm({
         username: '',
         fullName: '',
@@ -314,7 +321,7 @@ export default function MasterManagementScreen({ onBack }) {
         branchScope: 'ALL',
         allowedLocationIds: []
       });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast(err.response?.data?.message || 'สร้างบัญชีผู้ใช้ไม่สำเร็จ', true);
     }
@@ -328,9 +335,7 @@ export default function MasterManagementScreen({ onBack }) {
     setEditLocationForm({
       code: loc.code || '',
       name: loc.name || '',
-      brandName: loc.brandName || '',
       boundBrandIds: lbs.map(lb => lb.brandId),
-      primaryBrandId: lbs.find(lb => lb.isPrimary)?.brandId ?? (lbs[0]?.brandId ?? null),
       locationTypeId: loc.locationTypeId || 1,
       region: loc.region || 'กรุงเทพฯ และปริมณฑล',
       address: loc.address || '',
@@ -347,38 +352,20 @@ export default function MasterManagementScreen({ onBack }) {
     if (!editLocation || !editLocationForm.name.trim()) return;
 
     try {
-      const { boundBrandIds, primaryBrandId, ...basicFields } = editLocationForm;
+      const { boundBrandIds, ...basicFields } = editLocationForm;
       await api.put(`/location/${editLocation.id}`, {
         id: editLocation.id,
         ...basicFields
       });
 
-      // 🌟 Sync การผูกแบรนด์ (LocationBrands) ให้ตรงกับที่เลือกไว้ในฟอร์ม
-      const originalIds = (editLocation.locationBrands || []).map(lb => lb.brandId);
-      const toBind = boundBrandIds.filter(id => !originalIds.includes(id));
-      const toUnbind = originalIds.filter(id => !boundBrandIds.includes(id));
-
-      await Promise.allSettled([
-        ...toBind.map(brandId =>
-          api.post(`/location/${editLocation.id}/brands`, { brandId, isPrimary: brandId === primaryBrandId })
-        ),
-        ...toUnbind.map(brandId =>
-          api.delete(`/location/${editLocation.id}/brands/${brandId}`)
-        ),
-      ]);
-
-      // ตั้งแบรนด์หลัก ถ้ายังไม่ตรงกับที่เลือก (เฉพาะแบรนด์ที่ยังผูกอยู่เดิม ไม่ใช่ตัวที่เพิ่งผูกใหม่ที่ส่ง isPrimary ไปแล้ว)
-      const alreadyPrimaryHandled = toBind.includes(primaryBrandId);
-      if (primaryBrandId && !alreadyPrimaryHandled && originalIds.includes(primaryBrandId)) {
-        const wasAlreadyPrimary = (editLocation.locationBrands || []).find(lb => lb.brandId === primaryBrandId)?.isPrimary;
-        if (!wasAlreadyPrimary) {
-          await api.put(`/location/${editLocation.id}/brands/${primaryBrandId}/primary`);
-        }
-      }
+      // 🌟 Sync การผูกแบรนด์ (LocationBrands) ให้ตรงกับที่เลือกไว้ในฟอร์มใน Transaction เดียว
+      await api.put(`/location/${editLocation.id}/brands`, {
+        brandIds: boundBrandIds
+      });
 
       showToast(`✓ บันทึกสถานที่ "${editLocationForm.name}" สำเร็จ`);
       setEditLocation(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขสถานที่/สาขาไม่สำเร็จ', true);
     }
@@ -392,17 +379,15 @@ export default function MasterManagementScreen({ onBack }) {
     }
 
     try {
-      const { boundBrandIds, primaryBrandId, ...basicFields } = locationForm;
+      const { boundBrandIds, ...basicFields } = locationForm;
       const created = await api.post('/location', basicFields);
       const newLocationId = created.data?.id;
 
-      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้าง (ทีละตัว ให้ตัวที่เป็น primary ผูกด้วยธง isPrimary)
+      // 🌟 ผูกแบรนด์ที่เลือกไว้เข้ากับสถานที่ที่เพิ่งสร้างใน Transaction เดียว
       if (newLocationId && boundBrandIds.length > 0) {
-        await Promise.allSettled(
-          boundBrandIds.map(brandId =>
-            api.post(`/location/${newLocationId}/brands`, { brandId, isPrimary: brandId === primaryBrandId })
-          )
-        );
+        await api.put(`/location/${newLocationId}/brands`, {
+          brandIds: boundBrandIds
+        });
       }
 
       showToast(`✓ เพิ่มสถานที่/สาขา "${locationForm.name}" สำเร็จ`);
@@ -412,7 +397,6 @@ export default function MasterManagementScreen({ onBack }) {
         name: '',
         brandName: '',
         boundBrandIds: [],
-        primaryBrandId: null,
         locationTypeId: locationTypes[0]?.id || 1,
         region: 'กรุงเทพฯ และปริมณฑล',
         address: '',
@@ -421,7 +405,7 @@ export default function MasterManagementScreen({ onBack }) {
         longitude: 100.5347,
         managerUserId: null
       });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('เพิ่มสถานที่/สาขาไม่สำเร็จ', true);
     }
@@ -454,7 +438,7 @@ export default function MasterManagementScreen({ onBack }) {
       });
       showToast(`✓ บันทึกประเภทสถานที่ "${editTypeForm.name}" สำเร็จ`);
       setEditType(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขประเภทสถานที่ไม่สำเร็จ', true);
     }
@@ -472,7 +456,7 @@ export default function MasterManagementScreen({ onBack }) {
       showToast(`✓ เพิ่มประเภทสถานที่ "${typeForm.name}" สำเร็จ`);
       setShowAddTypeModal(false);
       setTypeForm({ code: '', name: '', description: '' });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('เพิ่มประเภทสถานที่ไม่สำเร็จ', true);
     }
@@ -481,10 +465,30 @@ export default function MasterManagementScreen({ onBack }) {
   // ── 🛡️ ROLE & PERMISSION HANDLERS ──
   const handleOpenEditRole = (r) => {
     setEditRole(r);
+
+    let initialPermIds = [];
+    if (Array.isArray(r.permissionIds) && r.permissionIds.length > 0) {
+      initialPermIds = r.permissionIds;
+    } else if (Array.isArray(r.rolePermissions) && r.rolePermissions.length > 0) {
+      initialPermIds = r.rolePermissions
+        .map(rp => rp.permissionId || rp.permission?.id || rp.id)
+        .filter(Boolean);
+    } else if (Array.isArray(r.permissions)) {
+      initialPermIds = r.permissions.map(p => {
+        if (typeof p === 'number') return p;
+        if (typeof p === 'object' && p !== null) return p.id;
+        // กรณี p เป็น string code เช่น "audit.edit" ให้หา ID จาก availablePermissions
+        const matched = availablePermissions.find(ap => 
+          ap.code === p || ap.name === p || String(ap.id) === String(p)
+        );
+        return matched ? matched.id : null;
+      }).filter(id => id != null);
+    }
+
     setEditRoleForm({
       name: r.name || '',
       description: r.description || '',
-      permissionIds: r.permissionIds || []
+      permissionIds: (r.permissions || []).map(p => p.id)
     });
   };
 
@@ -501,7 +505,7 @@ export default function MasterManagementScreen({ onBack }) {
       });
       showToast(`✓ บันทึกสิทธิ์บทบาท "${editRoleForm.name}" สำเร็จ`);
       setEditRole(null);
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('แก้ไขสิทธิ์บทบาทไม่สำเร็จ', true);
     }
@@ -516,7 +520,7 @@ export default function MasterManagementScreen({ onBack }) {
       showToast(`✓ สร้างบทบาทใหม่ "${roleForm.name}" สำเร็จ`);
       setShowAddRoleModal(false);
       setRoleForm({ code: '', name: '', description: '', permissionIds: [] });
-      loadAllData();
+      loadAllData(true);
     } catch (err) {
       showToast('สร้างบทบาทไม่สำเร็จ', true);
     }
@@ -1289,7 +1293,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <div className="space-y-2 pt-1 animate-in fade-in">
                   <label className="block text-sm font-medium text-slate-600">เลือกแบรนด์ที่ได้รับอนุญาต:</label>
                   <BrandChipSelector
-                    brands={brands}
+                    brands={activeBrands}
                     selectedIds={editUserForm.allowedBrandIds || []}
                     onChange={(ids) => {
                       setEditUserForm(prev => {
@@ -1394,13 +1398,15 @@ export default function MasterManagementScreen({ onBack }) {
               <div className="p-4.5 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-2.5">
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
                   <Key size={17} className="text-[#0F6659]" />
-                  <span>รีเซ็ตรหัสผ่านใหม่ (Reset Password)</span>
+                  <span>รีเซ็ตรหัสผ่านใหม่</span>
+                  <span className="text-xs text-slate-400 font-normal">(อย่างน้อย 6 ตัว)</span>
                 </div>
                 <input
                   type="text"
                   placeholder="กรอกรหัสผ่านใหม่ (ปล่อยว่างถ้าไม่ต้องการเปลี่ยน)"
                   value={editUserForm.newPassword || ''}
                   onChange={(e) => setEditUserForm({ ...editUserForm, newPassword: e.target.value })}
+                  minLength={6}
                   className="w-full px-4.5 py-3 rounded-xl bg-white border border-slate-200 text-sm sm:text-base font-mono font-normal text-slate-500 focus:text-slate-800 focus:border-[#0F6659] outline-none shadow-xs placeholder:text-slate-400"
                 />
               </div>
@@ -1479,7 +1485,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <input
                   type="text"
                   value={userForm.username}
-                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase().replace(/\s+/g, '') })}
+                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value.replace(/\s+/g, '') })}
                   className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
                   placeholder="เช่น somsak_bkk"
                   required
@@ -1504,13 +1510,26 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
                   รหัสผ่านเริ่มต้น <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="password"
-                  value={userForm.password}
-                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                  className="w-full px-4.5 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showAddUserPassword ? "text" : "password"}
+                    value={userForm.password}
+                    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                    className="w-full pl-4.5 pr-12 py-3.5 rounded-2xl border border-slate-200 text-sm sm:text-base font-normal text-slate-500 focus:text-slate-800 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/10 outline-none transition-all shadow-xs placeholder:text-slate-400"
+                    placeholder="กรอกรหัสผ่านเริ่มต้น..."
+                    minLength={4}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAddUserPassword(prev => !prev)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-slate-600 active:text-[#0F6659] cursor-pointer rounded-lg transition-colors"
+                    aria-label={showAddUserPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                    title={showAddUserPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  >
+                    {showAddUserPassword ? <Eye size={18} /> : <EyeOff size={18} />}
+                  </button>
+                </div>
               </div>
 
               <div>
@@ -1565,7 +1584,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <div className="space-y-2 pt-1 animate-in fade-in">
                   <label className="block text-sm font-medium text-slate-600">เลือกแบรนด์ที่ได้รับอนุญาต:</label>
                   <BrandChipSelector
-                    brands={brands}
+                    brands={activeBrands}
                     selectedIds={userForm.allowedBrandIds || []}
                     onChange={(ids) => {
                       setUserForm(prev => {
@@ -1929,27 +1948,19 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              {/* Brand Selection (chip, multi + primary) */}
+              {/* Brand Selection (chip, multi-select) */}
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  แบรนด์ที่ผูกกับสถานที่นี้ <span className="font-normal text-slate-400">(กด ★ เพื่อตั้งแบรนด์หลัก)</span>
+                  แบรนด์ที่ผูกกับสถานที่นี้
                 </label>
                 <BrandChipSelector
                   brands={brands}
                   value={editLocationForm.boundBrandIds}
                   onChange={(ids) => setEditLocationForm(prev => ({
                     ...prev,
-                    boundBrandIds: ids,
-                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null),
-                    brandName: brands.find(b => b.id === (ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : ids[0]))?.name || ''
+                    boundBrandIds: ids
                   }))}
                   mode="multi"
-                  primaryId={editLocationForm.primaryBrandId}
-                  onSetPrimary={(id) => setEditLocationForm(prev => ({
-                    ...prev,
-                    primaryBrandId: id,
-                    brandName: brands.find(b => b.id === id)?.name || prev.brandName
-                  }))}
                 />
               </div>
 
@@ -2162,27 +2173,19 @@ export default function MasterManagementScreen({ onBack }) {
                 />
               </div>
 
-              {/* Brand Selection (chip, multi + primary) */}
+              {/* Brand Selection (chip, multi-select) */}
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">
-                  แบรนด์ที่ผูกกับสถานที่นี้ <span className="font-normal text-slate-400">(กด ★ เพื่อตั้งแบรนด์หลัก)</span>
+                  แบรนด์ที่ผูกกับสถานที่นี้
                 </label>
                 <BrandChipSelector
-                  brands={brands}
+                  brands={activeBrands}
                   value={locationForm.boundBrandIds}
                   onChange={(ids) => setLocationForm(prev => ({
                     ...prev,
-                    boundBrandIds: ids,
-                    primaryBrandId: ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : (ids[0] ?? null),
-                    brandName: brands.find(b => b.id === (ids.includes(prev.primaryBrandId) ? prev.primaryBrandId : ids[0]))?.name || ''
+                    boundBrandIds: ids
                   }))}
                   mode="multi"
-                  primaryId={locationForm.primaryBrandId}
-                  onSetPrimary={(id) => setLocationForm(prev => ({
-                    ...prev,
-                    primaryBrandId: id,
-                    brandName: brands.find(b => b.id === id)?.name || prev.brandName
-                  }))}
                 />
               </div>
 
@@ -2505,7 +2508,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-2">สิทธิ์การเข้าถึงโมดูล (Permissions Matrix):</label>
                 <div className="max-h-52 overflow-y-auto rounded-2xl border border-slate-200 p-2.5 space-y-2 bg-slate-50">
                   {sortedPermissions.map(p => {
-                    const isChecked = editRoleForm.permissionIds.includes(p.id);
+                    const isChecked = editRoleForm.permissionIds.includes(p.id) || (Array.isArray(editRole?.permissions) && editRole.permissions.includes(p.code));
                     return (
                       <button
                         type="button"

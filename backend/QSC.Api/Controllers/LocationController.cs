@@ -23,14 +23,10 @@ namespace QSC.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetLocations([FromQuery] bool? activeOnly)
         {
-            var (_, _, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+            var scope = await UserScopeHelper.GetUserFullScopeAsync(User, _context);
 
             var query = _context.Locations
                 .AsNoTracking()
-                .Include(l => l.LocationType)
-                .Include(l => l.ManagerUser)
-                .Include(l => l.LocationBrands).ThenInclude(lb => lb.Brand)
                 .AsQueryable();
 
             if (activeOnly == true)
@@ -38,20 +34,65 @@ namespace QSC.Api.Controllers
                 query = query.Where(l => l.IsActive);
             }
 
-            if (allowedLocationIds != null)
+            if (scope.AllowedLocationIds != null)
             {
-                query = query.Where(l => allowedLocationIds.Contains(l.Id));
+                query = query.Where(l => scope.AllowedLocationIds.Contains(l.Id));
             }
 
-            if (allowedBrandIds != null)
+            if (scope.AllowedBrandIds != null)
             {
-                // Brand-restricted user ต้องเห็นเฉพาะ Location ที่มีแบรนด์ตรงกับสิทธิ์
-                // ดังนั้น Location ที่ไม่มี LocationBrand (เช่น HQ-01) จะไม่แสดงใน scope นี้
                 query = query.Where(l =>
-                    l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                    l.LocationBrands.Any(lb => scope.AllowedBrandIds.Contains(lb.BrandId)));
             }
 
-            var locations = await query.OrderByDescending(l => l.IsActive).ThenBy(l => l.Code).ToListAsync();
+            var locations = await query
+                .OrderByDescending(l => l.IsActive)
+                .ThenBy(l => l.Code)
+                .Select(l => new
+                {
+                    id = l.Id,
+                    code = l.Code,
+                    name = l.Name,
+                    locationTypeId = l.LocationTypeId,
+                    locationType = l.LocationType != null ? new
+                    {
+                        id = l.LocationType.Id,
+                        code = l.LocationType.Code,
+                        name = l.LocationType.Name,
+                        description = l.LocationType.Description,
+                        isActive = l.LocationType.IsActive
+                    } : null,
+                    managerUserId = l.ManagerUserId,
+                    managerUserName = l.ManagerUser != null ? l.ManagerUser.FullName : null,
+                    managerUser = l.ManagerUser != null ? new
+                    {
+                        id = l.ManagerUser.Id,
+                        username = l.ManagerUser.Username,
+                        fullName = l.ManagerUser.FullName
+                    } : null,
+                    latitude = l.Latitude,
+                    longitude = l.Longitude,
+                    region = l.Region,
+                    address = l.Address,
+                    phone = l.Phone,
+                    isActive = l.IsActive,
+                    lastScore = l.LastScore,
+                    lastAuditDate = l.LastAuditDate,
+                    createdAt = l.CreatedAt,
+                    locationBrands = l.LocationBrands.Select(lb => new
+                    {
+                        locationId = lb.LocationId,
+                        brandId = lb.BrandId,
+                        brand = lb.Brand != null ? new
+                        {
+                            id = lb.Brand.Id,
+                            code = lb.Brand.Code,
+                            name = lb.Brand.Name
+                        } : null
+                    }).ToList()
+                })
+                .ToListAsync();
+
             return Ok(locations);
         }
 
@@ -109,7 +150,6 @@ namespace QSC.Api.Controllers
             existing.Latitude = location.Latitude;
             existing.Longitude = location.Longitude;
             existing.Region = location.Region;
-            existing.BrandName = location.BrandName; // legacy display field เท่านั้น การผูกแบรนด์จริงใช้ endpoint /brands ด้านล่าง
             existing.Address = location.Address;
             existing.Phone = location.Phone;
             existing.IsActive = location.IsActive;
@@ -137,7 +177,6 @@ namespace QSC.Api.Controllers
         public class BindBrandDto
         {
             public int BrandId { get; set; }
-            public bool IsPrimary { get; set; } = false;
         }
 
         [Authorize(Roles = "ADMIN")]
@@ -157,27 +196,14 @@ namespace QSC.Api.Controllers
                 return BadRequest(new { message = "สถานที่นี้ผูกกับแบรนด์นี้อยู่แล้ว" });
             }
 
-            using var tx = await _context.Database.BeginTransactionAsync();
-
-            if (dto.IsPrimary)
-            {
-                // 🌟 unset primary เดิมของสถานที่นี้ทั้งหมดก่อน กัน 2 primary พร้อมกัน
-                var currentPrimaries = await _context.LocationBrands
-                    .Where(lb => lb.LocationId == id && lb.IsPrimary)
-                    .ToListAsync();
-                foreach (var p in currentPrimaries) p.IsPrimary = false;
-            }
-
             var newLink = new LocationBrand
             {
                 LocationId = id,
-                BrandId = dto.BrandId,
-                IsPrimary = dto.IsPrimary
+                BrandId = dto.BrandId
             };
             _context.LocationBrands.Add(newLink);
 
             await _context.SaveChangesAsync();
-            await tx.CommitAsync();
 
             return Ok(newLink);
         }
@@ -190,48 +216,50 @@ namespace QSC.Api.Controllers
                 .FirstOrDefaultAsync(lb => lb.LocationId == id && lb.BrandId == brandId);
             if (link == null) return NotFound(new { message = "ไม่พบการผูกแบรนด์นี้กับสถานที่นี้" });
 
-            var wasPrimary = link.IsPrimary;
             _context.LocationBrands.Remove(link);
             await _context.SaveChangesAsync();
-
-            // 🌟 ถ้าถอนตัวที่เป็น Primary ออก และยังมีแบรนด์อื่นเหลืออยู่ ให้เลื่อนแบรนด์แรกที่เหลือขึ้นเป็น Primary แทน
-            // กันเคส "มีแบรนด์ผูกอยู่แต่ไม่มีใครเป็น Primary เลย" ซึ่งจะทำให้ query ฝั่ง AiService/AuditController พังเงียบๆ
-            if (wasPrimary)
-            {
-                var remaining = await _context.LocationBrands
-                    .Where(lb => lb.LocationId == id)
-                    .OrderBy(lb => lb.Id)
-                    .FirstOrDefaultAsync();
-                if (remaining != null)
-                {
-                    remaining.IsPrimary = true;
-                    await _context.SaveChangesAsync();
-                }
-            }
 
             return NoContent();
         }
 
-        [Authorize(Roles = "ADMIN")]
-        [HttpPut("{id}/brands/{brandId}/primary")]
-        public async Task<IActionResult> SetPrimaryBrand(int id, int brandId)
+        public class SyncLocationBrandsDto
         {
-            var target = await _context.LocationBrands
-                .FirstOrDefaultAsync(lb => lb.LocationId == id && lb.BrandId == brandId);
-            if (target == null) return NotFound(new { message = "ไม่พบการผูกแบรนด์นี้กับสถานที่นี้" });
+            public List<int> BrandIds { get; set; } = new List<int>();
+        }
 
-            using var tx = await _context.Database.BeginTransactionAsync();
+        [Authorize(Roles = "ADMIN")]
+        [HttpPut("{id}/brands")]
+        public async Task<IActionResult> SyncBrands(int id, [FromBody] SyncLocationBrandsDto dto)
+        {
+            var location = await _context.Locations.FindAsync(id);
+            if (location == null) return NotFound(new { message = "ไม่พบสถานที่ที่ระบุ" });
 
-            var currentPrimaries = await _context.LocationBrands
-                .Where(lb => lb.LocationId == id && lb.IsPrimary)
+            var existingLinks = await _context.LocationBrands
+                .Where(lb => lb.LocationId == id)
                 .ToListAsync();
-            foreach (var p in currentPrimaries) p.IsPrimary = false;
 
-            target.IsPrimary = true;
+            var targetBrandIds = (dto.BrandIds ?? new List<int>()).Distinct().ToList();
+
+            if (targetBrandIds.Any())
+            {
+                var validBrandCount = await _context.Brands.CountAsync(b => targetBrandIds.Contains(b.Id));
+                if (validBrandCount != targetBrandIds.Count)
+                {
+                    return BadRequest(new { message = "บางแบรนด์ที่ระบุไม่พบในระบบ" });
+                }
+            }
+
+            var toRemove = existingLinks.Where(lb => !targetBrandIds.Contains(lb.BrandId)).ToList();
+            var existingBrandIds = existingLinks.Select(lb => lb.BrandId).ToHashSet();
+            var toAdd = targetBrandIds.Where(bid => !existingBrandIds.Contains(bid))
+                .Select(bid => new LocationBrand { LocationId = id, BrandId = bid })
+                .ToList();
+
+            if (toRemove.Any()) _context.LocationBrands.RemoveRange(toRemove);
+            if (toAdd.Any()) _context.LocationBrands.AddRange(toAdd);
+
             await _context.SaveChangesAsync();
-            await tx.CommitAsync();
-
-            return Ok(target);
+            return Ok(new { message = "บันทึกการผูกแบรนด์สำเร็จ", count = targetBrandIds.Count });
         }
     }
 
@@ -341,21 +369,34 @@ namespace QSC.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> CreateBrand([FromBody] UpsertBrandDto dto)
         {
-            if (string.IsNullOrWhiteSpace(dto.Name))
+            var code = (dto.Code ?? string.Empty).Trim().ToUpperInvariant();
+            var name = (dto.Name ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))
             {
-                return BadRequest(new { message = "กรุณาระบุชื่อแบรนด์" });
+                return BadRequest(new { message = "กรุณาระบุรหัสและชื่อแบรนด์" });
+            }
+
+            var duplicate = await _context.Brands.AnyAsync(b =>
+                b.Code.ToUpper() == code || b.Name.ToUpper() == name.ToUpper());
+
+            if (duplicate)
+            {
+                return Conflict(new { message = "รหัสหรือชื่อแบรนด์นี้มีอยู่แล้ว" });
             }
 
             var brand = new Brand
             {
-                Code = dto.Code,
-                Name = dto.Name,
-                Description = dto.Description,
+                Code = code,
+                Name = name,
+                Description = dto.Description?.Trim(),
                 IsActive = dto.IsActive,
                 CreatedAt = DateTime.UtcNow
             };
+
             _context.Brands.Add(brand);
             await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(GetBrand), new { id = brand.Id }, brand);
         }
 
@@ -366,9 +407,26 @@ namespace QSC.Api.Controllers
             var existing = await _context.Brands.FindAsync(id);
             if (existing == null) return NotFound();
 
-            existing.Code = dto.Code;
-            existing.Name = dto.Name;
-            existing.Description = dto.Description;
+            var code = (dto.Code ?? string.Empty).Trim().ToUpperInvariant();
+            var name = (dto.Name ?? string.Empty).Trim();
+
+            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(name))
+            {
+                return BadRequest(new { message = "กรุณาระบุรหัสและชื่อแบรนด์" });
+            }
+
+            var duplicate = await _context.Brands.AnyAsync(b =>
+                b.Id != id &&
+                (b.Code.ToUpper() == code || b.Name.ToUpper() == name.ToUpper()));
+
+            if (duplicate)
+            {
+                return Conflict(new { message = "รหัสหรือชื่อแบรนด์นี้มีอยู่แล้ว" });
+            }
+
+            existing.Code = code;
+            existing.Name = name;
+            existing.Description = dto.Description?.Trim();
             existing.IsActive = dto.IsActive;
 
             await _context.SaveChangesAsync();
@@ -382,9 +440,8 @@ namespace QSC.Api.Controllers
             var brand = await _context.Brands.FindAsync(id);
             if (brand == null) return NotFound();
 
-            // LocationBrand ใช้ Cascade delete: ลบ Brand แล้วลบเฉพาะแถว join ที่เกี่ยวข้อง
-            // ไม่ลบ Location เพื่อไม่ให้สถานที่เสียหายหรือถูกลบตามแบรนด์
-            _context.Brands.Remove(brand);
+            // Soft delete: ปิดการใช้งานแบรนด์ เพื่อรักษาประวัติการตรวจและความสัมพันธ์ในอดีตไม่ให้สูญหาย
+            brand.IsActive = false;
             await _context.SaveChangesAsync();
             return NoContent();
         }

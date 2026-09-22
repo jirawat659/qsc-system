@@ -1,12 +1,13 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3 } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3 } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { getDistanceInMeters, formatDistance, DEFAULT_USER_COORDS } from "../../utils/geo";
-import api from "../../config/api";
+import api, { getFullImageUrl } from "../../config/api";
+import { getCategoryDisplay } from "../../config/constants";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -14,9 +15,11 @@ import Breadcrumbs from "../../shared/Breadcrumbs";
 import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
-import { compressImageFile } from "../../utils/imageCompressor";
+import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
+import { isFormApplicableToLocation } from "../../utils/formMatching";
+import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 
-const QuestionCommentInput = ({ initialValue, onChange }) => {
+const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
   const onChangeRef = useRef(onChange);
 
@@ -40,7 +43,7 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
   return (
     <input
       type="text"
-      placeholder="พิมพ์ข้อคิดเห็น / ข้อบกพร่องที่พบในข้อนี้..."
+      placeholder="ข้อคิดเห็น..."
       value={localValue}
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={() => {
@@ -51,49 +54,237 @@ const QuestionCommentInput = ({ initialValue, onChange }) => {
       className="w-full text-xs p-2.5 rounded-xl border border-slate-200 outline-none text-slate-800 focus:border-[#0F6659] bg-slate-50/80"
     />
   );
-};
+});
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
-  "ความสะอาด",
-  "เอกสาร",
-  "กระบวนการทำงาน",
-  "คุณภาพสินค้า",
-  "การบริการ"
+  "Product",
+  "Process",
+  "Service",
+  "Cleanliness",
+  "Documents"
 ];
 
 // 🏷️ ดึงชื่อหมวดคะแนนของคำถามแต่ละข้อ (แยกอิสระจากหมวดคำถามของฟอร์ม)
 export const getQuestionCategory = (q, sec) => {
-  let name = (q?.categoryName || q?.category || "").trim();
-  if (name) {
-    if (name === "คุณภาพสินค้า-วัตถุดิบ") return "คุณภาพสินค้า";
-    return name;
-  }
-  if (q?.categoryCode) {
-    const code = q.categoryCode.toUpperCase();
-    if (code === "CLN") return "ความสะอาด";
-    if (code === "DOC") return "เอกสาร";
-    if (code === "OPS") return "กระบวนการทำงาน";
-    if (code === "QLT") return "คุณภาพสินค้า";
-    if (code === "SVC") return "การบริการ";
-    if (code === "REG" || code === "RULE") return "ความถูกระเบียบ";
-    if (code === "SAF") return "ความปลอดภัย";
-  }
-  if (sec?.title) {
-    if (sec.title.includes("สะอาด") || sec.title.includes("สุขอนามัย") || sec.title.includes("CLN")) return "ความสะอาด";
-    if (sec.title.includes("เอกสาร") || sec.title.includes("DOC")) return "เอกสาร";
-    if (sec.title.includes("บริการ") || sec.title.includes("SVC")) return "การบริการ";
-    if (sec.title.includes("คุณภาพ") || sec.title.includes("QLT")) return "คุณภาพสินค้า";
-    if (sec.title.includes("กระบวนการ") || sec.title.includes("โรงงาน") || sec.title.includes("OPS") || sec.title.includes("GMP")) return "กระบวนการทำงาน";
-  }
-  return "ความสะอาด";
+  const name = (q?.categoryName || q?.category || "").trim();
+  const code = (q?.categoryCode || "").trim().toUpperCase();
+
+  // 1. ตรวจสอบจากชื่อหมวด หรือรหัสย่อ (รองรับทั้ง PD/PC/S/C/DM และรหัสเดิม QLT/OPS/SVC/CLN/DOC)
+  if (name === "Product" || code === "PD" || code === "QLT" || name.includes("คุณภาพ")) return "Product";
+  if (name === "Process" || code === "PC" || code === "OPS" || name.includes("กระบวนการ") || name.includes("โรงงาน") || name.includes("GMP")) return "Process";
+  if (name === "Service" || code === "S" || code === "SVC" || name.includes("บริการ")) return "Service";
+  if (name === "Cleanliness" || code === "C" || code === "CLN" || name.includes("สะอาด") || name.includes("สุขอนามัย")) return "Cleanliness";
+  if (name === "Documents" || code === "DM" || code === "DOC" || name.includes("เอกสาร")) return "Documents";
+
+  // 2. ตรวจสอบชื่อหมวดหมู่ของฟอร์ม (Section Title)
+  const title = sec?.title || "";
+  if (title.includes("คุณภาพ") || title.includes("QLT") || title.includes("Product")) return "Product";
+  if (title.includes("กระบวนการ") || title.includes("โรงงาน") || title.includes("OPS") || title.includes("Process") || title.includes("GMP")) return "Process";
+  if (title.includes("บริการ") || title.includes("SVC") || title.includes("Service")) return "Service";
+  if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN") || title.includes("Cleanliness")) return "Cleanliness";
+  if (title.includes("เอกสาร") || title.includes("DOC") || title.includes("Documents")) return "Documents";
+
+  return "Product";
 };
 
-// ✍️ Touch & Mouse High-DPI Digital Signature Pad — เปิดเป็น Modal เต็มจอเวลาเซ็น (ไม่เซ็นในหน้าเดิม)
-function SignaturePadCanvas({ onDone, onCancel }) {
+// 🌟 QuestionCard — แยกออกมาจาก inline JSX เดิมที่อยู่ในลูป .map() ตรงๆ ในคอมโพเนนต์หลัก
+// เหตุผล: ของเดิมทุกคำถาม (อาจมีเป็นร้อยข้อ) render อยู่ในฟังก์ชันเดียวกับฟอร์มทั้งหมด
+// พอตอบข้อไหนข้อหนึ่ง React ก็ต้อง re-render คำถามทุกข้อพร้อมกันหมด เพราะไม่มีขอบเขต component
+// แยกให้ React.memo เทียบ props ได้ — ถ้า props ของการ์ดนี้ไม่เปลี่ยน (ไม่ใช่ข้อที่เพิ่งตอบ) จะไม่ re-render เลย
+//
+// ⚠️ กติกาสำคัญที่ทำให้ memo ใช้ได้ผลจริง: รับ "ค่าเฉพาะของคำถามข้อนี้" เป็น props
+// (เช่น answer แทนที่จะรับ answers ทั้งก้อน) และ handler ทุกตัวที่ส่งเข้ามาต้องเป็น reference คงที่
+// (ห่อด้วย useCallback ที่ต้นทาง) ไม่งั้น React.memo จะเทียบ props แล้วเจอว่าเปลี่ยนทุกครั้งอยู่ดี
+const QuestionCard = React.memo(function QuestionCard({
+  q,
+  sec,
+  idx,
+  answer,
+  photosForQuestion,
+  commentValue,
+  openCommentOverride,
+  photoUploadError,
+  isHighlighted,
+  onAnswerSelect,
+  onCommentChange,
+  onPhotoUpload,
+  onPhotoDelete,
+  onToggleComment
+}) {
+  const isNa = answer === "na";
+  const isFailed = !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
+  const rawP = photosForQuestion;
+  const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
+  const hasPhoto = questionPhotos.length > 0;
+  const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+  const isScale = qType === "scale" || qType === "rating";
+  const isCommentRequired = isFailed;
+  const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
+  const scoreGiven = isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0));
+  const isAnswered = answer !== undefined && answer !== "";
+
+  return (
+    <div
+      id={`question-card-${q.id}`}
+      className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${isHighlighted
+          ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
+          : isNa
+            ? "bg-slate-50/90 border-slate-300"
+            : isFailed
+              ? "bg-red-50/50 border-red-300"
+              : "bg-white border-slate-200 shadow-2xs"
+        }`}
+    >
+      <div className="mb-3">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+            {getCategoryDisplay(getQuestionCategory(q, sec))}
+          </span>
+          {q.isCritical && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
+          )}
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+            คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
+          </span>
+          {isHighlighted && (
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
+          )}
+
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+            <button
+              type="button"
+              onClick={() => onToggleComment(q.id, isCommentOpen)}
+              className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(commentValue && commentValue.trim().length > 0)
+                  ? 'bg-amber-50 text-amber-700 border-amber-300'
+                  : isCommentOpen
+                    ? 'bg-slate-200 text-slate-800 border-slate-300'
+                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                }`}
+            >
+              <MessageSquare size={16} className={(commentValue && commentValue.trim().length > 0) ? "fill-amber-400/40" : ""} />
+            </button>
+            <label
+              className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                }`}
+              title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
+            >
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  onPhotoUpload(q.id, e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <Camera size={16} />
+              {hasPhoto && (
+                <span className="text-[11px] font-black font-mono">
+                  {questionPhotos.length}
+                </span>
+              )}
+            </label>
+          </div>
+        </div>
+        <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug break-words [overflow-wrap:anywhere] ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
+          {q.questionText || q.text}
+        </h4>
+      </div>
+
+      {hasPhoto && (
+        <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
+          {questionPhotos.map((imgUrl, imgIdx) => (
+            <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
+              <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
+              <button
+                type="button"
+                onClick={() => onPhotoDelete(q.id, imgIdx)}
+                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
+                title="ลบรูปภาพนี้"
+              >
+                ✕
+              </button>
+              <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
+                #{imgIdx + 1}
+              </span>
+            </div>
+          ))}
+          <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                onPhotoUpload(q.id, e.target.files);
+                e.target.value = '';
+              }}
+            />
+            <Plus size={18} />
+            <span className="text-[10px] font-bold">เพิ่มรูป</span>
+          </label>
+        </div>
+      )}
+
+      {photoUploadError && (
+        <div className="flex items-center gap-1.5 text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-1.5 mb-3">
+          <AlertTriangle size={13} className="shrink-0" />
+          <span>{photoUploadError}</span>
+        </div>
+      )}
+
+      {!isScale && (
+        <div className="grid grid-cols-3 gap-2">
+          <button type="button" onClick={() => onAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "yes" || answer === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+            <CheckCircle2 size={18} /><span>ผ่าน</span>
+          </button>
+          <button type="button" onClick={() => onAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "no" || answer === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+            <XCircle size={18} /><span>ไม่ผ่าน</span>
+          </button>
+          <button type="button" onClick={() => onAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
+            <Minus size={18} /><span>ข้าม</span>
+          </button>
+        </div>
+      )}
+
+      {isScale && (
+        <div className="flex gap-1.5 items-center">
+          {[5, 4, 3, 2, 1].map((n) => (
+            <button key={n} type="button" onClick={() => onAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answer === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+              {n}
+            </button>
+          ))}
+          <button type="button" onClick={() => onAnswerSelect(q.id, "na")} className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black cursor-pointer transition-all border ${answer === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+            <Minus size={14} className="mr-0.5" /> N/A
+          </button>
+        </div>
+      )}
+
+      {isCommentOpen && (
+        <div className="mt-3">
+          <QuestionCommentInput initialValue={commentValue} onChange={(val) => onCommentChange(q.id, val)} />
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ✍️ Touch & Mouse High-DPI Digital Signature Pad — เปิดเป็น Modal เต็มจอเวลาเซ็น
+function SignaturePadCanvas({ initialSignatureUrl, onDone, onCancel }) {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [hasSigned, setHasSigned] = useState(false);
+  const [hasSigned, setHasSigned] = useState(Boolean(initialSignatureUrl));
+  const [isLoadingOldSignature, setIsLoadingOldSignature] = useState(Boolean(initialSignatureUrl));
+
+  useEffect(() => {
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -108,7 +299,35 @@ function SignaturePadCanvas({ onDone, onCancel }) {
     ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-  }, []);
+
+    // 🎨 Load existing / old signature onto canvas if present
+    if (initialSignatureUrl) {
+      setIsLoadingOldSignature(true);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        if (!canvasRef.current) return;
+        const currentCtx = canvasRef.current.getContext('2d');
+        const padding = 16;
+        const availableW = Math.max(10, rect.width - (padding * 2));
+        const availableH = Math.max(10, rect.height - (padding * 2));
+        const imgW = img.naturalWidth || img.width || 1;
+        const imgH = img.naturalHeight || img.height || 1;
+        const scale = Math.min(availableW / imgW, availableH / imgH, 1);
+        const drawW = imgW * scale;
+        const drawH = imgH * scale;
+        const offsetX = (rect.width - drawW) / 2;
+        const offsetY = (rect.height - drawH) / 2;
+        currentCtx.drawImage(img, offsetX, offsetY, drawW, drawH);
+        setHasSigned(true);
+        setIsLoadingOldSignature(false);
+      };
+      img.onerror = () => {
+        setIsLoadingOldSignature(false);
+      };
+      img.src = getFullImageUrl(initialSignatureUrl);
+    }
+  }, [initialSignatureUrl]);
 
   const getCoordinates = (e) => {
     const canvas = canvasRef.current;
@@ -156,14 +375,23 @@ function SignaturePadCanvas({ onDone, onCancel }) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-    ctx.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    const rect = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, rect.width, rect.height);
     setHasSigned(false);
   };
 
   const confirmSign = () => {
     const canvas = canvasRef.current;
     if (!canvas || !hasSigned) return;
-    onDone(canvas.toDataURL('image/png'));
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      onDone(dataUrl);
+    } catch (e) {
+      console.warn("Canvas toDataURL failed (possibly cross-origin), falling back to initial signature", e);
+      if (initialSignatureUrl) {
+        onDone(initialSignatureUrl);
+      }
+    }
   };
 
   return (
@@ -191,7 +419,13 @@ function SignaturePadCanvas({ onDone, onCancel }) {
             onTouchEnd={stopDrawing}
             className="w-full h-56 sm:h-64 cursor-crosshair block"
           />
-          {!hasSigned && (
+          {isLoadingOldSignature && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none text-slate-500 text-xs font-semibold gap-2">
+              <Loader2 size={16} className="animate-spin text-[#0F6659]" />
+              <span>กำลังโหลดลายเซ็นเดิม...</span>
+            </div>
+          )}
+          {!hasSigned && !isLoadingOldSignature && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium gap-1.5 select-none">
               <Edit3 size={14} />
               <span>แตะหรือลากเพื่อเซ็นชื่อลงในกรอบนี้</span>
@@ -211,7 +445,7 @@ function SignaturePadCanvas({ onDone, onCancel }) {
           <button
             type="button"
             onClick={confirmSign}
-            disabled={!hasSigned}
+            disabled={!hasSigned || isLoadingOldSignature}
             className="flex-1 py-3 rounded-2xl bg-[#0F6659] hover:bg-[#0c5449] disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
           >
             <CheckCircle2 size={14} />
@@ -225,6 +459,7 @@ function SignaturePadCanvas({ onDone, onCancel }) {
 
 function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม...", signatureUrl }) {
   const [showModal, setShowModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const hasSigned = Boolean(signatureUrl);
 
   return (
@@ -251,8 +486,13 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         onClick={() => setShowModal(true)}
         className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/50 transition-colors shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer"
       >
-        {hasSigned ? (
-          <img src={signatureUrl} alt={label} className="max-h-full max-w-full object-contain" />
+        {isUploading ? (
+          <div className="flex items-center justify-center gap-2 text-slate-500 text-xs font-semibold">
+            <Loader2 size={16} className="animate-spin text-[#0F6659]" />
+            <span>กำลังบันทึกลายเซ็น...</span>
+          </div>
+        ) : hasSigned ? (
+          <img src={getFullImageUrl(signatureUrl)} alt={label} className="max-h-full max-w-full object-contain" />
         ) : (
           <div className="flex items-center justify-center text-slate-400 text-xs font-medium gap-1.5 select-none">
             <Edit3 size={14} />
@@ -273,10 +513,26 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
 
       {showModal && typeof document !== "undefined" && createPortal(
         <SignaturePadCanvas
+          initialSignatureUrl={signatureUrl}
           onCancel={() => setShowModal(false)}
-          onDone={(dataUrl) => {
-            onSignChange(dataUrl);
+          onDone={async (dataUrl) => {
             setShowModal(false);
+            if (dataUrl === signatureUrl) return; // Unchanged
+            onSignChange(dataUrl);
+            try {
+              setIsUploading(true);
+              const res = await api.post('/audit/upload-signature', { 
+                base64Data: dataUrl,
+                previousUrl: signatureUrl
+              });
+              if (res.data?.url) {
+                onSignChange(res.data.url);
+              }
+            } catch (err) {
+              console.warn("Upload signature to server failed, keeping dataUrl:", err);
+            } finally {
+              setIsUploading(false);
+            }
           }}
         />,
         document.body
@@ -285,7 +541,579 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
   );
 }
 
+// 📱 Modern Top-Down Navigation Drawer (สไลด์คลี่ลงมาจากด้านบน รูดปัดขึ้นเพื่อเก็บ)
+function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSectionIdx, onSelectCategory }) {
+  const [mounted, setMounted] = useState(false);
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
+  const startYRef = useRef(0);
+  const currentYRef = useRef(0);
+  const startTimeRef = useRef(0);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      setMounted(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const triggerClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 220);
+  }, [isClosing, onClose]);
+
+  // Touch handlers for Drag Handle & Header Bar (ปัดขึ้นเพื่อปิด)
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    startYRef.current = touch.clientY;
+    currentYRef.current = touch.clientY;
+    startTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - startYRef.current;
+    // อนุญาตเฉพาะการปัดขึ้นด้านบน (deltaY < 0) เพื่อดันเก็บเข้าขอบบน
+    if (deltaY < 0) {
+      currentYRef.current = touch.clientY;
+      setDragY(deltaY);
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+
+    const deltaY = currentYRef.current - startYRef.current;
+    const elapsed = Math.max(1, Date.now() - startTimeRef.current);
+    const velocity = deltaY / elapsed;
+
+    if (deltaY <= -55 || (deltaY < -18 && velocity <= -0.25)) {
+      triggerClose();
+    } else {
+      setDragY(0);
+    }
+  };
+
+  // Mouse handlers for desktop testing / devtools
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    startYRef.current = e.clientY;
+    currentYRef.current = e.clientY;
+    startTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+
+    const onMouseMove = (moveEvent) => {
+      const deltaY = moveEvent.clientY - startYRef.current;
+      if (deltaY < 0) {
+        currentYRef.current = moveEvent.clientY;
+        setDragY(deltaY);
+      } else {
+        setDragY(0);
+      }
+    };
+
+    const onMouseUp = (upEvent) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      isDraggingRef.current = false;
+      setIsDragging(false);
+
+      const deltaY = upEvent.clientY - startYRef.current;
+      const elapsed = Math.max(1, Date.now() - startTimeRef.current);
+      const velocity = deltaY / elapsed;
+
+      if (deltaY <= -55 || (deltaY < -18 && velocity <= -0.25)) {
+        triggerClose();
+      } else {
+        setDragY(0);
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // สำหรับ Top Sheet: ตำแหน่งเริ่มต้นหรือตอนปิดจะอยู่ที่ -100% (ซ่อนเหนือนอกจอ)
+  const currentTranslateY = isClosing
+    ? '-100%'
+    : !mounted
+      ? '-100%'
+      : dragY < 0
+        ? `${dragY}px`
+        : '0px';
+
+  const backdropAlpha = isClosing || !mounted
+    ? 0
+    : dragY < 0
+      ? Math.max(0.05, 0.6 * (1 - Math.abs(dragY) / 280))
+      : 0.6;
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] flex flex-col justify-start backdrop-blur-xs"
+      style={{
+        backgroundColor: `rgba(0, 0, 0, ${backdropAlpha})`,
+        transition: isDragging ? 'none' : 'background-color 0.22s ease-out',
+      }}
+    >
+      <div className="fixed inset-0" onClick={triggerClose} />
+
+      <div
+        className="relative z-10 w-full max-w-lg mx-auto bg-white rounded-b-[28px] sm:rounded-b-3xl shadow-[0_20px_50px_rgba(0,0,0,0.22)] max-h-[80vh] flex flex-col overflow-hidden"
+        style={{
+          transform: `translateY(${currentTranslateY})`,
+          transition: isDragging ? 'none' : 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
+        {/* Header Bar ด้านบนสุด */}
+        <div
+          className="px-5 pt-4 pb-2.5 flex items-center justify-between border-b border-slate-100 shrink-0 cursor-grab active:cursor-grabbing touch-none select-none bg-white"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+        >
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#0F6659]">QUICK NAVIGATION</p>
+            <h2 className="text-base font-black text-slate-800">ไปยังหัวข้อที่ต้องการ</h2>
+          </div>
+          <button
+            type="button"
+            onTouchStart={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={triggerClose}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+            title="ปิดเมนู"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Category List */}
+        <div className="space-y-2 overflow-y-auto px-5 py-3 flex-1">
+          {categoryItems.map((item, itemIndex) => {
+            const isCurrent = (item.id === "details" && activeTab === 1) ||
+                              (item.id === "submit" && activeTab === 3) ||
+                              (activeTab === 2 && item.index === activeSectionIdx);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  if (Math.abs(dragY) > 8) return;
+                  onSelectCategory(item);
+                }}
+                className={`w-full p-3 rounded-2xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                  isCurrent
+                    ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/30"
+                    : "bg-slate-50/80 border-slate-200 hover:bg-slate-100/80"
+                }`}
+              >
+                <span className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+                  {item.icon}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
+                  {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
+                </div>
+                {item.count && (
+                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
+                    {item.count} ตอบแล้ว
+                  </span>
+                )}
+                {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* แถบมือจับสำหรับรูดปัดขึ้นเพื่อปิด (Bottom Drag Handle Bar) */}
+        <div
+          className="w-full py-2.5 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none hover:bg-slate-50/70 transition-colors border-t border-slate-100 bg-slate-50/50 shrink-0"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          title="แตะหรือปัดขึ้นเพื่อปิด"
+        >
+          <div className="w-12 h-1.5 bg-slate-300 active:bg-slate-400 rounded-full mx-auto transition-colors" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 🏷️ คำนวณสถานะการตรวจประจำเดือน (4 สถานะ: กำลังตรวจ, ตรวจแล้วเดือนนี้, มีแผนตรวจ, ยังไม่ได้ตรวจเดือนนี้)
+export const getLocationMonthlyStatus = (location, { auditRecords = [], activeDrafts = [], schedules = [] } = {}) => {
+  if (!location) {
+    return {
+      key: "not_audited",
+      label: "ยังไม่ได้ตรวจเดือนนี้",
+      badgeClass: "bg-rose-50 text-rose-800 border border-rose-200/90",
+    };
+  }
+
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+
+  const locId = location.id ? Number(location.id) : null;
+  const locName = (location.name || "").trim().toLowerCase();
+  const locFullName = (location.fullName || "").trim().toLowerCase();
+
+  const isLocationMatch = (targetId, targetName, targetFullName) => {
+    if (locId && targetId && Number(targetId) === locId) return true;
+    if (locName) {
+      const tn = (targetName || "").trim().toLowerCase();
+      const tfn = (targetFullName || "").trim().toLowerCase();
+      if (tn && (tn === locName || tn === locFullName)) return true;
+      if (tfn && (tfn === locName || tfn === locFullName)) return true;
+    }
+    return false;
+  };
+
+  // 1. Priority 1: กำลังตรวจ (มี Draft ค้างอยู่ของสาขานี้)
+  const allDrafts = Array.isArray(activeDrafts) ? activeDrafts : [];
+  const hasDraft = allDrafts.some(d => {
+    const dLocId = d.locationId || d.location?.id || d.unit?.id;
+    const dLocName = d.locationName || d.unit?.name;
+    const dLocFullName = d.locationFullName || d.unit?.fullName;
+    return isLocationMatch(dLocId, dLocName, dLocFullName);
+  });
+
+  if (hasDraft) {
+    return {
+      key: "in_progress",
+      label: "กำลังตรวจ",
+      badgeClass: "bg-amber-50 text-amber-800 border border-amber-200/90",
+    };
+  }
+
+  // 2. Priority 2: ตรวจแล้วเดือนนี้ (มี AuditRecord สำเร็จในเดือน/ปีปัจจุบัน)
+  const allRecords = Array.isArray(auditRecords) ? auditRecords : [];
+  const hasAuditedThisMonth = allRecords.some(r => {
+    const rLocId = r.locationId || r.location?.id || r.unit?.id;
+    const rLocName = r.locationName || r.location?.name || r.unit?.name;
+    const rLocFullName = r.locationFullName || r.location?.fullName || r.unit?.fullName;
+    if (!isLocationMatch(rLocId, rLocName, rLocFullName)) return false;
+
+    const rawDate = r.auditDate || r.submittedAt || r.createdAt || r.date;
+    if (!rawDate) return false;
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return false;
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  });
+
+  if (hasAuditedThisMonth) {
+    return {
+      key: "audited",
+      label: "ตรวจแล้วเดือนนี้",
+      badgeClass: "bg-emerald-50 text-emerald-800 border border-emerald-200/90",
+    };
+  }
+
+  // 3. Priority 3: มีแผนตรวจ (มี AuditSchedule ในเดือน/ปีปัจจุบันที่ยังไม่เสร็จ)
+  const allSchedules = Array.isArray(schedules) ? schedules : [];
+  const hasScheduleThisMonth = allSchedules.some(s => {
+    const sLocId = s.locationId || s.location?.id;
+    const sLocName = s.locationName || s.location?.name;
+    const sLocFullName = s.locationFullName || s.location?.fullName;
+    if (!isLocationMatch(sLocId, sLocName, sLocFullName)) return false;
+
+    if (s.status === 'completed' || s.status === 'done' || s.status === 'cancelled') return false;
+
+    const rawDate = s.scheduledDate || s.date || s.auditDate;
+    if (!rawDate) return false;
+    const d = new Date(rawDate);
+    if (isNaN(d.getTime())) return false;
+    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  });
+
+  if (hasScheduleThisMonth) {
+    return {
+      key: "scheduled",
+      label: "มีแผนตรวจ",
+      badgeClass: "bg-sky-50 text-sky-800 border border-sky-200/90",
+    };
+  }
+
+  // 4. Priority 4: ยังไม่ได้ตรวจเดือนนี้ (Fallback)
+  return {
+    key: "not_audited",
+    label: "ยังไม่ได้ตรวจเดือนนี้",
+    badgeClass: "bg-rose-50 text-rose-800 border border-rose-200/90",
+  };
+};
+
+// 🌟 Location Status Badge (กรอบรอบข้อความ ไม่มีจุดสี ไม่มีเวลา)
+export function LocationStatusBadge({ statusInfo, className = "" }) {
+  if (!statusInfo) return null;
+  return (
+    <span
+      className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold tracking-tight shrink-0 transition-all shadow-2xs ${statusInfo.badgeClass} ${className}`}
+    >
+      {statusInfo.label}
+    </span>
+  );
+}
+
+// 🌟 3-Step Progress Indicator พร้อม Smooth Animation (ตัวหนังสืออยู่ด้านล่างของไอคอน)
+export function AuditStepIndicator({ currentStep = 1, onGoToStep1, onGoToStep2, className = "" }) {
+  // currentStep: 1 = เลือกสาขา, 2 = เลือกฟอร์ม, 3 = ตรวจประเมิน
+  return (
+    <div className={`w-full max-w-md mx-auto py-3 px-2 sm:px-4 bg-white/95 backdrop-blur-xs rounded-2xl sm:rounded-3xl border border-slate-200/90 shadow-2xs ${className}`}>
+      <div className="relative flex items-start justify-between">
+        {/* Background connecting line passing through center of the circles */}
+        <div className="absolute top-[18px] left-[16.67%] right-[16.67%] h-0.5 bg-slate-100 -translate-y-1/2 z-0">
+          <div
+            className="h-full bg-emerald-500 transition-all duration-500 ease-out"
+            style={{
+              width: currentStep === 1 ? "0%" : currentStep === 2 ? "50%" : "100%"
+            }}
+          />
+        </div>
+
+        {/* Step 1: เลือกสาขา */}
+        <button
+          type="button"
+          onClick={currentStep > 1 ? onGoToStep1 : undefined}
+          disabled={currentStep === 1}
+          className={`flex-1 flex flex-col items-center gap-1.5 relative z-10 transition-all duration-300 select-none group ${
+            currentStep > 1 ? "cursor-pointer" : "cursor-default"
+          }`}
+        >
+          <div
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ring-4 ring-white ${
+              currentStep > 1
+                ? "bg-emerald-100 text-emerald-700 group-hover:bg-emerald-200 group-hover:scale-105 shadow-2xs"
+                : currentStep === 1
+                  ? "bg-[#0F6659] text-white shadow-xs scale-105 ring-4 ring-emerald-500/20"
+                  : "bg-slate-100 text-slate-400 border border-slate-200"
+            }`}
+          >
+            {currentStep > 1 ? (
+              <Check size={16} strokeWidth={3} className="animate-in zoom-in-50 duration-200" />
+            ) : (
+              <Store size={16} />
+            )}
+          </div>
+          <span
+            className={`text-xs tracking-tight text-center transition-colors ${
+              currentStep === 1
+                ? "text-[#0F6659] font-black"
+                : currentStep > 1
+                  ? "text-slate-800 font-bold group-hover:text-emerald-700"
+                  : "text-slate-400 font-medium"
+            }`}
+          >
+            เลือกสาขา
+          </span>
+        </button>
+
+        {/* Step 2: เลือกฟอร์ม */}
+        <button
+          type="button"
+          onClick={currentStep > 2 ? onGoToStep2 : undefined}
+          disabled={currentStep <= 2}
+          className={`flex-1 flex flex-col items-center gap-1.5 relative z-10 transition-all duration-300 select-none group ${
+            currentStep > 2 ? "cursor-pointer" : "cursor-default"
+          }`}
+        >
+          <div
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ring-4 ring-white ${
+              currentStep === 2
+                ? "bg-[#0F6659] text-white shadow-xs scale-105 ring-4 ring-emerald-500/20"
+                : currentStep > 2
+                  ? "bg-emerald-100 text-emerald-700 group-hover:bg-emerald-200 shadow-2xs"
+                  : "bg-slate-100 text-slate-400 border border-slate-200"
+            }`}
+          >
+            {currentStep > 2 ? (
+              <Check size={16} strokeWidth={3} className="animate-in zoom-in-50 duration-200" />
+            ) : (
+              <ClipboardList size={16} />
+            )}
+          </div>
+          <span
+            className={`text-xs tracking-tight text-center transition-colors ${
+              currentStep === 2
+                ? "text-[#0F6659] font-black"
+                : currentStep > 2
+                  ? "text-slate-800 font-bold group-hover:text-emerald-700"
+                  : "text-slate-400 font-medium"
+            }`}
+          >
+            เลือกฟอร์ม
+          </span>
+        </button>
+
+        {/* Step 3: ตรวจประเมิน */}
+        <div className="flex-1 flex flex-col items-center gap-1.5 relative z-10 select-none">
+          <div
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition-all duration-300 ring-4 ring-white ${
+              currentStep === 3
+                ? "bg-[#0F6659] text-white shadow-xs scale-105 ring-4 ring-emerald-500/20"
+                : "bg-slate-100 text-slate-400 border border-slate-200"
+            }`}
+          >
+            <PenTool size={15} />
+          </div>
+          <span
+            className={`text-xs tracking-tight text-center transition-colors ${
+              currentStep === 3 ? "text-[#0F6659] font-black" : "text-slate-400 font-medium"
+            }`}
+          >
+            ตรวจประเมิน
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 🌟 ฟังก์ชันจับคู่คำตอบ/รูปภาพ/คอมเมนต์ของแบบร่างเดิมเข้ากับข้อตรวจของฟอร์มปัจจุบัน
+// ป้องกันปัญหาข้อมูลหายเมื่อแบบฟอร์มถูกแก้ไขหรือ Clone เวอร์ชันใหม่ในฐานข้อมูล ทำให้ Item IDs เปลี่ยนไป
+export function remapDraftItemsToCurrentForm(draftPayload, form) {
+  if (!draftPayload || !form?.sections || !Array.isArray(form.sections) || form.sections.length === 0) {
+    return {
+      answers: draftPayload?.answers || {},
+      photos: draftPayload?.photos || {},
+      comments: draftPayload?.comments || {},
+      oldToNewIdMap: {}
+    };
+  }
+
+  const currentItemsFlat = [];
+  const currentItemIds = new Set();
+  for (const sec of form.sections) {
+    for (const item of (sec.items || [])) {
+      currentItemIds.add(String(item.id));
+      currentItemsFlat.push(item);
+    }
+  }
+
+  const draftAnswers = draftPayload.answers || {};
+  const draftPhotos = draftPayload.photos || {};
+  const draftComments = draftPayload.comments || {};
+
+  const allDraftKeys = Array.from(new Set([
+    ...Object.keys(draftAnswers),
+    ...Object.keys(draftPhotos),
+    ...Object.keys(draftComments)
+  ]));
+
+  const oldToNewIdMap = {};
+  const unmatchedDraftKeys = [];
+
+  for (const k of allDraftKeys) {
+    if (currentItemIds.has(String(k))) {
+      oldToNewIdMap[String(k)] = String(k);
+    } else {
+      unmatchedDraftKeys.push(String(k));
+    }
+  }
+
+  // 🌟 Fallback สำหรับกรณีที่มีการอัปเดตหรือ Clone ฟอร์มใหม่ ทำให้ ID ของข้อตรวจเปลี่ยนไป (เช่น 5877-5896 -> 5897-5916)
+  if (unmatchedDraftKeys.length > 0 && currentItemsFlat.length > 0) {
+    unmatchedDraftKeys.sort((a, b) => {
+      const numA = Number(a);
+      const numB = Number(b);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.localeCompare(b);
+    });
+
+    const numericKeys = unmatchedDraftKeys
+      .map(k => Number(k))
+      .filter(n => !isNaN(n))
+      .sort((a, b) => a - b);
+
+    const isAllNumeric = numericKeys.length === unmatchedDraftKeys.length;
+    const minOldId = isAllNumeric && numericKeys.length > 0 ? numericKeys[0] : null;
+    const maxOldId = isAllNumeric && numericKeys.length > 0 ? numericKeys[numericKeys.length - 1] : null;
+    const oldSpan = (minOldId !== null && maxOldId !== null) ? (maxOldId - minOldId + 1) : 0;
+
+    const usedNewIds = new Set(Object.values(oldToNewIdMap));
+
+    // กลยุทธ์ A: ถ้าช่วง ID เก่าเป็นช่วงตัวเลขออโต้รันที่พอดีกับช่วง index ของข้อปัจจุบัน
+    if (isAllNumeric && minOldId !== null && oldSpan <= currentItemsFlat.length) {
+      for (const oldNum of numericKeys) {
+        const targetIdx = oldNum - minOldId;
+        if (targetIdx >= 0 && targetIdx < currentItemsFlat.length) {
+          const targetItem = currentItemsFlat[targetIdx];
+          if (targetItem && !usedNewIds.has(String(targetItem.id))) {
+            oldToNewIdMap[String(oldNum)] = String(targetItem.id);
+            usedNewIds.add(String(targetItem.id));
+          }
+        }
+      }
+    }
+
+    // กลยุทธ์ B: สำหรับคีย์ที่ยังไม่ได้จับคู่ ให้จับคู่ตามลำดับข้อที่ยังว่างอยู่
+    let fallbackIdx = 0;
+    for (const oldK of unmatchedDraftKeys) {
+      if (!oldToNewIdMap[oldK]) {
+        while (fallbackIdx < currentItemsFlat.length && usedNewIds.has(String(currentItemsFlat[fallbackIdx].id))) {
+          fallbackIdx++;
+        }
+        if (fallbackIdx < currentItemsFlat.length) {
+          const targetItem = currentItemsFlat[fallbackIdx];
+          oldToNewIdMap[oldK] = String(targetItem.id);
+          usedNewIds.add(String(targetItem.id));
+          fallbackIdx++;
+        }
+      }
+    }
+  }
+
+  const resolveMappedKey = (key) => oldToNewIdMap[String(key)] || (currentItemIds.has(String(key)) ? String(key) : null);
+
+  const mappedAnswers = {};
+  for (const [key, val] of Object.entries(draftAnswers)) {
+    const mk = resolveMappedKey(key);
+    if (mk && currentItemIds.has(mk)) {
+      mappedAnswers[mk] = val;
+    }
+  }
+
+  const mappedPhotos = {};
+  for (const [key, val] of Object.entries(draftPhotos)) {
+    const mk = resolveMappedKey(key);
+    if (mk && currentItemIds.has(mk)) {
+      mappedPhotos[mk] = val;
+    }
+  }
+
+  const mappedComments = {};
+  for (const [key, val] of Object.entries(draftComments)) {
+    const mk = resolveMappedKey(key);
+    if (mk && currentItemIds.has(mk)) {
+      mappedComments[mk] = val;
+    }
+  }
+
+  return {
+    answers: Object.keys(mappedAnswers).length > 0 ? mappedAnswers : draftAnswers,
+    photos: Object.keys(mappedPhotos).length > 0 ? mappedPhotos : draftPhotos,
+    comments: Object.keys(mappedComments).length > 0 ? mappedComments : draftComments,
+    oldToNewIdMap
+  };
+}
 
 export default function LiveAuditScreen({
   preselectedPlan,
@@ -309,23 +1137,29 @@ export default function LiveAuditScreen({
   onBackRef.current = onBack;
 
   const { setSubHeader } = React.useContext(TopBarContext) || {};
-  const { currentUser: ctxUser, locations: allLocations, visibleLocations, forms, activeDraft, activeDrafts, refreshData } = React.useContext(DataContext);
+  const { currentUser: ctxUser, locations: allLocations, visibleLocations, forms, getFormDetail, activeDraft, activeDrafts, auditRecords, schedules, refreshData } = React.useContext(DataContext);
   const currentUser = propUser || ctxUser;
   const formList = forms || [];
 
   const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
   const targetFormId = preselectedPlan?.surveyFormId;
 
-  // 🎯 Find draft strictly matching THIS branch (locationId) and form
   const matchedDraftRecord = useMemo(() => {
-    if (preselectedPlan?.isNewAudit) return null; // New audit NEVER uses existing draft
+    if (preselectedPlan?.isNewAudit) return null;
 
-    // If preselectedPlan itself is the draft and explicitly requested resume
-    if (preselectedPlan?.isResume && (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers)) {
-      return preselectedPlan;
+    const allDrafts = activeDrafts && activeDrafts.length > 0 ? activeDrafts : (activeDraft ? [activeDraft] : []);
+
+    if (preselectedPlan?.isResume) {
+      const explicitDraftId = preselectedPlan.originalId || preselectedPlan.id;
+      if (explicitDraftId && typeof explicitDraftId === 'number') {
+        const foundById = allDrafts.find(d => d.id === explicitDraftId);
+        if (foundById) return foundById;
+      }
+      if (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers) {
+        return preselectedPlan;
+      }
     }
 
-    // If this is not a resume request (e.g. user clicked "เริ่มตรวจตามแผนงาน" on a fresh plan), do NOT load draft
     if (preselectedPlan && !preselectedPlan.isResume) {
       return null;
     }
@@ -334,7 +1168,11 @@ export default function LiveAuditScreen({
       return null;
     }
 
-    const allDrafts = activeDrafts && activeDrafts.length > 0 ? activeDrafts : (activeDraft ? [activeDraft] : []);
+    if (preselectedPlan?.id && typeof preselectedPlan.id === 'number') {
+      const foundBySched = allDrafts.find(d => d.auditScheduleId === preselectedPlan.id);
+      if (foundBySched) return foundBySched;
+    }
+
     const found = allDrafts.find(d => {
       const dLocId = d.locationId || d.location?.id || d.unit?.id;
       const dLocName = d.locationName || d.locationFullName || d.unit?.name || d.unit?.fullName;
@@ -348,7 +1186,6 @@ export default function LiveAuditScreen({
     return found || null;
   }, [preselectedPlan, targetLocationId, targetFormId, activeDrafts, activeDraft, allLocations]);
 
-  // Parse draft payload ONLY if it matched THIS branch
   const parsedDraftPayload = useMemo(() => {
     if (!matchedDraftRecord) return null;
 
@@ -363,7 +1200,6 @@ export default function LiveAuditScreen({
       return matchedDraftRecord;
     }
 
-    // Check localStorage scoped by locationId
     if (targetLocationId) {
       try {
         const localKey = `qsc_draft_${targetLocationId}_${targetFormId || 1}`;
@@ -390,8 +1226,8 @@ export default function LiveAuditScreen({
 
   const [searchBranch, setSearchBranch] = useState("");
   const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
+  const [realStartGps, setRealStartGps] = useState(null);
 
-  // 🌟 SORTING HIERARCHY: จัดเรียงตามระยะทาง GPS จากน้อยไปมาก สำหรับการตรวจงานใหม่
   const sortedBranchList = useMemo(() => {
     let list = [...(visibleLocations || [])];
 
@@ -400,16 +1236,27 @@ export default function LiveAuditScreen({
     }
 
     if (searchBranch.trim()) {
-      const q = searchBranch.toLowerCase();
-      list = list.filter(u =>
-        u.name?.toLowerCase().includes(q) ||
-        (u.fullName && u.fullName.toLowerCase().includes(q)) ||
-        u.region?.toLowerCase().includes(q) ||
-        (u.address && u.address.toLowerCase().includes(q))
-      );
+      const q = searchBranch.toLowerCase().trim();
+      list = list.filter(u => {
+        const matchName = u.name?.toLowerCase().includes(q);
+        const matchFullName = u.fullName?.toLowerCase().includes(q);
+        const matchCode = u.code?.toLowerCase().includes(q);
+        const matchRegion = u.region?.toLowerCase().includes(q);
+        const matchAddress = u.address?.toLowerCase().includes(q);
+        const matchBrand = (u.locationBrands || [])?.some(lb =>
+          (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
+          (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
+        ) || (u.brand?.name || u.brandName || "").toLowerCase().includes(q) || (u.brand?.code || "").toLowerCase().includes(q);
+        const matchType = (
+          u.locationType?.name ||
+          u.locationType?.code ||
+          (typeof u.locationType === 'string' ? u.locationType : '')
+        ).toLowerCase().includes(q);
+
+        return matchName || matchFullName || matchCode || matchRegion || matchAddress || matchBrand || matchType;
+      });
     }
 
-    // Sort by GPS distance ascending (น้อย ➔ มาก)
     return list.sort((a, b) => {
       const distA = getDistanceInMeters(userCoords.latitude, userCoords.longitude, a.latitude, a.longitude);
       const distB = getDistanceInMeters(userCoords.latitude, userCoords.longitude, b.latitude, b.longitude);
@@ -417,8 +1264,6 @@ export default function LiveAuditScreen({
     });
   }, [visibleLocations, searchBranch, userCoords, currentUser]);
 
-  // Step flow: select-unit -> select-form -> audit
-  // 🌟 หากเป็นการเปิดฉบับร่างค้างตรวจ หรือตามแผนงาน ให้ข้ามไปหน้า 'audit' ทันที!
   const [step, setStep] = useState(() => {
     if (isResumeDraft || isFromAssignedPlan) return "audit";
     return "select-unit";
@@ -427,7 +1272,6 @@ export default function LiveAuditScreen({
 
   const [branchPage, setBranchPage] = useState(1);
   const branchPageSize = 10;
-
   const [branchPageInput, setBranchPageInput] = useState("1");
 
   useEffect(() => {
@@ -463,18 +1307,64 @@ export default function LiveAuditScreen({
     return null;
   });
 
+  const applicableForms = useMemo(() => {
+    const activeLatestForms = formList.filter(f => 
+      ((f.isLatest !== false && f.isLatest !== 0) || f.id === preselectedPlan?.surveyFormId || f.id === targetFormId) &&
+      f.isActive !== false && f.isActive !== 0
+    );
+    if (!unit) return activeLatestForms;
+    return activeLatestForms.filter(f => isFormApplicableToLocation(f, unit));
+  }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
+
   const [selectedForm, setSelectedForm] = useState(() => {
     const targetFId = (isResumeDraft && parsedDraftPayload?.formId) ? parsedDraftPayload.formId : (preselectedPlan?.surveyFormId || targetFormId);
     if (targetFId) {
       return formList.find(f => f.id === targetFId) || formList[0];
     }
+    if (unit) {
+      const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
+      if (matched.length > 0) return matched[0];
+    }
     return formList[0];
   });
 
+  const currentSections = selectedForm?.sections || [];
+  const passingScore = selectedForm?.passingScore || 85;
+
+  // 🌟 forms จาก context เป็นแบบ summary (ไม่มี sections) — พอเลือกฟอร์มที่จะใช้ตรวจจริง
+  // ต้องดึงคำถามเต็มมาก่อนเสมอ ไม่งั้นหน้าจอตรวจจะไม่มีคำถามให้ตอบ
+  useEffect(() => {
+    if (!selectedForm?.id || !getFormDetail) return;
+    if (Array.isArray(selectedForm.sections)) return; // hydrate แล้ว
+    let cancelled = false;
+    getFormDetail(selectedForm.id).then(full => {
+      if (!cancelled && full && Array.isArray(full.sections)) {
+        setSelectedForm(prev => (prev && prev.id === full.id) ? { ...prev, ...full } : prev);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [selectedForm?.id, selectedForm?.sections, getFormDetail]);
+
+  // 🌟 Hydrate applicable forms in the background so their full sections/items are ready instantly
+  useEffect(() => {
+    if (step === "select-form" && getFormDetail && Array.isArray(applicableForms)) {
+      applicableForms.forEach(f => {
+        if (f?.id && !Array.isArray(f.sections)) {
+          getFormDetail(f.id);
+        }
+      });
+    }
+  }, [step, applicableForms, getFormDetail]);
+
+  const initialRemappedDraft = useMemo(() => {
+    if (!isResumeDraft || !parsedDraftPayload) return null;
+    return remapDraftItemsToCurrentForm(parsedDraftPayload, selectedForm);
+  }, [isResumeDraft, parsedDraftPayload, selectedForm]);
+
   const [sectionIdx, setSectionIdx] = useState(isResumeDraft ? (parsedDraftPayload?.sectionIdx || 0) : 0);
-  const [answers, setAnswers] = useState(isResumeDraft ? (parsedDraftPayload?.answers || {}) : {});
-  const [photos, setPhotos] = useState(isResumeDraft ? (parsedDraftPayload?.photos || {}) : {});
-  const [comments, setComments] = useState(isResumeDraft ? (parsedDraftPayload?.comments || {}) : {});
+  const [answers, setAnswers] = useState(() => initialRemappedDraft?.answers || (isResumeDraft ? (parsedDraftPayload?.answers || {}) : {}));
+  const [photos, setPhotos] = useState(() => initialRemappedDraft?.photos || (isResumeDraft ? (parsedDraftPayload?.photos || {}) : {}));
+  const [comments, setComments] = useState(() => initialRemappedDraft?.comments || (isResumeDraft ? (parsedDraftPayload?.comments || {}) : {}));
   const [openComments, setOpenComments] = useState({});
   const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
   const [auditorName, setAuditorName] = useState(() => {
@@ -521,7 +1411,6 @@ export default function LiveAuditScreen({
   }, []);
 
   const auditorOptions = useMemo(() => {
-    // กรองเฉพาะผู้ใช้งานที่มีสิทธิ์ตรวจ: AUDITOR, ADMIN, STANDARD
     const allowedRoles = ['AUDITOR', 'ADMIN', 'STANDARD'];
     const filtered = usersList.filter(u => {
       const rCode = (u.roleCode || u.role?.code || u.role || '').toUpperCase();
@@ -547,6 +1436,7 @@ export default function LiveAuditScreen({
       setAuditorName(currentUser.fullName || currentUser.name);
     }
   }, [currentUser]);
+
   const [auditType, setAuditType] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditType) {
       const t = parsedDraftPayload.auditType.toLowerCase();
@@ -564,60 +1454,209 @@ export default function LiveAuditScreen({
     }
     return "";
   });
+
   const [extraNote, setExtraNote] = useState(isResumeDraft ? (parsedDraftPayload?.extraNote || "") : "");
   const [isBackdated, setIsBackdated] = useState(() => Boolean(parsedDraftPayload?.isBackdated));
   const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
   const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
 
-  // Auto-sync status indicator
-  const [syncStatus, setSyncStatus] = useState("idle"); // 'idle' | 'saving' | 'synced' // 'synced' | 'saving'
+  // 🛡️ Accurately resolve effective schedule ID across all entry points
+  const effectiveSchedId = useMemo(() => {
+    if (preselectedPlan?.auditScheduleId && Number(preselectedPlan.auditScheduleId) > 0) {
+      return Number(preselectedPlan.auditScheduleId);
+    }
+    if (preselectedPlan?.scheduleId && Number(preselectedPlan.scheduleId) > 0) {
+      return Number(preselectedPlan.scheduleId);
+    }
+    if (matchedDraftRecord?.auditScheduleId && Number(matchedDraftRecord.auditScheduleId) > 0) {
+      return Number(matchedDraftRecord.auditScheduleId);
+    }
+    if (!preselectedPlan?.isResume && preselectedPlan?.id && Number(preselectedPlan.id) > 0) {
+      return Number(preselectedPlan.id);
+    }
+    if (preselectedPlan?.scheduledDate && preselectedPlan?.id && Number(preselectedPlan.id) > 0) {
+      return Number(preselectedPlan.id);
+    }
+    if (preselectedPlan?.type === 'schedule' && preselectedPlan?.id && Number(preselectedPlan.id) > 0) {
+      return Number(preselectedPlan.id);
+    }
+    return null;
+  }, [preselectedPlan, matchedDraftRecord]);
+
+  const initialDraftId = useMemo(() => {
+    if (isResumeDraft && matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') {
+      return matchedDraftRecord.id;
+    }
+    if (preselectedPlan?.isResume && preselectedPlan?.id && typeof preselectedPlan.id === 'number' && !String(preselectedPlan.id).startsWith('schedule')) {
+      if (preselectedPlan?.scheduleId && Number(preselectedPlan.id) === Number(preselectedPlan.scheduleId)) {
+        return null;
+      }
+      if (preselectedPlan?.auditScheduleId && Number(preselectedPlan.id) === Number(preselectedPlan.auditScheduleId)) {
+        return null;
+      }
+      return preselectedPlan.id;
+    }
+    return null;
+  }, [isResumeDraft, matchedDraftRecord, preselectedPlan]);
+
+  const [draftId, setDraftId] = useState(initialDraftId);
+  const draftIdRef = useRef(initialDraftId);
+  const skipScrollToTopRef = useRef(false);
+
+  const getEffectiveDraftId = useCallback(() => {
+    if (draftIdRef.current && typeof draftIdRef.current === 'number' && draftIdRef.current > 0) {
+      return draftIdRef.current;
+    }
+    if (draftId && typeof draftId === 'number' && draftId > 0) {
+      return draftId;
+    }
+    if (initialDraftId && typeof initialDraftId === 'number' && initialDraftId > 0) {
+      return initialDraftId;
+    }
+    if (matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number' && matchedDraftRecord.id > 0) {
+      return matchedDraftRecord.id;
+    }
+    return null;
+  }, [draftId, initialDraftId, matchedDraftRecord]);
+
+  useEffect(() => {
+    if (initialDraftId) {
+      setDraftId(initialDraftId);
+      draftIdRef.current = initialDraftId;
+    }
+  }, [initialDraftId]);
+
+  const [syncStatus, setSyncStatus] = useState("idle");
+  const isDiscardingRef = useRef(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
   const [highlightedQuestionId, setHighlightedQuestionId] = useState(null);
-  const [auditeeSignature, setAuditeeSignature] = useState(null);
-  const [auditorSignature, setAuditorSignature] = useState(null);
-  const [auditeeSignName, setAuditeeSignName] = useState(unit?.managerName || "ผู้จัดการสาขา");
+  const [auditeeSignature, setAuditeeSignature] = useState(() => parsedDraftPayload?.auditeeSignature || preselectedPlan?.auditeeSignature || null);
+  const [auditorSignature, setAuditorSignature] = useState(() => parsedDraftPayload?.auditorSignature || preselectedPlan?.auditorSignature || null);
+  const [auditeeSignName, setAuditeeSignName] = useState(() => parsedDraftPayload?.auditeeSignName || preselectedPlan?.auditeeSignName || unit?.managerName || "ผู้จัดการสาขา");
   const [auditStartedAt, setAuditStartedAt] = useState(() => parsedDraftPayload?.startedAt || new Date().toISOString());
+  const auditStartedAtRef = useRef(parsedDraftPayload?.startedAt || null);
+  if (!auditStartedAtRef.current && auditStartedAt) {
+    auditStartedAtRef.current = auditStartedAt;
+  }
+  const saveSeqRef = useRef(0);
+  const realStartGpsRef = useRef(realStartGps);
+  useEffect(() => {
+    realStartGpsRef.current = realStartGps;
+  }, [realStartGps]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
+  const [isAuditHeaderScrolled, setIsAuditHeaderScrolled] = useState(false);
+  const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
+  // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ใช้บันทึกหมวดหมู่ที่ถูกล็อคไว้ด้านบน และนำไปใช้ไฮไลต์ในเมนู drawer)
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const activeSectionIdx = activeSectionIndex ?? 0;
+
+  useEffect(() => {
+    if (!isCategoryDrawerOpen) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [isCategoryDrawerOpen]);
+
+  useEffect(() => {
+    if (!showConfirmModal) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [showConfirmModal]);
+
+  useEffect(() => {
+    if (!showDiscardConfirmModal) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [showDiscardConfirmModal]);
+  
+  const currentSectionsForHeader = selectedForm?.sections || [];
+
+  // 🌟 ติดตามว่ากำลังเลื่อนผ่านหมวดคำถามไหนอยู่ (Tab 2 เท่านั้น) บันทึกหมวดที่ล็อคติดขอบบนลงใน activeSectionIndex
+  useEffect(() => {
+    if (step !== "audit") {
+      setIsAuditHeaderScrolled(false);
+      return undefined;
+    }
+
+    const computeActiveSection = () => {
+      const scrollY = window.scrollY || document.documentElement.scrollTop || (document.querySelector('main')?.scrollTop || 0);
+      setIsAuditHeaderScrolled(scrollY > 60);
+
+      if (activeTab === 2 && currentSectionsForHeader.length > 0) {
+        let current = 0;
+        for (let i = 0; i < currentSectionsForHeader.length; i++) {
+          const sectionEl = document.getElementById(`audit-section-${i}`);
+          const headerEl = document.getElementById(`audit-section-header-${i}`);
+          
+          if (sectionEl) {
+            const rect = sectionEl.getBoundingClientRect();
+            // เมื่อขอบบนของหมวดเลื่อนขึ้นมาถึง/ใกล้ขอบบน (top <= 95px) และขอบล่างยังไม่พ้นจอ (bottom > 50px)
+            if (rect.top <= 95 && rect.bottom > 50) {
+              current = i;
+              break;
+            }
+          } else if (headerEl) {
+            const rect = headerEl.getBoundingClientRect();
+            if (rect.top <= 95 && rect.bottom > 0) {
+              current = i;
+              break;
+            }
+          }
+        }
+        setActiveSectionIndex(current);
+      }
+    };
+
+    computeActiveSection();
+    window.addEventListener("scroll", computeActiveSection, { passive: true });
+    document.addEventListener("scroll", computeActiveSection, { passive: true });
+    const mainEl = document.querySelector('main');
+    if (mainEl) mainEl.addEventListener("scroll", computeActiveSection, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", computeActiveSection);
+      document.removeEventListener("scroll", computeActiveSection);
+      if (mainEl) mainEl.removeEventListener("scroll", computeActiveSection);
+    };
+  }, [step, activeTab, currentSectionsForHeader]);
+
+  const activeSection = activeSectionIndex !== null ? currentSectionsForHeader[activeSectionIndex] : null;
+  const activeSectionAnsweredCount = activeSection
+    ? (activeSection.items || []).filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length
+    : 0;
+  const activeSectionTotalCount = activeSection?.items?.length || 0;
 
   useEffect(() => {
     if (unit?.managerName) {
       setAuditeeSignName(unit.managerName);
     }
-    // Update coordinates from unit if available
-    if (unit?.latitude && unit?.longitude) {
-      setUserCoords({
-        latitude: unit.latitude,
-        longitude: unit.longitude
-      });
-    }
   }, [unit]);
 
-  // 📍 GPS location tracking on mount (single watcher — no more race between two getCurrentPosition calls)
   useEffect(() => {
     let cancelled = false;
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (cancelled || !pos?.coords) return;
-          setUserCoords({
+          const coords = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude
-          });
+          };
+          setUserCoords(coords);
+          setRealStartGps(coords);
         },
         (err) => {
-          if (cancelled) return;
-          // Fallback to unit coordinates if GPS not permitted
-          if (unit?.latitude && unit?.longitude) {
-            setUserCoords({
-              latitude: unit.latitude,
-              longitude: unit.longitude
-            });
-          }
+          // หากไม่มี GPS หรือผู้ใช้ไม่อนุญาต ไม่ใช้ fallback ใดๆ (คงเป็น null)
         },
-        { enableHighAccuracy: true, timeout: 6000 }
+        { enableHighAccuracy: true, timeout: 8000 }
       );
     }
     return () => {
@@ -625,20 +1664,30 @@ export default function LiveAuditScreen({
     };
   }, []);
 
-  // 📍 Automatic Draft Hydration Effect (Runs ONCE when draft data arrives for this specific branch)
   const hasHydratedDraftRef = useRef(false);
   useEffect(() => {
     if (parsedDraftPayload && !hasHydratedDraftRef.current && isResumeDraft) {
+      const currentForm = selectedForm || formList.find(f => f.id === parsedDraftPayload.formId);
+
+      // 🌟 forms จาก context เป็น summary ก่อน (ไม่มี sections) ให้รอ hydrate เต็มก่อน
+      // ไม่งั้น currentItemIds จะว่างเปล่าเสมอ ทำให้การกรองคำตอบเก่า (stale answers) ไม่ทำงานเลย
+      // (useEffect ที่ hydrate selectedForm ด้านบนจะทำให้ effect นี้รันใหม่เองเมื่อโหลดเสร็จ)
+      if (currentForm?.id && !Array.isArray(currentForm.sections)) {
+        return;
+      }
+
       hasHydratedDraftRef.current = true;
-      if (parsedDraftPayload.answers && Object.keys(parsedDraftPayload.answers).length > 0) {
-        setAnswers(parsedDraftPayload.answers);
+
+      const { answers: remappedAnswers, photos: remappedPhotos, comments: remappedComments, oldToNewIdMap } =
+        remapDraftItemsToCurrentForm(parsedDraftPayload, currentForm);
+
+      if (oldToNewIdMap && Object.keys(oldToNewIdMap).length > 0) {
+        console.log(`[Draft] ✅ Hydrated & mapped ${Object.keys(remappedAnswers).length} answer(s), ${Object.keys(remappedPhotos).length} photo(s) to current form items`);
       }
-      if (parsedDraftPayload.photos && Object.keys(parsedDraftPayload.photos).length > 0) {
-        setPhotos(parsedDraftPayload.photos);
-      }
-      if (parsedDraftPayload.comments && Object.keys(parsedDraftPayload.comments).length > 0) {
-        setComments(parsedDraftPayload.comments);
-      }
+
+      setAnswers(remappedAnswers);
+      setPhotos(remappedPhotos);
+      setComments(remappedComments);
       if (parsedDraftPayload.staffCount) {
         setStaffCount(parsedDraftPayload.staffCount);
       }
@@ -654,6 +1703,15 @@ export default function LiveAuditScreen({
       if (parsedDraftPayload.backdatedEndDate) {
         setBackdatedEndDate(parsedDraftPayload.backdatedEndDate);
       }
+      if (parsedDraftPayload.auditeeSignature) {
+        setAuditeeSignature(parsedDraftPayload.auditeeSignature);
+      }
+      if (parsedDraftPayload.auditorSignature) {
+        setAuditorSignature(parsedDraftPayload.auditorSignature);
+      }
+      if (parsedDraftPayload.auditeeSignName) {
+        setAuditeeSignName(parsedDraftPayload.auditeeSignName);
+      }
       if (parsedDraftPayload.auditType) {
         const t = parsedDraftPayload.auditType.toLowerCase();
         if (t === "spot" || t === "unannounced") setAuditType("spot");
@@ -666,6 +1724,10 @@ export default function LiveAuditScreen({
       if (parsedDraftPayload.unit && !unit) {
         setUnit(parsedDraftPayload.unit);
       }
+      if (parsedDraftPayload.startedAt) {
+        setAuditStartedAt(parsedDraftPayload.startedAt);
+        auditStartedAtRef.current = parsedDraftPayload.startedAt;
+      }
       if (parsedDraftPayload.formId && (!selectedForm || selectedForm.id !== parsedDraftPayload.formId)) {
         const foundForm = formList.find(f => f.id === parsedDraftPayload.formId);
         if (foundForm) setSelectedForm(foundForm);
@@ -675,7 +1737,6 @@ export default function LiveAuditScreen({
     }
   }, [parsedDraftPayload, isResumeDraft, unit, selectedForm, formList]);
 
-  // Inform parent whether an active live audit is happening
   useEffect(() => {
     const isActivelyAuditing = step === "audit";
     if (onActiveStateChangeRef.current) {
@@ -686,7 +1747,7 @@ export default function LiveAuditScreen({
     };
   }, [step]);
 
-  // 🌟 Sync subHeader to MainDashboard TopBar (แทนที่แถบโลโก้ด้วยปุ่มย้อนกลับ)
+  // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
   useEffect(() => {
     if (!setSubHeader) return;
     if (step === "select-unit") {
@@ -696,14 +1757,20 @@ export default function LiveAuditScreen({
 
     const title = step === "select-form" ? "เลือกแบบฟอร์มการตรวจ" : (unit?.fullName || unit?.name || "ตรวจประเมิน QSC");
     const subtitle = step === "select-form" ? (unit?.fullName || unit?.name || "-") : (selectedForm?.title || "แบบฟอร์มการตรวจ");
+    const currentActionType = (step === "audit" && isAuditHeaderScrolled) ? "menu" : "back";
+    const sectionBadgeNumber = null;
+
+    const isAuditingQuestions = step === "audit";
 
     setSubHeader(prev => {
       if (
         prev &&
         prev.title === title &&
         prev.subtitle === subtitle &&
-        prev.isAudit === true &&
-        prev.hasBack === true
+        prev.isAudit === isAuditingQuestions &&
+        prev.hasBack === true &&
+        prev.leftActionType === currentActionType &&
+        prev.sectionBadgeNumber === sectionBadgeNumber
       ) {
         return prev;
       }
@@ -712,12 +1779,20 @@ export default function LiveAuditScreen({
         title,
         subtitle,
         hasBack: true,
-        isAudit: true,
+        isAudit: isAuditingQuestions,
+        leftActionType: currentActionType,
+        sectionBadgeNumber,
+        onMenuClick: () => setIsCategoryDrawerOpen(true),
         onBack: () => {
           if (step === "select-form") {
             setStep("select-unit");
           } else {
             if (isResumeDraft || isFromAssignedPlan) {
+              if (autoSaveTimerRef.current) {
+                clearTimeout(autoSaveTimerRef.current);
+                autoSaveTimerRef.current = null;
+                performSaveDraft();
+              }
               if (onBackRef.current) onBackRef.current(true);
               return;
             }
@@ -732,16 +1807,40 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, setSubHeader]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount]);
 
-  // 📡 Report real-time sync status to parent TopBar
+  // ล้าง subHeader เมื่อ Component ถูก Unmount
+  useEffect(() => {
+    return () => {
+      if (setSubHeader) {
+        setSubHeader(null);
+      }
+    };
+  }, [setSubHeader]);
+
   useEffect(() => {
     if (onSyncStatusChangeRef.current) {
       onSyncStatusChangeRef.current(step === "audit" ? syncStatus : "idle");
     }
   }, [syncStatus, step]);
 
-  // 🔝 Always scroll window and container to top when changing steps or tabs
+  const handleDesktopBack = useCallback(() => {
+    if (step === "select-form") {
+      setStep("select-unit");
+    } else if (step === "audit") {
+      if (isResumeDraft || isFromAssignedPlan) {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+          performSaveDraft();
+        }
+        if (onBackRef.current) onBackRef.current(true);
+        return;
+      }
+      setStep("select-form");
+    }
+  }, [step, isResumeDraft, isFromAssignedPlan]);
+
   const scrollToTop = () => {
     try {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
@@ -752,6 +1851,11 @@ export default function LiveAuditScreen({
   };
 
   useEffect(() => {
+    // ยกเลิกการเด้งขึ้นบนสุด
+    if (skipScrollToTopRef.current) {
+      skipScrollToTopRef.current = false;
+      return;
+    }
     scrollToTop();
     const t1 = setTimeout(scrollToTop, 20);
     const t2 = setTimeout(scrollToTop, 100);
@@ -761,8 +1865,10 @@ export default function LiveAuditScreen({
     };
   }, [step, activeTab]);
 
-  // ⚡ Instant Event-driven Auto-Sync to Backend & LocalStorage
   const autoSaveTimerRef = useRef(null);
+  const isSavingRef = useRef(false);
+  const pendingSaveDataRef = useRef(null);
+  const hasPendingSaveRef = useRef(false);
   const hasUserAnswers = useMemo(() => {
     return (
       Object.keys(answers).length > 0 ||
@@ -774,11 +1880,36 @@ export default function LiveAuditScreen({
       Boolean(isBackdated) ||
       Boolean(backdatedStartDate) ||
       Boolean(backdatedEndDate) ||
+      Boolean(auditeeSignature) ||
+      Boolean(auditorSignature) ||
       Object.keys(metadataValues).length > 0
     );
-  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate]);
+  }, [answers, photos, comments, staffCount, extraNote, metadataValues, isBackdated, backdatedStartDate, backdatedEndDate, auditeeSignature, auditorSignature]);
 
   const performSaveDraft = async (overrideData = {}) => {
+    if (isDiscardingRef.current) {
+      setSyncStatus("idle");
+      return;
+    }
+
+    // 🛡️ ป้องกันไม่ให้บันทึกทับก่อนที่ข้อมูลร่างเดิมจะถูก hydrate เข้าสู่ state
+    if (isResumeDraft && !hasHydratedDraftRef.current) {
+      setSyncStatus("idle");
+      return;
+    }
+
+    // 🔒 Mutex: If a save is currently in-flight, queue this request so we never send concurrent PUT requests
+    if (isSavingRef.current) {
+      hasPendingSaveRef.current = true;
+      pendingSaveDataRef.current = {
+        ...(pendingSaveDataRef.current || {}),
+        ...overrideData
+      };
+      return;
+    }
+
+    isSavingRef.current = true;
+    const currentSeq = ++saveSeqRef.current;
     try {
       setSyncStatus("saving");
       const currentAnswers = overrideData.answers !== undefined ? overrideData.answers : answers;
@@ -795,6 +1926,9 @@ export default function LiveAuditScreen({
       const currentIsBackdated = overrideData.isBackdated !== undefined ? overrideData.isBackdated : isBackdated;
       const currentBackdatedStartDate = overrideData.backdatedStartDate !== undefined ? overrideData.backdatedStartDate : backdatedStartDate;
       const currentBackdatedEndDate = overrideData.backdatedEndDate !== undefined ? overrideData.backdatedEndDate : backdatedEndDate;
+      const currentAuditeeSignature = overrideData.auditeeSignature !== undefined ? overrideData.auditeeSignature : auditeeSignature;
+      const currentAuditorSignature = overrideData.auditorSignature !== undefined ? overrideData.auditorSignature : auditorSignature;
+      const currentAuditeeSignName = overrideData.auditeeSignName !== undefined ? overrideData.auditeeSignName : auditeeSignName;
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
@@ -803,8 +1937,7 @@ export default function LiveAuditScreen({
 
       const totalAnswered = Object.keys(currentAnswers).length;
 
-      // 🎯 Only persist draft when the auditor has answered at least 1 question
-      if (totalAnswered === 0) {
+      if (totalAnswered === 0 && !currentAuditeeSignature && !currentAuditorSignature) {
         setSyncStatus("idle");
         return;
       }
@@ -824,7 +1957,17 @@ export default function LiveAuditScreen({
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
-        startedAt: parsedDraftPayload?.startedAt || new Date().toISOString()
+        auditeeSignature: currentAuditeeSignature,
+        auditorSignature: currentAuditorSignature,
+        auditeeSignName: currentAuditeeSignName,
+        startedAt: (() => {
+          const effective = auditStartedAtRef.current || auditStartedAt || parsedDraftPayload?.startedAt || new Date().toISOString();
+          if (!auditStartedAtRef.current) {
+            auditStartedAtRef.current = effective;
+            setAuditStartedAt(effective);
+          }
+          return effective;
+        })()
       };
 
       const totalQuestions = (currentForm?.sections || []).reduce(
@@ -832,29 +1975,51 @@ export default function LiveAuditScreen({
       );
 
       const draftPayloadJson = JSON.stringify(payload);
+      const currSchedId = effectiveSchedId;
+      const currDraftId = getEffectiveDraftId();
 
-      // 1. Instant localStorage cache specifically scoped to THIS location & form
       try {
+        if (currSchedId) {
+          localStorage.setItem(`qsc_draft_sched_${currSchedId}`, draftPayloadJson);
+        } else if (currDraftId) {
+          localStorage.setItem(`qsc_draft_id_${currDraftId}`, draftPayloadJson);
+        }
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
       } catch (e) { }
 
-      // 2. Persist to SQLite Backend
-      await api.put('/audit/draft', {
+      const res = await api.put('/audit/draft', {
+        id: currDraftId,
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
         auditorId: currentUser?.id || 1,
+        auditScheduleId: currSchedId,
         draftPayloadJson: draftPayloadJson,
         currentSectionIdx: currentSectionIdx,
         totalAnswered,
         totalQuestions,
-        startLatitude: parsedDraftPayload?.startLatitude || userCoords.latitude,
-        startLongitude: parsedDraftPayload?.startLongitude || userCoords.longitude,
+        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
         startedAt: payload.startedAt
       });
+
+      // 🌟 M2: ป้องกัน race condition ถ้ามี auto-save รอบใหม่กว่าถูกส่งออกไปแล้วขณะที่ request นี้กำลังเดินทาง
+      if (currentSeq !== saveSeqRef.current) {
+        return;
+      }
+
+      if (res?.data?.id) {
+        draftIdRef.current = res.data.id;
+        setDraftId(res.data.id);
+      }
 
       setSyncStatus("synced");
 
       const draftObj = {
+        id: res?.data?.id || currDraftId,
+        auditScheduleId: currSchedId,
+        surveyFormId: currentForm.id,
+        totalAnswered,
+        totalQuestions,
         unit: currentUnit,
         formId: currentForm.id,
         sectionIdx: currentSectionIdx,
@@ -869,6 +2034,9 @@ export default function LiveAuditScreen({
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
+        auditeeSignature: currentAuditeeSignature,
+        auditorSignature: currentAuditorSignature,
+        auditeeSignName: currentAuditeeSignName,
         locationId: currentUnit.id,
         locationName: currentUnit.name,
         locationFullName: currentUnit.fullName,
@@ -881,15 +2049,29 @@ export default function LiveAuditScreen({
 
       if (onSaveDraft) onSaveDraft(draftObj);
     } catch (err) {
-      
-      setSyncStatus("error");
+      if (currentSeq === saveSeqRef.current) {
+        setSyncStatus("error");
+      }
+    } finally {
+      isSavingRef.current = false;
+      // 🌟 If changes arrived while the previous HTTP save was in-flight, save them immediately now
+      if (hasPendingSaveRef.current) {
+        hasPendingSaveRef.current = false;
+        const queuedData = pendingSaveDataRef.current || {};
+        pendingSaveDataRef.current = null;
+        performSaveDraft(queuedData);
+      }
     }
   };
 
-  // 🔄 Auto-Sync whenever any details, answers, or metadata change
   useEffect(() => {
     if (!unit?.id || !selectedForm?.id || step !== "audit") {
       setSyncStatus("idle");
+      return;
+    }
+
+    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับร่างเดิมก่อน hydrate เสร็จสมบูรณ์
+    if (isResumeDraft && !hasHydratedDraftRef.current) {
       return;
     }
 
@@ -904,7 +2086,7 @@ export default function LiveAuditScreen({
 
     autoSaveTimerRef.current = setTimeout(() => {
       performSaveDraft();
-    }, 400);
+    }, 800);
 
     return () => {
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
@@ -924,38 +2106,119 @@ export default function LiveAuditScreen({
     isBackdated,
     backdatedStartDate,
     backdatedEndDate,
+    auditeeSignature,
+    auditorSignature,
+    auditeeSignName,
     step,
     currentUser
   ]);
 
-  const currentSections = selectedForm?.sections || [];
-  const passingScore = selectedForm?.passingScore || 85;
+  const performSaveDraftRef = useRef(performSaveDraft);
+  useEffect(() => {
+    performSaveDraftRef.current = performSaveDraft;
+  });
+
+  // Flush draft on unmount if any debounce timer is pending
+  useEffect(() => {
+    return () => {
+      if (isDiscardingRef.current) return;
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        performSaveDraftRef.current();
+      }
+    };
+  }, []);
 
   const paginatedBranchList = useMemo(() => {
     const start = (branchPage - 1) * branchPageSize;
     return sortedBranchList.slice(start, start + branchPageSize);
   }, [sortedBranchList, branchPage]);
 
-  // 📸 Handle Photo Upload with Client-side Compression & Multiple Photos Support
-  const handlePhotoUpload = async (questionId, files) => {
-    if (!files || files.length === 0) return;
-    try {
-      const fileList = Array.from(files);
-      const compressedUrls = await Promise.all(fileList.map(f => compressImageFile(f)));
-      setPhotos(prev => {
-        const existing = Array.isArray(prev[questionId])
-          ? prev[questionId]
-          : (prev[questionId] ? [prev[questionId]] : []);
-        const next = { ...prev, [questionId]: [...existing, ...compressedUrls] };
-        performSaveDraft({ photos: next });
-        return next;
-      });
-    } catch (e) {
-      console.error("Compression error:", e);
-    }
-  };
+  const [photoUploadErrors, setPhotoUploadErrors] = useState({});
 
-  const handlePhotoDelete = (questionId, photoIdx) => {
+  const handlePhotoUpload = useCallback(async (questionId, files) => {
+    if (!files || files.length === 0) return;
+
+    setPhotoUploadErrors(prev => {
+      if (!prev[questionId]) return prev;
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
+
+    try {
+      const rawFileList = Array.from(files);
+      const validFiles = [];
+      const validationErrors = [];
+
+      for (const file of rawFileList) {
+        const check = validateImageFile(file);
+        if (!check.valid) {
+          validationErrors.push(check.message);
+        } else {
+          validFiles.push(file);
+        }
+      }
+
+      if (validationErrors.length > 0) {
+        const errText = validationErrors.join(" | ");
+        setPhotoUploadErrors(prev => ({
+          ...prev,
+          [questionId]: errText
+        }));
+        if (validFiles.length === 0) return;
+      }
+
+      const fileList = validFiles;
+      const compressedBase64List = await Promise.all(fileList.map(f => compressImageFile(f)));
+
+      // ⚠️ จุดสำคัญ: ห้าม fallback คืน base64 อีกต่อไป เพราะ backend column
+      // ImageUrl จำกัดแค่ nvarchar(500) ตัวอักษร แต่ base64 ยาวเป็นแสนตัวอักษร
+      const lastBackendError = { msg: null };
+      const uploadResults = await Promise.all(
+        compressedBase64List.map(async (base64) => {
+          try {
+            const res = await api.post('/audit/upload-image', { base64Data: base64 });
+            const url = res.data?.url;
+            if (!url) throw new Error("Upload response missing url");
+            return { ok: true, url };
+          } catch (uploadErr) {
+            console.warn("Photo upload failed:", uploadErr);
+            const serverMsg = uploadErr?.response?.data?.message;
+            if (serverMsg) lastBackendError.msg = serverMsg;
+            return { ok: false };
+          }
+        })
+      );
+
+      const successfulUrls = uploadResults.filter(r => r.ok).map(r => r.url);
+      const failedCount = uploadResults.length - successfulUrls.length;
+
+      if (successfulUrls.length > 0) {
+        setPhotos(prev => {
+          const existing = Array.isArray(prev[questionId])
+            ? prev[questionId]
+            : (prev[questionId] ? [prev[questionId]] : []);
+          const next = { ...prev, [questionId]: [...existing, ...successfulUrls] };
+          return next;
+        });
+      }
+
+      if (failedCount > 0) {
+        setPhotoUploadErrors(prev => ({
+          ...prev,
+          [questionId]: lastBackendError.msg || (failedCount === fileList.length
+            ? "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+            : `อัปโหลดสำเร็จ ${successfulUrls.length} รูป แต่มี ${failedCount} รูปที่ล้มเหลว กรุณาลองใหม่`)
+        }));
+      }
+    } catch (e) {
+      console.error("Compression/Upload error:", e);
+      setPhotoUploadErrors(prev => ({ ...prev, [questionId]: "ไม่สามารถประมวลผลรูปภาพได้ กรุณาลองใหม่อีกครั้ง" }));
+    }
+  }, []);
+
+  const handlePhotoDelete = useCallback((questionId, photoIdx) => {
     setPhotos(prev => {
       const next = { ...prev };
       const existing = Array.isArray(next[questionId])
@@ -971,41 +2234,38 @@ export default function LiveAuditScreen({
       } else {
         delete next[questionId];
       }
-      performSaveDraft({ photos: next });
       return next;
     });
-  };
+  }, []);
 
-  // ⚡ Handle Answer Select with Instant Save
-  const handleAnswerSelect = (questionId, val) => {
-    if (highlightedQuestionId === questionId) {
-      setHighlightedQuestionId(null);
+  const handleAnswerSelect = useCallback((questionId, val) => {
+    setHighlightedQuestionId(prevHighlighted => (prevHighlighted === questionId ? null : prevHighlighted));
+
+    const isFailing = val === "no" || val === false || (typeof val === "number" && val < 3);
+
+    if (isFailing) {
+      setOpenComments(prev => ({ ...prev, [questionId]: true }));
     }
+
     setAnswers(prev => {
       const next = { ...prev };
       if (next[questionId] === val) {
-        delete next[questionId]; // Toggle to unselect
+        delete next[questionId];
       } else {
         next[questionId] = val;
       }
-      performSaveDraft({ answers: next });
       return next;
     });
-  };
+  }, []);
 
-  // 📝 Handle Comment Change with Debounced Save
-  const handleCommentChange = (questionId, val) => {
-    setComments(prev => {
-      const next = { ...prev, [questionId]: val };
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = setTimeout(() => {
-        performSaveDraft({ comments: next });
-      }, 350);
-      return next;
-    });
-  };
+  const handleCommentChange = useCallback((questionId, val) => {
+    setComments(prev => ({ ...prev, [questionId]: val }));
+  }, []);
 
-  // Calculate live scores & stats (with N/A Fair Scoring & Critical Defect check)
+  const handleToggleComment = useCallback((questionId, currentlyOpen) => {
+    setOpenComments(prev => ({ ...prev, [questionId]: !currentlyOpen }));
+  }, []);
+
   const scoreAnalysis = useMemo(() => {
     let earnedScore = 0;
     let maxScore = 0;
@@ -1017,10 +2277,9 @@ export default function LiveAuditScreen({
       (sec.items || []).forEach(q => {
         const ans = answers[q.id];
 
-        // 🌟 1. If question is marked as N/A ("ข้าม"): do not count in maxScore
         if (ans === "na") {
           naCount++;
-          return; // Skip adding to maxScore
+          return;
         }
 
         const fullScore = (q.fullScore || 10);
@@ -1052,7 +2311,6 @@ export default function LiveAuditScreen({
     return { earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, failedQuestions };
   }, [currentSections, answers, comments, passingScore]);
 
-  // 📊 Live Category Score Breakdown (หมวดหมู่คะแนน - แยกอิสระจากหมวดคำถาม)
   const categoryBreakdown = useMemo(() => {
     const catMap = new Map();
 
@@ -1078,7 +2336,6 @@ export default function LiveAuditScreen({
           catData.answeredCount += 1;
         }
 
-        // N/A questions: excluded from maxScore (Fair Scoring)
         if (ans === "na") {
           return;
         }
@@ -1106,10 +2363,24 @@ export default function LiveAuditScreen({
       };
     });
 
-    // Sort by CORE_CATEGORY_ORDER, then others alphabetically
+    // 🌟 Sort categories strictly by the custom sequence (1, 2, 3...) defined in selectedForm
+    // (บนสุด 1, รองลงมา 2, 3... ไม่เกี่ยวกับ % คะแนน ตามที่ผู้ใช้กำหนด)
+    let formCategoryOrder = null;
+    if (selectedForm?.categoryOrderJson) {
+      try {
+        const parsed = JSON.parse(selectedForm.categoryOrderJson);
+        if (Array.isArray(parsed) && parsed.length > 0) formCategoryOrder = parsed;
+      } catch (e) {}
+    }
+    if (!formCategoryOrder && Array.isArray(selectedForm?.categories) && selectedForm.categories.length > 0) {
+      formCategoryOrder = selectedForm.categories;
+    }
+
+    const effectiveOrder = formCategoryOrder || CORE_CATEGORY_ORDER;
+
     categories.sort((a, b) => {
-      const idxA = CORE_CATEGORY_ORDER.indexOf(a.name);
-      const idxB = CORE_CATEGORY_ORDER.indexOf(b.name);
+      const idxA = effectiveOrder.indexOf(a.name);
+      const idxB = effectiveOrder.indexOf(b.name);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
@@ -1117,9 +2388,8 @@ export default function LiveAuditScreen({
     });
 
     return categories;
-  }, [currentSections, answers]);
+  }, [currentSections, answers, selectedForm?.categoryOrderJson, selectedForm?.categories]);
 
-  // 🌟 ตรวจสอบข้อที่ยังไม่ได้ตอบทั้งหมดในทุกหมวด
   const checkUnansweredQuestions = () => {
     const unanswered = [];
     currentSections.forEach((sec, sIdx) => {
@@ -1142,30 +2412,48 @@ export default function LiveAuditScreen({
 
   const highlightTimerRef = useRef(null);
 
-  // 🌟 ฟังก์ชันเลื่อนไปยังข้อที่ยังไม่ตอบ พร้อมแสดงขอบแดงและหายไปเองหลัง 3 วินาที
   const triggerHighlightQuestion = (questionId, targetSectionIdx) => {
+    skipScrollToTopRef.current = true;
     if (targetSectionIdx !== undefined && targetSectionIdx !== sectionIdx) {
       setSectionIdx(targetSectionIdx);
     }
     setHighlightedQuestionId(questionId);
 
-    setTimeout(() => {
-      const el = document.getElementById(`question-card-${questionId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 150);
-
-    // 🌟 แสดงขอบแดงชั่วคราว (3 วินาที) แล้วหายไปเองโดยอัตโนมัติ
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = setTimeout(() => {
       setHighlightedQuestionId(null);
-    }, 3000);
+    }, 6000);
+
+    let attempts = 0;
+    const maxAttempts = 30; // 30 * 50ms = 1.5s
+
+    const tryScroll = () => {
+      const el = document.getElementById(`question-card-${questionId}`);
+      if (el) {
+        // Calculate offset position for sticky headers
+        const rect = el.getBoundingClientRect();
+        const topOffset = 85;
+        const currentScroll = window.scrollY || document.documentElement.scrollTop || document.querySelector('main')?.scrollTop || 0;
+        const targetTop = Math.max(0, rect.top + currentScroll - topOffset);
+
+        try {
+          window.scrollTo({ top: targetTop, behavior: 'smooth' });
+          document.querySelector('main')?.scrollTo({ top: targetTop, behavior: 'smooth' });
+        } catch (e) {}
+
+        try {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch (e) {}
+      } else if (attempts < maxAttempts) {
+        attempts++;
+        setTimeout(tryScroll, 50);
+      }
+    };
+
+    setTimeout(tryScroll, 60);
   };
 
-  // 🌟 ตรวจสอบความถูกต้องและครบถ้วนของทุกหมวดหมู่ (Tab 1, Tab 2, Tab 3) ก่อนส่งผลตรวจ
   const validateEntireAuditForm = () => {
-    // 1️⃣ ตรวจสอบ Tab 1: ข้อมูลการตรวจ (Audit Details)
     if (isBackdated) {
       if (!backdatedStartDate?.trim()) {
         setActiveTab(1);
@@ -1228,26 +2516,66 @@ export default function LiveAuditScreen({
       }
     }
 
-    // 2️⃣ ตรวจสอบ Tab 2: รายการตรวจทุกหมวดหมู่ (Checklist Questions)
     const missing = checkUnansweredQuestions();
     if (missing.length > 0) {
-      setActiveTab(2);
       const firstMissing = missing[0];
-      triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
+      skipScrollToTopRef.current = true;
+      setActiveTab(2);
       alert(`⚠️ กรุณาตอบคำถามให้ครบทุกข้อ (ยังเหลืออีก ${missing.length} ข้อที่ยังไม่ได้ตอบ ในหมวด: "${firstMissing.sectionTitle}")`);
+      triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
       return false;
     }
 
-    // 3️⃣ ตรวจสอบ Tab 3: การลงชื่อรับทราบผลตรวจ (Signatures)
+    const missingComments = [];
+    currentSections.forEach((sec, sIdx) => {
+      (sec.items || []).forEach((item, qIdx) => {
+        const ans = answers[item.id];
+        const isNa = ans === "na";
+        const isFailed = !isNa && (
+          ans === "no" || 
+          ans === false || 
+          (typeof ans === "number" && ans < 3) || 
+          (!isNaN(Number(ans)) && ans !== "" && ans !== undefined && Number(ans) < 3)
+        );
+
+        if (isFailed) {
+          const comment = comments[item.id]?.trim();
+          if (!comment) {
+            missingComments.push({
+              sectionIdx: sIdx,
+              sectionTitle: sec.title || `หมวดที่ ${sIdx + 1}`,
+              questionId: item.id,
+              questionNumber: item.orderIndex || qIdx + 1,
+              questionText: item.questionText || item.text || `ข้อที่ ${qIdx + 1}`
+            });
+          }
+        }
+      });
+    });
+
+    if (missingComments.length > 0) {
+      const first = missingComments[0];
+      skipScrollToTopRef.current = true;
+      setActiveTab(2);
+      setOpenComments(prev => {
+        const next = { ...prev };
+        missingComments.forEach(m => { next[m.questionId] = true; });
+        return next;
+      });
+      alert(`⚠️ กรุณาระบุข้อคิดเห็น/เหตุผลสำหรับข้อที่ไม่ผ่านหรือคะแนนต่ำกว่า 3 (ยังขาดอีก ${missingComments.length} ข้อ ในหมวด: "${first.sectionTitle}")`);
+      triggerHighlightQuestion(first.questionId, first.sectionIdx);
+      return false;
+    }
+
     if (!auditeeSignName?.trim()) {
       setActiveTab(3);
-      alert("⚠️ กรุณาระบุชื่อ-นามสกุลของผู้รับการตรวจ / ผจก.สาขา");
+      alert("⚠️ กรุณาระบุชื่อ-นามสกุลของผู้รับการตรวจ");
       return false;
     }
 
     if (!auditeeSignature) {
       setActiveTab(3);
-      alert("⚠️ กรุณาลงลายมือชื่อผู้รับการตรวจ / ผจก.สาขา ให้เรียบร้อย");
+      alert("⚠️ กรุณาลงลายมือชื่อผู้รับการตรวจ ให้เรียบร้อย");
       return false;
     }
 
@@ -1260,7 +2588,6 @@ export default function LiveAuditScreen({
     return true;
   };
 
-  // 🛑 Final Submit Handler
   const handleFinalSubmit = async () => {
     if (!validateEntireAuditForm()) {
       setShowConfirmModal(false);
@@ -1270,17 +2597,20 @@ export default function LiveAuditScreen({
     setIsSubmitting(true);
     setSubmitError(null);
     try {
-      // 📍 Capture End GPS Coordinates on Submit
-      let endLat = userCoords.latitude;
-      let endLng = userCoords.longitude;
+      let endLat = null;
+      let endLng = null;
 
       if ("geolocation" in navigator) {
         try {
-          const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 3000 }));
-          endLat = pos.coords.latitude;
-          endLng = pos.coords.longitude;
+          const pos = await new Promise((res, rej) => 
+            navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 6000 })
+          );
+          if (pos?.coords) {
+            endLat = pos.coords.latitude;
+            endLng = pos.coords.longitude;
+          }
         } catch (e) {
-          // fallback to userCoords
+          // หากไม่มีสัญญาณ GPS หรือผู้ใช้ไม่อนุญาต ไม่ใช้ fallback (คงเป็น null ตามที่ต้องการ)
         }
       }
 
@@ -1289,19 +2619,25 @@ export default function LiveAuditScreen({
         (sec.items || []).forEach(q => {
           const ans = answers[q.id];
           const isNa = (ans === "na");
-          let isPassed = true;
-          let scoreGiven = q.fullScore || 10;
+          const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+          let isPassed = false;
+          let scoreGiven = 0;
+          let rawAnswer = String(ans !== undefined ? ans : "yes");
 
           if (isNa) {
             isPassed = true;
             scoreGiven = 0;
-          } else if (q.questionType === "yesno" || q.type === "yesno" || !q.questionType) {
-            isPassed = (ans === "yes" || ans === true);
-            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
-          } else if (q.questionType === "scale" || q.type === "scale") {
-            const num = Number(ans) || 5;
+            rawAnswer = "na";
+          } else if (qType === "scale") {
+            const parsedNum = Number(ans);
+            const num = Number.isFinite(parsedNum) ? parsedNum : 0;
             isPassed = num >= 3;
-            scoreGiven = (num / 5) * (q.fullScore || 10);
+            scoreGiven = Math.round(((num / 5) * (q.fullScore || 10)) * 100) / 100;
+            rawAnswer = String(num);
+          } else {
+            isPassed = (ans === "yes" || ans === true || ans === "true" || ans === 1);
+            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
+            rawAnswer = isPassed ? "yes" : "no";
           }
 
           const rawPhotos = photos[q.id];
@@ -1311,9 +2647,9 @@ export default function LiveAuditScreen({
 
           responses.push({
             surveyItemId: q.id,
-            rawAnswer: String(ans !== undefined ? ans : "yes"),
-            answerValue: String(ans !== undefined ? ans : "yes"),
-            scaleScore: typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : null),
+            rawAnswer,
+            answerValue: rawAnswer,
+            scaleScore: qType === "scale" ? (typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : 0)) : null,
             scoreGiven,
             isPassed,
             isNa,
@@ -1325,41 +2661,101 @@ export default function LiveAuditScreen({
 
       const effectiveStartedAt = isBackdated && backdatedStartDate
         ? new Date(backdatedStartDate).toISOString()
-        : (parsedDraftPayload?.startedAt || auditStartedAt || new Date().toISOString());
+        : (auditStartedAtRef.current || auditStartedAt || parsedDraftPayload?.startedAt || new Date().toISOString());
 
       const effectiveSubmittedAt = isBackdated && backdatedEndDate
         ? new Date(backdatedEndDate).toISOString()
         : new Date().toISOString();
 
+      const targetDraftId = getEffectiveDraftId();
+      const targetSchedId = effectiveSchedId;
+
       const payload = {
+        draftId: targetDraftId || null,
         locationId: Number(unit.id),
         surveyFormId: Number(selectedForm?.id || 1),
         primaryAuditorId: currentUser?.id ? Number(currentUser.id) : null,
         auditeeUserId: (unit.managerUserId && Number(unit.managerUserId) > 0) ? Number(unit.managerUserId) : null,
         auditeeNameText: auditeeSignName || unit.managerName || "-",
-        auditScheduleId: (preselectedPlan?.id && Number(preselectedPlan.id) > 0) ? Number(preselectedPlan.id) : null,
+        auditScheduleId: targetSchedId,
         staffCount: Number(staffCount) || 0,
         auditType: auditType || "announced",
         notes: extraNote || "",
-        metadataValuesJson: JSON.stringify(metadataValues),
+        metadataValuesJson: JSON.stringify({
+          ...metadataValues,
+          ...(staffCount !== "" && staffCount !== undefined ? { staff_count: staffCount } : {})
+        }),
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
-        startLatitude: parsedDraftPayload?.startLatitude || userCoords.latitude || unit?.latitude,
-        startLongitude: parsedDraftPayload?.startLongitude || userCoords.longitude || unit?.longitude,
-        endLatitude: endLat || userCoords.latitude || unit?.latitude,
-        endLongitude: endLng || userCoords.longitude || unit?.longitude,
+        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+        endLatitude: endLat,
+        endLongitude: endLng,
         isBackdated: Boolean(isBackdated),
+        auditDate: effectiveStartedAt,
         startedAt: effectiveStartedAt,
         submittedAt: effectiveSubmittedAt,
         responses
       };
 
       await api.post('/audit', payload);
+
+      // 🔒 กันไม่ให้ auto-save ยิงเซฟร่างซ้ำตอน component unmount หลังส่งสำเร็จ
+      isDiscardingRef.current = true;
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+
+      // 🧹 1. Clean localStorage thoroughly for this unit and schedule
       try {
         localStorage.removeItem('qsc_live_audit_draft');
-        if (unit?.id) localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
+        if (unit?.id) {
+          localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
+          localStorage.removeItem(`qsc_draft_${unit.id}`);
+        }
+        if (targetSchedId) {
+          localStorage.removeItem(`qsc_draft_sched_${targetSchedId}`);
+        }
+        if (targetDraftId) {
+          localStorage.removeItem(`qsc_draft_id_${targetDraftId}`);
+        }
+        Object.keys(localStorage).forEach(key => {
+          if (
+            (unit?.id && key.startsWith(`qsc_draft_${unit.id}_`)) ||
+            (targetSchedId && key.includes(`sched_${targetSchedId}`)) ||
+            (targetDraftId && key.includes(`id_${targetDraftId}`))
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
       } catch (e) { }
+
+      // 🧹 2. Defensively call discard API to ensure server drafts are completely removed
+      try {
+        const discardParams = new URLSearchParams();
+        if (targetDraftId) {
+          discardParams.append('id', String(targetDraftId));
+        } else {
+          if (unit?.id) discardParams.append('locationId', String(unit.id));
+          if (selectedForm?.id) discardParams.append('surveyFormId', String(selectedForm.id));
+          if (targetSchedId) discardParams.append('scheduleId', String(targetSchedId));
+          if (currentUser?.id) discardParams.append('auditorId', String(currentUser.id));
+        }
+        await api.delete(`/audit/draft?${discardParams.toString()}`);
+      } catch (e) { }
+
+      // 🧹 3. Reset internal state
+      draftIdRef.current = null;
+      setDraftId(null);
+      setAnswers({});
+      setPhotos({});
+      setComments({});
+      setAuditeeSignature(null);
+      setAuditorSignature(null);
+
+      if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
 
       setShowConfirmModal(false);
@@ -1369,103 +2765,111 @@ export default function LiveAuditScreen({
       setStep("select-unit");
     } catch (err) {
       console.error("Submit audit failed:", err);
-      setSubmitError(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการบันทึกผลตรวจ");
+      const errMsg = err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการบันทึกผลตรวจ";
+      setSubmitError(errMsg);
+      alert(`ไม่สามารถส่งผลตรวจได้: ${errMsg}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const goNext = () => {
-    // 🌟 หากยังไม่ใช่หมวดสุดท้าย ("หมวดถัดไป") ➔ เปลี่ยนหมวดได้อิสระ ไม่ต้องแสดงขอบแดง
-    if (sectionIdx < currentSections.length - 1) {
-      setSectionIdx(sectionIdx + 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    // 🌟 เฉพาะตอนอยู่ที่ปุ่มสุดท้าย ("ตรวจสอบและส่งผลตรวจ") ➔ จึงตรวจสอบว่าตอบครบทุกข้อหรือยัง
-    const missing = checkUnansweredQuestions();
-    if (missing.length > 0) {
-      const firstMissing = missing[0];
-      triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
-      return;
-    }
-
-    setShowConfirmModal(true); // Open Final Review & Confirmation Modal
-  };
-
-  // 🗑️ Discard Draft & Reset (ลบแบบร่างถาวรและกลับหน้าหลัก)
   const confirmDiscardDraft = async () => {
+    isDiscardingRef.current = true;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    setIsDiscarding(true);
     try {
+      const targetDraftId = getEffectiveDraftId();
+      const targetScheduleId = effectiveSchedId;
       const targetLocId = unit?.id || preselectedPlan?.locationId;
       const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || 1;
       const targetAuditorId = currentUser?.id || 1;
 
-      if (targetLocId) {
-        await api.delete(`/audit/draft?locationId=${targetLocId}&surveyFormId=${targetFormId}&auditorId=${targetAuditorId}`);
+      const params = new URLSearchParams();
+      if (targetDraftId) {
+        params.append('id', String(targetDraftId));
       } else {
-        await api.delete(`/audit/draft?auditorId=${targetAuditorId}`);
+        if (targetScheduleId) params.append('scheduleId', String(targetScheduleId));
+        if (targetLocId) params.append('locationId', String(targetLocId));
+        if (targetFormId) params.append('surveyFormId', String(targetFormId));
+        if (targetAuditorId) params.append('auditorId', String(targetAuditorId));
       }
+
+      await api.delete(`/audit/draft?${params.toString()}`);
       try {
         localStorage.removeItem('qsc_live_audit_draft');
-        if (targetLocId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
+        if (targetLocId) {
+          localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
+          localStorage.removeItem(`qsc_draft_${targetLocId}`);
+        }
+        if (targetScheduleId) localStorage.removeItem(`qsc_draft_sched_${targetScheduleId}`);
+        if (targetDraftId) localStorage.removeItem(`qsc_draft_id_${targetDraftId}`);
+        Object.keys(localStorage).forEach(key => {
+          if (
+            (targetLocId && key.startsWith(`qsc_draft_${targetLocId}_`)) ||
+            (targetScheduleId && key.includes(`sched_${targetScheduleId}`)) ||
+            (targetDraftId && key.includes(`id_${targetDraftId}`))
+          ) {
+            localStorage.removeItem(key);
+          }
+        });
       } catch (e) { }
       if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
     } catch (e) {
-      
+      console.error("Failed to discard draft:", e);
+    } finally {
+      setIsDiscarding(false);
+      setShowDiscardConfirmModal(false);
     }
 
-    // เคลียร์ State ฟอร์ม
+    draftIdRef.current = null;
+    setDraftId(null);
     setAnswers({});
     setPhotos({});
     setComments({});
+    setAuditeeSignature(null);
+    setAuditorSignature(null);
     setSectionIdx(0);
     setIsBackdated(false);
     setBackdatedStartDate("");
     setBackdatedEndDate("");
     setSyncStatus("idle");
-    setShowDiscardConfirmModal(false);
 
-    // ล้างสาขาที่เลือกไว้และบังคับกลับไปหน้าเลือกสาขา (select-unit)
     if (setUnit) setUnit(null);
-    setStep("select-unit");
+    if (preselectedPlan && onClearPlan) {
+      onClearPlan();
+    } else {
+      setStep("select-unit");
+    }
   };
 
   const handleDiscardDraft = () => {
     setShowDiscardConfirmModal(true);
   };
 
-  const goPrevSection = () => {
-    setSectionIdx(Math.max(0, sectionIdx - 1));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
   // ════════════════════════════════════════════════════════════════════════════
-  // STEP 1: SELECT UNIT (IN-PROGRESS FIRST + DISTANCE ASCENDING)
+  // STEP 1: SELECT UNIT
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "select-unit") {
-    const draftCount = activeDraft ? 1 : 0;
-
     return (
-      <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16">
-        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
+      <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16 animate-in fade-in duration-300">
         <div className="space-y-1">
           <Breadcrumbs
             items={[
-              { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
+              { label: "ตรวจหน้างาน", onClick: onClearPlan },
               { label: "เลือกสาขา" },
             ]}
           />
-          <p className="text-xs text-slate-500 font-medium px-1">เลือกสาขาเพื่อเริ่มตรวจประเมินคุณภาพ</p>
         </div>
 
-        {/* Search Box */}
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            placeholder="ค้นหาชื่อสาขา, โรงงาน หรือสำนักงาน..."
+            placeholder="ค้นหาชื่อสาขา, แบรนด์, โรงงาน หรือสำนักงาน..."
             value={searchBranch}
             onChange={(e) => setSearchBranch(e.target.value)}
             className="w-full text-xs sm:text-sm pl-8.5 pr-8 py-2 rounded-xl bg-white border border-slate-200 shadow-2xs outline-none font-medium text-slate-800 focus:border-[#0F6659] transition-colors placeholder:text-slate-400 placeholder:font-normal"
@@ -1482,56 +2886,118 @@ export default function LiveAuditScreen({
           )}
         </div>
 
-        {/* Branch Cards List */}
-        <div className="flex flex-col gap-3">
-          {paginatedBranchList.map((u) => {
-            const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
-            const distLabel = formatDistance(distMeters);
-            const isPassed = u.lastScore >= 85;
-
-            return (
+        {sortedBranchList.length === 0 ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center shadow-2xs space-y-3 my-2">
+            <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+              <Search size={22} />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-slate-800">ไม่พบสาขาที่ค้นหา</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                ไม่พบสาขาที่ตรงกับคำค้นหา "{searchBranch}" กรุณาลองค้นหาด้วยชื่อสาขา แบรนด์ หรือภูมิภาคอื่น
+              </p>
+            </div>
+            {searchBranch && (
               <button
-                key={u.id || u.name}
                 type="button"
-                onClick={() => {
-                  setUnit(u);
-                  setStep("select-form");
-                }}
-                className="w-full rounded-2xl sm:rounded-3xl p-4 sm:p-5 border shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-98 bg-white border-slate-200 hover:border-emerald-500"
+                onClick={() => setSearchBranch("")}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-bold text-slate-700 transition-colors cursor-pointer"
               >
-                <div className="flex items-center gap-3.5 min-w-0">
-                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-colors bg-emerald-50 text-[#0F6659] border-emerald-200 group-hover:bg-[#0F6659] group-hover:text-white">
-                    <Store size={24} />
-                  </div>
+                ล้างคำค้นหา
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {paginatedBranchList.map((u) => {
+              const distMeters = getDistanceInMeters(userCoords.latitude, userCoords.longitude, u.latitude, u.longitude);
+              const distLabel = formatDistance(distMeters);
+              const isPassed = (u.lastScore || 0) >= 85;
+              const hasScore = u.lastScore !== undefined && u.lastScore !== null && u.lastScore > 0;
 
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 leading-snug group-hover:text-[#0F6659] transition-colors">
+              // รวมชื่อแบรนด์ทั้งหมด
+              const brands = (u.locationBrands || [])
+                .map(lb => lb.brand?.name || lb.brandName)
+                .filter(Boolean);
+              if (brands.length === 0 && (u.brand?.name || u.brandName)) {
+                brands.push(u.brand?.name || u.brandName);
+              }
+              const brandText = brands.join(", ");
+              const codeText = u.code || u.shortName || "";
+
+              return (
+                <button
+                  key={u.id || u.name}
+                  type="button"
+                  onClick={() => {
+                    setUnit(u);
+                    const matchedForms = formList.filter(f => isFormApplicableToLocation(f, u));
+                    if (matchedForms.length > 0) {
+                      setSelectedForm(matchedForms[0]);
+                    }
+                    setStep("select-form");
+                  }}
+                  className="w-full rounded-2xl p-3.5 sm:p-4 border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-[#0F6659] transition-all cursor-pointer flex items-center justify-between gap-3 text-left group active:scale-[0.99] bg-white"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    {/* ไอคอนร้านค้าทรงโค้งมน */}
+                    <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl flex items-center justify-center shrink-0 border transition-all bg-emerald-50 text-[#0F6659] border-emerald-100/80 group-hover:bg-[#0F6659] group-hover:text-white shadow-2xs">
+                      <Store size={22} />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      {/* 1. ชื่อสาขา */}
+                      <h3 className="text-sm sm:text-base font-extrabold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate leading-tight">
                         {u.fullName || u.name}
                       </h3>
-                    </div>
 
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <span className="text-xs font-medium px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-700">
-                        {((u.locationType?.code === 'Office' || u.locationType === 'Office') ? '🏢 สำนักงาน' : (u.locationType?.code === 'Plant' || u.locationType === 'Plant') ? '🏭 โรงงาน' : '🏪 สาขา')} · {u.region}
-                      </span>
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-xl bg-emerald-100 text-emerald-800 flex items-center gap-1">
-                        <Navigation size={11} /> {distLabel}
-                      </span>
-                      <span className={`text-xs font-bold px-2.5 py-0.5 rounded-xl ${isPassed ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                        คะแนนล่าสุด {u.lastScore}%
-                      </span>
+                      {/* 2. รหัสชื่อตัวย่อ · แบรนด์ */}
+                      <p className="text-xs font-semibold text-slate-500 mt-1 truncate flex items-center gap-1.5">
+                        {codeText && (
+                          <span className="font-extrabold text-slate-700 font-mono tracking-tight shrink-0">
+                            {codeText}
+                          </span>
+                        )}
+                        {codeText && brandText && (
+                          <span className="w-1 h-1 rounded-full bg-slate-400 shrink-0 mx-0.5 inline-block" />
+                        )}
+                        {brandText && (
+                          <span className="text-slate-500 truncate font-medium">
+                            {brandText}
+                          </span>
+                        )}
+                      </p>
+
+                      {/* 3. ระยะห่าง และ คะแนนล่าสุด */}
+                      <div className="flex items-center gap-2 mt-2 flex-wrap">
+                        {/* ระยะห่าง */}
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-600 border border-slate-200/80 shrink-0">
+                          <Navigation size={10} className="text-[#0F6659]" />
+                          {distLabel}
+                        </span>
+
+                        {/* คะแนนล่าสุด */}
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-lg border shrink-0 ${
+                          isPassed
+                            ? "bg-emerald-50 text-[#0F6659] border-emerald-200/80"
+                            : (hasScore
+                                ? "bg-amber-50 text-amber-800 border-amber-200/80"
+                                : "bg-slate-50 text-slate-500 border-slate-200/80")
+                        }`}>
+                          คะแนนล่าสุด {u.lastScore !== undefined && u.lastScore !== null ? `${u.lastScore}%` : "-"}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <ChevronRight size={20} className="text-slate-400 group-hover:text-emerald-700 group-hover:translate-x-1 transition-all" />
-                </div>
-              </button>
-            );
-          })}
-          {totalBranchPages > 1 && (
+                  {/* ปุ่มลูกศรไปข้างหน้าด้านขวา */}
+                  <div className="w-8 h-8 rounded-full bg-slate-50 group-hover:bg-emerald-50 text-slate-400 group-hover:text-[#0F6659] flex items-center justify-center shrink-0 transition-all ml-1">
+                    <ChevronRight size={16} strokeWidth={2.5} className="group-hover:translate-x-0.5 transition-transform" />
+                  </div>
+                </button>
+              );
+            })}
+            {totalBranchPages > 1 && (
             <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-200 text-xs font-semibold text-slate-600 mt-2 shadow-2xs">
               <span>หน้า {branchPage} จาก {totalBranchPages} ({sortedBranchList.length} สาขา)</span>
               <div className="flex items-center gap-1.5">
@@ -1544,7 +3010,6 @@ export default function LiveAuditScreen({
                   ก่อนหน้า
                 </button>
 
-                {/* 🌟 กล่องกรอกตัวเลขหน้า */}
                 <input
                   type="number"
                   min="1"
@@ -1573,61 +3038,132 @@ export default function LiveAuditScreen({
             </div>
           )}
         </div>
-      </div>
-    );
-  }
+      )}
+    </div>
+  );
+}
 
   // ════════════════════════════════════════════════════════════════════════════
   // STEP 2: SELECT FORM
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "select-form") {
+    const unitTypeName = unit?.locationType?.name || (typeof unit?.locationType === 'string' ? unit.locationType : "สาขาหน้าร้าน");
+    const unitBrands = unit?.locationBrands?.map(lb => lb.brand?.name || lb.brandName).filter(Boolean).join(", ") || "";
+    const unitMonthlyStatus = getLocationMonthlyStatus(unit, { auditRecords, activeDrafts, schedules });
+
     return (
-      <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto">
-        {/* 🌟 In-page Breadcrumb (แถบบนใช้โลโก้ปกติ ไม่สลับเป็นย้อนกลับ) */}
-        <div className="space-y-1">
+      <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-16 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleDesktopBack}
+            className="hidden lg:flex items-center justify-center w-8 h-8 rounded-xl bg-white hover:bg-slate-100 text-slate-600 hover:text-slate-900 border border-slate-200 shadow-2xs transition-colors shrink-0 cursor-pointer"
+            title="ย้อนกลับไปเลือกสาขา"
+          >
+            <ChevronLeft size={18} />
+          </button>
           <Breadcrumbs
             items={[
-              { label: "ตรวจประเมินหน้างาน (Live Audit)", onClick: onClearPlan },
-              { label: "เลือกสาขา", onClick: () => setStep("select-unit") },
+              { label: "ตรวจหน้างาน", onClick: onClearPlan },
+              { label: `${unit?.name || 'สาขา'}`, onClick: () => setStep("select-unit") },
               { label: "เลือกฟอร์ม" },
             ]}
           />
-          <p className="text-xs text-slate-500 font-medium px-1">เลือกฟอร์มเพื่อเริ่มตรวจประเมินคุณภาพ</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {formList.map((f) => (
-            <button
-              key={f.id || f.title}
-              type="button"
-              onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
-              className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${selectedForm?.id === f.id ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30' : 'bg-white border-slate-200 hover:border-emerald-400'
+        {/* 🌟 Branch Information Card with Bordered Monthly Status Badge (No Dot, No Time) */}
+        <div className="bg-white rounded-3xl p-4 sm:p-5 border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shadow-2xs">
+              <Store size={24} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-[15px] sm:text-[17px] font-bold text-slate-900 truncate">
+                {unit?.fullName || unit?.name || "ไม่ระบุสาขา"}
+              </h3>
+              <p className="text-xs text-slate-500 font-medium truncate mt-0.5">
+                {unitBrands ? `${unitBrands}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="shrink-0">
+            <LocationStatusBadge statusInfo={unitMonthlyStatus} />
+          </div>
+        </div>
+
+        {/* Forms Section Header */}
+        <div className="flex items-center justify-between flex-wrap gap-2 pt-1 px-1">
+          <h4 className="text-xs sm:text-sm font-bold text-slate-700">
+            แบบฟอร์มที่เปิดให้ใช้งาน
+          </h4>
+          <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+            {applicableForms.length} รายการ
+          </span>
+        </div>
+
+        {applicableForms.length === 0 ? (
+          <div className="bg-white rounded-3xl p-8 sm:p-10 border border-slate-200 text-center shadow-xs space-y-4 my-2">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto">
+              <AlertCircle size={32} />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-slate-800">ไม่พบแบบฟอร์มที่ตรงกับสาขานี้</h3>
+              <p className="text-xs sm:text-sm text-slate-500 max-w-md mx-auto leading-relaxed">
+                สาขา <strong className="text-slate-700">"{unit?.fullName || unit?.name}"</strong> เป็นประเภทสถานที่ 
+                <span className="font-semibold text-slate-700"> {unitTypeName}</span> 
+                {unitBrands ? <span> (แบรนด์ {unitBrands})</span> : ''} ซึ่งยังไม่มีแบบฟอร์มที่กำหนดไว้สำหรับแบรนด์และประเภทสถานที่นี้
+              </p>
+            </div>
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setStep("select-unit")}
+                className="px-5 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs sm:text-sm font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-2"
+              >
+                <ChevronLeft size={16} />
+                <span>เปลี่ยนสาขาที่ต้องการตรวจ</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {applicableForms.map((f) => (
+              <button
+                key={f.id || f.title}
+                type="button"
+                onClick={() => { setSelectedForm(f); setStep("audit"); setActiveTab(1); }}
+                className={`rounded-3xl p-5 text-left border shadow-2xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between gap-4 group active:scale-98 ${
+                  selectedForm?.id === f.id
+                    ? 'border-[#0F6659] bg-emerald-50/40 ring-2 ring-emerald-500/30'
+                    : 'bg-white border-slate-200 hover:border-emerald-400'
                 }`}
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
-                    เกณฑ์ผ่าน {f.passingScore || 85}%
-                  </span>
-                  <span className="text-xs font-bold text-slate-400">
-                    {(f.sections || []).length} หมวดการตรวจ
-                  </span>
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
+                      เกณฑ์ผ่าน {f.passingScore || 85}%
+                    </span>
+                    <span className="text-xs font-bold text-slate-400">
+                      {f.sectionCount !== undefined && f.sectionCount !== null ? f.sectionCount : (f.sections || []).length} หมวดการตรวจ
+                    </span>
+                  </div>
+                  <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
+                    {f.title}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
+                    {f.description}
+                  </p>
                 </div>
-                <h3 className="text-[15px] sm:text-[16px] font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors">
-                  {f.title}
-                </h3>
-                <p className="text-xs sm:text-sm text-slate-500 mt-1 line-clamp-2">
-                  {f.description}
-                </p>
-              </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
-                <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
-              </div>
-            </button>
-          ))}
-        </div>
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  <span className="text-[13.5px] font-extrabold text-[#0F6659]">เลือกแบบฟอร์มนี้</span>
+                  <ChevronRight size={16} className="text-[#0F6659] group-hover:translate-x-1 transition-transform" />
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -1637,7 +3173,6 @@ export default function LiveAuditScreen({
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "audit") {
     const handleProceedToSection = () => {
-      // Validate all required metadata fields
       for (const field of activeMetadataFields) {
         if (!field.required) continue;
 
@@ -1672,147 +3207,210 @@ export default function LiveAuditScreen({
       setShowConfirmModal(true);
     };
 
+    const categoryItems = [
+      { id: "details", label: "รายละเอียด", icon: <ClipboardList size={16} />, count: null },
+      ...currentSections.map((sec, index) => ({
+        id: `section-${index}`,
+        label: sec.title || `หมวดที่ ${index + 1}`,
+        icon: <span className="text-[11px] font-black">{index + 1}</span>,
+        count: `${sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length || 0}/${sec.items?.length || 0}`,
+        index,
+      })),
+      { id: "submit", label: "ลงชื่อและส่งผล", icon: <PenTool size={16} />, count: null },
+    ];
+
+    const jumpToCategory = (item) => {
+      setIsCategoryDrawerOpen(false);
+      if (item.id === "details") {
+        setActiveTab(1);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (item.id === "submit") {
+        setActiveTab(3);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      // ไม่ให้เด้งขึ้นมาบนสุด
+      if (item.index !== undefined) {
+        setActiveSectionIndex(item.index);
+      }
+      if (activeTab !== 2) {
+        skipScrollToTopRef.current = true;
+        setActiveTab(2);
+      }
+      // ให้แสดงข้อสอบก่อนค่อยเลื่อนลง
+      setTimeout(() => {
+        const el = document.getElementById(`audit-section-${item.index}`);
+        if (el) {
+          const topOffset = 70; // ระยะเผื่อ TopBar ด้านบน
+          const elPosition = el.getBoundingClientRect().top;
+          const currentScroll = window.scrollY || document.documentElement.scrollTop || document.querySelector('main')?.scrollTop || 0;
+          const targetTop = elPosition + currentScroll - topOffset;
+
+          window.scrollTo({ top: targetTop, behavior: "smooth" });
+          document.querySelector('main')?.scrollTo({ top: targetTop, behavior: "smooth" });
+        }
+      }, 150);
+    };
+
     return (
-      <div className="page-transition w-full min-h-screen bg-slate-50/50 pb-20">
-        {/* Top Summary & Live Score Card */}
-        <div className="pt-2.5 pb-2 px-3 sm:px-4">
-          <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
-                {syncStatus !== "idle" && (
-                  syncStatus === "saving" ? (
-                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 animate-pulse">
-                      <Loader2 size={10} className="animate-spin text-amber-600" /> Syncing...
-                    </span>
-                  ) : syncStatus === "error" ? (
-                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
-                      <AlertCircle size={10} className="text-rose-600" /> Error
-                    </span>
-                  ) : (
-                    <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-[#0F6659]">
-                      <CheckCircle2 size={10} className="text-[#0F6659]" /> Synced
-                    </span>
-                  )
-                )}
-              </div>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
-              <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
-                <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
-                  <PenTool size={11} className="text-[#0F6659] shrink-0" />
-                  <span className="truncate">{auditorName || "ระบุผู้ตรวจ"}</span>
-                </span>
-                <span className="flex items-center gap-1 shrink-0 text-slate-400">
-                  <Clock size={11} className="shrink-0" />
-                  <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
-                </span>
-              </div>
-            </div>
-
-            <div className="shrink-0 flex flex-col items-center justify-center">
-              <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
-                  <path className="text-slate-100" strokeWidth="4" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                  <path className={`${scoreAnalysis.percentage >= passingScore ? 'text-emerald-500' : 'text-amber-500'} transition-all duration-1000 ease-out`} strokeDasharray={`${scoreAnalysis.percentage}, 100`} strokeWidth="4" stroke="currentColor" fill="none" strokeLinecap="round" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-sm sm:text-base font-black text-slate-800 leading-none">{scoreAnalysis.percentage}%</span>
-                </div>
-              </div>
-              <span className={`text-[9px] sm:text-[10px] font-extrabold mt-1.5 ${scoreAnalysis.isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                {scoreAnalysis.isPassed ? "ผ่านเกณฑ์มาตรฐาน" : "กำลังประเมิน"}
-              </span>
-              <span className="text-[9px] text-slate-400 font-medium">เกณฑ์ ≥ {passingScore}%</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 📊 Category Scores Breakdown Card (แสดงคะแนนแยกตามหมวดหมู่คะแนน) */}
-        {categoryBreakdown.length > 0 && (
-          <div className="px-3 sm:px-4 mb-2">
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs transition-all">
-              <div
-                className={`flex items-center justify-between gap-2 select-none cursor-pointer ${
-                  isCategoryBreakdownExpanded ? "mb-2.5 pb-2 border-b border-slate-100" : ""
-                }`}
-                onClick={() => setIsCategoryBreakdownExpanded(prev => !prev)}
-              >
-                <div className="flex items-center gap-1.5">
-                  <BarChart3 size={14} className="text-[#0F6659]" />
-                  <span className="text-xs font-black text-slate-800 tracking-tight">
-                    คะแนนแยกตามหมวดหมู่
-                  </span>
-                </div>
+      <div className="w-full min-h-screen bg-slate-50/50 pb-20 pt-[62px]">
+        {isCategoryDrawerOpen && typeof document !== "undefined" && createPortal(
+          <CategoryNavigationDrawer
+            onClose={() => setIsCategoryDrawerOpen(false)}
+            categoryItems={categoryItems}
+            activeTab={activeTab}
+            activeSectionIdx={activeSectionIdx}
+            onSelectCategory={jumpToCategory}
+          />,
+          document.body
+        )}
+        {/* 🌟 กล่องยุบ-ขยายการ์ดสรุปคะแนนด้านบน เมื่อ scroll */}
+        <div className="space-y-2 mb-2">
+          {/* Top Summary & Live Score Card */}
+          <div className="pt-2.5 pb-2 px-3 sm:px-4">
+            <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  {/*<span className="text-[10px] font-bold text-slate-400">
-                    เกณฑ์ผ่าน ≥ {passingScore}%
-                  </span>*/}
                   <button
                     type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsCategoryBreakdownExpanded(prev => !prev);
-                    }}
-                    className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-lg transition-all cursor-pointer"
+                    onClick={handleDesktopBack}
+                    className="hidden lg:flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 transition-colors shrink-0 cursor-pointer mr-0.5"
+                    title="ย้อนกลับ / บันทึกร่าง"
                   >
-                    <ChevronDown
-                      size={13}
-                      className={`transition-transform duration-200 ${isCategoryBreakdownExpanded ? "rotate-180" : ""}`}
-                    />
+                    <ChevronLeft size={18} />
                   </button>
+                  <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
+                  {syncStatus !== "idle" && (
+                    syncStatus === "saving" ? (
+                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 animate-pulse">
+                        <Loader2 size={10} className="animate-spin text-amber-600" /> Syncing...
+                      </span>
+                    ) : syncStatus === "error" ? (
+                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
+                        <AlertCircle size={10} className="text-rose-600" /> Error
+                      </span>
+                    ) : (
+                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-[#0F6659]">
+                        <CheckCircle2 size={10} className="text-[#0F6659]" /> Synced
+                      </span>
+                    )
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
+                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
+                  <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
+                    <PenTool size={11} className="text-[#0F6659] shrink-0" />
+                    <span className="truncate">{auditorName || "ระบุผู้ตรวจ"}</span>
+                  </span>
+                  <span className="flex items-center gap-1 shrink-0 text-slate-400">
+                    <Clock size={11} className="shrink-0" />
+                    <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                  </span>
                 </div>
               </div>
 
-              {isCategoryBreakdownExpanded && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 animate-in fade-in duration-200">
-                  {categoryBreakdown.map((cat) => {
-                    const isPassing = cat.percentage >= passingScore;
-                    const barColor =
-                      cat.answeredCount === 0
-                        ? "bg-slate-200"
-                        : isPassing
-                        ? "bg-emerald-500"
-                        : cat.percentage >= 70
-                        ? "bg-amber-500"
-                        : "bg-rose-500";
-
-                    const textColor =
-                      cat.answeredCount === 0
-                        ? "text-slate-400"
-                        : isPassing
-                        ? "text-emerald-700"
-                        : cat.percentage >= 70
-                        ? "text-amber-700"
-                        : "text-rose-700";
-
-                    return (
-                      <div key={cat.name} className="flex items-center gap-2.5 py-0.5">
-                        <div className="w-28 sm:w-32 shrink-0 truncate text-xs font-bold text-slate-700" title={cat.name}>
-                          {cat.name}
-                        </div>
-
-                        {/* Progress Bar [█████████] */}
-                        <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ease-out ${barColor}`}
-                            style={{ width: `${Math.min(100, Math.max(0, cat.percentage))}%` }}
-                          />
-                        </div>
-
-                        {/* Percentage (e.g. 91%) */}
-                        <div className="w-10 text-right shrink-0">
-                          <span className={`font-mono font-black text-xs ${textColor}`}>
-                            {cat.percentage}%
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+              <div className="shrink-0 flex flex-col items-center justify-center">
+                <div className="relative w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center">
+                  <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+                    <path className="text-slate-100" strokeWidth="4" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                    <path className={`${scoreAnalysis.percentage >= passingScore ? 'text-emerald-500' : 'text-amber-500'} transition-all duration-1000 ease-out`} strokeDasharray={`${scoreAnalysis.percentage}, 100`} strokeWidth="4" stroke="currentColor" fill="none" strokeLinecap="round" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-sm sm:text-base font-black text-slate-800 leading-none">{scoreAnalysis.percentage}%</span>
+                  </div>
                 </div>
-              )}
+                <span className={`text-[9px] sm:text-[10px] font-extrabold mt-1.5 ${scoreAnalysis.isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
+                  {scoreAnalysis.isPassed ? "ผ่านเกณฑ์มาตรฐาน" : "กำลังประเมิน"}
+                </span>
+                <span className="text-[9px] text-slate-400 font-medium">เกณฑ์ ≥ {passingScore}%</span>
+              </div>
             </div>
           </div>
-        )}
+
+          {/* 📊 Category Scores Breakdown Card */}
+          {categoryBreakdown.length > 0 && (
+            <div className="px-3 sm:px-4 mb-2">
+              <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs transition-all">
+                <div
+                  className={`flex items-center justify-between gap-2 select-none cursor-pointer ${
+                    isCategoryBreakdownExpanded ? "mb-2.5 pb-2 border-b border-slate-100" : ""
+                  }`}
+                  onClick={() => setIsCategoryBreakdownExpanded(prev => !prev)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <BarChart3 size={14} className="text-[#0F6659]" />
+                    <span className="text-xs font-black text-slate-800 tracking-tight">
+                      คะแนนแยกตามหมวดหมู่
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsCategoryBreakdownExpanded(prev => !prev);
+                      }}
+                      className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2 py-0.5 rounded-lg transition-all cursor-pointer"
+                    >
+                      <ChevronDown
+                        size={13}
+                        className={`transition-transform duration-200 ${isCategoryBreakdownExpanded ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {isCategoryBreakdownExpanded && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 animate-in fade-in duration-200">
+                    {categoryBreakdown.map((cat) => {
+                      const isPassing = cat.percentage >= passingScore;
+                      const barColor =
+                        cat.answeredCount === 0
+                          ? "bg-slate-200"
+                          : isPassing
+                          ? "bg-emerald-500"
+                          : cat.percentage >= 70
+                          ? "bg-amber-500"
+                          : "bg-rose-500";
+
+                      const textColor =
+                        cat.answeredCount === 0
+                          ? "text-slate-400"
+                          : isPassing
+                          ? "text-emerald-700"
+                          : cat.percentage >= 70
+                          ? "text-amber-700"
+                          : "text-rose-700";
+
+                      return (
+                        <div key={cat.name} className="flex items-center gap-2.5 py-0.5">
+                          <div className="w-44 sm:w-52 shrink-0 truncate text-xs font-bold text-slate-700" title={getCategoryDisplay(cat.name)}>
+                            {getCategoryDisplay(cat.name)}
+                          </div>
+
+                          <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ease-out ${barColor}`}
+                              style={{ width: `${Math.min(100, Math.max(0, cat.percentage))}%` }}
+                            />
+                          </div>
+
+                          <div className="w-10 text-right shrink-0">
+                            <span className={`font-mono font-black text-xs ${textColor}`}>
+                              {cat.percentage}%
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Navigation Tabs */}
         <div className="px-4 mb-4 mt-2">
@@ -1842,10 +3440,7 @@ export default function LiveAuditScreen({
           {/* TAB 1: INFO */}
           {activeTab === 1 && (
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4 animate-in fade-in duration-200">
-              {/*<h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2 mb-3">ข้อมูลการตรวจ (Audit Details)</h3>*/}
-
               {activeMetadataFields.map((field) => {
-                // System field: Auditor
                 if (field.id === "auditor" || field.type === "auditor") {
                   return (
                     <div key={field.id}>
@@ -1860,7 +3455,7 @@ export default function LiveAuditScreen({
                             setAuditorName(val);
                             performSaveDraft({ auditorName: val });
                           }}
-                          className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                          className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
@@ -1875,7 +3470,6 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // System field: Audit Type
                 if (field.id === "audit_type") {
                   const opts = Array.isArray(field.options) && field.options.length > 0
                     ? field.options
@@ -1911,8 +3505,8 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // System field: Staff Count
                 if (field.id === "staff_count") {
+                  const currentStaffVal = staffCount !== "" ? staffCount : (metadataValues.staff_count ?? "");
                   return (
                     <div key={field.id} className="w-full">
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -1922,13 +3516,15 @@ export default function LiveAuditScreen({
                         <input
                           type="number"
                           min="0"
-                          value={staffCount}
+                          value={currentStaffVal}
                           onChange={(e) => {
                             const val = e.target.value;
                             setStaffCount(val);
-                            performSaveDraft({ staffCount: val });
+                            const nextMeta = { ...metadataValues, staff_count: val };
+                            setMetadataValues(nextMeta);
+                            performSaveDraft({ staffCount: val, metadataValues: nextMeta });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
                         />
                         <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
@@ -1941,7 +3537,6 @@ export default function LiveAuditScreen({
 
                 const currentVal = metadataValues[field.id];
 
-                // Number field with custom unit
                 if (field.type === "number") {
                   return (
                     <div key={field.id}>
@@ -1960,10 +3555,10 @@ export default function LiveAuditScreen({
                             performSaveDraft({ metadataValues: next });
                           }}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs"
                         />
                         {field.unit && (
-                          <div className="absolute right-2.5 px-2 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs font-bold text-emerald-800 select-none">
+                          <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
                             {field.unit}
                           </div>
                         )}
@@ -1972,7 +3567,6 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // Date Picker field
                 if (field.type === "date") {
                   return (
                     <div key={field.id}>
@@ -1985,11 +3579,11 @@ export default function LiveAuditScreen({
                           type="date"
                           value={currentVal || ""}
                           onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                          className="w-full text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
                         />
                         <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
                         {!currentVal && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
                             วว/ดด/ปปปป
                           </div>
                         )}
@@ -1998,7 +3592,6 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // Time Picker field
                 if (field.type === "time") {
                   return (
                     <div key={field.id}>
@@ -2011,11 +3604,11 @@ export default function LiveAuditScreen({
                           type="time"
                           value={currentVal || ""}
                           onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                          className="w-full text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
                         />
                         <Clock size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
                         {!currentVal && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
                             --:--
                           </div>
                         )}
@@ -2024,7 +3617,6 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // Select / Choice Badges field
                 if (field.type === "select") {
                   const opts = Array.isArray(field.options) ? field.options : [];
                   const isSmall = opts.length <= 4;
@@ -2054,7 +3646,7 @@ export default function LiveAuditScreen({
                           <select
                             value={currentVal || ""}
                             onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
-                            className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                            className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                           >
                             <option value="">-- เลือก --</option>
                             {opts.map(opt => (
@@ -2070,7 +3662,6 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // Toggle Switch field
                 if (field.type === "toggle") {
                   const isTrue = Boolean(currentVal);
                   return (
@@ -2095,7 +3686,6 @@ export default function LiveAuditScreen({
                   );
                 }
 
-                // Text / Note field (Unified text & multi-line note)
                 return (
                   <div key={field.id}>
                     <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -2106,22 +3696,23 @@ export default function LiveAuditScreen({
                       value={currentVal || ""}
                       onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
                       placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
-                      className="w-full text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
+                      className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
                     />
                   </div>
                 );
               })}
 
-              {/* Backdated Audit Toggle Card */}
-              <div className="p-4 rounded-2xl bg-emerald-50/40 border border-emerald-200/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock size={16} className="text-[#0F6659]" />
-                    <div>
-                      <span className="text-xs font-extrabold text-slate-800 block">
+              <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50/50 border border-emerald-200/90 space-y-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100/80 text-[#0F6659] flex items-center justify-center shrink-0">
+                      <Clock size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm sm:text-base font-black text-slate-900 block leading-tight">
                         บันทึกผลการตรวจย้อนหลัง
                       </span>
-                      <span className="text-[11px] text-slate-500 font-medium">
+                      <span className="text-xs sm:text-sm text-slate-600 font-medium block mt-0.5">
                         เปิดใช้งานเมื่อต้องการเพิ่มผลตรวจที่ได้ตรวจจริงในอดีต
                       </span>
                     </div>
@@ -2147,8 +3738,8 @@ export default function LiveAuditScreen({
                         performSaveDraft({ isBackdated: next });
                       }
                     }}
-                    className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                      isBackdated ? "bg-[#0F6659] text-white shadow-2xs" : "bg-slate-200 text-slate-600 hover:bg-slate-300"
+                    className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer min-h-[38px] flex items-center justify-center shrink-0 active:scale-95 ${
+                      isBackdated ? "bg-[#0F6659] text-white shadow-sm hover:bg-[#0B4E44]" : "bg-slate-200 hover:bg-slate-300 text-slate-700"
                     }`}
                   >
                     {isBackdated ? "เปิด" : "ปิด"}
@@ -2156,10 +3747,10 @@ export default function LiveAuditScreen({
                 </div>
 
                 {isBackdated && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-emerald-100 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-3 border-t border-emerald-200/60 animate-in fade-in duration-200">
                     <div>
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                        <Calendar size={13} className="text-[#0F6659]" />
+                        <Calendar size={14} className="text-[#0F6659]" />
                         <span>เริ่มตรวจจริง</span> <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative flex items-center">
@@ -2171,11 +3762,11 @@ export default function LiveAuditScreen({
                             setBackdatedStartDate(val);
                             performSaveDraft({ backdatedStartDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
-                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedStartDate && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-normal">
                             วว/ดด/ปปปป --:--
                           </div>
                         )}
@@ -2183,7 +3774,7 @@ export default function LiveAuditScreen({
                     </div>
                     <div>
                       <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-1.5">
-                        <Calendar size={13} className="text-[#0F6659]" />
+                        <Calendar size={14} className="text-[#0F6659]" />
                         <span>สิ้นสุดตรวจจริง</span> <span className="text-rose-500">*</span>
                       </label>
                       <div className="relative flex items-center">
@@ -2195,11 +3786,11 @@ export default function LiveAuditScreen({
                             setBackdatedEndDate(val);
                             performSaveDraft({ backdatedEndDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[48px] cursor-pointer"
+                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
-                        <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
+                        <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedEndDate && (
-                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-medium">
+                          <div className="absolute inset-0 left-3.5 flex items-center pointer-events-none text-slate-400 text-xs sm:text-sm font-normal">
                             วว/ดด/ปปปป --:--
                           </div>
                         )}
@@ -2233,176 +3824,61 @@ export default function LiveAuditScreen({
 
           {/* TAB 2: QUESTIONS */}
           {activeTab === 2 && (
-            <div className="space-y-6 animate-in fade-in duration-200">
+            <div className="space-y-6">
               {currentSections.map((sec, sIdx) => (
-                <div key={sec.id || sIdx} className="space-y-3">
-                  <div className="sticky top-44 z-30 flex items-center justify-between gap-2 bg-slate-50/95 backdrop-blur-sm py-2 px-1 rounded-xl">
-                    <h3 className="text-sm font-black text-slate-800 flex items-center gap-2">
-                      <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs">{sIdx + 1}</span>
-                      {sec.title}
-                    </h3>
-                    <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-1 rounded-lg border border-slate-200 shadow-2xs">
-                      {sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length}/{sec.items?.length || 0} ตอบแล้ว
-                    </span>
+                <div key={sec.id || sIdx} id={`audit-section-${sIdx}`} className="audit-section-anchor space-y-3">
+                  {/* 🌟 จุดมาร์คหัวข้อหมวดหมู่: ขนาดเท่าแถบด้านบนหลัก สีเดียวกับพื้นหลัง ตอนปกติไร้เส้นขอบ เมื่อเลื่อนล็อคบนสุดจะเพิ่มเส้นขอบล่างอัตโนมัติ */}
+                  <div
+                    id={`audit-section-header-${sIdx}`}
+                    onClick={() => {
+                      setActiveSectionIndex(sIdx);
+                      setIsCategoryDrawerOpen(true);
+                    }}
+                    className={`sticky top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 min-h-[58px] py-2.5 bg-slate-50/95 backdrop-blur-md flex items-center justify-between gap-2 transition-all duration-200 cursor-pointer group select-none ${
+                      activeSectionIndex === sIdx
+                        ? "border-b border-slate-200/90 shadow-2xs"
+                        : "border-b border-transparent shadow-none"
+                    }`}
+                    title="แตะเพื่อเลือกหมวดการตรวจ"
+                  >
+                    <div className="text-sm font-black text-slate-800 flex items-center gap-2 hover:text-[#0F6659] transition-colors min-w-0 flex-1">
+                      <span className="w-7 h-7 rounded-xl bg-[#0F6659] text-white flex items-center justify-center shrink-0 text-xs font-black shadow-2xs group-hover:bg-emerald-700 transition-colors">
+                        {sIdx + 1}
+                      </span>
+                      <span className="truncate group-hover:text-[#0F6659] font-black text-slate-800">
+                        {sec.title || `หมวดที่ ${sIdx + 1}`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] transition-all shrink-0 shadow-2xs ${isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""}`}>
+                        <ChevronDown size={18} strokeWidth={4} className="transition-transform" />
+                      </span>
+                      <span className="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs shrink-0 group-hover:border-emerald-200 transition-colors">
+                        {sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length}/{sec.items?.length || 0} ตอบแล้ว
+                      </span>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
-                    {(sec.items || []).map((q, idx) => {
-                      const isHighlighted = highlightedQuestionId === q.id;
-                      const isNa = answers[q.id] === "na";
-                      const isFailed = !isNa && (answers[q.id] === "no" || answers[q.id] === false || (Number(answers[q.id]) < 3 && answers[q.id] !== undefined && answers[q.id] !== ""));
-                      const rawP = photos[q.id];
-                      const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
-                      const hasPhoto = questionPhotos.length > 0;
-                      const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-                      const isScale = qType === "scale" || qType === "rating";
-                      const isCommentOpen = Boolean(openComments[q.id] || (comments[q.id] && comments[q.id].trim().length > 0));
-                      const scoreGiven = isNa ? 0 : (isScale ? (Number(answers[q.id]) || 0) / 5 * (q.fullScore || 10) : ((answers[q.id] === "yes" || answers[q.id] === true) ? (q.fullScore || 10) : 0));
-                      const isAnswered = answers[q.id] !== undefined && answers[q.id] !== "";
-
-                      return (
-                        <div
-                          key={q.id || idx}
-                          id={`question-card-${q.id}`}
-                          className={`p-4 sm:p-5 rounded-3xl border transition-all duration-300 ${isHighlighted
-                              ? "bg-rose-50/95 border-2 border-rose-500 ring-4 ring-rose-300/60 shadow-lg animate-pulse"
-                              : isNa
-                                ? "bg-slate-50/90 border-slate-300"
-                                : isFailed
-                                  ? "bg-red-50/50 border-red-300"
-                                  : "bg-white border-slate-200 shadow-2xs"
-                            }`}
-                        >
-                          <div className="mb-3">
-                            <div className="flex items-center gap-2 mb-2 flex-wrap">
-                              <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                                {getQuestionCategory(q, sec)}
-                              </span>
-                              {q.isCritical && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
-                              )}
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
-                                คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
-                              </span>
-                              {isHighlighted && (
-                                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
-                              )}
-
-                              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                                <button
-                                  type="button"
-                                  onClick={() => setOpenComments(prev => ({ ...prev, [q.id]: !isCommentOpen }))}
-                                  className={`w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all border ${(comments[q.id] && comments[q.id].trim().length > 0)
-                                      ? 'bg-amber-50 text-amber-700 border-amber-300'
-                                      : isCommentOpen
-                                        ? 'bg-slate-200 text-slate-800 border-slate-300'
-                                        : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                    }`}
-                                >
-                                  <MessageSquare size={16} className={(comments[q.id] && comments[q.id].trim().length > 0) ? "fill-amber-400/40" : ""} />
-                                </button>
-                                <label
-                                  className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                                    }`}
-                                  title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
-                                >
-                                  <input
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    className="hidden"
-                                    onChange={(e) => {
-                                      handlePhotoUpload(q.id, e.target.files);
-                                      e.target.value = '';
-                                    }}
-                                  />
-                                  <Camera size={16} />
-                                  {hasPhoto && (
-                                    <span className="text-[11px] font-black font-mono">
-                                      {questionPhotos.length}
-                                    </span>
-                                  )}
-                                </label>
-                              </div>
-                            </div>
-                            <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
-                              {q.questionText || q.text}
-                            </h4>
-                          </div>
-
-                          {/* 📸 Horizontal Photo Gallery */}
-                          {hasPhoto && (
-                            <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
-                              {questionPhotos.map((imgUrl, imgIdx) => (
-                                <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
-                                  <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePhotoDelete(q.id, imgIdx)}
-                                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
-                                    title="ลบรูปภาพนี้"
-                                  >
-                                    ✕
-                                  </button>
-                                  <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
-                                    #{imgIdx + 1}
-                                  </span>
-                                </div>
-                              ))}
-                              {/* Add More Photos Quick Button inside gallery */}
-                              <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  className="hidden"
-                                  onChange={(e) => {
-                                    handlePhotoUpload(q.id, e.target.files);
-                                    e.target.value = '';
-                                  }}
-                                />
-                                <Plus size={18} />
-                                <span className="text-[10px] font-bold">เพิ่มรูป</span>
-                              </label>
-                            </div>
-                          )}
-
-                          {!isScale && (
-                            <div className="grid grid-cols-3 gap-2">
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "yes" || answers[q.id] === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                <CheckCircle2 size={18} /><span>ผ่าน</span>
-                              </button>
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "no" || answers[q.id] === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                <XCircle size={18} /><span>ไม่ผ่าน</span>
-                              </button>
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
-                                <Minus size={18} /><span>ข้าม</span>
-                              </button>
-                            </div>
-                          )}
-
-                          {isScale && (
-                            <div className="flex gap-1.5 items-center">
-                              {[1, 2, 3, 4, 5].map((n) => (
-                                <button key={n} type="button" onClick={() => handleAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answers[q.id] === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                  {n}
-                                </button>
-                              ))}
-                              <button type="button" onClick={() => handleAnswerSelect(q.id, "na")} className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black cursor-pointer transition-all border ${answers[q.id] === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                <Minus size={14} className="mr-0.5" /> N/A
-                              </button>
-                            </div>
-                          )}
-
-                          {isCommentOpen && (
-                            <div className="mt-3">
-                              <QuestionCommentInput initialValue={comments[q.id]} onChange={(val) => handleCommentChange(q.id, val)} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {(sec.items || []).map((q, idx) => (
+                      <QuestionCard
+                        key={q.id || idx}
+                        q={q}
+                        sec={sec}
+                        idx={idx}
+                        answer={answers[q.id]}
+                        photosForQuestion={photos[q.id]}
+                        commentValue={comments[q.id]}
+                        openCommentOverride={openComments[q.id]}
+                        photoUploadError={photoUploadErrors[q.id]}
+                        isHighlighted={highlightedQuestionId === q.id}
+                        onAnswerSelect={handleAnswerSelect}
+                        onCommentChange={handleCommentChange}
+                        onPhotoUpload={handlePhotoUpload}
+                        onPhotoDelete={handlePhotoDelete}
+                        onToggleComment={handleToggleComment}
+                      />
+                    ))}
                   </div>
                 </div>
               ))}
@@ -2431,20 +3907,22 @@ export default function LiveAuditScreen({
           {activeTab === 3 && (
             <div className="space-y-4 animate-in fade-in duration-200">
               <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-5">
-                {/*<h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2">การลงชื่อรับทราบผลตรวจ (Signatures)</h3>*/}
-
                 <SignaturePad
-                  label={`1. ผู้รับการตรวจ / ผจก.สาขา (${unit?.fullName || unit?.name})`}
+                  label={`1. ผู้รับการตรวจ (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
-                  //onNameChange={setAuditeeSignName}
-                  onSignChange={setAuditeeSignature}
+                  onSignChange={(sig) => {
+                    setAuditeeSignature(sig);
+                    performSaveDraft({ auditeeSignature: sig });
+                  }}
                   signatureUrl={auditeeSignature}
-                  //placeholderName="ระบุชื่อ-นามสกุล..."
                 />
 
                 <SignaturePad
                   label={`2. ผู้ตรวจประเมิน (${auditorName || defaultAuditorName})`}
-                  onSignChange={setAuditorSignature}
+                  onSignChange={(sig) => {
+                    setAuditorSignature(sig);
+                    performSaveDraft({ auditorSignature: sig });
+                  }}
                   signatureUrl={auditorSignature}
                 />
               </div>
@@ -2550,11 +4028,54 @@ export default function LiveAuditScreen({
                 <p className="text-xs text-slate-500 font-medium mt-1 px-2">ข้อมูลที่ตรวจค้างไว้ของสาขานี้จะถูกลบทั้งหมด</p>
               </div>
               <div className="grid grid-cols-2 gap-2 pt-2">
-                <button onClick={() => setShowDiscardConfirmModal(false)} className="py-3 px-4 rounded-2xl bg-slate-100 text-slate-700 font-bold text-xs">ย้อนกลับ</button>
-                <button onClick={confirmDiscardDraft} className="py-3 px-4 rounded-2xl bg-rose-600 text-white font-bold text-xs shadow-md">ยืนยันลบ</button>
+                <button
+                  type="button"
+                  onClick={() => setShowDiscardConfirmModal(false)}
+                  disabled={isDiscarding}
+                  className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs disabled:opacity-50"
+                >
+                  ย้อนกลับ
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDiscardDraft}
+                  disabled={isDiscarding}
+                  className="py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDiscarding ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      กำลังลบ...
+                    </>
+                  ) : (
+                    "ยืนยันลบ"
+                  )}
+                </button>
               </div>
             </div>
           </div>,
+          document.body
+        )}
+
+        {/* 🌟 Floating Scroll-to-Top Button (ล็อคตรงกับ viewport ผ่าน createPortal ขนาดกะทัดรัด สีเรียบกลืนกับหน้าจอ) */}
+        {typeof document !== "undefined" && createPortal(
+          <button
+            type="button"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              const mainEl = document.querySelector('main');
+              if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            aria-label="เลื่อนขึ้นบนสุดของหน้า"
+            title="เลื่อนขึ้นบนสุดของหน้า"
+            className={`fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-40 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] active:bg-[#093e36] text-white shadow-lg shadow-[#0F6659]/30 border border-emerald-600/30 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 ${
+              isAuditHeaderScrolled
+                ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
+                : "opacity-0 translate-y-3 scale-75 pointer-events-none"
+            }`}
+          >
+            <ChevronUp size={20} strokeWidth={2.8} />
+          </button>,
           document.body
         )}
       </div>

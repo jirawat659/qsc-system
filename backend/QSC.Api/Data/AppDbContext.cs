@@ -123,7 +123,6 @@ namespace QSC.Api.Data
                 e.Property(x => x.Code).HasMaxLength(50);
                 e.Property(x => x.Name).HasMaxLength(200);
                 e.Property(x => x.Region).HasMaxLength(100);
-                e.Property(x => x.BrandName).HasMaxLength(200);
                 e.Property(x => x.Phone).HasMaxLength(50);
             });
 
@@ -175,6 +174,7 @@ namespace QSC.Api.Data
             {
                 e.Property(x => x.IssueItem).HasMaxLength(300);
                 e.Property(x => x.Status).HasMaxLength(30);
+                e.Property(x => x.CategoryName).HasMaxLength(100);
             });
 
             modelBuilder.Entity<CapTaskImage>(e =>
@@ -254,7 +254,8 @@ namespace QSC.Api.Data
                 .HasIndex(s => s.ScheduledDate);
 
             modelBuilder.Entity<AuditScheduleAuditor>()
-                .HasIndex(a => new { a.AuditScheduleId, a.AuditorId });
+                .HasIndex(a => new { a.AuditScheduleId, a.AuditorId })
+                .IsUnique();
 
             modelBuilder.Entity<SurveyFormTargetLocation>()
                 .HasIndex(t => new { t.SurveyFormId, t.LocationId })
@@ -272,6 +273,9 @@ namespace QSC.Api.Data
 
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(r => r.SurveyFormId);
+
+            modelBuilder.Entity<AuditSchedule>()
+                .HasIndex(s => s.SurveyFormId);
 
             // งานตรวจรายผู้ตรวจ เรียงตามวันที่ (AuditController.GetAuditRecords)
             modelBuilder.Entity<AuditRecord>()
@@ -306,7 +310,13 @@ namespace QSC.Api.Data
                 .HasIndex(c => new { c.Status, c.SubmissionDeadline });
 
             modelBuilder.Entity<Location>().HasIndex(l => l.Code);
-            modelBuilder.Entity<Brand>().HasIndex(b => b.Code);
+            modelBuilder.Entity<Brand>()
+                .HasIndex(b => b.Code)
+                .IsUnique();
+
+            modelBuilder.Entity<Brand>()
+                .HasIndex(b => b.Name)
+                .IsUnique();
             modelBuilder.Entity<Role>().HasIndex(r => r.Code);
             modelBuilder.Entity<Permission>().HasIndex(p => p.Code);
             modelBuilder.Entity<LocationType>().HasIndex(t => t.Code);
@@ -425,7 +435,7 @@ namespace QSC.Api.Data
                 .HasOne(t => t.AuditRecord)
                 .WithMany()
                 .HasForeignKey(t => t.AuditRecordId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.SetNull);
 
             // Restrict ไม่ใช่ SetNull เพราะ AuditRecord ลบถึง CapTask ได้ 2 ทาง
             // (ตรงๆ และผ่าน AuditResponse) ซึ่ง SQL Server ไม่ยอม

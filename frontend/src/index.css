@@ -66,26 +66,45 @@
     appearance: none;
   }
 
-  /* ขนาดเริ่มต้นบนมือถือเพื่อช่วยให้อ่านง่าย แต่เปิดให้คลาส text-xs / text-sm ปรับลดขนาดได้ */
+  /* ปลดล็อกขนาดตัวอักษรบนมือถือ เพื่อให้คลาส text-xs / text-sm และ placeholder เล็กลงได้จริงตามต้องการ */
   @media screen and (max-width: 639px) {
     input:not([type="checkbox"]):not([type="radio"]),
     select,
     textarea {
-      font-size: 15px;
+      font-size: inherit;
     }
   }
 
-  /* ปรับแต่ง input type="date" และ type="time" */
+  /* 🍎 ปรับแต่ง input type="date", type="time" และ type="datetime-local" สำหรับ iOS / Safari */
   input[type="date"],
-  input[type="time"] {
-    min-height: 50px;
+  input[type="time"],
+  input[type="datetime-local"] {
+    min-height: 42px;
     display: inline-flex;
     align-items: center;
     position: relative;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
   }
 
-  /* ซ่อน native indicator สีดำที่ลอยเกะกะ เพื่อแสดงไอคอน Calendar ของระบบที่ชิดขวาอย่างสวยงาม */
-  input[type="date"]::-webkit-calendar-picker-indicator {
+  /* 🍎 iOS Safari Normalization: ให้ข้อความวันที่และเวลาใน Safari แสดงผลขนาดปกติ ไม่ถูกบีบตัวเล็ก */
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: left;
+    min-height: 1.5em;
+    font-size: inherit !important;
+    line-height: inherit;
+    padding: 0;
+    margin: 0;
+    font-weight: inherit;
+  }
+
+  /* 🍎 ซ่อน native calendar indicator สีดำ เพื่อแสดงไอคอนระบบชิดขวาอย่างสวยงาม */
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
     position: absolute;
     top: 0;
     left: 0;
@@ -120,7 +139,7 @@
 }
 
 .text-base {
-  font-size: 1.0625rem; /* ~17px */
+  font-size: 1rem; /* ~17px */
   line-height: 1.5rem;
 }
 
@@ -192,11 +211,9 @@
 @keyframes pageFadeIn {
   0% {
     opacity: 0;
-    transform: translateY(6px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -212,8 +229,7 @@
 }
 
 .page-transition {
-  animation: pageFadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: opacity, transform;
+  animation: pageFadeIn 0.2s ease-out;
 }
 
 .modal-transition {
@@ -250,4 +266,147 @@
 
 .animate-shake {
   animation: errorShake 0.38s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+
+/* Audit quick navigation: transparent at top, tactile white header after scroll */
+.audit-floating-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  color: #0f172a;
+  transition: background-color 220ms ease, box-shadow 220ms ease, border-color 220ms ease, backdrop-filter 220ms ease;
+}
+.audit-floating-header.is-scrolled {
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom-color: #e2e8f0;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(16px);
+}
+.audit-header-back,
+.audit-menu-button,
+.audit-drawer-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #475569;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+  transition: transform 160ms ease, background-color 160ms ease, color 160ms ease;
+}
+.audit-floating-header:not(.is-scrolled) .audit-header-back,
+.audit-floating-header:not(.is-scrolled) .audit-menu-button {
+  background: rgba(255, 255, 255, 0.68);
+}
+.audit-header-back:hover,
+.audit-menu-button:hover,
+.audit-drawer-close:hover { background: #ecfdf5; color: #0f6659; }
+.audit-header-back:active,
+.audit-menu-button:active,
+.audit-drawer-close:active { transform: scale(0.96); }
+.audit-menu-button { color: #0f6659; }
+.audit-drawer-layer { position: fixed; inset: 0; z-index: 100; }
+.audit-drawer-backdrop { position: absolute; inset: 0; width: 100%; border: 0; background: rgba(15, 23, 42, 0.36); backdrop-filter: blur(3px); }
+.audit-category-drawer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: min(40vh, 430px);
+  min-height: 300px;
+  padding: max(12px, env(safe-area-inset-top)) 18px 18px;
+  overflow: hidden;
+  border-radius: 0 0 28px 28px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.2);
+  animation: auditDrawerIn 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.audit-drawer-handle { width: 42px; height: 4px; margin: 0 auto 12px; border-radius: 999px; background: #cbd5e1; }
+.audit-category-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 8px 10px;
+  border: 1px solid #eef2f7;
+  border-radius: 16px;
+  background: #f8fafc;
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+.audit-category-item:hover { border-color: #a7f3d0; background: #ecfdf5; }
+.audit-category-item:active { transform: scale(0.99); }
+.audit-category-item.is-active { border-color: #99f6e4; background: #ecfdf5; }
+.audit-category-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; flex: 0 0 auto; border-radius: 10px; background: #d1fae5; color: #0f6659; }
+.audit-category-count { flex: 0 0 auto; padding: 4px 7px; border-radius: 8px; background: white; color: #64748b; font-size: 10px; font-weight: 800; }
+.audit-section-anchor { scroll-margin-top: 76px; }
+@keyframes auditDrawerIn { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: translateY(0); } }
+@media (min-width: 640px) {
+  .audit-floating-header { left: 50%; right: auto; width: min(100%, 760px); transform: translateX(-50%); border-radius: 0 0 18px 18px; }
+  .audit-category-drawer { left: 50%; right: auto; width: min(100%, 760px); transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .audit-floating-header, .audit-category-item, .audit-header-back, .audit-menu-button, .audit-drawer-close { transition: none; }
+  .audit-category-drawer { animation: none; }
+}
+
+/* 🌟 TopBar Push-Up / Push-Down Transitions for Sticky Section Header */
+@keyframes pushUpOut {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-100%); opacity: 0; }
+}
+
+@keyframes pushUpIn {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pushDownOut {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+@keyframes pushDownIn {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-push-up-out {
+  animation: pushUpOut 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-push-up-in {
+  animation: pushUpIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-push-down-out {
+  animation: pushDownOut 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-push-down-in {
+  animation: pushDownIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 🌟 Pinned Section Bar: slide up animation */
+@keyframes slideUpIn {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up-in {
+  animation: slideUpIn 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

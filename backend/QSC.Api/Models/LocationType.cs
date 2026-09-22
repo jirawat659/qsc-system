@@ -9,4 +9,3 @@ namespace QSC.Api.Models
         public bool IsActive { get; set; } = true;
     }
 }
-

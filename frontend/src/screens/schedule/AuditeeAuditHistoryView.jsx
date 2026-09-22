@@ -10,6 +10,7 @@ import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAN
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
+import api from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -28,16 +29,36 @@ export default function AuditeeAuditHistoryView() {
   const [filterStatus, setFilterStatus] = useState("all");
   const myUnit = allLocations[0] || {}; // สาขาของ Auditee
 
+  // 🌟 Phase 3.3 fix: auditRecords ใน context เป็นแค่ buffer 50 รายการล่าสุดรวมทุก
+  // สาขา จึงดึงประวัติของสาขา Auditee เองตรงๆ จาก API เป็นแหล่งหลัก
+  const [ownAuditRecords, setOwnAuditRecords] = useState([]);
+
+  useEffect(() => {
+    if (!myUnit?.id) {
+      setOwnAuditRecords([]);
+      return;
+    }
+    let isMounted = true;
+    api.get('/audit/records', { params: { locationId: myUnit.id, limit: 200 } })
+      .then(res => {
+        if (isMounted && Array.isArray(res.data)) setOwnAuditRecords(res.data);
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [myUnit?.id]);
+
   const branchHistory = useMemo(() => {
     if (!myUnit || !myUnit.id) return [];
-    const fromDb = (auditRecords || []).filter(r => 
-      (r.locationId && r.locationId === myUnit.id) || 
-      (r.locationName && (r.locationName === myUnit.name || r.locationName === myUnit.fullName)) ||
-      (r.location?.name && (r.location.name === myUnit.name || r.location.name === myUnit.fullName))
-    );
+    const sourceRecords = ownAuditRecords.length > 0
+      ? ownAuditRecords
+      : (auditRecords || []).filter(r => 
+          (r.locationId && r.locationId === myUnit.id) || 
+          (r.locationName && (r.locationName === myUnit.name || r.locationName === myUnit.fullName)) ||
+          (r.location?.name && (r.location.name === myUnit.name || r.location.name === myUnit.fullName))
+        );
 
-    if (fromDb.length > 0) {
-      return fromDb.map(r => {
+    if (sourceRecords.length > 0) {
+      return sourceRecords.map(r => {
         const score = Math.round(r.percentageScore || 0);
         const rawDate = r.auditDate || r.createdAt;
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "15 ส.ค. 2569";
@@ -63,7 +84,7 @@ export default function AuditeeAuditHistoryView() {
     }
 
     return myUnit.history || [];
-  }, [auditRecords, myUnit]);
+  }, [auditRecords, ownAuditRecords, myUnit]);
 
   if (selectedAuditLog) {
     return (
