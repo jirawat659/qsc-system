@@ -1,84 +1,38 @@
-/**
- * exportToExcel.js — Multi-Sheet .xlsx Export
- *
- * ใช้ SheetJS (xlsx) สร้างไฟล์ Excel หลายชีทจากฐานข้อมูลกลางชุดเดียว
- * ไม่มีการ copy-paste ข้อมูลซ้ำ ทุกชีทสร้างจาก auditRecords ชุดเดียวกัน
- *
- * รายงาน Type A (mode="org") — เปิดจาก Dashboard หลัก:
- *   ชีท 1: บันทึกดิบ     — ทุก record ทุกสาขา
- *   ชีท 2: อันดับเดือนนี้ — Top-N เรียงคะแนน
- *   ชีท 3: เฉลี่ยแยกหมวด — PD/PC/S/C/DM เฉลี่ยทุกสาขา
- *   ชีท 4: เทรนด์รายปี   — % รวมรายเดือน (ม.ค.–ธ.ค.)
- *   ชีท 5: จัดเกรดประจำปี — เฉลี่ยทั้งปี + เกรด A/B/C/D
- *
- * รายงาน Type B (mode="branch") — เปิดจาก Branch Profile:
- *   ชีท 1: ประวัติคะแนน  — ทุกรอบของสาขานั้น
- *   ชีท 2: คำตอบรายข้อ   — รอบล่าสุด ทุกคำถาม + คะแนน + หมวด
- *   ชีท 3: สรุปหมวด      — เฉลี่ย PD/PC/S/C/DM ย้อนหลัง
- */
-
 import * as XLSX from "xlsx";
 
 // ============================================================
-// HELPERS
+// 1. ฟังก์ชันตัวช่วยจัดการข้อมูลและวันที่
 // ============================================================
 
-const THAI_MONTHS_FULL = [
-  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
-  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
-];
 const THAI_MONTHS_SHORT = [
   "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
   "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
 ];
 
-function thaiDate(dateStr) {
-  if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return "-";
-  const day = d.getDate();
-  const month = THAI_MONTHS_FULL[d.getMonth()];
-  const year = d.getFullYear() + 543;
-  return `${day} ${month} ${year}`;
-}
-
-function thaiDateShort(dateStr) {
+function formatThaiDateShort(dateStr) {
   if (!dateStr) return "-";
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return "-";
   return `${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${(d.getFullYear() + 543) % 100}`;
 }
 
-function gradeLabel(avg) {
-  if (avg >= 90) return "A — ดีเยี่ยม";
-  if (avg >= 87) return "B — ดีมาก";
-  if (avg >= 85) return "C — ผ่านเกณฑ์";
-  return "D — ต่ำกว่าเกณฑ์";
+function extractTime(dateStr, timeStr) {
+  if (timeStr) return timeStr;
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
-function passLabel(score) {
-  if (score >= 90) return "ดีเยี่ยม";
-  if (score >= 85) return "ผ่านเกณฑ์";
-  return "ต่ำกว่าเกณฑ์";
+function extractTDS(record) {
+  if (record.waterQualityTds != null) return record.waterQualityTds;
+  if (record.tds != null) return record.tds;
+  if (record.notes) {
+    const match = record.notes.match(/(\d+)\s*(?:TDS|\/ppm|ppm)/i);
+    if (match) return parseInt(match[1], 10);
+  }
+  return "-";
 }
 
-/** กรองช่วงเวลาจาก records */
-function filterByTimeRange(records, timeRange) {
-  if (!timeRange || timeRange === "all") return records;
-  const now = new Date();
-  let cutoff;
-  if (timeRange === "1M") cutoff = new Date(now.getFullYear(), now.getMonth(), 1);
-  else if (timeRange === "3M") cutoff = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-  else if (timeRange === "6M") cutoff = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-  else if (timeRange === "1Y") cutoff = new Date(now.getFullYear(), 0, 1);
-  if (!cutoff) return records;
-  return records.filter(r => {
-    const d = new Date(r.auditDate || r.date);
-    return !isNaN(d.getTime()) && d >= cutoff;
-  });
-}
-
-/** ดึงคะแนนแยกหมวด PD/PC/S/C/DM จาก responses ของ record หนึ่ง */
 function getCategoryScores(record) {
   const catMap = { PD: [], PC: [], S: [], C: [], DM: [] };
   const responses = record.responses || [];
@@ -92,428 +46,294 @@ function getCategoryScores(record) {
   const result = {};
   for (const [cat, items] of Object.entries(catMap)) {
     if (items.length === 0) {
-      result[cat] = null;
+      result[cat] = record[`score${cat}`] != null ? Math.round(record[`score${cat}`]) : "-";
     } else {
       const totalFull = items.reduce((s, i) => s + i.full, 0);
       const totalGiven = items.reduce((s, i) => s + i.given, 0);
-      result[cat] = totalFull > 0 ? Math.round((totalGiven / totalFull) * 100) : null;
+      result[cat] = totalFull > 0 ? Math.round((totalGiven / totalFull) * 100) : "-";
     }
   }
   return result;
 }
 
-/** สร้าง sheet จาก array ของ row objects */
-function makeSheet(rows, colWidths) {
-  const ws = XLSX.utils.json_to_sheet(rows, { skipHeader: false });
-  if (colWidths) {
-    ws["!cols"] = colWidths.map(w => ({ wch: w }));
+function getBranchFailSuffix(locationId, allRecords, auditDate) {
+  if (!locationId || !allRecords || allRecords.length === 0) return "";
+  const targetDate = new Date(auditDate || new Date());
+  const history = allRecords
+    .filter(r => r.locationId === locationId && new Date(r.auditDate || r.date) <= targetDate)
+    .sort((a, b) => new Date(b.auditDate || b.date) - new Date(a.auditDate || a.date));
+
+  if (history.length < 2) return "";
+  const s0 = Math.round(history[0]?.percentageScore ?? history[0]?.score ?? 100);
+  const s1 = Math.round(history[1]?.percentageScore ?? history[1]?.score ?? 100);
+  const s2 = history[2] ? Math.round(history[2]?.percentageScore ?? history[2]?.score ?? 100) : 100;
+
+  if (s0 < 85 && s1 < 85 && s2 < 85) return "(3)";
+  if (s0 < 85 && s1 < 85) return "(2)";
+  return "";
+}
+
+function createSheetWithWidths(aoa, widths) {
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  if (widths && widths.length > 0) {
+    ws["!cols"] = widths.map(w => ({ wch: w }));
   }
   return ws;
 }
 
 // ============================================================
-// SHEET BUILDERS — TYPE A (Org-level)
+// 2. ฟังก์ชันสร้างชีตย่อยแต่ละชีต
 // ============================================================
 
-/** ชีท 1: บันทึกดิบ */
-function buildRawLogSheet(records, locations) {
-  const locMap = {};
-  (locations || []).forEach(l => { locMap[l.id] = l; });
-
-  const rows = records.map((r, i) => {
-    const cats = getCategoryScores(r);
-    const score = Math.round(r.percentageScore || 0);
-    return {
-      "ลำดับ": i + 1,
-      "รหัสสาขา": r.locationCode || "-",
-      "ชื่อสาขา": r.locationName || "-",
-      "ภูมิภาค": r.locationRegion || "-",
-      "วันที่ตรวจ": thaiDate(r.auditDate),
-      "ประเภทการตรวจ": r.auditType === "unannounced" ? "ไม่แจ้งล่วงหน้า" : "แจ้งล่วงหน้า",
-      "ผู้ตรวจ": r.auditorName || "-",
-      "ผู้รับการตรวจ": r.auditeeName || "-",
-      "PD (%)": cats.PD !== null ? cats.PD : "-",
-      "PC (%)": cats.PC !== null ? cats.PC : "-",
-      "S (%)": cats.S !== null ? cats.S : "-",
-      "C (%)": cats.C !== null ? cats.C : "-",
-      "DM (%)": cats.DM !== null ? cats.DM : "-",
-      "คะแนนรวม (%)": score,
-      "ผลการตรวจ": passLabel(score),
-      "Critical Defect": r.hasCriticalDefect ? "พบ" : "-",
-      "หมายเหตุ": r.notes || "-"
-    };
-  });
-
-  if (rows.length === 0) {
-    rows.push({ "ลำดับ": "-", "รหัสสาขา": "ไม่มีข้อมูลในช่วงเวลาที่เลือก" });
-  }
-
-  return makeSheet(rows, [5, 12, 20, 14, 16, 16, 18, 18, 8, 8, 8, 8, 8, 14, 14, 14, 30]);
-}
-
-/** ชีท 2: อันดับเดือนนี้ */
-function buildMonthlyRankSheet(records) {
+// ชีตที่ 1 & 2: ตารางบันทึกคะแนนตรวจ
+function buildAuditRecordSheet(records, allRecords, isSorted = false) {
   const now = new Date();
-  const thisMonth = now.getMonth();
-  const thisYear = now.getFullYear();
+  const dateHeader = `25${(now.getFullYear() + 543) % 100}-${String(now.getMonth() + 1).padStart(2, '0')}-01 00:00:00`;
 
-  // กรองเฉพาะเดือนปัจจุบัน แล้วหาคะแนนล่าสุดต่อสาขา
-  const monthRecords = records.filter(r => {
-    const d = new Date(r.auditDate);
-    return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
-  });
+  const aoa = [
+    [dateHeader],
+    ["คำอธิบายเพิ่มเติม: ตัวย่อสาขา(2) หมายถึงเดือนปัจจุบันไม่ผ่านและเดือนที่ผ่านมาล่าสุดก็ไม่ผ่าน(ไม่ผ่าน 2 เดือนติดต่อกัน)"],
+    ["คำอธิบายเพิ่มเติม: ตัวย่อสาขา(3) หมายถึงเดือนปัจจุบันไม่ผ่านและสองเดือนที่ผ่านมาล่าสุดก็ไม่ผ่าน(ไม่ผ่าน 3 เดือนติดต่อกัน)"],
+    ["No.", "Branch", "Date", "Time", "On Shift ", "วัดคุณภาพน้ำ(TDS/ppm)", "PD.", "PC.", "S.", "C.", "DM.", "Percent", "Inspector"]
+  ];
 
-  // รวมกลุ่มตามสาขา → เอาคะแนนล่าสุด
-  const byBranch = {};
-  for (const r of monthRecords) {
-    const key = r.locationId;
-    if (!byBranch[key] || new Date(r.auditDate) > new Date(byBranch[key].auditDate)) {
-      byBranch[key] = r;
-    }
+  let rows = [...records];
+  if (isSorted) {
+    rows.sort((a, b) => (b.percentageScore || 0) - (a.percentageScore || 0));
   }
 
-  const ranked = Object.values(byBranch)
-    .sort((a, b) => b.percentageScore - a.percentageScore);
+  rows.forEach((r, idx) => {
+    const cats = getCategoryScores(r);
+    const suffix = getBranchFailSuffix(r.locationId, allRecords, r.auditDate);
+    const branchName = `${r.locationCode || r.locationName || "-"}${suffix}`;
+    const score = Math.round(r.percentageScore ?? r.score ?? 0);
 
-  const rows = ranked.map((r, i) => {
-    const score = Math.round(r.percentageScore || 0);
-    return {
-      "อันดับ": i + 1,
-      "รหัสสาขา": r.locationCode || "-",
-      "ชื่อสาขา": r.locationName || "-",
-      "ภูมิภาค": r.locationRegion || "-",
-      "คะแนน (%)": score,
-      "ผล": passLabel(score),
-      "วันที่ตรวจ": thaiDate(r.auditDate),
-      "ผู้ตรวจ": r.auditorName || "-"
-    };
+    aoa.push([
+      idx + 1,
+      branchName,
+      formatThaiDateShort(r.auditDate),
+      extractTime(r.auditDate, r.time),
+      r.teamOnShift || r.shiftLeader || "-",
+      extractTDS(r),
+      cats.PD,
+      cats.PC,
+      cats.S,
+      cats.C,
+      cats.DM,
+      score,
+      r.inspectorName || r.auditorName || "-"
+    ]);
   });
 
-  const label = `เดือน${THAI_MONTHS_FULL[thisMonth]} ${now.getFullYear() + 543}`;
-  if (rows.length === 0) {
-    rows.push({ "อันดับ": "-", "รหัสสาขา": `ยังไม่มีผลตรวจใน${label}` });
+  // ใส่สูตร AVERAGE ตามช่วงแถวที่มีข้อมูลจริง
+  const count = rows.length;
+  if (count > 0) {
+    const startRow = 5;
+    const endRow = 4 + count;
+    aoa.push([
+      "เฉลี่ย", "", "", "", "", "",
+      { t: "n", f: `AVERAGE(G${startRow}:G${endRow})` },
+      { t: "n", f: `AVERAGE(H${startRow}:H${endRow})` },
+      { t: "n", f: `AVERAGE(I${startRow}:I${endRow})` },
+      { t: "n", f: `AVERAGE(J${startRow}:J${endRow})` },
+      { t: "n", f: `AVERAGE(K${startRow}:K${endRow})` },
+      { t: "n", f: `AVERAGE(L${startRow}:L${endRow})` },
+      ""
+    ]);
   }
 
-  return makeSheet(rows, [6, 12, 22, 14, 12, 14, 16, 18]);
+  return createSheetWithWidths(aoa, [6, 18, 14, 10, 16, 22, 8, 8, 8, 8, 8, 10, 20]);
 }
 
-/** ชีท 3: เฉลี่ยแยกหมวด (ทุกสาขา) */
-function buildCategoryAvgSheet(records) {
-  // รวมกลุ่มตามสาขา
-  const branchData = {};
-  for (const r of records) {
-    const key = r.locationId;
-    if (!branchData[key]) {
-      branchData[key] = { name: r.locationName, region: r.locationRegion, PD: [], PC: [], S: [], C: [], DM: [], overall: [] };
+// ชีตที่ 3: สรุปคะแนนเฉลี่ยทั้งปี จัดเกรด A, B, C
+function buildGradingSheet(records) {
+  const currentYear = new Date().getFullYear();
+  const branchMap = {};
+
+  records.forEach(r => {
+    const key = r.locationId || r.locationName;
+    if (!branchMap[key]) {
+      branchMap[key] = {
+        name: r.locationCode || r.locationName,
+        scores: [],
+        cats: { PD: [], PC: [], S: [], C: [], DM: [] }
+      };
     }
-    const cats = getCategoryScores(r);
+    branchMap[key].scores.push(Math.round(r.percentageScore || 0));
+    const cScores = getCategoryScores(r);
     for (const cat of ["PD", "PC", "S", "C", "DM"]) {
-      if (cats[cat] !== null) branchData[key][cat].push(cats[cat]);
+      if (typeof cScores[cat] === "number") branchMap[key].cats[cat].push(cScores[cat]);
     }
-    branchData[key].overall.push(Math.round(r.percentageScore || 0));
-  }
-
-  const avg = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : "-";
-
-  const rows = Object.values(branchData).map(b => ({
-    "ชื่อสาขา": b.name || "-",
-    "ภูมิภาค": b.region || "-",
-    "PD — Product (%)": avg(b.PD),
-    "PC — Process (%)": avg(b.PC),
-    "S — Service (%)": avg(b.S),
-    "C — Cleanliness (%)": avg(b.C),
-    "DM — Documents (%)": avg(b.DM),
-    "รวมเฉลี่ย (%)": avg(b.overall),
-    "จำนวนรอบตรวจ": b.overall.length
-  }));
-
-  if (rows.length === 0) {
-    rows.push({ "ชื่อสาขา": "ไม่มีข้อมูล responses (ต้องใช้ includeResponses=true)" });
-  }
-
-  return makeSheet(rows, [22, 14, 16, 16, 16, 16, 16, 14, 12]);
-}
-
-/** ชีท 4: เทรนด์รายปี (รวมทุกสาขา รายเดือน) */
-function buildYearlyTrendSheet(records) {
-  const now = new Date();
-  const thisYear = now.getFullYear();
-
-  // สร้าง bucket 12 เดือน
-  const monthly = Array.from({ length: 12 }, () => []);
-  for (const r of records) {
-    const d = new Date(r.auditDate);
-    if (d.getFullYear() === thisYear) {
-      monthly[d.getMonth()].push(Math.round(r.percentageScore || 0));
-    }
-  }
-
-  const avg = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : "-";
-
-  // บริษัทรวม
-  const companyRow = { "มุมมอง": `บริษัทรวม (${thisYear + 543})` };
-  THAI_MONTHS_SHORT.forEach((m, i) => {
-    companyRow[m] = avg(monthly[i]);
-    companyRow[`จำนวน (${m})`] = monthly[i].length;
   });
 
-  // แยกภูมิภาค
-  const regionData = {};
-  for (const r of records) {
-    const d = new Date(r.auditDate);
-    if (d.getFullYear() !== thisYear) continue;
-    const reg = r.locationRegion || "ไม่ระบุภูมิภาค";
-    if (!regionData[reg]) regionData[reg] = Array.from({ length: 12 }, () => []);
-    regionData[reg][d.getMonth()].push(Math.round(r.percentageScore || 0));
-  }
+  const calcAvg = arr => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
 
-  const rows = [companyRow];
-  for (const [reg, mthData] of Object.entries(regionData)) {
-    const row = { "มุมมอง": `ภูมิภาค: ${reg}` };
-    THAI_MONTHS_SHORT.forEach((m, i) => {
-      row[m] = avg(mthData[i]);
-      row[`จำนวน (${m})`] = mthData[i].length;
+  const branchList = Object.values(branchMap).map(b => ({
+    name: b.name,
+    avgScore: calcAvg(b.scores),
+    PD: calcAvg(b.cats.PD),
+    PC: calcAvg(b.cats.PC),
+    S: calcAvg(b.cats.S),
+    C: calcAvg(b.cats.C),
+    DM: calcAvg(b.cats.DM),
+  })).sort((a, b) => b.avgScore - a.avgScore);
+
+  const groupA = branchList.filter(b => b.avgScore >= 90);
+  const groupB = branchList.filter(b => b.avgScore >= 87 && b.avgScore < 90);
+  const groupC = branchList.filter(b => b.avgScore < 87);
+
+  const aoa = [
+    [`AVG. ${currentYear} & Divide into groups`],
+    ["Groups", "No.", "Branch", "PD.", "PC.", "S.", "C.", "DM.", "Percent", "เกณฑ์", "ช่วงคะแนน"]
+  ];
+
+  let currentNo = 1;
+  const appendGroup = (label, criteria, list) => {
+    list.forEach((item, idx) => {
+      aoa.push([
+        idx === 0 ? `${label} (${list.length} Br.)` : "",
+        currentNo++,
+        item.name,
+        item.PD, item.PC, item.S, item.C, item.DM,
+        item.avgScore,
+        idx === 0 ? label : "",
+        idx === 0 ? criteria : ""
+      ]);
     });
-    rows.push(row);
-  }
-
-  const colWidths = [24, ...Array(24).fill(8)];
-  return makeSheet(rows, colWidths);
-}
-
-/** ชีท 5: จัดเกรดประจำปี */
-function buildGradeSheet(records, locations) {
-  const now = new Date();
-  const thisYear = now.getFullYear();
-
-  // กรองเฉพาะปีนี้ รวมกลุ่มตามสาขา
-  const byBranch = {};
-  for (const r of records) {
-    const d = new Date(r.auditDate);
-    if (d.getFullYear() !== thisYear) continue;
-    const key = r.locationId;
-    if (!byBranch[key]) {
-      byBranch[key] = { name: r.locationName, code: r.locationCode, region: r.locationRegion, scores: [] };
-    }
-    byBranch[key].scores.push(Math.round(r.percentageScore || 0));
-  }
-
-  const avg = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : 0;
-
-  const sorted = Object.values(byBranch)
-    .map(b => ({ ...b, avg: avg(b.scores) }))
-    .sort((a, b) => b.avg - a.avg);
-
-  const rows = sorted.map((b, i) => ({
-    "อันดับ": i + 1,
-    "รหัสสาขา": b.code || "-",
-    "ชื่อสาขา": b.name || "-",
-    "ภูมิภาค": b.region || "-",
-    "เฉลี่ยทั้งปี (%)": b.avg,
-    "จำนวนรอบตรวจ": b.scores.length,
-    "เกรด": gradeLabel(b.avg),
-    "สูงสุด (%)": Math.max(...b.scores),
-    "ต่ำสุด (%)": Math.min(...b.scores)
-  }));
-
-  if (rows.length === 0) {
-    rows.push({ "อันดับ": "-", "ชื่อสาขา": `ยังไม่มีผลตรวจในปี ${thisYear + 543}` });
-  }
-
-  return makeSheet(rows, [6, 12, 22, 14, 14, 12, 22, 10, 10]);
-}
-
-// ============================================================
-// SHEET BUILDERS — TYPE B (Branch-level)
-// ============================================================
-
-/** ชีท B1: ประวัติคะแนนสาขา */
-function buildBranchHistorySheet(records, unit) {
-  const unitRecords = records
-    .filter(r => r.locationId === unit?.id || r.locationName === unit?.name)
-    .sort((a, b) => new Date(b.auditDate) - new Date(a.auditDate));
-
-  const rows = unitRecords.map((r, i) => {
-    const score = Math.round(r.percentageScore || 0);
-    const cats = getCategoryScores(r);
-    return {
-      "ครั้งที่": i + 1,
-      "วันที่ตรวจ": thaiDate(r.auditDate),
-      "ประเภท": r.auditType === "unannounced" ? "ไม่แจ้งล่วงหน้า" : "แจ้งล่วงหน้า",
-      "ผู้ตรวจ": r.auditorName || "-",
-      "ผู้รับการตรวจ": r.auditeeName || "-",
-      "PD (%)": cats.PD !== null ? cats.PD : "-",
-      "PC (%)": cats.PC !== null ? cats.PC : "-",
-      "S (%)": cats.S !== null ? cats.S : "-",
-      "C (%)": cats.C !== null ? cats.C : "-",
-      "DM (%)": cats.DM !== null ? cats.DM : "-",
-      "คะแนนรวม (%)": score,
-      "ผล": passLabel(score),
-      "Critical Defect": r.hasCriticalDefect ? "พบ" : "-",
-      "หมายเหตุ": r.notes || "-"
-    };
-  });
-
-  if (rows.length === 0) {
-    rows.push({ "ครั้งที่": "-", "วันที่ตรวจ": "ยังไม่มีประวัติการตรวจ" });
-  }
-
-  return makeSheet(rows, [6, 16, 16, 18, 18, 8, 8, 8, 8, 8, 13, 13, 13, 30]);
-}
-
-/** ชีท B2: คำตอบรายข้อ (รอบล่าสุด) */
-function buildDetailResponseSheet(records, unit) {
-  const unitRecords = records
-    .filter(r => r.locationId === unit?.id || r.locationName === unit?.name)
-    .sort((a, b) => new Date(b.auditDate) - new Date(a.auditDate));
-
-  const latest = unitRecords[0];
-  if (!latest) {
-    return makeSheet([{ "หมายเหตุ": "ยังไม่มีประวัติการตรวจสาขานี้" }], [50]);
-  }
-
-  const responses = latest.responses || [];
-  if (responses.length === 0) {
-    return makeSheet([{
-      "หมายเหตุ": "ไม่พบข้อมูล responses — กรุณาส่งออกอีกครั้ง (API ส่ง includeResponses=true)"
-    }], [60]);
-  }
-
-  const rows = responses.map((res, i) => {
-    const pct = res.fullScore > 0 ? Math.round((res.scoreGiven / res.fullScore) * 100) : 0;
-    return {
-      "ข้อที่": i + 1,
-      "หมวด (Section)": res.sectionTitle || "-",
-      "หมวดหมู่ (Category)": res.categoryName || "-",
-      "รหัสหมวด": res.categoryCode || "-",
-      "คำถาม": res.questionText || "-",
-      "Critical": res.isCritical ? "★" : "",
-      "N/A": res.isNa ? "✓" : "",
-      "คะแนนเต็ม": res.isNa ? "-" : res.fullScore,
-      "คะแนนที่ได้": res.isNa ? "-" : res.scoreGiven,
-      "% ข้อนี้": res.isNa ? "-" : pct,
-      "ผล": res.isNa ? "N/A" : (res.isPassed ? "ผ่าน" : "ไม่ผ่าน"),
-      "หมายเหตุผู้ตรวจ": res.notes || ""
-    };
-  });
-
-  return makeSheet(rows, [5, 20, 18, 10, 50, 7, 5, 10, 10, 10, 10, 40]);
-}
-
-/** ชีท B3: สรุปหมวดสาขา (เฉลี่ยทุกรอบ) */
-function buildBranchCategorySheet(records, unit) {
-  const unitRecords = records
-    .filter(r => r.locationId === unit?.id || r.locationName === unit?.name)
-    .sort((a, b) => new Date(b.auditDate) - new Date(a.auditDate));
-
-  const catAcc = { PD: [], PC: [], S: [], C: [], DM: [] };
-  for (const r of unitRecords) {
-    const cats = getCategoryScores(r);
-    for (const cat of Object.keys(catAcc)) {
-      if (cats[cat] !== null) catAcc[cat].push(cats[cat]);
-    }
-  }
-
-  const avg = arr => arr.length > 0 ? Math.round(arr.reduce((s, v) => s + v, 0) / arr.length) : "-";
-
-  const CAT_LABELS = {
-    PD: "PD — Product (ผลิตภัณฑ์)",
-    PC: "PC — Process (กระบวนการ)",
-    S:  "S — Service (บริการ)",
-    C:  "C — Cleanliness (ความสะอาด)",
-    DM: "DM — Documents/Management (เอกสาร)"
   };
 
-  const rows = Object.entries(catAcc).map(([code, scores]) => ({
-    "รหัสหมวด": code,
-    "ชื่อหมวด": CAT_LABELS[code] || code,
-    "เฉลี่ย (%)": avg(scores),
-    "จำนวนรอบที่มีข้อมูล": scores.length,
-    "สูงสุด (%)": scores.length > 0 ? Math.max(...scores) : "-",
-    "ต่ำสุด (%)": scores.length > 0 ? Math.min(...scores) : "-"
-  }));
+  appendGroup("A", "90.00 - 100.00", groupA);
+  appendGroup("B", "87.00 - 89.99", groupB);
+  appendGroup("C", "< 87.00", groupC);
 
-  // สรุปคะแนนรวมด้านล่าง
-  const overallScores = unitRecords.map(r => Math.round(r.percentageScore || 0));
-  rows.push({
-    "รหัสหมวด": "รวม",
-    "ชื่อหมวด": "คะแนนรวม Q.S.C.",
-    "เฉลี่ย (%)": avg(overallScores),
-    "จำนวนรอบที่มีข้อมูล": overallScores.length,
-    "สูงสุด (%)": overallScores.length > 0 ? Math.max(...overallScores) : "-",
-    "ต่ำสุด (%)": overallScores.length > 0 ? Math.min(...overallScores) : "-"
+  return createSheetWithWidths(aoa, [16, 6, 18, 8, 8, 8, 8, 8, 10, 10, 16]);
+}
+
+// ชีตที่ 4: สรุปคะแนนเฉลี่ยแต่ละโซน
+function buildZoneSheet(records) {
+  const now = new Date();
+  const dateHeader = `25${(now.getFullYear() + 543) % 100}-${String(now.getMonth() + 1).padStart(2, '0')}-01 00:00:00`;
+
+  const aoa = [
+    [dateHeader],
+    ["อันดับ", "AEREA ZONE", "PD.", "PC.", "S.", "C.", "DM.", "Percent"]
+  ];
+
+  const zoneMap = {};
+  records.forEach(r => {
+    const zone = r.locationRegion || r.inspectorName || "โซนทั่วไป";
+    if (!zoneMap[zone]) {
+      zoneMap[zone] = { scores: [], PD: [], PC: [], S: [], C: [], DM: [] };
+    }
+    zoneMap[zone].scores.push(Math.round(r.percentageScore || 0));
+    const cats = getCategoryScores(r);
+    for (const c of ["PD", "PC", "S", "C", "DM"]) {
+      if (typeof cats[c] === "number") zoneMap[zone][c].push(cats[c]);
+    }
   });
 
-  return makeSheet(rows, [10, 30, 12, 18, 12, 12]);
+  const calcAvg = arr => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : "-";
+
+  const zoneList = Object.entries(zoneMap).map(([zone, data]) => ({
+    zone,
+    avgScore: calcAvg(data.scores),
+    PD: calcAvg(data.PD),
+    PC: calcAvg(data.PC),
+    S: calcAvg(data.S),
+    C: calcAvg(data.C),
+    DM: calcAvg(data.DM)
+  })).sort((a, b) => (typeof b.avgScore === "number" ? b.avgScore : 0) - (typeof a.avgScore === "number" ? a.avgScore : 0));
+
+  zoneList.forEach((z, idx) => {
+    aoa.push([idx + 1, z.zone, z.PD, z.PC, z.S, z.C, z.DM, z.avgScore]);
+  });
+
+  if (zoneList.length > 0) {
+    const lastRow = zoneList.length + 2;
+    aoa.push([
+      "เฉลี่ย", "",
+      { t: "n", f: `AVERAGE(C3:C${lastRow})` },
+      { t: "n", f: `AVERAGE(D3:D${lastRow})` },
+      { t: "n", f: `AVERAGE(E3:E${lastRow})` },
+      { t: "n", f: `AVERAGE(F3:F${lastRow})` },
+      { t: "n", f: `AVERAGE(G3:G${lastRow})` },
+      { t: "n", f: `AVERAGE(H3:H${lastRow})` }
+    ]);
+  }
+
+  return createSheetWithWidths(aoa, [8, 20, 8, 8, 8, 8, 8, 10]);
+}
+
+// ชีตที่ 5: ข้อมูลเกินอายุ.ไม่ได้คุณภาพ
+function buildDefectSheet(records) {
+  const aoa = [
+    ["No.", "Branch", "Date", "Team on Shift", "รายละเอียด/จำนวนรายการ"]
+  ];
+
+  let count = 1;
+  records.forEach(r => {
+    const defectResponses = (r.responses || []).filter(res => res.isCritical || !res.isPassed);
+    if (defectResponses.length > 0) {
+      defectResponses.forEach(res => {
+        aoa.push([
+          count++,
+          r.locationName || r.locationCode || "-",
+          formatThaiDateShort(r.auditDate),
+          r.teamOnShift || r.shiftLeader || "-",
+          `${res.questionText || res.categoryName || "ข้อตรวจ"}: ${res.notes || "ไม่ผ่านเกณฑ์"}`
+        ]);
+      });
+    } else if (r.hasCriticalDefect || (r.notes && r.notes.includes("Waste"))) {
+      aoa.push([
+        count++,
+        r.locationName || r.locationCode || "-",
+        formatThaiDateShort(r.auditDate),
+        r.teamOnShift || r.shiftLeader || "-",
+        r.notes || "พบข้อบกพร่องวิกฤต/สินค้าหมดอายุ"
+      ]);
+    }
+  });
+
+  if (aoa.length === 1) {
+    aoa.push(["-", "ไม่พบรายการสินค้าเกินอายุหรือไม่ได้คุณภาพ", "-", "-", "-"]);
+  }
+
+  return createSheetWithWidths(aoa, [6, 20, 16, 18, 50]);
 }
 
 // ============================================================
-// MAIN EXPORT FUNCTION
+// 3. ฟังก์ชันหลักสำหรับ Export (Entry Point)
 // ============================================================
 
-/**
- * @param {Object} options
- * @param {"org"|"branch"} options.mode   - "org" = รายงานระดับองค์กร, "branch" = รายงานรายสาขา
- * @param {Object}  options.targetUnit    - สาขาที่เลือก (mode="branch")
- * @param {string}  options.timeRange     - "all"|"1M"|"3M"|"6M"|"1Y"
- * @param {string}  options.timeRangeLabel - ป้ายช่วงเวลา (แสดงใน header)
- * @param {string}  options.region        - "all"|ชื่อภูมิภาค
- * @param {Array}   options.locations     - รายการสาขาทั้งหมด
- * @param {Array}   options.auditRecords  - ผลตรวจทั้งหมด (รวม responses ถ้า includeResponses=true)
- */
 export function exportToExcel({
-  mode = "org",
-  targetUnit = null,
-  timeRange = "all",
-  timeRangeLabel = null,
+  formName = "AU. Operation Excellence",
   region = "all",
-  locations = [],
   auditRecords = []
 }) {
   const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10);
-  const thaiYear = now.getFullYear() + 543;
-  const resolvedLabel = timeRangeLabel || (timeRange === "all" ? "ทั้งหมด" : `ย้อนหลัง ${timeRange}`);
-
-  // กรองช่วงเวลา
-  let filteredRecords = filterByTimeRange(auditRecords, timeRange);
-
-  // กรองภูมิภาค (สำหรับ mode=org)
-  if (mode === "org" && region !== "all") {
-    filteredRecords = filteredRecords.filter(r =>
-      (r.locationRegion || "").includes(region)
-    );
-  }
+  const monthStr = String(now.getMonth() + 1).padStart(2, "0");
+  const yearShort = (now.getFullYear() + 543) % 100;
+  
+  // ตั้งชื่อไฟล์ตามชื่อฟอร์มและรอบเดือน/ปี เช่น "AU. Operation Excellence 09.26.xlsx"
+  const cleanFormName = (formName || "QSC_Report").replace(/[\\/:*?"<>|]/g, "_").trim();
+  const filename = `${cleanFormName} ${monthStr}.${yearShort}.xlsx`;
 
   const wb = XLSX.utils.book_new();
 
-  if (mode === "org") {
-    // ======= Type A: รายงานระดับองค์กร (5 ชีท) =======
-    XLSX.utils.book_append_sheet(wb, buildRawLogSheet(filteredRecords, locations),     "1.บันทึกดิบ");
-    XLSX.utils.book_append_sheet(wb, buildMonthlyRankSheet(filteredRecords),            "2.อันดับเดือนนี้");
-    XLSX.utils.book_append_sheet(wb, buildCategoryAvgSheet(filteredRecords),            "3.เฉลี่ยแยกหมวด");
-    XLSX.utils.book_append_sheet(wb, buildYearlyTrendSheet(filteredRecords),            "4.เทรนด์รายปี");
-    XLSX.utils.book_append_sheet(wb, buildGradeSheet(filteredRecords, locations),       "5.จัดเกรดประจำปี");
-
-    const filename = `QSC_Master_Report_${region !== "all" ? region + "_" : ""}${timeRange}_${dateStr}.xlsx`;
-    XLSX.writeFile(wb, filename);
-
-  } else if (mode === "branch" && targetUnit) {
-    // ======= Type B: รายงานรายสาขา (3 ชีท) =======
-    // ไม่กรองช่วงเวลาสำหรับ branch history (ใช้ทั้งหมด แล้วชีทแต่ละอันจัดการเอง)
-    const allBranchRecords = filterByTimeRange(auditRecords, timeRange);
-
-    XLSX.utils.book_append_sheet(wb, buildBranchHistorySheet(allBranchRecords, targetUnit), "1.ประวัติคะแนน");
-    XLSX.utils.book_append_sheet(wb, buildDetailResponseSheet(auditRecords, targetUnit),     "2.คำตอบรายข้อ(ล่าสุด)");
-    XLSX.utils.book_append_sheet(wb, buildBranchCategorySheet(allBranchRecords, targetUnit), "3.สรุปหมวด");
-
-    const safeName = (targetUnit.name || "branch").replace(/[/\\?*[\]]/g, "-");
-    const filename = `QSC_${safeName}_${timeRange}_${dateStr}.xlsx`;
-    XLSX.writeFile(wb, filename);
-
-  } else {
-    console.warn("exportToExcel: mode ไม่ถูกต้องหรือไม่ระบุ targetUnit");
+  let records = [...auditRecords];
+  if (region !== "all") {
+    records = records.filter(r => (r.locationRegion || "").includes(region));
   }
+
+  // สร้างแต่ละชีตตามโครงสร้างแบบร่าง
+  XLSX.utils.book_append_sheet(wb, buildAuditRecordSheet(records, auditRecords, false), "บันทึกคะแนนตรวจ ");
+  XLSX.utils.book_append_sheet(wb, buildAuditRecordSheet(records, auditRecords, true),  "บันทึกคะแนนตรวจ(เรียงอันดับ)");
+  XLSX.utils.book_append_sheet(wb, buildGradingSheet(auditRecords),                     "คะแนนเฉลี่ยทั้งปี");
+  XLSX.utils.book_append_sheet(wb, buildZoneSheet(records),                             "คะแนนเฉลี่ยแต่ละโซน");
+  XLSX.utils.book_append_sheet(wb, buildDefectSheet(records),                           "ข้อมูลเกินอายุ.ไม่ได้คุณภาพ");
+
+  // สั่งบันทึกไฟล์และดาวน์โหลด
+  XLSX.writeFile(wb, filename);
 }
 
 export default exportToExcel;
