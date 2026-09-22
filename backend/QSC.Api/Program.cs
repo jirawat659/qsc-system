@@ -13,6 +13,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Database Configuration
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<QSC.Api.Services.LoginRateLimiterService>();
 builder.Services.AddScoped<AuditStampInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
