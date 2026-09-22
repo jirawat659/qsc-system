@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QSC.Api.Data;
@@ -57,7 +56,6 @@ namespace QSC.Api.Controllers
         }
 
         [AllowAnonymous]
-        [EnableRateLimiting("LoginRateLimit")]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
