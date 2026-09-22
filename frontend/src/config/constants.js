@@ -24,6 +24,8 @@ export const CAP_STATUS_MAP = {
   done: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   approved: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
   closed: { label: "อนุมัติและปิดงานแล้ว", fg: "#059669", bg: "#D1FAE5" },
+  cancelled: { label: "ยกเลิกงาน (แก้ไขเป็นผ่าน)", fg: "#64748B", bg: "#F1F5F9" },
+  CANCELLED: { label: "ยกเลิกงาน (แก้ไขเป็นผ่าน)", fg: "#64748B", bg: "#F1F5F9" },
 };
 
 // Color Palette for dynamic Brands & Regions in Charts
@@ -68,7 +70,18 @@ export const getDynamicBrandLines = (locations = []) => {
   if (!locations || !Array.isArray(locations) || locations.length === 0) {
     return DEFAULT_BRAND_LINES;
   }
-  const distinctBrands = [...new Set(locations.map(l => l.brandName || l.brand).filter(Boolean))];
+  const brandNames = [];
+  locations.forEach(l => {
+    if (l.locationBrands && Array.isArray(l.locationBrands)) {
+      l.locationBrands.forEach(lb => {
+        const name = lb.brand?.name || lb.brandName;
+        if (name) brandNames.push(name);
+      });
+    } else if (l.brand) {
+      brandNames.push(typeof l.brand === 'object' ? l.brand.name : l.brand);
+    }
+  });
+  const distinctBrands = [...new Set(brandNames.filter(Boolean))];
   if (distinctBrands.length === 0) return DEFAULT_BRAND_LINES;
 
   return distinctBrands.map((brand, idx) => {
@@ -109,3 +122,36 @@ export const getDynamicRegionLines = (locations = []) => {
     };
   });
 };
+
+/**
+ * 🏷️ Mapping และฟังก์ชันแสดงผลชื่อหมวดหมู่บนหน้าเว็บ (Display Only)
+ * โครงสร้างข้อมูลและฐานข้อมูลจะยังคงเก็บเป็น "Product", "Process", etc.
+ * แต่ส่วนการแสดงผลให้ผู้ใช้เห็นจะแสดงเป็นชื่อภาษาอังกฤษพร้อมคำอธิบายภาษาไทย
+ */
+export const CATEGORY_DISPLAY_MAP = {
+  "Product": "Product (คุณภาพสินค้า - วัตถุดิบ)",
+  "Process": "Process (กระบวนการทำงาน)",
+  "Service": "Service (การบริการ)",
+  "Cleanliness": "Cleanliness (ความสะอาด)",
+  "Documents": "Documents (เอกสาร)",
+  "PD": "Product (คุณภาพสินค้า - วัตถุดิบ)",
+  "PC": "Process (กระบวนการทำงาน)",
+  "S": "Service (การบริการ)",
+  "C": "Cleanliness (ความสะอาด)",
+  "DM": "Documents (เอกสาร)",
+};
+
+export const getCategoryDisplay = (cat) => {
+  if (!cat) return "";
+  const s = String(cat).trim();
+  if (CATEGORY_DISPLAY_MAP[s]) return CATEGORY_DISPLAY_MAP[s];
+  const u = s.toUpperCase();
+  if (CATEGORY_DISPLAY_MAP[u]) return CATEGORY_DISPLAY_MAP[u];
+  if (u === "QLT" || s.includes("คุณภาพ")) return CATEGORY_DISPLAY_MAP["Product"];
+  if (u === "OPS" || s.includes("กระบวนการ") || s.includes("โรงงาน") || s.includes("GMP")) return CATEGORY_DISPLAY_MAP["Process"];
+  if (u === "SVC" || s.includes("บริการ")) return CATEGORY_DISPLAY_MAP["Service"];
+  if (u === "CLN" || s.includes("สะอาด") || s.includes("สุขอนามัย")) return CATEGORY_DISPLAY_MAP["Cleanliness"];
+  if (u === "DOC" || s.includes("เอกสาร")) return CATEGORY_DISPLAY_MAP["Documents"];
+  return s;
+};
+

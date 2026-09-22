@@ -24,26 +24,30 @@ if (!isDevMode && envApiBaseUrl && protocol === 'https:' && envApiBaseUrl.starts
   envApiBaseUrl = `https://${envApiBaseUrl.slice('http://'.length)}`;
 }
 
-export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}`;
+const defaultBackendPort = (typeof window !== 'undefined' && window.location.port && window.location.port !== '80' && window.location.port !== '443' && window.location.port !== '5082') ? ':5082' : '';
+export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}${defaultBackendPort}`;
 export const API_BASE_URL = `${SERVER_BASE_URL}/api`;
 
-// 🖼️ URL Resolver: แปลง relative path (/uploads/...) เป็น full backend URL
+// 🖼️ URL Resolver: ดึงไฟล์รูปภาพตรงจาก frontend/public/uploads หรือ data URL
 export const getFullImageUrl = (url) => {
   if (!url) return '';
   if (typeof url !== 'string') return '';
   if (url.startsWith('data:image/') || url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
     return url;
   }
-  if (url.startsWith('/')) {
-    return `${SERVER_BASE_URL}${url}`;
-  }
-  return `${SERVER_BASE_URL}/${url}`;
+  // เสิร์ฟโดยตรงจาก Frontend public path
+  return url.startsWith('/') ? url : `/${url}`;
 };
+
+// 🌟 Timeout เฉพาะสำหรับ endpoint เรียก AI (/ai/*): local model (เช่น qwen3.5:9b) ช้ากว่า
+// cloud API เดิมมาก ใช้ timeout ปกติ 15s ของ instance หลักไม่พอ ต้องเผื่อมากกว่าฝั่ง backend
+// (AI:TimeoutSeconds ใน appsettings.json ค่าเริ่มต้น 60s) เล็กน้อยกันเคส backend timeout ก่อน frontend
+export const AI_REQUEST_TIMEOUT_MS = 65000;
 
 // 🚀 สร้าง Axios Instance สำหรับเรียกใช้ทั่วทั้งโปรเจกต์
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -64,10 +68,12 @@ api.interceptors.request.use(
 );
 
 // 🛡️ Auto Error Interceptor: ถ้า Token หมดอายุหรือไม่ถูกต้อง (401 Unauthorized) ให้ล้างข้อมูลและเด้งกลับหน้า Login ทันที
+// ⚠️ ยกเว้น endpoint /auth/login เพื่อให้หน้า Login แสดงแจ้งเตือนรหัสผ่านผิดและนับถอยหลัง Brute Force ได้
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response && error.response.status === 401) {
+    const isLoginEndpoint = error.config?.url?.includes('/auth/login');
+    if (!isLoginEndpoint && error.response && error.response.status === 401) {
       authStorage.clearSession();
       window.dispatchEvent(new Event('storage'));
       window.location.reload();

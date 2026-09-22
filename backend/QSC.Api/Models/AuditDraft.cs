@@ -11,6 +11,8 @@ namespace QSC.Api.Models
         public SurveyForm? SurveyForm { get; set; }
         public int AuditorId { get; set; }
         public User? Auditor { get; set; }
+        public int? AuditScheduleId { get; set; }
+        public AuditSchedule? AuditSchedule { get; set; }
         public string DraftPayloadJson { get; set; } = string.Empty;
         public int CurrentSectionIdx { get; set; } = 0;
         public int TotalAnswered { get; set; } = 0;

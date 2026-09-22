@@ -84,13 +84,22 @@ export default function LocationGpsSection({
       const map = L.map(mapContainerRef.current, {
         center: [initialLat, initialLng],
         zoom: 16,
-        zoomControl: false
+        zoomControl: false,
+        dragging: true,
+        tap: true,
+        touchZoom: true
       });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors',
         maxZoom: 19
       }).addTo(map);
+
+      // 📱 Prevent touch gestures on map from scrolling parent modal or page
+      if (mapContainerRef.current) {
+        L.DomEvent.disableScrollPropagation(mapContainerRef.current);
+        L.DomEvent.disableClickPropagation(mapContainerRef.current);
+      }
 
       // Track center coordinates in real-time as user moves/pans the map
       map.on('move', () => {
@@ -276,20 +285,20 @@ export default function LocationGpsSection({
 
       {/* ── 🗺️ 3. INTERACTIVE POP-UP MAP MODAL WITH RED CENTER PIN ── */}
       {showMapModal && (
-        <ModalWrapper onClose={() => setShowMapModal(false)} maxWidth="max-w-md sm:max-w-xl">
-          <div className="p-5 sm:p-6 space-y-4 flex flex-col max-h-[90dvh] overflow-y-auto overscroll-contain">
+        <ModalWrapper onClose={() => setShowMapModal(false)} maxWidth="max-w-md sm:max-w-xl" zIndex={10050}>
+          <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 flex flex-col max-h-[88dvh] overflow-y-auto overscroll-contain">
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+            <div className="flex items-center justify-between pb-2.5 sm:pb-3 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0">
                   <Compass size={20} />
                 </div>
                 <div>
                   <h3 className="text-base sm:text-lg font-bold text-slate-800 leading-tight">
                     ปักหมุดพิกัดแผนที่สาขา
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
                     เลื่อนแผนที่ให้หมุดสีแดงอยู่ตรงตำแหน่งที่ต้องการ
                   </p>
                 </div>
@@ -297,7 +306,7 @@ export default function LocationGpsSection({
               <button
                 type="button"
                 onClick={() => setShowMapModal(false)}
-                className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center cursor-pointer transition-colors shrink-0"
               >
                 <X size={16} />
               </button>
@@ -314,14 +323,14 @@ export default function LocationGpsSection({
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSearchLocation(); } }}
                     placeholder="พิมพ์ชื่อสถานที่, วางลิงก์ Google Maps, หรือพิกัด..."
-                    className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-normal text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs placeholder:text-slate-400"
+                    className="w-full pl-9 pr-3 py-2 sm:py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm font-normal text-slate-800 focus:bg-white focus:border-[#0F6659] outline-none shadow-2xs placeholder:text-slate-400"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={handleSearchLocation}
                   disabled={searching}
-                  className="px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                  className="px-3 sm:px-4 py-2 sm:py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0"
                 >
                   {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
                   <span>ค้นหา</span>
@@ -334,7 +343,7 @@ export default function LocationGpsSection({
                   type="button"
                   onClick={handleGetCurrentGps}
                   disabled={gpsLoading}
-                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all disabled:opacity-50 min-h-[38px] text-center"
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all disabled:opacity-50 min-h-[36px] sm:min-h-[38px] text-center"
                 >
                   {gpsLoading ? <Loader2 size={13} className="animate-spin shrink-0" /> : <Navigation size={13} className="shrink-0" />}
                   <span className="truncate">ใช้<span className="hidden sm:inline">ตำแหน่ง</span> GPS ปัจจุบัน</span>
@@ -344,7 +353,7 @@ export default function LocationGpsSection({
                   href={`https://www.google.com/maps?q=${tempLat},${tempLng}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border border-slate-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all min-h-[38px] text-center"
+                  className="flex items-center justify-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border border-slate-200 text-xs font-bold shadow-2xs cursor-pointer active:scale-95 transition-all min-h-[36px] sm:min-h-[38px] text-center"
                 >
                   <ExternalLink size={13} className="shrink-0 text-slate-400" />
                   <span className="truncate">เปิด<span className="hidden sm:inline">ดูใน</span> Google Maps</span>
@@ -353,9 +362,18 @@ export default function LocationGpsSection({
             </div>
 
             {/* 🔴 INTERACTIVE DRAGGABLE MAP WITH RED CENTER PIN MARKER */}
-            <div className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-inner bg-slate-100 h-64 sm:h-72 shrink-0">
+            <div
+              className="relative rounded-2xl overflow-hidden border border-slate-200 shadow-inner bg-slate-100 h-52 sm:h-72 shrink-0 touch-none select-none"
+              style={{ touchAction: 'none' }}
+              onTouchMove={(e) => e.stopPropagation()}
+            >
               {/* Leaflet Map Canvas */}
-              <div ref={mapContainerRef} className="w-full h-full z-0 cursor-grab active:cursor-grabbing" />
+              <div
+                ref={mapContainerRef}
+                className="w-full h-full z-0 cursor-grab active:cursor-grabbing touch-none select-none"
+                style={{ touchAction: 'none' }}
+                onTouchMove={(e) => e.stopPropagation()}
+              />
 
               {/* 🎯 FIXED RED CENTER PIN MARKER (จุดปักหมุดแดงตรงกลางจอ) */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-full z-[1000] pointer-events-none flex flex-col items-center select-none">
@@ -370,36 +388,36 @@ export default function LocationGpsSection({
               </div>
 
               {/* Map Zoom Controls */}
-              <div className="absolute bottom-3 right-3 z-[1000] flex flex-col gap-1 shadow-md rounded-xl overflow-hidden bg-white/90 backdrop-blur-xs border border-slate-200">
+              <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3 z-[1000] flex flex-col gap-1 shadow-md rounded-xl overflow-hidden bg-white/90 backdrop-blur-xs border border-slate-200">
                 <button
                   type="button"
                   onClick={() => mapInstanceRef.current?.zoomIn()}
-                  className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer border-b border-slate-100"
+                  className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer border-b border-slate-100"
                   title="ขยายแผนที่"
                 >
-                  <ZoomIn size={15} />
+                  <ZoomIn size={14} />
                 </button>
                 <button
                   type="button"
                   onClick={() => mapInstanceRef.current?.zoomOut()}
-                  className="w-8 h-8 flex items-center justify-center hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer"
+                  className="w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center hover:bg-slate-100 text-slate-700 font-bold transition-colors cursor-pointer"
                   title="ย่อแผนที่"
                 >
-                  <ZoomOut size={15} />
+                  <ZoomOut size={14} />
                 </button>
               </div>
 
               {/* Hint badge at top of map */}
-              <div className="absolute top-2.5 left-1/2 -translate-x-1/2 z-[1000] bg-white/90 backdrop-blur-xs px-3 py-1 rounded-full border border-slate-200/80 text-[11px] font-semibold text-slate-600 shadow-xs pointer-events-none">
+              <div className="absolute top-2 left-1/2 -translate-x-1/2 z-[1000] bg-white/90 backdrop-blur-xs px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full border border-slate-200/80 text-[10px] sm:text-[11px] font-semibold text-slate-600 shadow-xs pointer-events-none">
                 เลื่อนแผนที่เพื่อปรับจุดปักหมุด
               </div>
             </div>
 
             {/* Latitude & Longitude Real-Time Display */}
-            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between shrink-0">
+            <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-xs font-bold text-slate-700">พิกัดปัจจุบันที่กึ่งกลาง:</span>
+                <span className="text-[11px] sm:text-xs font-bold text-slate-700">พิกัดปัจจุบันที่กึ่งกลาง:</span>
               </div>
               <div className="font-mono text-xs sm:text-sm font-bold text-[#0F6659]">
                 {tempLat.toFixed(6)}, {tempLng.toFixed(6)}
@@ -407,18 +425,18 @@ export default function LocationGpsSection({
             </div>
 
             {/* Modal Bottom Actions */}
-            <div className="flex gap-3 pt-3 border-t border-slate-100 shrink-0 bg-white">
+            <div className="flex gap-2.5 sm:gap-3 pt-2.5 sm:pt-3 border-t border-slate-100 shrink-0 bg-white sticky bottom-0 z-10">
               <button
                 type="button"
                 onClick={() => setShowMapModal(false)}
-                className="flex-1 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-sm font-bold text-slate-600 cursor-pointer transition-all active:scale-98"
+                className="flex-1 py-2.5 sm:py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-xs sm:text-sm font-bold text-slate-600 cursor-pointer transition-all active:scale-98"
               >
                 ยกเลิก
               </button>
               <button
                 type="button"
                 onClick={handleConfirmLocation}
-                className="flex-1 py-3 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-sm font-bold text-white shadow-md cursor-pointer active:scale-98 transition-all flex items-center justify-center gap-1.5"
+                className="flex-1 py-2.5 sm:py-3 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-xs sm:text-sm font-bold text-white shadow-md cursor-pointer active:scale-98 transition-all flex items-center justify-center gap-1.5"
               >
                 <Check size={16} />
                 <span>ยืนยันพิกัดนี้</span>

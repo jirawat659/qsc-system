@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import api from '../config/api';
 import authStorage from '../config/storage';
 import { LogIn, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
@@ -9,9 +9,54 @@ function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // โหลดเวลา Lockout ที่ค้างไว้จาก localStorage (ถ้ามี เพื่อไม่ให้เวลารีเซ็ตเมื่อรีเฟรชหน้าเว็บ)
+  const [lockoutSeconds, setLockoutSeconds] = useState(() => {
+    try {
+      const storedUntil = localStorage.getItem('qsc_login_lockout_until');
+      if (storedUntil) {
+        const remaining = Math.ceil((Number(storedUntil) - Date.now()) / 1000);
+        return remaining > 0 ? remaining : 0;
+      }
+    } catch {
+      // ignore
+    }
+    return 0;
+  });
+
+  // ระบบนับเวลาถอยหลังเมื่อติด Lockout
+  useEffect(() => {
+    if (lockoutSeconds <= 0) {
+      try {
+        localStorage.removeItem('qsc_login_lockout_until');
+      } catch {}
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setLockoutSeconds(prev => {
+        if (prev <= 1) {
+          try {
+            localStorage.removeItem('qsc_login_lockout_until');
+          } catch {}
+          setError(''); // เคลียร์ข้อความระงับเมื่อครบกำหนด
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
+
+  const formatTimer = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    if (lockoutSeconds > 0) return;
+
     if (!username.trim() || !password.trim()) {
       setError('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
       return;
@@ -37,13 +82,30 @@ function Login({ onLoginSuccess }) {
         localStorage.setItem('fullName', user.fullName);
       }
       
+      // ล้างข้อมูล lockout เมื่อล็อกอินสำเร็จ
+      try {
+        localStorage.removeItem('qsc_login_lockout_until');
+      } catch {}
+
       if (onLoginSuccess) {
         onLoginSuccess(token);
       } else {
         window.location.reload();
       }
     } catch (err) {
-      setError(err.response?.data?.message || 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบชื่อผู้ใช้และรหัสผ่าน');
+      const data = err.response?.data;
+      const isRateLimited = data?.isLocked || err.response?.status === 429;
+      const retrySecs = Number(data?.retryAfterSeconds) || (isRateLimited ? 60 : 0);
+
+      if (isRateLimited && retrySecs > 0) {
+        setLockoutSeconds(retrySecs);
+        try {
+          localStorage.setItem('qsc_login_lockout_until', String(Date.now() + retrySecs * 1000));
+        } catch {}
+        setError(data?.message || `บัญชีถูกระงับชั่วคราว กรุณารอ ${formatTimer(retrySecs)}`);
+      } else {
+        setError(data?.message || 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบชื่อผู้ใช้และรหัสผ่าน');
+      }
     } finally {
       setLoading(false);
     }
@@ -62,45 +124,54 @@ function Login({ onLoginSuccess }) {
           <p className="text-xs text-slate-500 mt-1 font-medium">Quality Standard & Compliance Portal</p>
         </div>
 
-        {/* Error Alert */}
-        {error && (
-          <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl font-semibold flex items-center gap-2">
+        {/* Error Alert (แสดงเฉพาะข้อผิดพลาดทั่วไป ไม่แสดงเมื่อติด Lockout เนื่องจากแสดงที่ปุ่มกดแล้ว) */}
+        {lockoutSeconds <= 0 && error ? (
+          <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-2xl font-semibold flex items-center gap-2 animate-in fade-in duration-200">
             <AlertCircle size={16} className="shrink-0 text-rose-600" />
             <span>{error}</span>
           </div>
-        )}
+        ) : null}
 
         {/* Login Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อผู้ใช้งาน (Username)</label>
+            <label htmlFor="login-username" className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อผู้ใช้งาน (Username)</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                 <User size={16} />
               </div>
               <input
+                id="login-username"
+                name="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
+                disabled={loading || lockoutSeconds > 0}
+                className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 placeholder="กรอกชื่อผู้ใช้ของคุณ..."
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck="false"
                 required
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">รหัสผ่าน (Password)</label>
+            <label htmlFor="login-password" className="block text-xs font-bold text-slate-700 mb-1.5">รหัสผ่าน (Password)</label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                 <Lock size={16} />
               </div>
               <input
+                id="login-password"
+                name="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-10 py-3 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium"
+                disabled={loading || lockoutSeconds > 0}
+                className="w-full pl-10 pr-10 py-3 rounded-2xl border border-slate-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#0F6659] transition-all bg-slate-50/50 text-slate-800 font-medium disabled:opacity-60 disabled:cursor-not-allowed"
                 placeholder="กรอกรหัสผ่าน..."
                 autoComplete="current-password"
                 required
@@ -108,7 +179,8 @@ function Login({ onLoginSuccess }) {
               <button
                 type="button"
                 onClick={() => setShowPassword(prev => !prev)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                disabled={lockoutSeconds > 0}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1 disabled:opacity-40"
                 aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
               >
                 {showPassword ? <Eye size={16} /> : <EyeOff size={16} />}
@@ -118,17 +190,28 @@ function Login({ onLoginSuccess }) {
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3.5 bg-gradient-to-tr from-[#0F6659] to-[#15806e] hover:from-[#0d594e] hover:to-[#127060] text-white rounded-2xl font-bold text-sm shadow-md hover:shadow-lg active:scale-98 transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+            disabled={loading || lockoutSeconds > 0}
+            className={`w-full py-3.5 rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2 mt-3 ${
+              lockoutSeconds > 0
+                ? 'bg-[#73A8A3] text-white cursor-not-allowed shadow-none'
+                : loading
+                ? 'bg-[#0F6659]/80 text-white cursor-wait shadow-sm'
+                : 'bg-gradient-to-tr from-[#0F6659] to-[#15806e] hover:from-[#0d594e] hover:to-[#127060] text-white shadow-md hover:shadow-lg active:scale-98 cursor-pointer'
+            }`}
           >
-            {loading ? (
+            {lockoutSeconds > 0 ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <Lock size={17} className="text-white shrink-0" />
+                <span>กรุณารอ ({formatTimer(lockoutSeconds)})</span>
+              </>
+            ) : loading ? (
+              <>
+                <Loader2 size={16} className="animate-spin shrink-0" />
                 <span>กำลังตรวจสอบสิทธิ์...</span>
               </>
             ) : (
               <>
-                <LogIn size={16} />
+                <LogIn size={16} className="shrink-0" />
                 <span>เข้าสู่ระบบ</span>
               </>
             )}

@@ -11,6 +11,7 @@ import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAN
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
+import api from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -25,17 +26,41 @@ export default function BranchProfile({ unit, onBack }) {
   const [selectedAudit, setSelectedAudit] = useState(null);
   const [showExportModal, setShowExportModal] = useState(false);
 
+  // 🌟 Phase 3.3 fix: auditRecords ใน context เป็นแค่ buffer 50 รายการล่าสุดของ
+  // "ทุกสาขารวมกัน" ซึ่งอาจไม่มีข้อมูลของสาขานี้เลยถ้ามีสาขาอื่นตรวจถี่กว่า จึงดึง
+  // ประวัติของสาขานี้เองตรงๆ จาก API (`/audit/records?locationId=X`) เป็นแหล่งหลัก
+  const [ownAuditRecords, setOwnAuditRecords] = useState([]);
+  const [isLoadingOwnHistory, setIsLoadingOwnHistory] = useState(false);
+
+  useEffect(() => {
+    if (!unit?.id) {
+      setOwnAuditRecords([]);
+      return;
+    }
+    let isMounted = true;
+    setIsLoadingOwnHistory(true);
+    api.get('/audit/records', { params: { locationId: unit.id, limit: 200 } })
+      .then(res => {
+        if (isMounted && Array.isArray(res.data)) setOwnAuditRecords(res.data);
+      })
+      .catch(() => {})
+      .finally(() => { if (isMounted) setIsLoadingOwnHistory(false); });
+    return () => { isMounted = false; };
+  }, [unit?.id]);
+
   // 🌟 Real-time audit history for this specific branch
   const branchHistory = useMemo(() => {
     if (!unit) return [];
-    const fromDb = (auditRecords || []).filter(r => 
-      (r.locationId && r.locationId === unit.id) || 
-      (r.locationName && (r.locationName === unit.name || r.locationName === unit.fullName)) ||
-      (r.location?.name && (r.location.name === unit.name || r.location.name === unit.fullName))
-    );
+    const sourceRecords = ownAuditRecords.length > 0
+      ? ownAuditRecords
+      : (auditRecords || []).filter(r => 
+          (r.locationId && r.locationId === unit.id) || 
+          (r.locationName && (r.locationName === unit.name || r.locationName === unit.fullName)) ||
+          (r.location?.name && (r.location.name === unit.name || r.location.name === unit.fullName))
+        );
 
-    if (fromDb.length > 0) {
-      return fromDb.map(r => {
+    if (sourceRecords.length > 0) {
+      return sourceRecords.map(r => {
         const score = Math.round(r.percentageScore || 0);
         const rawDate = r.auditDate || r.createdAt;
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
@@ -61,7 +86,7 @@ export default function BranchProfile({ unit, onBack }) {
     }
 
     return unit.history || [];
-  }, [auditRecords, unit]);
+  }, [auditRecords, ownAuditRecords, unit]);
 
   const latestScore = branchHistory.length > 0 ? branchHistory[0].score : (unit?.lastScore !== undefined ? unit.lastScore : 0);
 

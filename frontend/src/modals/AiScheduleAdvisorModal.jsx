@@ -1,37 +1,137 @@
-import React, { useState, useEffect } from "react";
-import { Sparkles, AlertTriangle, CheckCircle2, RefreshCw, X, MapPin, UserCheck } from "lucide-react";
-import ModalWrapper from "../shared/ModalWrapper";
-import api from "../config/api";
+import React, { useState, useEffect, useMemo, useRef, useContext } from "react";
+import { createPortal } from "react-dom";
+import { 
+  Sparkles, 
+  RefreshCw, 
+  X, 
+  MapPin, 
+  UserCheck, 
+  CheckCircle2, 
+  AlertTriangle 
+} from "lucide-react";
+import api, { AI_REQUEST_TIMEOUT_MS } from "../config/api";
+import { DataContext } from "../context/DataContext";
+import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 
 export default function AiScheduleAdvisorModal({ onClose }) {
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [aiCooldown, setAiCooldown] = useState(0);
+  const { currentUser } = useContext(DataContext) || {};
+  const scheduleCacheKey = `qsc_ai_schedule_cache_${currentUser?.id || 'default'}`;
+  const scheduleCooldownKey = `qsc_ai_cooldown_schedule_${currentUser?.id || 'default'}`;
 
-  useEffect(() => {
-    if (aiCooldown > 0) {
-      const timer = setInterval(() => {
-        setAiCooldown(prev => (prev > 1 ? prev - 1 : 0));
-      }, 1000);
-      return () => clearInterval(timer);
+  const getRemainingScheduleCooldown = () => {
+    try {
+      const expiry = parseInt(sessionStorage.getItem(scheduleCooldownKey) || "0", 10);
+      const remaining = Math.ceil((expiry - Date.now()) / 1000);
+      return remaining > 0 ? remaining : 0;
+    } catch {
+      return 0;
     }
-  }, [aiCooldown]);
+  };
+
+  // 🔹 Check cache immediately on mount so data renders with 0ms delay!
+  const [data, setData] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(scheduleCacheKey);
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [loading, setLoading] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(scheduleCacheKey);
+      return !cached;
+    } catch {
+      return true;
+    }
+  });
+
+  const [error, setError] = useState(null);
+  const [aiCooldown, setAiCooldown] = useState(getRemainingScheduleCooldown);
+
+  // 🔹 Sheet Expansion State: false = 60vh (Compact 3 branches), true = 92vh (Full Screen Details)
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // 🔹 Touch / Mouse drag refs
+  const dragStartY = useRef(null);
+
+  // Trigger slide-up animation on mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsMounted(true);
+    }, 20);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleClose = () => {
+    setIsMounted(false);
+    setTimeout(onClose, 280);
+  };
+
+  // ⏳ Keep countdown alive based on real wall-clock time
+  useEffect(() => {
+    const updateCountdown = () => {
+      const remaining = getRemainingScheduleCooldown();
+      setAiCooldown(remaining);
+      return remaining;
+    };
+
+    updateCountdown();
+    const timer = setInterval(() => {
+      const remaining = updateCountdown();
+      if (remaining <= 0) {
+        setAiCooldown(0);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const setCooldownSeconds = (seconds) => {
+    try {
+      const expiry = Date.now() + seconds * 1000;
+      sessionStorage.setItem(scheduleCooldownKey, expiry.toString());
+    } catch (e) {}
+    setAiCooldown(seconds);
+  };
 
   const fetchRecommendations = async (isManual = false) => {
-    if (loading || (isManual && aiCooldown > 0)) return;
+    // 🌟 If automatic call and already cached, use cache without calling API
+    if (!isManual) {
+      try {
+        const cached = sessionStorage.getItem(scheduleCacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.recommendations) {
+            setData(parsed);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (isManual && (loading || getRemainingScheduleCooldown() > 0)) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get("/ai/schedule-recommendations");
-      setData(res.data);
+      const res = await api.get("/ai/schedule-recommendations", { timeout: AI_REQUEST_TIMEOUT_MS });
+      if (res.data) {
+        setData(res.data);
+        try {
+          sessionStorage.setItem(scheduleCacheKey, JSON.stringify(res.data));
+        } catch (e) {}
+      }
       if (isManual) {
-        setAiCooldown(15); // ⏳ 15s Cooldown
+        setCooldownSeconds(15);
       }
     } catch (err) {
       console.error("Failed to load AI schedule recommendations:", err);
       if (err?.response?.status === 429) {
-        setError(err?.response?.data?.message || "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่");
+        setCooldownSeconds(30);
+        setError(err?.response?.data?.message || "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 30 วินาทีก่อนลองใหม่");
       } else {
         setError("ไม่สามารถโหลดคำแนะนำจาก AI ได้ กรุณาลองใหม่อีกครั้ง");
       }
@@ -41,194 +141,306 @@ export default function AiScheduleAdvisorModal({ onClose }) {
   };
 
   useEffect(() => {
-    fetchRecommendations(false);
+    if (!data) {
+      fetchRecommendations(false);
+    }
   }, []);
 
-  const getPriorityBadge = (lvl) => {
-    switch (lvl) {
-      case "CRITICAL":
-        return {
-          label: "ความเสี่ยงวิกฤต",
-          className: "bg-rose-50 text-rose-700 border-rose-200"
-        };
-      case "HIGH":
-        return {
-          label: "ควรตรวจก่อน",
-          className: "bg-amber-50 text-amber-700 border-amber-200"
-        };
-      default:
-        return {
-          label: "ตามรอบเดือน",
-          className: "bg-emerald-50 text-emerald-700 border-emerald-200"
-        };
+  // Escape key listener & body scroll lock
+  useEffect(() => {
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
+  // ── GESTURE HANDLERS (Drag UP to Expand, Drag DOWN to Close/Collapse) ──
+  const handleTouchStart = (e) => {
+    dragStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchMove = (e) => {
+    if (dragStartY.current === null) return;
+    const currentY = e.touches[0].clientY;
+    const deltaY = currentY - dragStartY.current;
+
+    // ⬆️ Dragging UP (> 35px) -> Expand to Full Screen
+    if (deltaY < -35 && !isExpanded) {
+      setIsExpanded(true);
+      dragStartY.current = null;
+    } 
+    // ⬇️ Dragging DOWN (> 45px)
+    else if (deltaY > 45) {
+      if (isExpanded) {
+        // If full screen, collapse back to 60%
+        setIsExpanded(false);
+      } else {
+        // If at 60%, pull down closes the modal!
+        handleClose();
+      }
+      dragStartY.current = null;
     }
   };
 
-  return (
-    <ModalWrapper onClose={onClose} maxWidth="max-w-xl">
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-        {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50/60 to-emerald-100/60 rounded-t-3xl shrink-0">
+  const handleTouchEnd = () => {
+    dragStartY.current = null;
+  };
+
+  // Mouse drag support for desktop
+  const handleMouseDown = (e) => {
+    dragStartY.current = e.clientY;
+  };
+
+  const handleMouseMove = (e) => {
+    if (dragStartY.current === null) return;
+    const deltaY = e.clientY - dragStartY.current;
+    if (deltaY < -35 && !isExpanded) {
+      setIsExpanded(true);
+      dragStartY.current = null;
+    } else if (deltaY > 45) {
+      if (isExpanded) {
+        setIsExpanded(false);
+      } else {
+        handleClose();
+      }
+      dragStartY.current = null;
+    }
+  };
+
+  const handleMouseUp = () => {
+    dragStartY.current = null;
+  };
+
+  // Clean Reason text
+  const cleanReason = (rawReason) => {
+    if (!rawReason) return "ครบกำหนดรอบตรวจประจำเดือนตามเกณฑ์มาตรฐาน QSC";
+    let text = rawReason.trim();
+    text = text.replace(/^[^:：]+[:：]\s*/, '').trim();
+    text = text.replace(/999\s*วัน/g, "ยังไม่มีประวัติตรวจ");
+    return text || rawReason;
+  };
+
+  // Top 3 Recommended Branches
+  const topBranches = useMemo(() => {
+    if (!data?.recommendations) return [];
+    return data.recommendations.slice(0, 3);
+  }, [data]);
+
+  const content = (
+    <div 
+      className={`fixed inset-0 z-[9999] bg-black/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden transition-opacity duration-300 ease-out ${
+        isMounted ? "opacity-100" : "opacity-0 pointer-events-none"
+      }`}
+      onClick={handleClose}
+    >
+      <div 
+        className={`w-full max-w-lg bg-white rounded-t-[32px] sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col transform-gpu transition-all duration-350 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+          isMounted ? "translate-y-0" : "translate-y-full"
+        } ${
+          isExpanded ? "h-[92vh] sm:h-[90vh]" : "h-[60vh] sm:h-[60vh]"
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ── DRAG HANDLE BAR (ลากขึ้นเพื่อขยายเต็มจอ / ลากลงเพื่อปิด) ── */}
+        <div 
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onClick={() => setIsExpanded(prev => !prev)}
+          className="pt-3 pb-1 flex items-center justify-center cursor-pointer hover:bg-slate-50/80 transition-colors shrink-0 select-none"
+          title={isExpanded ? "ดึงลงเพื่อย่อหรือปิด" : "ดึงขึ้นเพื่อดูเต็มหน้าจอ"}
+        >
+          <div className="w-10 h-1.5 bg-slate-300 hover:bg-[#0F6659] rounded-full transition-colors" />
+        </div>
+
+        {/* ── HEADER ── */}
+        <div 
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          className="px-5 py-3 flex items-center justify-between shrink-0 border-b border-slate-100 select-none cursor-pointer"
+        >
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-[#0F6659] text-white flex items-center justify-center shadow-xs">
-              <Sparkles size={19} className="animate-pulse" />
+            <div className="w-10 h-10 rounded-2xl bg-[#0F6659] text-white flex items-center justify-center shadow-xs shrink-0">
+              <Sparkles size={20} className="text-emerald-200" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
-                คำแนะนำจากระบบอัจฉริยะ AI
+              <h2 className="text-base font-extrabold text-slate-800 leading-tight">
+                คำแนะนำจาก AI
               </h2>
-              <p className="text-xs text-slate-500 font-medium">
-                เกณฑ์มาตรฐานตรวจอย่างน้อย 1 ครั้ง / เดือน
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                {isExpanded ? "วิเคราะห์ความเสี่ยงและแนะนำผู้ตรวจเชิงลึก" : "ช่วยจัดลำดับสาขาที่ควรตรวจ 3 อันดับแรก"}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+
+          <div className="flex items-center gap-2">
+            {/* Refresh Button */}
             <button
               type="button"
-              onClick={() => fetchRecommendations(true)}
+              onClick={(e) => {
+                e.stopPropagation();
+                fetchRecommendations(true);
+              }}
               disabled={loading || aiCooldown > 0}
-              className={`px-2.5 py-1.5 text-xs font-bold rounded-2xl flex items-center gap-1 transition-all ${
+              className={`w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center transition-all ${
                 loading || aiCooldown > 0
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : 'text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 border border-slate-200 shadow-2xs cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 shadow-2xs cursor-pointer'
               }`}
-              title={aiCooldown > 0 ? `รอคูลดาวน์อีก ${aiCooldown} วินาที` : "วิเคราะห์ใหม่"}
+              title={aiCooldown > 0 ? `รอคูลดาวน์ ${aiCooldown}s` : "วิเคราะห์ใหม่"}
             >
-              <RefreshCw size={14} className={loading ? "animate-spin text-emerald-600" : ""} />
-              {aiCooldown > 0 ? <span>{aiCooldown}s</span> : null}
+              <RefreshCw size={14} className={loading ? "animate-spin text-[#0F6659]" : ""} />
             </button>
+
+            {/* Close Button */}
             <button
               type="button"
-              onClick={onClose}
-              className="p-2 text-slate-400 hover:text-slate-600 rounded-2xl hover:bg-white transition-all cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClose();
+              }}
+              className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-50 shadow-2xs transition-all cursor-pointer"
             >
-              <X size={19} />
+              <X size={15} />
             </button>
           </div>
         </div>
 
-        {/* Content Body */}
+        {/* ── SCROLLABLE BODY ── */}
         <div 
-          className="p-5 overflow-y-auto flex-1 overscroll-contain custom-tab-scrollbar space-y-4 transform-gpu"
-          style={{ WebkitOverflowScrolling: 'touch', willChange: 'scroll-position' }}
+          className="p-5 overflow-y-auto flex-1 overscroll-contain custom-tab-scrollbar space-y-3"
+          style={{ WebkitOverflowScrolling: 'touch' }}
         >
           {loading ? (
-            <div className="py-12 flex flex-col items-center justify-center gap-2.5 text-center">
-              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center animate-bounce">
+            <div className="py-16 flex flex-col items-center justify-center gap-2 text-center">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-[#0F6659] flex items-center justify-center animate-bounce">
                 <Sparkles size={20} />
               </div>
-              <p className="text-xs font-bold text-slate-600">กำลังวิเคราะห์ประวัติการตรวจและจัดลำดับสาขา...</p>
+              <p className="text-xs font-bold text-slate-700">กำลังวิเคราะห์ข้อมูลสาขา...</p>
             </div>
           ) : error ? (
             <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center justify-between">
               <span>{error}</span>
               <button
                 type="button"
-                onClick={fetchRecommendations}
-                className="px-3 py-1 bg-rose-600 text-white rounded-2xl text-xs font-bold hover:bg-rose-700 cursor-pointer"
+                onClick={() => fetchRecommendations(true)}
+                className="px-3 py-1.5 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 cursor-pointer"
               >
                 ลองใหม่
               </button>
             </div>
           ) : (
             <>
-              {/* Summary Banner */}
-              {data?.summary && (
-                <div className="p-3.5 rounded-2xl bg-emerald-950 text-white shadow-2xs">
-                  <div className="flex items-start gap-2.5">
-                    <Sparkles size={16} className="text-emerald-400 shrink-0 mt-0.5" />
-                    <p className="text-xs leading-relaxed text-slate-200 font-medium">
-                      {data.summary}
-                    </p>
+              {topBranches.map((b, idx) => (
+                <div 
+                  key={b.locationId}
+                  className="p-4 sm:p-4.5 rounded-2xl border border-slate-200/90 bg-white space-y-2.5 shadow-2xs hover:border-slate-300 transition-all"
+                >
+                  {/* แถวบน: ลำดับ + ชื่อสาขา + Badge เร่งด่วน */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-emerald-100 text-[#0F6659] font-black text-xs flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-slate-800 leading-snug">
+                        {b.locationName}
+                      </h4>
+                    </div>
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-rose-50 text-rose-600 border-rose-100 shrink-0">
+                      {b.priorityLevel === "CRITICAL" ? "ความเสี่ยงวิกฤต" : "ควรตรวจด่วน"}
+                    </span>
                   </div>
-                </div>
-              )}
 
-              {/* Recommendations List */}
-              <div className="space-y-3 pt-1">
-                <div className="flex items-center justify-between px-0.5">
-                  <h3 className="text-xs font-bold text-slate-600">
-                    ลำดับสาขาที่แนะนำให้เข้าตรวจ
-                  </h3>
-                  <span className="text-[11px] text-slate-500 font-medium">
-                    ค้างตรวจเดือนนี้: <b className="text-emerald-800 font-extrabold">{data?.totalBranchesPendingMonthlyAudit || 0}</b> สาขา
-                  </span>
-                </div>
+                  {/* แบรนด์ และ พิกัดภูมิภาค */}
+                  <div className="pl-9.5 space-y-1.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {b.brandName && (
+                        <span className="inline-block text-[11px] font-bold text-[#0F6659] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-100">
+                          {b.brandName}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium">
+                        <MapPin size={11} className="text-slate-400 shrink-0" />
+                        <span>{b.region || "กรุงเทพฯ และปริมณฑล"}</span>
+                      </div>
+                    </div>
 
-                {(data?.recommendations || []).map((b, idx) => {
-                  const badge = getPriorityBadge(b.priorityLevel);
-                  return (
-                    <div
-                      key={b.locationId}
-                      className="p-4 rounded-2xl border border-slate-200/90 bg-white space-y-2.5"
-                    >
-                      {/* Branch Name & Priority */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-800 font-extrabold text-xs flex items-center justify-center shrink-0">
-                            {idx + 1}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <h4 className="text-xs sm:text-sm font-extrabold text-slate-800">{b.locationName}</h4>
-                              <span className="text-[11px] font-medium text-slate-400">({b.brandName})</span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                              <MapPin size={10} /> {b.region || "ไม่ระบุโซน"} · รอบล่าสุด: {b.lastScore != null ? `${b.lastScore}%` : "ยังไม่เคยตรวจ"}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
+                    {/* 🌟 แสดงรายละเอียดเพิ่มเติมเมื่อดึงเต็มจอ (isExpanded === true) 🌟 */}
+                    {isExpanded && (
+                      <div className="pt-2 space-y-2.5 border-t border-slate-100 animate-in fade-in duration-200">
+                        {/* ประวัติการตรวจ และ CAP ค้าง */}
+                        <div className="flex items-center gap-2 text-[11px] text-slate-600 font-medium flex-wrap">
+                          <span>รอบล่าสุด: <b className="text-slate-800 font-bold">{b.lastScore != null ? `${b.lastScore}%` : "ยังไม่เคยตรวจ"}</b></span>
+                          <span>•</span>
                           {b.hasAuditedThisMonth ? (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200 flex items-center gap-1">
-                              <CheckCircle2 size={10} className="text-emerald-600" />
-                              ตรวจรอบเดือนนี้แล้ว
+                            <span className="text-emerald-700 font-semibold flex items-center gap-0.5">
+                              <CheckCircle2 size={11} /> ตรวจรอบเดือนนี้แล้ว
                             </span>
                           ) : (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-700 border-rose-200 flex items-center gap-1">
-                              <AlertTriangle size={10} className="text-rose-600" />
-                              ยังไม่ตรวจเดือนนี้
+                            <span className="text-rose-600 font-semibold flex items-center gap-0.5">
+                              <AlertTriangle size={11} /> ยังไม่ได้ตรวจในรอบเดือนนี้
                             </span>
                           )}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badge.className}`}>
-                            {badge.label}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* AI Reasoning */}
-                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs space-y-1.5">
-                        <div className="text-slate-700 leading-relaxed font-medium">
-                          <span className="font-bold text-emerald-800">📌 เหตุผล:</span> {b.reason}
+                          {b.pendingCapCount > 0 && (
+                            <>
+                              <span>•</span>
+                              <span className="text-amber-600 font-bold">CAP ค้าง {b.pendingCapCount} รายการ</span>
+                            </>
+                          )}
                         </div>
 
-                        {/* Suggested Auditor */}
+                        {/* กล่องเหตุผลจาก AI */}
+                        <div className="p-3 rounded-xl bg-emerald-50/40 border border-emerald-100/70 text-xs space-y-1">
+                          <div className="font-bold text-[#0F6659] flex items-center gap-1 text-[11px]">
+                            <Sparkles size={12} className="text-[#0F6659]" />
+                            <span>เหตุผลจาก AI</span>
+                          </div>
+                          <p className="text-slate-700 leading-relaxed font-medium">
+                            {cleanReason(b.reason)}
+                          </p>
+                        </div>
+
+                        {/* กล่องแนะนำผู้ตรวจ */}
                         {b.suggestedAuditorName && (
-                          <div className="pt-1 border-t border-slate-200/60 flex items-center gap-1.5 text-[11px] text-slate-600">
-                            <UserCheck size={12} className="text-emerald-700 shrink-0" />
-                            <span>
-                              <b className="text-slate-800 font-bold">ผู้ตรวจที่แนะนำ:</b> {b.suggestedAuditorName}
-                              {b.auditorReason && <span className="text-slate-400 ml-1">({b.auditorReason})</span>}
-                            </span>
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 text-xs space-y-1">
+                            <div className="font-bold text-slate-800 flex items-center gap-1.5 text-[11px]">
+                              <UserCheck size={13} className="text-[#0F6659]" />
+                              <span>ผู้ตรวจที่แนะนำ: <span className="text-[#0F6659] font-extrabold">{b.suggestedAuditorName}</span></span>
+                            </div>
+                            {b.auditorReason && (
+                              <p className="text-[11px] text-slate-500 leading-relaxed pl-4.5">
+                                {b.auditorReason}
+                              </p>
+                            )}
                           </div>
                         )}
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </>
           )}
         </div>
 
-        {/* Footer Disclaimer */}
-        <div className="p-3.5 border-t border-slate-100 bg-slate-50/80 rounded-b-3xl text-center">
-          <p className="text-[11px] text-slate-400 font-medium">
-            💡 คำแนะนำนี้สร้างโดย AI เพื่อเป็นข้อมูลสนับสนุนการตัดสินใจของผู้ตรวจและทีมบริหารเท่านั้น
-          </p>
-        </div>
       </div>
-    </ModalWrapper>
+    </div>
   );
+
+  if (typeof document !== "undefined") {
+    return createPortal(content, document.body);
+  }
+  return content;
 }
