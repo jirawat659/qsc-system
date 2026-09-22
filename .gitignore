@@ -100,3 +100,6 @@ qsc-clean-source/
 *.tar.gz
 *.rar
 *.7z
+
+# bcp export files (มีข้อมูลจริง เช่น ชื่อผู้จัดการสาขา — ห้าม commit)
+backend/QSC.Api/Data/Seed/*.dat
