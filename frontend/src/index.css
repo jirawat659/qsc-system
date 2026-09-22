@@ -211,11 +211,9 @@
 @keyframes pageFadeIn {
   0% {
     opacity: 0;
-    transform: translateY(6px);
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -231,8 +229,7 @@
 }
 
 .page-transition {
-  animation: pageFadeIn 0.24s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: opacity, transform;
+  animation: pageFadeIn 0.2s ease-out;
 }
 
 .modal-transition {
@@ -365,4 +362,51 @@
 @media (prefers-reduced-motion: reduce) {
   .audit-floating-header, .audit-category-item, .audit-header-back, .audit-menu-button, .audit-drawer-close { transition: none; }
   .audit-category-drawer { animation: none; }
+}
+
+/* 🌟 TopBar Push-Up / Push-Down Transitions for Sticky Section Header */
+@keyframes pushUpOut {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-100%); opacity: 0; }
+}
+
+@keyframes pushUpIn {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pushDownOut {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+@keyframes pushDownIn {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-push-up-out {
+  animation: pushUpOut 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-push-up-in {
+  animation: pushUpIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-push-down-out {
+  animation: pushDownOut 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-push-down-in {
+  animation: pushDownIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 🌟 Pinned Section Bar: slide up animation */
+@keyframes slideUpIn {
+  0% { transform: translateY(-100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up-in {
+  animation: slideUpIn 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

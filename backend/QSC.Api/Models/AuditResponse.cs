@@ -12,7 +12,7 @@ namespace QSC.Api.Models
         public double ScoreGiven { get; set; }
         public bool IsPassed { get; set; }
         public bool IsNa { get; set; } = false; // Not Applicable (N/A) / ข้าม
-        public string? CategoryName { get; set; } // ความสะอาด, เอกสาร, etc.
+        public string? CategoryName { get; set; } // Product, Process, Service, Cleanliness, Documents
         public string? Notes { get; set; }
 
         public List<AuditResponseImage> Images { get; set; } = new();

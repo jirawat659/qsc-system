@@ -3,7 +3,7 @@ import { CalendarDays, ChevronDown, CheckCircle2, Sparkles, BarChart3, FileSprea
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, AreaChart, Area, PieChart, Pie } from "recharts";
 
 import { c, mono, cardStyle } from "../../config/theme";
-import { getDynamicBrandLines, getDynamicRegionLines } from "../../config/constants";
+import { getDynamicBrandLines, getDynamicRegionLines, getCategoryDisplay } from "../../config/constants";
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
 import { parseAuditDate } from "../../utils/formatters";
@@ -691,20 +691,20 @@ export default function DashboardScreen({ role, isDesktop }) {
 
       <div className={`grid grid-cols-1 ${!isBranchManager ? "lg:grid-cols-2" : ""} gap-4 sm:gap-5`}>
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 min-w-0">
-          <h3 className="text-sm font-bold text-slate-700 mb-3 sm:mb-4">คะแนนรายหมวดหมู่</h3>
+          <div className="flex items-center justify-between mb-3 sm:mb-4">
+            <h3 className="text-sm font-bold text-slate-700">คะแนนรายหมวดหมู่</h3>
+            <span className="text-xs font-semibold text-slate-400">Target: {categoryScores[0]?.target || 85}%</span>
+          </div>
           <div className="space-y-3.5 sm:space-y-4">
             {categoryScores.map((cat, i) => (
               <div key={i}>
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-xs font-semibold text-slate-700">{cat.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold font-mono text-slate-900">{cat.score}%</span>
-                    <span className="text-[10px] font-medium text-slate-400">Target: {cat.target}%</span>
-                  </div>
+                  <span className="text-xs font-semibold text-slate-700">{getCategoryDisplay(cat.name)}</span>
+                  <span className="text-xs font-bold font-mono text-slate-900">{cat.score}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex relative">
-                  <div className={`h-full rounded-full transition-all duration-500 ${cat.score >= cat.target ? "bg-[#0F6659]" : "bg-amber-500"}`} style={{ width: `${cat.score}%` }}></div>
-                  <div className="absolute top-0 bottom-0 w-0.5 bg-slate-800/20" style={{ left: `${cat.target}%` }}></div>
+                  <div className={`h-full rounded-full transition-all duration-500 ${cat.score >= (cat.target || 85) ? "bg-[#0F6659]" : "bg-amber-500"}`} style={{ width: `${cat.score}%` }}></div>
+                  <div className="absolute top-0 bottom-0 w-0.5 bg-slate-800/20" style={{ left: `${cat.target || 85}%` }}></div>
                 </div>
               </div>
             ))}

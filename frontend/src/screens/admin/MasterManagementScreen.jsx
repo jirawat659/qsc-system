@@ -465,6 +465,26 @@ export default function MasterManagementScreen({ onBack }) {
   // ── 🛡️ ROLE & PERMISSION HANDLERS ──
   const handleOpenEditRole = (r) => {
     setEditRole(r);
+
+    let initialPermIds = [];
+    if (Array.isArray(r.permissionIds) && r.permissionIds.length > 0) {
+      initialPermIds = r.permissionIds;
+    } else if (Array.isArray(r.rolePermissions) && r.rolePermissions.length > 0) {
+      initialPermIds = r.rolePermissions
+        .map(rp => rp.permissionId || rp.permission?.id || rp.id)
+        .filter(Boolean);
+    } else if (Array.isArray(r.permissions)) {
+      initialPermIds = r.permissions.map(p => {
+        if (typeof p === 'number') return p;
+        if (typeof p === 'object' && p !== null) return p.id;
+        // กรณี p เป็น string code เช่น "audit.edit" ให้หา ID จาก availablePermissions
+        const matched = availablePermissions.find(ap => 
+          ap.code === p || ap.name === p || String(ap.id) === String(p)
+        );
+        return matched ? matched.id : null;
+      }).filter(id => id != null);
+    }
+
     setEditRoleForm({
       name: r.name || '',
       description: r.description || '',
@@ -2488,7 +2508,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-2">สิทธิ์การเข้าถึงโมดูล (Permissions Matrix):</label>
                 <div className="max-h-52 overflow-y-auto rounded-2xl border border-slate-200 p-2.5 space-y-2 bg-slate-50">
                   {sortedPermissions.map(p => {
-                    const isChecked = editRoleForm.permissionIds.includes(p.id);
+                    const isChecked = editRoleForm.permissionIds.includes(p.id) || (Array.isArray(editRole?.permissions) && editRole.permissions.includes(p.code));
                     return (
                       <button
                         type="button"

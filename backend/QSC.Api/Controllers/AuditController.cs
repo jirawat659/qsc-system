@@ -275,13 +275,45 @@ namespace QSC.Api.Controllers
                     draft.UpdatedAt = DateTime.UtcNow;
                 }
 
-                await _context.SaveChangesAsync();
+                const int maxRetries = 3;
+                for (int attempt = 1; attempt <= maxRetries; attempt++)
+                {
+                    try
+                    {
+                        await _context.SaveChangesAsync();
+                        break;
+                    }
+                    catch (DbUpdateConcurrencyException ex)
+                    {
+                        if (attempt >= maxRetries)
+                        {
+                            _logger.LogWarning(ex, "Concurrency conflict saving draft {DraftId} after {Retries} retries - latest state preserved in DB", draft?.Id, maxRetries);
+                            break;
+                        }
+
+                        _logger.LogInformation("Concurrency conflict saving draft {DraftId}. Resolving and retrying attempt {Attempt}...", draft?.Id, attempt);
+                        foreach (var entry in ex.Entries)
+                        {
+                            var databaseValues = await entry.GetDatabaseValuesAsync();
+                            if (databaseValues == null)
+                            {
+                                break;
+                            }
+                            entry.OriginalValues.SetValues(databaseValues);
+                        }
+                    }
+                }
+
                 return Ok(draft);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving audit draft: {Message}", ex.Message);
-                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการบันทึกแบบร่าง กรุณาลองใหม่อีกครั้ง" });
+                _logger.LogError(ex, "Error saving audit draft: {Message} Inner: {Inner}", ex.Message, ex.InnerException?.Message);
+                return StatusCode(500, new { 
+                    message = "เกิดข้อผิดพลาดในการบันทึกแบบร่าง กรุณาลองใหม่อีกครั้ง",
+                    error = ex.Message,
+                    details = ex.InnerException?.Message
+                });
             }
         }
 
@@ -293,7 +325,7 @@ namespace QSC.Api.Controllers
 
             var draftsToDelete = new List<AuditDraft>();
 
-            // 1. By specific Draft ID
+            // 1. By specific Draft ID (Most specific - ONLY delete this targeted draft)
             if (id.HasValue && id.Value > 0)
             {
                 var specificDraft = await _context.AuditDrafts.FindAsync(id.Value);
@@ -305,18 +337,16 @@ namespace QSC.Api.Controllers
                     }
                 }
             }
-
-            // 2. By Schedule ID
-            if (scheduleId.HasValue && scheduleId.Value > 0)
+            // 2. By Schedule ID (Only if no specific draft ID was passed)
+            else if (scheduleId.HasValue && scheduleId.Value > 0)
             {
                 var schedDrafts = await _context.AuditDrafts
                     .Where(d => d.AuditScheduleId == scheduleId.Value)
                     .ToListAsync();
                 draftsToDelete.AddRange(schedDrafts);
             }
-
-            // 3. By Location ID & Form ID for this auditor (or all drafts for this loc/form if admin)
-            if (locationId.HasValue && locationId.Value > 0)
+            // 3. By Location ID & Form ID for this specific auditor (Only if neither ID nor Schedule ID was passed)
+            else if (locationId.HasValue && locationId.Value > 0)
             {
                 var locQuery = _context.AuditDrafts.Where(d => d.LocationId == locationId.Value);
 
@@ -325,22 +355,23 @@ namespace QSC.Api.Controllers
                     locQuery = locQuery.Where(d => d.SurveyFormId == surveyFormId.Value);
                 }
 
-                if (role != "ADMIN")
-                {
-                    locQuery = locQuery.Where(d => d.AuditorId == currentUserId);
-                }
-                else if (auditorId.HasValue && auditorId.Value > 0)
-                {
-                    locQuery = locQuery.Where(d => d.AuditorId == auditorId.Value);
-                }
+                int effectiveAuditorId = (role == "ADMIN" && auditorId.HasValue && auditorId.Value > 0)
+                    ? auditorId.Value
+                    : currentUserId;
+
+                locQuery = locQuery.Where(d => d.AuditorId == effectiveAuditorId && d.AuditScheduleId == null);
 
                 if (allowedLocationIds != null)
                 {
                     locQuery = locQuery.Where(d => allowedLocationIds.Contains(d.LocationId));
                 }
 
-                var locDrafts = await locQuery.ToListAsync();
-                draftsToDelete.AddRange(locDrafts);
+                // 🎯 Safety: ลบเฉพาะแบบร่างล่าสุด 1 รายการของรอบตรวจปัจจุบันเท่านั้น ไม่แตะต้องประวัติหรือดราฟต์เก่า
+                var latestDraft = await locQuery.OrderByDescending(d => d.UpdatedAt).FirstOrDefaultAsync();
+                if (latestDraft != null)
+                {
+                    draftsToDelete.Add(latestDraft);
+                }
             }
 
             // Deduplicate
@@ -987,21 +1018,44 @@ namespace QSC.Api.Controllers
             [FromQuery] int? page,
             [FromQuery] int? pageSize,
             [FromQuery] DateTime? startDate,
-            [FromQuery] DateTime? endDate)
+            [FromQuery] DateTime? endDate,
+            [FromQuery] bool includeResponses = false)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var query = _context.AuditRecords
-                .AsNoTracking()
-                .AsSplitQuery()
-                .Include(r => r.Location)
-                    .ThenInclude(l => l!.LocationBrands)
-                        .ThenInclude(lb => lb.Brand)
-                .Include(r => r.SurveyForm)
-                .Include(r => r.PrimaryAuditor)
-                .Include(r => r.AuditeeUser)
-                .AsQueryable();
+            // 🌟 includeResponses=true: ใช้สำหรับ Excel export เท่านั้น — โหลด Responses+SurveyItem
+            // เพื่อสร้างชีท "คำตอบรายข้อ" โดยไม่กระทบ performance ของ list view ปกติ
+            IQueryable<AuditRecord> query;
+            if (includeResponses)
+            {
+                query = _context.AuditRecords
+                    .AsNoTracking()
+                    .AsSplitQuery()
+                    .Include(r => r.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                            .ThenInclude(lb => lb.Brand)
+                    .Include(r => r.SurveyForm)
+                    .Include(r => r.PrimaryAuditor)
+                    .Include(r => r.AuditeeUser)
+                    .Include(r => r.Responses)
+                        .ThenInclude(res => res.SurveyItem)
+                            .ThenInclude(item => item!.SurveySection)
+                    .AsQueryable();
+            }
+            else
+            {
+                query = _context.AuditRecords
+                    .AsNoTracking()
+                    .AsSplitQuery()
+                    .Include(r => r.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                            .ThenInclude(lb => lb.Brand)
+                    .Include(r => r.SurveyForm)
+                    .Include(r => r.PrimaryAuditor)
+                    .Include(r => r.AuditeeUser)
+                    .AsQueryable();
+            }
 
             if (role == "AUDITEE")
             {
@@ -1139,7 +1193,28 @@ namespace QSC.Api.Controllers
                 endLongitude = r.EndLongitude,
                 startedAt = r.StartedAt,
                 submittedAt = r.SubmittedAt,
-                isBackdated = r.IsBackdated
+                isBackdated = r.IsBackdated,
+                // 🌟 responses: จะส่งเฉพาะเมื่อ includeResponses=true (Excel export)
+                // เพื่อให้สร้างชีท "คำตอบรายข้อ" ได้ครบโดยไม่ต้องยิง API เพิ่มทีละ record
+                responses = includeResponses
+                    ? r.Responses?
+                        .OrderBy(res => res.SurveyItem?.SurveySection?.OrderIndex ?? 0)
+                        .ThenBy(res => res.SurveyItem?.OrderIndex ?? 0)
+                        .Select(res => new
+                        {
+                            surveyItemId = res.SurveyItemId,
+                            questionText = res.SurveyItem?.QuestionText,
+                            sectionTitle = res.SurveyItem?.SurveySection?.Title,
+                            categoryCode = res.SurveyItem?.CategoryCode,
+                            categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
+                            fullScore = res.SurveyItem?.FullScore ?? 0,
+                            scoreGiven = res.ScoreGiven,
+                            isPassed = res.IsPassed,
+                            isNa = res.IsNa,
+                            isCritical = res.SurveyItem?.IsCritical ?? false,
+                            notes = res.Notes
+                        }).ToList()
+                    : null
             });
 
             // 🚀 When paginated (page/pageSize provided), wrap with totalCount so the

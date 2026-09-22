@@ -8,21 +8,34 @@ import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import api from "../../config/api";
 import { DataContext } from "../../context/DataContext";
+import { CATEGORY_DISPLAY_MAP, getCategoryDisplay } from "../../config/constants";
 
 export const DEFAULT_CATEGORIES = [
-  "ความสะอาด",
-  "เอกสาร",
-  "กระบวนการทำงาน",
-  "คุณภาพสินค้า",
-  "การบริการ"
+  "Product",
+  "Process",
+  "Service",
+  "Cleanliness",
+  "Documents"
 ];
 
 export const CATEGORY_CODE_MAP = {
-  "ความสะอาด": "CLN",
-  "เอกสาร": "DOC",
-  "กระบวนการทำงาน": "OPS",
-  "คุณภาพสินค้า": "QLT",
-  "การบริการ": "SVC"
+  "Product": "PD",
+  "Process": "PC",
+  "Service": "S",
+  "Cleanliness": "C",
+  "Documents": "DM"
+};
+
+export const NORMALIZE_CATEGORY = (val) => {
+  if (!val) return DEFAULT_CATEGORIES[0];
+  const s = String(val).trim();
+  const u = s.toUpperCase();
+  if (u === "PD" || u === "QLT" || s === "Product" || s.includes("คุณภาพ")) return "Product";
+  if (u === "PC" || u === "OPS" || s === "Process" || s.includes("กระบวนการ") || s.includes("โรงงาน") || s.includes("GMP")) return "Process";
+  if (u === "S" || u === "SVC" || s === "Service" || s.includes("บริการ")) return "Service";
+  if (u === "C" || u === "CLN" || s === "Cleanliness" || s.includes("สะอาด") || s.includes("สุขอนามัย")) return "Cleanliness";
+  if (u === "DM" || u === "DOC" || s === "Documents" || s.includes("เอกสาร")) return "Documents";
+  return DEFAULT_CATEGORIES[0];
 };
 
 export const DEFAULT_FORM_METADATA_CONFIG = [
@@ -68,7 +81,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     orderIndex: s.orderIndex,
     weightPercent: s.weightPercent || 0,
     items: (s.items || []).map(i => {
-      const cat = i.categoryName || i.category || (i.categoryCode === "DOC" ? "เอกสาร" : i.categoryCode === "OPS" ? "กระบวนการทำงาน" : i.categoryCode === "QLT" ? "คุณภาพสินค้า" : i.categoryCode === "SVC" ? "การบริการ" : DEFAULT_CATEGORIES[0]);
+      const cat = NORMALIZE_CATEGORY(i.categoryName || i.category || i.categoryCode);
       return {
         id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
         text: i.questionText || i.text || i.title || "",
@@ -78,7 +91,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical),
         category: cat,
         categoryName: cat,
-        categoryCode: i.categoryCode || CATEGORY_CODE_MAP[cat] || "GEN"
+        categoryCode: CATEGORY_CODE_MAP[cat] || "PD"
       };
     })
   }));
@@ -167,13 +180,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                     setCategories(catList);
                   }
                 } catch (e) {
-                  const catList = [];
-                  mapped.forEach(s => s.items.forEach(i => {
-                    const cName = i.categoryName || i.category;
-                    if (cName && !catList.includes(cName)) catList.push(cName);
-                  }));
-                  DEFAULT_CATEGORIES.forEach(c => { if (!catList.includes(c)) catList.push(c); });
-                  setCategories(catList);
+                  setCategories([...DEFAULT_CATEGORIES]);
                 }
               } else {
                 const catList = [];
@@ -309,7 +316,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             critical: false,
             category: DEFAULT_CATEGORIES[0],
             categoryName: DEFAULT_CATEGORIES[0],
-            categoryCode: "CLN"
+            categoryCode: CATEGORY_CODE_MAP[DEFAULT_CATEGORIES[0]] || "PD"
           }
         ]
       }
@@ -395,7 +402,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           critical: false,
           category: defaultCat,
           categoryName: defaultCat,
-          categoryCode: CATEGORY_CODE_MAP[defaultCat] || "GEN"
+          categoryCode: CATEGORY_CODE_MAP[defaultCat] || "PD"
         }
       ]
     };
@@ -451,7 +458,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             critical: false,
             category: defaultCat,
             categoryName: defaultCat,
-            categoryCode: CATEGORY_CODE_MAP[defaultCat] || "GEN"
+            categoryCode: CATEGORY_CODE_MAP[defaultCat] || "PD"
           }
         ]
       };
@@ -507,13 +514,15 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       return;
     }
 
+
+
     if (deleteTarget.type === "scoringCategory") {
       const catName = deleteTarget.catName;
       setCategories(prev => prev.filter(c => c !== catName));
       const fallbackCat = categories.find(c => c !== catName) || DEFAULT_CATEGORIES[0];
       setSections(prev => prev.map(s => ({
         ...s,
-        items: (s.items || []).map(item => (item.category === catName || item.categoryName === catName) ? { ...item, category: fallbackCat, categoryName: fallbackCat, categoryCode: CATEGORY_CODE_MAP[fallbackCat] || "GEN" } : item)
+        items: (s.items || []).map(item => (item.category === catName || item.categoryName === catName) ? { ...item, category: fallbackCat, categoryName: fallbackCat, categoryCode: CATEGORY_CODE_MAP[fallbackCat] || "PD" } : item)
       })));
       showToast(`ลบหมวดคะแนน "${catName}" เรียบร้อยแล้ว`);
       setDeleteTarget(null);
@@ -571,26 +580,13 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               ...i,
               category: newCat,
               categoryName: newCat,
-              categoryCode: CATEGORY_CODE_MAP[newCat] || "GEN"
+              categoryCode: CATEGORY_CODE_MAP[newCat] || "PD"
             };
           }
           return i;
         })
       };
     }));
-  };
-
-  // Add new scoring category
-  const handleAddCategory = () => {
-    const trimmed = newCategoryInput.trim();
-    if (!trimmed) return;
-    if (categories.includes(trimmed)) {
-      showToast("มีหมวดคะแนนนี้อยู่แล้ว");
-      return;
-    }
-    setCategories(prev => [...prev, trimmed]);
-    setNewCategoryInput("");
-    showToast(`เพิ่มหมวดคะแนน "${trimmed}" เรียบร้อย`);
   };
 
   const categoryCounts = useMemo(() => {
@@ -604,24 +600,6 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     });
     return counts;
   }, [categories, sections]);
-
-  // Remove custom scoring category (open confirmation popup)
-  const handleRemoveCategory = (catName) => {
-    if (categories.length <= 1) {
-      setWarningModal({
-        isOpen: true,
-        title: "ไม่สามารถลบหมวดคะแนนได้",
-        message: "แบบฟอร์มต้องมีหมวดคะแนนอย่างน้อย 1 หมวด เพื่อใช้ในการประเมินและจัดกลุ่มสถิติ"
-      });
-      return;
-    }
-    const count = categoryCounts[catName] || 0;
-    setDeleteTarget({
-      type: "scoringCategory",
-      catName,
-      count
-    });
-  };
 
   // Move category Up/Down (ลำดับ 1, 2, 3...)
   const moveCategory = (idx, direction) => {
@@ -907,7 +885,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       case "select": return "ตัวเลือก (Dropdown/Badges)";
       case "text":
       case "textarea": return "ข้อความ / หมายเหตุ";
-      case "toggle": return "สวิตช์ ใช่/ไม่ใช่";
+      case "toggle": return "ใช่/ไม่ใช่";
       case "auditor": return "ผู้ตรวจประเมิน";
       default: return type || "ทั่วไป";
     }
@@ -1189,14 +1167,14 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         orderIndex: sIdx + 1,
         weightPercent: 0,
         items: (sec.items || []).map((item, iIdx) => {
-          const cat = item.category || item.categoryName || DEFAULT_CATEGORIES[0];
+          const cat = NORMALIZE_CATEGORY(item.category || item.categoryName);
           return {
             id: typeof item.id === 'number' ? item.id : undefined,
             questionText: item.text || item.questionText || "",
             questionType: (item.type || item.questionType) === "scale" ? "SCALE" : "YESNO",
             fullScore: Number(item.fullScore) || 10,
             isCritical: !!(item.critical || item.isCritical),
-            categoryCode: item.categoryCode || CATEGORY_CODE_MAP[cat] || "GEN",
+            categoryCode: CATEGORY_CODE_MAP[cat] || "PD",
             categoryName: cat,
             orderIndex: iIdx + 1
           };
@@ -1206,14 +1184,17 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
     let backendId = form?.id;
     try {
+      let toastMsg = "บันทึกแบบฟอร์มลงฐานข้อมูลเรียบร้อยแล้ว";
       if (form?.id && typeof form.id === 'number') {
         const res = await api.put(`/form/${form.id}`, dto);
         if (res.data?.formId) backendId = res.data.formId;
+        if (res.data?.message) toastMsg = res.data.message;
       } else {
         const res = await api.post('/form', dto);
         if (res.data?.id) backendId = res.data.id;
+        if (res.data?.message) toastMsg = res.data.message;
       }
-      showToast("บันทึกแบบฟอร์มลงฐานข้อมูลเรียบร้อยแล้ว");
+      showToast(toastMsg);
     } catch (err) {
       console.error("Could not save form directly to API:", err);
       const errMsg = err.response?.data?.message || "ไม่สามารถบันทึกแบบฟอร์มลงฐานข้อมูลได้ กรุณาลองใหม่อีกครั้ง";
@@ -1260,7 +1241,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       />
 
       {/* ⚠️ IN-USE WARNING BANNER */}
-      {!isReadOnly && (form?.usedCount > 0 || form?.scheduledCount > 0) && (
+      {!isReadOnly && (form?.usedCount > 0 || form?.draftCount > 0 || form?.scheduledCount > 0) && (
         <div className="rounded-2xl p-4 bg-amber-50/90 border border-amber-200 text-amber-950 flex items-start gap-3 shadow-2xs">
           <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs sm:text-sm space-y-1">
@@ -1271,6 +1252,11 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                   ตรวจแล้ว {form.usedCount} ครั้ง
                 </span>
               )}
+              {form.draftCount > 0 && (
+                <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-900 font-mono text-xs font-bold">
+                  มีแบบร่าง {form.draftCount} รายการ
+                </span>
+              )}
               {form.scheduledCount > 0 && (
                 <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-900 font-mono text-xs font-bold">
                   มีนัดตรวจ {form.scheduledCount} รายการ
@@ -1278,7 +1264,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               )}
             </p>
             <p className="text-slate-600 text-xs leading-relaxed">
-              การแก้ไขข้อคำถามหรือเกณฑ์คะแนน ระบบจะจัดเก็บเป็นประวัติเวอร์ชันใหม่อัตโนมัติ เพื่อรักษาความถูกต้องของรายงานผลตรวจย้อนหลัง
+              แบบฟอร์มนี้มีข้อมูลการตรวจหรือแบบร่างที่เชื่อมโยงอยู่ เมื่อบันทึกการแก้ไข ระบบจะสร้างเป็นเวอร์ชันใหม่อัตโนมัติ เพื่อรักษาความถูกต้องของข้อมูลเดิม
             </p>
           </div>
         </div>
@@ -1645,28 +1631,6 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                           >
                             <GripVertical size={16} />
                           </div>
-
-                          {/* ปุ่มเลื่อน ขึ้น - ลง */}
-                          <div className="flex flex-col -space-y-1">
-                            <button
-                              type="button"
-                              disabled={idx === 0}
-                              onClick={() => moveCategory(idx, 'up')}
-                              className="p-0.5 text-slate-400 hover:text-[#0F6659] disabled:opacity-20 disabled:pointer-events-none rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                              title="เลื่อนขึ้นด้านบน"
-                            >
-                              <ChevronUp size={12} />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === categories.length - 1}
-                              onClick={() => moveCategory(idx, 'down')}
-                              className="p-0.5 text-slate-400 hover:text-[#0F6659] disabled:opacity-20 disabled:pointer-events-none rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                              title="เลื่อนลงด้านล่าง"
-                            >
-                              <ChevronDown size={12} />
-                            </button>
-                          </div>
                         </div>
                       )}
 
@@ -1677,7 +1641,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
                       {/* ชื่อหมวด */}
                       <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">
-                        {cat}
+                        {getCategoryDisplay(cat)}
                       </span>
                     </div>
 
@@ -1694,52 +1658,12 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                         <span className="text-xs font-semibold text-slate-500">ข้อ</span>
                       </div>
 
-                      {!isReadOnly && categories.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCategory(cat)}
-                          className="w-7 h-7 rounded-xl flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 cursor-pointer transition-all"
-                          title={`ลบหมวดคะแนน "${cat}"`}
-                        >
-                          <X size={15} />
-                        </button>
-                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
-
-        {/* Add Category Input Bar */}
-        {!isReadOnly && (
-          <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-            <div className="relative flex-1 max-w-sm">
-              <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="เพิ่มชื่อหมวดคะแนนใหม่ (เช่น ความปลอดภัย, สุขาภิบาล)..."
-                value={newCategoryInput}
-                onChange={(e) => setNewCategoryInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    handleAddCategory();
-                  }
-                }}
-                className="w-full text-xs pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleAddCategory}
-              className="px-3.5 py-2 rounded-xl bg-[#0F6659] hover:bg-[#0D5449] text-white text-xs font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 shadow-2xs shrink-0"
-            >
-              <Plus size={14} />
-              <span>เพิ่มหมวดคะแนน</span>
-            </button>
           </div>
-        )}
-      </div>
 
       {/* 🌟 3. SECTIONS & QUESTIONS BUILDER */}
       <div className="space-y-4">
@@ -2063,7 +1987,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                             }`}
                           >
                             {categories.map((cat, cIdx) => (
-                              <option key={cIdx} value={cat}>{cat}</option>
+                              <option key={cIdx} value={cat}>{getCategoryDisplay(cat)}</option>
                             ))}
                           </select>
                           {!isReadOnly && (

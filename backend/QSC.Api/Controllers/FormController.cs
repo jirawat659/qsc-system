@@ -85,6 +85,13 @@ namespace QSC.Api.Controllers
                 .Select(g => new { FormId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.FormId, x => x.Count);
 
+            var draftCounts = formIds.Count == 0 ? new Dictionary<int, int>() : await _context.AuditDrafts
+                .AsNoTracking()
+                .Where(d => formIds.Contains(d.SurveyFormId))
+                .GroupBy(d => d.SurveyFormId)
+                .Select(g => new { FormId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.FormId, x => x.Count);
+
             var scheduleCounts = formIds.Count == 0 ? new Dictionary<int, int>() : await _context.AuditSchedules
                 .AsNoTracking()
                 .Where(s => formIds.Contains(s.SurveyFormId) && s.Status != null && s.Status != "cancelled" && s.Status != "CANCELLED")
@@ -144,8 +151,9 @@ namespace QSC.Api.Controllers
                     categoryOrderJson = f.CategoryOrderJson,
                     createdAt = f.CreatedAt,
                     usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
+                    draftCount = draftCounts.GetValueOrDefault(f.Id, 0),
                     scheduledCount = scheduleCounts.GetValueOrDefault(f.Id, 0),
-                    isInUse = auditCounts.GetValueOrDefault(f.Id, 0) > 0 || scheduleCounts.GetValueOrDefault(f.Id, 0) > 0,
+                    isInUse = auditCounts.GetValueOrDefault(f.Id, 0) > 0 || draftCounts.GetValueOrDefault(f.Id, 0) > 0 || scheduleCounts.GetValueOrDefault(f.Id, 0) > 0,
                     targetLocationIds = f.TargetLocations.Select(t => t.LocationId).ToList(),
                     // 🌟 Summary mode: ไม่มี Sections โหลดมา (ประหยัด query) ใช้ sectionCount/itemCount/totalScore
                     // ที่คำนวณแยกแทน ฝั่ง frontend (FormsScreen, LiveAuditScreen, AllAuditHistoryScreen) ให้ใช้ fields เหล่านี้
@@ -206,6 +214,7 @@ namespace QSC.Api.Controllers
             if (f == null) return NotFound();
 
             var auditCount = await _context.AuditRecords.AsNoTracking().CountAsync(a => a.SurveyFormId == id);
+            var draftCount = await _context.AuditDrafts.AsNoTracking().CountAsync(d => d.SurveyFormId == id);
             // 🌟 เลี่ยง .ToLower() ใน WHERE เพราะบังคับให้ DB ทำ Full Table Scan แทนที่จะใช้
             // index (Status, ScheduledDate) — จุดเดียวกับที่แก้ไปแล้วใน GetForms ด้านบน
             var scheduleCount = await _context.AuditSchedules
@@ -240,8 +249,9 @@ namespace QSC.Api.Controllers
                 categoryOrderJson = f.CategoryOrderJson,
                 createdAt = f.CreatedAt,
                 usedCount = auditCount,
+                draftCount = draftCount,
                 scheduledCount = scheduleCount,
-                isInUse = auditCount > 0 || scheduleCount > 0,
+                isInUse = auditCount > 0 || draftCount > 0 || scheduleCount > 0,
                 targetLocationIds = targetLocationIds,
                 sectionCount = f.Sections.Count(s => s.IsActive),
                 itemCount = f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Count(i => i.IsActive),
@@ -412,28 +422,54 @@ namespace QSC.Api.Controllers
                     {
                         string? catName = !string.IsNullOrWhiteSpace(iDto.CategoryName) ? iDto.CategoryName.Trim() : null;
                         string? catCode = !string.IsNullOrWhiteSpace(iDto.CategoryCode) ? iDto.CategoryCode.Trim() : null;
+                        if (!string.IsNullOrEmpty(catName))
+                        {
+                            catName = catName switch
+                            {
+                                "Product" or "คุณภาพสินค้า" or "คุณภาพสินค้า-วัตถุดิบ" => "Product",
+                                "Process" or "กระบวนการทำงาน" => "Process",
+                                "Service" or "การบริการ" => "Service",
+                                "Cleanliness" or "ความสะอาด" => "Cleanliness",
+                                "Documents" or "เอกสาร" => "Documents",
+                                _ => catName
+                            };
+                        }
+
                         if (string.IsNullOrEmpty(catCode) && !string.IsNullOrEmpty(catName))
                         {
                             catCode = catName switch
                             {
-                                "ความสะอาด" => "CLN",
-                                "เอกสาร" => "DOC",
-                                "กระบวนการทำงาน" => "OPS",
-                                "คุณภาพสินค้า-วัตถุดิบ" => "QLT",
-                                "การบริการ" => "SVC",
-                                _ => "GEN"
+                                "Product" => "PD",
+                                "Process" => "PC",
+                                "Service" => "S",
+                                "Cleanliness" => "C",
+                                "Documents" => "DM",
+                                _ => "PD"
                             };
                         }
+                        else if (!string.IsNullOrEmpty(catCode))
+                        {
+                            catCode = catCode.ToUpper() switch
+                            {
+                                "PD" or "QLT" => "PD",
+                                "PC" or "OPS" => "PC",
+                                "S" or "SVC" => "S",
+                                "C" or "CLN" => "C",
+                                "DM" or "DOC" => "DM",
+                                _ => catCode
+                            };
+                        }
+
                         if (string.IsNullOrEmpty(catName) && !string.IsNullOrEmpty(catCode))
                         {
                             catName = catCode switch
                             {
-                                "CLN" => "ความสะอาด",
-                                "DOC" => "เอกสาร",
-                                "OPS" => "กระบวนการทำงาน",
-                                "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
-                                "SVC" => "การบริการ",
-                                _ => "ความสะอาด"
+                                "PD" => "Product",
+                                "PC" => "Process",
+                                "S" => "Service",
+                                "C" => "Cleanliness",
+                                "DM" => "Documents",
+                                _ => "Product"
                             };
                         }
 
@@ -504,8 +540,15 @@ namespace QSC.Api.Controllers
                 if (form == null) return NotFound();
 
                 // 🌟 SMART FORM VERSIONING LOGIC:
-                // Check if form has ever been used in audit records
-                bool hasBeenUsed = await _context.AuditRecords.AnyAsync(r => r.SurveyFormId == id);
+                // ตรวจสอบว่าแบบฟอร์มนี้เคยถูกนำไปใช้งานหรือเชื่อมโยงกับข้อมูลการตรวจ/แบบร่างหรือไม่:
+                // 1. มีผลการตรวจประเมินจริงแล้ว (AuditRecords)
+                // 2. มีแบบร่างการตรวจค้างอยู่ (AuditDrafts)
+                // 3. มีการตรวจที่กำลังดำเนินการอยู่ (AuditSchedules status: in_progress)
+                bool hasAudits = await _context.AuditRecords.AnyAsync(r => r.SurveyFormId == id);
+                bool hasDrafts = await _context.AuditDrafts.AnyAsync(d => d.SurveyFormId == id);
+                bool hasActiveAudits = await _context.AuditSchedules.AnyAsync(s => s.SurveyFormId == id && (s.Status == "in_progress" || s.Status == "IN_PROGRESS"));
+
+                bool hasBeenUsed = hasAudits || hasDrafts || hasActiveAudits;
 
                 var effectiveBrandId = dto.BrandId ?? (dto.BrandIds != null && dto.BrandIds.Count > 0 ? dto.BrandIds.First() : null);
 
@@ -573,28 +616,54 @@ namespace QSC.Api.Controllers
                         {
                             string? catName = !string.IsNullOrWhiteSpace(iDto.CategoryName) ? iDto.CategoryName.Trim() : null;
                             string? catCode = !string.IsNullOrWhiteSpace(iDto.CategoryCode) ? iDto.CategoryCode.Trim() : null;
+                            if (!string.IsNullOrEmpty(catName))
+                            {
+                                catName = catName switch
+                                {
+                                    "Product" or "คุณภาพสินค้า" or "คุณภาพสินค้า-วัตถุดิบ" => "Product",
+                                    "Process" or "กระบวนการทำงาน" => "Process",
+                                    "Service" or "การบริการ" => "Service",
+                                    "Cleanliness" or "ความสะอาด" => "Cleanliness",
+                                    "Documents" or "เอกสาร" => "Documents",
+                                    _ => catName
+                                };
+                            }
+
                             if (string.IsNullOrEmpty(catCode) && !string.IsNullOrEmpty(catName))
                             {
                                 catCode = catName switch
                                 {
-                                    "ความสะอาด" => "CLN",
-                                    "เอกสาร" => "DOC",
-                                    "กระบวนการทำงาน" => "OPS",
-                                    "คุณภาพสินค้า-วัตถุดิบ" => "QLT",
-                                    "การบริการ" => "SVC",
-                                    _ => "GEN"
+                                    "Product" => "PD",
+                                    "Process" => "PC",
+                                    "Service" => "S",
+                                    "Cleanliness" => "C",
+                                    "Documents" => "DM",
+                                    _ => "PD"
                                 };
                             }
+                            else if (!string.IsNullOrEmpty(catCode))
+                            {
+                                catCode = catCode.ToUpper() switch
+                                {
+                                    "PD" or "QLT" => "PD",
+                                    "PC" or "OPS" => "PC",
+                                    "S" or "SVC" => "S",
+                                    "C" or "CLN" => "C",
+                                    "DM" or "DOC" => "DM",
+                                    _ => catCode
+                                };
+                            }
+
                             if (string.IsNullOrEmpty(catName) && !string.IsNullOrEmpty(catCode))
                             {
                                 catName = catCode switch
                                 {
-                                    "CLN" => "ความสะอาด",
-                                    "DOC" => "เอกสาร",
-                                    "OPS" => "กระบวนการทำงาน",
-                                    "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
-                                    "SVC" => "การบริการ",
-                                    _ => "ความสะอาด"
+                                    "PD" => "Product",
+                                    "PC" => "Process",
+                                    "S" => "Service",
+                                    "C" => "Cleanliness",
+                                    "DM" => "Documents",
+                                    _ => "Product"
                                 };
                             }
 
@@ -616,7 +685,12 @@ namespace QSC.Api.Controllers
                     }
 
                     await transaction.CommitAsync();
-                    return Ok(new { message = "อัปเดตแบบฟอร์มสำเร็จ (In-place update)", formId = form.Id });
+                    return Ok(new {
+                        message = "อัปเดตแบบฟอร์มสำเร็จ (บันทึกทับข้อมูลเดิมเนื่องจากยังไม่มีการตรวจหรือแบบร่าง)",
+                        formId = form.Id,
+                        isNewVersion = false,
+                        version = form.Version
+                    });
                 }
                 else
                 {
@@ -700,28 +774,54 @@ namespace QSC.Api.Controllers
                         {
                             string? catName = !string.IsNullOrWhiteSpace(iDto.CategoryName) ? iDto.CategoryName.Trim() : null;
                             string? catCode = !string.IsNullOrWhiteSpace(iDto.CategoryCode) ? iDto.CategoryCode.Trim() : null;
+                            if (!string.IsNullOrEmpty(catName))
+                            {
+                                catName = catName switch
+                                {
+                                    "Product" or "คุณภาพสินค้า" or "คุณภาพสินค้า-วัตถุดิบ" => "Product",
+                                    "Process" or "กระบวนการทำงาน" => "Process",
+                                    "Service" or "การบริการ" => "Service",
+                                    "Cleanliness" or "ความสะอาด" => "Cleanliness",
+                                    "Documents" or "เอกสาร" => "Documents",
+                                    _ => catName
+                                };
+                            }
+
                             if (string.IsNullOrEmpty(catCode) && !string.IsNullOrEmpty(catName))
                             {
                                 catCode = catName switch
                                 {
-                                    "ความสะอาด" => "CLN",
-                                    "เอกสาร" => "DOC",
-                                    "กระบวนการทำงาน" => "OPS",
-                                    "คุณภาพสินค้า-วัตถุดิบ" => "QLT",
-                                    "การบริการ" => "SVC",
-                                    _ => "GEN"
+                                    "Product" => "PD",
+                                    "Process" => "PC",
+                                    "Service" => "S",
+                                    "Cleanliness" => "C",
+                                    "Documents" => "DM",
+                                    _ => "PD"
                                 };
                             }
+                            else if (!string.IsNullOrEmpty(catCode))
+                            {
+                                catCode = catCode.ToUpper() switch
+                                {
+                                    "PD" or "QLT" => "PD",
+                                    "PC" or "OPS" => "PC",
+                                    "S" or "SVC" => "S",
+                                    "C" or "CLN" => "C",
+                                    "DM" or "DOC" => "DM",
+                                    _ => catCode
+                                };
+                            }
+
                             if (string.IsNullOrEmpty(catName) && !string.IsNullOrEmpty(catCode))
                             {
                                 catName = catCode switch
                                 {
-                                    "CLN" => "ความสะอาด",
-                                    "DOC" => "เอกสาร",
-                                    "OPS" => "กระบวนการทำงาน",
-                                    "QLT" => "คุณภาพสินค้า-วัตถุดิบ",
-                                    "SVC" => "การบริการ",
-                                    _ => "ความสะอาด"
+                                    "PD" => "Product",
+                                    "PC" => "Process",
+                                    "S" => "Service",
+                                    "C" => "Cleanliness",
+                                    "DM" => "Documents",
+                                    _ => "Product"
                                 };
                             }
 
@@ -756,7 +856,12 @@ namespace QSC.Api.Controllers
                     }
 
                     await transaction.CommitAsync();
-                    return Ok(new { message = "สร้างเวอร์ชันใหม่สำเร็จเพื่อล็อกประวัติเดิม (Version Clone)", formId = newVersionForm.Id });
+                    return Ok(new {
+                        message = $"แบบฟอร์มนี้มีการตรวจหรือแบบร่างใช้งานอยู่ จึงสร้างเป็นเวอร์ชันใหม่ ({newVersionForm.Version}) สำเร็จเพื่อรักษาประวัติเดิม",
+                        formId = newVersionForm.Id,
+                        isNewVersion = true,
+                        version = newVersionForm.Version
+                    });
                 }
             }
             catch (Exception ex)

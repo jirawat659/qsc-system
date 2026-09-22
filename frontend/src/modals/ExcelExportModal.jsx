@@ -19,10 +19,10 @@ import ErrorBoundary from "../shared/ErrorBoundary";
 export default function ExcelExportModal({ initialUnit = null, onClose }) {
   const { locations: allLocations, visibleLocations = [] } = React.useContext(DataContext);
   const isBranchScoped = !!initialUnit;
-  const [exportMode, setExportMode] = useState(isBranchScoped ? "detailed_questions" : "all"); // 'all' | 'unit' | 'detailed_questions'
+  // mode "org" = รายงานระดับองค์กร (5 ชีท), "branch" = รายงานรายสาขา (3 ชีท)
+  const [exportMode, setExportMode] = useState(isBranchScoped ? "branch" : "org");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUnit, setSelectedUnit] = useState(initialUnit || visibleLocations[0]);
-  const [selectedRound, setSelectedRound] = useState("latest"); // 'latest' | 'round_index' | 'all' | '1M' | '3M' | '6M' | '1Y'
   const [timeRange, setTimeRange] = useState("all"); // 'all' | '1M' | '3M' | '6M' | '1Y'
   const [regionFilter, setRegionFilter] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
@@ -30,13 +30,14 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
 
   // 🌟 Export ต้องใช้ข้อมูลผลตรวจ "ครบทุกรายการ" ไม่ใช่แค่ buffer 50 รายการที่โหลดไว้ใน
   // context (Phase 3.3) ดังนั้นตอนกดดาวน์โหลดจะดึงข้อมูลสดจาก API วนหน้าจนครบ totalCount
+  // includeResponses=true: ส่งเพื่อให้ backend ส่งคำตอบรายข้อมาด้วย (สำหรับชีทรายข้อใน .xlsx)
   const fetchAllAuditRecords = async (params = {}) => {
     const pageSize = 100;
     let page = 1;
     let all = [];
     let totalCount = Infinity;
     while (all.length < totalCount) {
-      const res = await api.get('/audit/records', { params: { ...params, page, pageSize } });
+      const res = await api.get('/audit/records', { params: { ...params, page, pageSize, includeResponses: true } });
       const data = res.data;
       const items = Array.isArray(data) ? data : (data?.items || []);
       totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
@@ -46,6 +47,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
     }
     return all;
   };
+
 
   const timeRangeOptions = useMemo(() => {
     const now = new Date();
@@ -63,18 +65,18 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
     const curYearShort = curYearBE % 100;
 
     // 1 เดือนล่าสุด (เดือนปัจจุบัน)
-    const label1M = `รอบตรวจ 1 เดือนล่าสุด (${thaiMonths[curMonth]} ${curYearBE})`;
+    const label1M = `เดือนล่าสุด (${thaiMonths[curMonth]} ${curYearBE})`;
 
     // ย้อนหลัง 3 เดือน
     const d3M = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    const label3M = `รอบตรวจย้อนหลัง 3 เดือน (${thaiShortMonths[d3M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
+    const label3M = `ย้อนหลัง 3 เดือน (${thaiShortMonths[d3M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
 
     // ย้อนหลัง 6 เดือน
     const d6M = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    const label6M = `รอบตรวจย้อนหลัง 6 เดือน (${thaiShortMonths[d6M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
+    const label6M = `ย้อนหลัง 6 เดือน (${thaiShortMonths[d6M.getMonth()]} - ${thaiShortMonths[curMonth]} ${curYearShort})`;
 
     // ทั้งปี (YTD)
-    const label1Y = `รอบตรวจทั้งปี (YTD ${curYearBE})`;
+    const label1Y = `ทั้งปี (YTD ${curYearBE})`;
 
     return [
       { value: "all", label: "ทั้งหมด" },
@@ -109,10 +111,10 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
       const selectedTimeOption = timeRangeOptions.find(opt => opt.value === timeRange);
 
       exportToExcel({
-        mode: exportMode,
+        mode: exportMode,         // "org" หรือ "branch"
         targetUnit: selectedUnit,
-        timeRange: isBranchScoped ? selectedRound : timeRange,
-        timeRangeLabel: isBranchScoped ? null : selectedTimeOption?.label,
+        timeRange,
+        timeRangeLabel: selectedTimeOption?.label,
         region: regionFilter,
         locations: visibleLocations || [],
         auditRecords: fullAuditRecords || []
@@ -126,6 +128,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
   };
 
   return (
+
     <ModalWrapper onClose={onClose} maxWidth="max-w-lg">
       <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto overscroll-contain min-h-0" style={{ background: c.surface }}>
         
@@ -152,82 +155,41 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
         {/* ---------------- SCENARIO A: OPENED FROM SPECIFIC BRANCH PROFILE ---------------- */}
         {isBranchScoped ? (
           <div className="space-y-4">
-            {/* 1. Report Type Selector (คำตอบรายข้อ vs สรุปประวัติคะแนน) */}
-            <div>
-              <label className="text-xs font-bold block mb-1.5 text-slate-700">1. เลือกประเภทรายงานที่ต้องการนำออก</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setExportMode("detailed_questions")}
-                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
-                    exportMode === "detailed_questions"
-                      ? 'bg-emerald-50 border-emerald-600 shadow-2xs'
-                      : 'bg-white border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <span>คำตอบรายข้อ คอมเมนต์</span>
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1 leading-snug">
-                    คำตอบรายข้อ ประเภทคำตอบ รูปถ่าย
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setExportMode("unit")}
-                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
-                    exportMode === "unit"
-                      ? 'bg-emerald-50 border-emerald-600 shadow-2xs'
-                      : 'bg-white border-slate-200 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <span>ประวัติคะแนน</span>
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1 leading-snug">
-                    สรุปคะแนนย้อนหลัง
-                  </div>
-                </button>
+            {/* Info Card */}
+            <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950 space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-emerald-900">
+                <CheckCircle2 size={14} className="text-emerald-700" />
+                <span>ไฟล์ Excel (.xlsx) จะมี 3 ชีท:</span>
+              </div>
+              <div className="text-xs text-emerald-800 leading-relaxed pl-5">
+                1. <b>ประวัติคะแนน</b> — ทุกรอบที่ตรวจ + คะแนนแยกหมวด<br />
+                2. <b>คำตอบรายข้อ (รอบล่าสุด)</b> — ทุกคำถาม, คะแนน, หมวด, หมายเหตุ<br />
+                3. <b>สรุปหมวด</b> — เฉลี่ย PD/PC/S/C/DM ย้อนหลังทุกรอบ
               </div>
             </div>
 
-            {/* 2. Inspection Round / Time Range Selector */}
+            {/* Time Range Selector */}
             <div>
-              <label className="text-xs font-bold block mb-1.5 text-slate-700">2. เลือกรอบการตรวจ หรือช่วงเวลาย้อนหลัง</label>
+              <label className="text-xs font-bold block mb-1.5 text-slate-700">เลือกช่วงเวลาย้อนหลัง</label>
               <div className="relative">
                 <select
-                  value={selectedRound}
-                  onChange={(e) => setSelectedRound(e.target.value)}
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
                   className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                 >
-                  <optgroup label="เลือกช่วงเวลาย้อนหลัง">
-                    <option value="all">ทั้งหมด ({selectedUnit.history?.length || 0} รอบ)</option>
-                    <option value="1M">ย้อนหลัง 1 เดือน</option>
-                    <option value="3M">ย้อนหลัง 3 เดือน</option>
-                    <option value="6M">ย้อนหลัง 6 เดือน</option>
-                    <option value="1Y">ย้อนหลัง 1 ปี</option>
-                  </optgroup>
+                  <option value="all">ทั้งหมด (ทุกรอบ)</option>
+                  <option value="1M">ย้อนหลัง 1 เดือน</option>
+                  <option value="3M">ย้อนหลัง 3 เดือน</option>
+                  <option value="6M">ย้อนหลัง 6 เดือน</option>
+                  <option value="1Y">ย้อนหลัง 1 ปี</option>
                 </select>
                 <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                   <ChevronDown size={18} />
                 </div>
               </div>
             </div>
-
-            {/* Information Summary Card */}
-            <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950 space-y-1">
-              <div className="font-bold flex items-center gap-1.5 text-emerald-900">
-                <CheckCircle2 size={14} className="text-emerald-700" />
-                <span>เตรียมไฟล์ (.csv):</span>
-              </div>
-              <div className="text-xs text-emerald-800 leading-relaxed pl-5">
-                • สาขา: <b>{selectedUnit.name}</b>
-                <br />
-                • ประเภท: <b>{exportMode === "detailed_questions" ? "รายงานคำตอบแบบฟอร์มรายข้อ + คอมเมนต์" : "ประวัติสรุปคะแนน"}</b>
-              </div>
-            </div>
           </div>
+
         ) : (
           /* ---------------- SCENARIO B: OPENED FROM MAIN DASHBOARD ---------------- */
           <div className="space-y-4">
@@ -235,25 +197,25 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
             <div className="flex bg-slate-200/80 p-1 rounded-2xl">
               <button
                 type="button"
-                onClick={() => setExportMode("all")}
+                onClick={() => setExportMode("org")}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  exportMode === "all" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  exportMode === "org" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                รวมทุกสาขา
+                รวมทุกสาขา (5 ชีท)
               </button>
               <button
                 type="button"
-                onClick={() => setExportMode("detailed_questions")}
+                onClick={() => setExportMode("branch")}
                 className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  exportMode === "detailed_questions" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
+                  exportMode === "branch" ? 'bg-white text-[#0F6659] shadow-2xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                ค้นหาเลือกรายสาขา
+                เลือกสาขา (3 ชีท)
               </button>
             </div>
 
-            {exportMode === "all" ? (
+            {exportMode === "org" ? (
               <div className="space-y-3.5">
                 <div>
                   <label className="text-xs font-bold block mb-1 text-slate-700">เลือกช่วงเวลาการตรวจ</label>
@@ -283,7 +245,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
                       onChange={(e) => setRegionFilter(e.target.value)}
                       className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                     >
-                      <option value="all">ทุกภูมิภาคทั่วประเทศ (100+ สาขา)</option>
+                      <option value="all">ทุกภูมิภาค</option>
                       <option value="กรุงเทพ">เขตกรุงเทพฯ และปริมณฑล</option>
                       <option value="เหนือ">เขตภาคเหนือ</option>
                       <option value="ตะวันออก">เขตภาคตะวันออก</option>
@@ -367,12 +329,13 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
           <span className="truncate max-w-[260px] sm:max-w-none">
             {isExporting
               ? "กำลังเตรียมข้อมูล..."
-              : isBranchScoped 
-              ? `ดาวน์โหลดรายงาน Excel (${selectedUnit.name})` 
-              : exportMode === "all" 
-              ? "ดาวน์โหลดรายงาน Excel รวมทุกสาขา" 
-              : `ดาวน์โหลดรายงาน: ${selectedUnit?.name}`}
+              : isBranchScoped
+              ? `ดาวน์โหลดรายงาน Excel (.xlsx) — ${selectedUnit.name}`
+              : exportMode === "org"
+              ? "ดาวน์โหลดรายงาน Excel รวมทุกสาขา (5 ชีท)"
+              : `ดาวน์โหลดรายงาน Excel: ${selectedUnit?.name} (3 ชีท)`}
           </span>
+
         </button>
       </div>
     </ModalWrapper>
