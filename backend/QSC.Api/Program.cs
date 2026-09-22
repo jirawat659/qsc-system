@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -198,12 +198,13 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: false);
-        Console.WriteLine("✅ Database migration and enterprise seeding checked successfully!");
+        DatabaseSeeder.Initialize(db, app.Environment);
+        Console.WriteLine("✅ Database migration and system config checked successfully!");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"⚠️ Seeder error: {ex.Message}");
+        // log ให้เต็ม — ก่อนหน้านี้พิมพ์แค่ ex.Message ทำให้ปัญหา seed หาสาเหตุไม่ได้
+        Console.WriteLine($"⚠️ Seeder error: {ex}");
     }
 }
 
