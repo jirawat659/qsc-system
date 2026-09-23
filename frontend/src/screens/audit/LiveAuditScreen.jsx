@@ -3968,19 +3968,10 @@ export default function LiveAuditScreen({
                       <FileText size={17} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-extrabold text-slate-800">หมวดหมู่: สรุป</h3>
-                      <p className="text-[11px] font-medium text-slate-500">สรุปผลการตรวจประเมิน ข้อสังเกต หรือข้อเสนอแนะภาพรวม</p>
+                      <h3 className="text-sm font-extrabold text-slate-800">สรุปการประเมิน</h3>
+                      <p className="text-[11px] font-medium text-slate-500">สรุปผลการตรวจประเมินภาพรวม</p>
                     </div>
                   </div>
-                  {extraNote?.trim() ? (
-                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      ✓ บันทึกแล้ว
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500">
-                      ข้อความสรุป
-                    </span>
-                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -3996,13 +3987,9 @@ export default function LiveAuditScreen({
                       e.target.style.height = "auto";
                       e.target.style.height = `${Math.max(96, e.target.scrollHeight)}px`;
                     }}
-                    placeholder="พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ หรือข้อสังเกตภาพรวมก่อนลงนาม..."
+                    placeholder="พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ..."
                     className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-2xl border border-slate-200 outline-none font-medium bg-slate-50/50 focus:bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[96px] text-slate-800 leading-relaxed transition-all"
                   />
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                    <span className="italic">พิมพ์ตัวอักษรอย่างเดียว</span>
-                    <span>{extraNote?.length || 0} ตัวอักษร</span>
-                  </div>
                 </div>
               </div>
 
