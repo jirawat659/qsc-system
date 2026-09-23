@@ -238,7 +238,7 @@ namespace QSC.Api.Controllers
                 questionText = task.AuditResponse?.SurveyItem?.QuestionText ?? task.IssueItem,
                 categoryName = task.CategoryName ?? task.AuditResponse?.SurveyItem?.CategoryName ?? task.AuditResponse?.CategoryName ?? "ทั่วไป",
                 scoreGiven = task.AuditResponse?.ScoreGiven,
-                fullScore = task.AuditResponse?.SurveyItem?.FullScore ?? 10.0,
+                fullScore = task.AuditResponse?.MaxScore ?? task.AuditResponse?.SurveyItem?.FullScore ?? 10.0,
                 completedAt = task.CompletedAt,
                 closedAt = task.ClosedAt,
                 createdAt = task.CreatedAt,

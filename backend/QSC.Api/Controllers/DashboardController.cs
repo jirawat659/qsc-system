@@ -277,7 +277,10 @@ namespace QSC.Api.Controllers
                             ? resp.SurveyItem.CategoryName
                             : (resp.SurveyItem.SurveySection != null ? resp.SurveyItem.SurveySection.Title : "ทั่วไป")),
                     ScoreGiven = resp.ScoreGiven,
-                    FullScore = resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 10.0
+                    // คะแนนเต็ม ณ วันตรวจก่อน (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) แล้วค่อยใช้ค่าปัจจุบันของฟอร์ม
+                    FullScore = resp.MaxScore != null
+                        ? resp.MaxScore.Value
+                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 10.0)
                 })
                 .ToListAsync();
 

@@ -25,6 +25,9 @@ QSC เดิมและ master DB ของแต่ละแบรนด์
 | 6 | `seed-job-history-import.sql` | staging → `AuditRecords`/`AuditResponses` จริง | ใหญ่ (516k แถว) |
 | 7 | `seed-reset-passwords.sql` | ตั้งรหัสผ่านเริ่มต้น `{username}@change` (BCrypt) | เล็ก |
 | 8 | `seed-user-brandscope.sql` | จำกัดแบรนด์ที่แต่ละคนเห็น + เพิ่ม user ที่ตกหล่น | เล็ก |
+| 9 | `seed-user-brandscope-au-extend.sql` | ผู้ตรวจ AU เห็นทุกแบรนด์ยกเว้น MK (เพิ่มอย่างเดียว รันซ้ำได้ ต้องใส่ `-f 65001`) — ถ้าเพิ่งรันขั้น 8 ด้วย generator เวอร์ชันหลัง 23 ก.ย. 2026 ไม่ต้องรัน | เล็ก |
+| (แก้ย้อนหลัง) | `backfill-response-asof.sql` | เติม `AuditResponses.MaxScore` / `CategoryCode` / `CategoryName` = ค่า ณ วันตรวจ ให้คำตอบที่สร้างก่อนมีคอลัมน์ — **รันหลัง deploy migration `AddMaxScoreAndCategoryCodeToAuditResponse`** เติมเฉพาะแถวที่ยัง NULL รันซ้ำได้ ต้องใส่ `-f 65001` — DB ที่ import ด้วยสคริปต์ขั้น 6 เวอร์ชันหลัง 23 ก.ย. 2026 ไม่ต้องรัน | กลาง |
+| (แก้ย้อนหลัง) | `fix-job-history-scores.sql` | แก้คะแนนประวัติที่ import ด้วยสคริปต์เวอร์ชันก่อน 23 ก.ย. 2026 — **DB ที่ import ใหม่ไม่ต้องรัน** รันซ้ำไม่ได้ (เจอตาราง `bak_fixscore_*` แล้วหยุด) ต้องใส่ `-f 65001` | กลาง (~3 วินาที) |
 
 ทุกไฟล์รองรับ `-v DryRun=1` (ทดสอบ, rollback) / `-v DryRun=0` (บันทึกจริง) แบบเดียวกันหมด —
 **ต้องรัน DryRun ก่อน live เสมอ**
@@ -66,6 +69,12 @@ powershell -ExecutionPolicy Bypass -File Generate-JobHistorySetup.ps1     # -> s
 ทั้งสองสคริปต์ "อ่านเท่านั้น" จากต้นทาง ไม่เขียนอะไรลงฐานข้อมูลใด ๆ
 `seed-brand-split.sql`, `seed-job-history-locations-extra.sql`, `seed-job-history-import.sql`
 เขียนด้วยมือ (ข้อมูลเล็กพอไม่ต้อง generate)
+
+**ก่อน seed ลง DB ใหม่ ต้อง generate `seed-job-history-setup.sql` ใหม่ก่อน** — ไฟล์ที่ commit
+อยู่ตอนนี้ยังเป็น `FullScore` แบบเก่า (`MAX`) ส่วน `Generate-JobHistorySetup.ps1` แก้เป็นค่าที่พบบ่อยสุด
+แล้ว (23 ก.ย. 2026) ยังไม่ได้ generate ใหม่เพราะ prod แก้ด้วย `fix-job-history-scores.sql` ไปแล้ว
+(ตรวจแล้วว่าค่าที่ generator ใหม่ให้ตรงกับ prod ทั้ง 2,018 ข้อ) ตอนนี้สคริปต์ต้องใส่รหัสผ่านเอง:
+`-SqlPass <password>`
 
 ต้นทาง:
 
@@ -130,7 +139,25 @@ powershell -ExecutionPolicy Bypass -File Generate-JobHistorySetup.ps1     # -> s
   version ใหม่ใน `FormGroupId` เดียวกัน, `IsLatest=0`, `Version='legacy-history'`
 - ฟอร์มที่ไม่มีเวอร์ชันปัจจุบัน (`OP001,OP002,OP005`) → สร้างฟอร์มเดี่ยว `IsActive=0`,
   Title = `"<As_code> (legacy-history)"`
-- `FullScore` ต่อข้อ = `MAX(scoreGet WHERE IsCheck=1)`, fallback `MAX(scoreGet)` ถ้าไม่เคยผ่าน
+- **`JobDetail.scoreGet` คือ "คะแนนของข้อนั้น ณ วันตรวจ" ไม่ใช่ "คะแนนที่ได้"** — ระบบเดิมเก็บไว้
+  ทุกแถวไม่ว่าข้อนั้นผ่านหรือไม่ผ่าน แล้วคิดคะแนนงานเป็น
+  `SUM(scoreGet ข้อผ่าน) / SUM(scoreGet ข้อที่ไม่ใช่ N/A)` (N/A = ไม่ติ๊กทั้งผ่านและไม่ผ่าน)
+  ยืนยันกับงาน ASB 19 ก.ย. 2026 ฟอร์ม OP006 = 267/285 = 93.68% ตรงหน้าจอระบบเดิม
+- คะแนนรวมของงาน (`AuditRecords`) คิดจาก `scoreGet` ตรงๆ ตามสูตรข้างบน → ตรงระบบเดิม 100%
+- `AuditResponses.ScoreGiven` = `scoreGet` ถ้าผ่าน, 0 ถ้าไม่ผ่านหรือ N/A (แบบเดียวกับแอป)
+- **คะแนนเต็มและหมวดของแต่ละคำตอบเก็บค่า ณ วันตรวจไว้ที่ `AuditResponses.MaxScore` /
+  `CategoryCode` / `CategoryName`** (มาจาก `scoreGet` และ `tsCode` ของแถวนั้น) — ระบบเดิมทั้ง
+  ปรับคะแนนและย้ายหมวดของข้อเดิมบ่อยมาก (คะแนนหมวด % ผิด 3,401 จาก 3,584 งาน และคำตอบอยู่ผิดหมวด
+  34,583 ข้อ ถ้าใช้ค่าของ `SurveyItem`) แอปอ่านค่า ณ วันตรวจก่อน ถ้า NULL ค่อยใช้ของ `SurveyItem`
+  (`AuditController` `/audit/{id}`, `/audit/records`, `CapController`, `DashboardController`)
+  และตอนแก้ไขงานจะคิดคะแนนใหม่ด้วยค่า ณ วันตรวจ ไม่เขียนหมวดทับ
+- `SurveyItem.FullScore` ต่อข้อ = ค่า `scoreGet` ที่พบบ่อยที่สุดของข้อนั้น (ไม่นับ N/A, เสมอ → ค่าที่ใช้ล่าสุด)
+  ใช้เป็นค่าสำรองเท่านั้น — คะแนนที่แสดงจริงมาจาก `MaxScore`
+  เพราะระบบเดิม**เคยปรับคะแนนของข้อเดิมหลายรอบ** (เช่น OP006 ข้อ 1.3: 1 → 5 → 3 → 2) แต่ระบบใหม่
+  เก็บคะแนนเต็มได้ค่าเดียวต่อข้อ — ตรง ~93.65% ของคำตอบ ที่คลาดคืองานยุคที่ฟอร์มเคยใช้คะแนนอื่น
+  (ตัดสินใจไม่แยกฟอร์มประวัติเป็นเวอร์ชันตามยุค เพราะจะได้ ~213 เวอร์ชัน)
+- เวอร์ชันก่อน 23 ก.ย. 2026 ใช้ `MAX(scoreGet)` เป็นคะแนนเต็ม และนับ `scoreGet` ของข้อไม่ผ่านเป็น
+  คะแนนที่ได้ — ทำให้คะแนนผิด 3,577 จาก 3,588 งาน แก้แล้วด้วย `fix-job-history-scores.sql`
 
 **AuditRecords ← JobHead**, **AuditResponses ← JobDetail** — ดู mapping เต็มใน
 `seed-job-history-import.sql` (มีคอมเมนต์กำกับทุกคอลัมน์)
@@ -186,7 +213,14 @@ DB ต้นทางของธง `IsQSC` (ทุกตัวมีคอล�
 งานตรวจ MK จริง ทั้งคู่จึงได้ `AU` ตามประวัติตรวจจริงเท่านั้น (26 งาน) — แก้ได้ที่ตัวแปร
 `$isQscBlocklist` ใน generator
 
-ผลที่ได้: **user 31 คน / `UserBrands` 46 แถว** — AU 28 / LG 6 / SAM 4 / SCR 4 / SD 4
+ผลที่ได้ (รอบแรก 22 ก.ย. 2026): **user 31 คน / `UserBrands` 46 แถว** — AU 28 / LG 6 / SAM 4 / SCR 4 / SD 4
+
+**กฎเพิ่ม (23 ก.ย. 2026 ตามที่ผู้ใช้กำหนด): ผู้ตรวจ After You เห็นทุกแบรนด์จริงยกเว้น Mikka**
+— ใครมี `AU` ได้ `AU, LG, SAM, SCR, SD` ไม่ได้ `MK` (ยังเป็น `BrandScope = SPECIFIC`
+ถ้าเปลี่ยนเป็น `ALL` จะเห็น MK ด้วย) ใช้กับผู้ตรวจ 28 คน ไม่แตะ `test1`/`test2` กฎนี้อยู่ทั้งใน
+`seed-user-brandscope-au-extend.sql` (ใช้แก้ DB ที่มีอยู่) และใน `Generate-UserBrandScope.ps1`
+(รัน generator ใหม่จะไม่ทำให้ค่ากลับ) ผลหลังรัน: AU 30 / LG 31 / SAM 28 / SCR 28 / SD 28 / MK 0
+— แบรนด์ MK ยังไม่มีผู้ตรวจคนใดเข้าถึงได้ นอกจาก `admin`
 (ยังไม่นับ `test1`/`test2` ที่ generator ไม่แตะ)
 
 `legacy-import` → `IsActive = 0` (ไม่มีคนใช้จริง) แต่คง `UserBrands = LG` ไว้ เพื่อให้รายงาน
@@ -229,6 +263,11 @@ DB ต้นทางของธง `IsQSC` (ทุกตัวมีคอล�
    ```powershell
    sqlcmd -S 192.168.2.19,44881 -U qsc_sys -P <password> -d QSCDB -C -b -v DryRun=0 -i cleanup-demo-brands.sql
    ```
+   **prod (`192.168.11.1,1319`) ก็เจอเหมือนกัน** — ล้างไปแล้ว 2 รอบ (22 ก.ย. และ 23 ก.ย. 2026)
+   รอบล่าสุดถูกสร้างใหม่ 22 ก.ย. 14:22 น. พร้อมผูกสาขา `ABH/ABK/ABP` กับ `AB` ซ้ำ ต้นเหตุน่าจะเป็น
+   แอป prod ที่รัน `DatabaseSeeder.cs` เวอร์ชันของ `main` (ยังมี demo seed) ทุกครั้งที่ restart —
+   MR #8 (ตัด demo seed ออก) merge เข้า `main` แล้ว — ถ้าแบรนด์ demo ยังโผล่หลัง deploy ตัวนั้น
+   แปลว่ามีแหล่งอื่นรันชน DB อยู่ (เช่น instance/เครื่องอื่นที่ยังรันโค้ดเก่า) ต้องหาต่อ
 2. **Schema อาจเปลี่ยนได้โดยไม่แจ้งล่วงหน้า** — ก่อนรันสคริปต์ seed ใหม่ ให้เช็ค
    `SELECT MigrationId FROM __EFMigrationsHistory ORDER BY MigrationId DESC` ว่ามี migration
    ใหม่ที่เราไม่มีในเครื่องหรือไม่ ถ้ามี ให้ตรวจคอลัมน์ของตารางที่จะ insert ก่อนรัน:
