@@ -211,11 +211,11 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                           <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 font-medium shadow-2xs">
                             <span className="text-slate-400 text-[11px] font-bold">คะแนน:</span>
                             <span className="font-bold line-through text-slate-400 font-mono">
-                              {Math.round(beforeScore)}%
+                              {parseFloat(Number(beforeScore).toFixed(2))}%
                             </span>
                             <ArrowRight size={11} className="text-slate-400" />
                             <span className={`font-black font-mono ${afterScore >= 85 ? 'text-emerald-700' : 'text-amber-700'}`}>
-                              {Math.round(afterScore)}%
+                              {parseFloat(Number(afterScore).toFixed(2))}%
                             </span>
                           </div>
                         )}

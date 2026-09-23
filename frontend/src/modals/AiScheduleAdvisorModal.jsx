@@ -382,7 +382,7 @@ export default function AiScheduleAdvisorModal({ onClose }) {
                       <div className="pt-2 space-y-2.5 border-t border-slate-100 animate-in fade-in duration-200">
                         {/* ประวัติการตรวจ และ CAP ค้าง */}
                         <div className="flex items-center gap-2 text-[11px] text-slate-600 font-medium flex-wrap">
-                          <span>รอบล่าสุด: <b className="text-slate-800 font-bold">{b.lastScore != null ? `${b.lastScore}%` : "ยังไม่เคยตรวจ"}</b></span>
+                          <span>รอบล่าสุด: <b className="text-slate-800 font-bold">{b.lastScore != null ? `${parseFloat(Number(b.lastScore).toFixed(2))}%` : "ยังไม่เคยตรวจ"}</b></span>
                           <span>•</span>
                           {b.hasAuditedThisMonth ? (
                             <span className="text-emerald-700 font-semibold flex items-center gap-0.5">

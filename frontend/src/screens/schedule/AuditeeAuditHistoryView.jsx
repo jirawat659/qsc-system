@@ -59,7 +59,7 @@ export default function AuditeeAuditHistoryView() {
 
     if (sourceRecords.length > 0) {
       return sourceRecords.map(r => {
-        const score = Math.round(r.percentageScore || 0);
+        const score = typeof r.percentageScore === 'number' ? r.percentageScore : (typeof r.score === 'number' ? r.score : 0);
         const rawDate = r.auditDate || r.createdAt;
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "15 ส.ค. 2569";
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "นายสมชาย ใจดี";
@@ -149,7 +149,7 @@ export default function AuditeeAuditHistoryView() {
               <span>คะแนนรอบล่าสุด</span>
             </div>
             <div className="text-xl sm:text-2xl font-black text-amber-900 leading-tight" style={{ fontFamily: mono }}>
-              {myUnit.lastScore}%
+              {parseFloat(Number(myUnit.lastScore).toFixed(2))}%
             </div>
             <div>
               <span className={`inline-block text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-md ${

@@ -69,12 +69,12 @@ namespace QSC.Api.Controllers
 
             int auditedCount = latestAuditsByLoc.Count;
             int passedCount = latestAuditsByLoc.Count(a => a.IsPassed);
-            double passRate = auditedCount > 0 ? Math.Round((double)passedCount / auditedCount * 100.0, 1) : 0.0;
-            double avgScore = latestAuditsByLoc.Any() ? Math.Round(latestAuditsByLoc.Average(a => a.PercentageScore), 1) : 0.0;
+            double passRate = auditedCount > 0 ? Math.Round((double)passedCount / auditedCount * 100.0, 2) : 0.0;
+            double avgScore = latestAuditsByLoc.Any() ? Math.Round(latestAuditsByLoc.Average(a => a.PercentageScore), 2) : 0.0;
 
-            double? prevAvgScore = prevLatestAuditsByLoc.Any() ? Math.Round(prevLatestAuditsByLoc.Average(a => a.PercentageScore), 1) : null;
+            double? prevAvgScore = prevLatestAuditsByLoc.Any() ? Math.Round(prevLatestAuditsByLoc.Average(a => a.PercentageScore), 2) : null;
             string? trendPercent = (prevAvgScore.HasValue && prevAvgScore.Value > 0)
-                ? (((avgScore - prevAvgScore.Value) / prevAvgScore.Value) * 100.0).ToString("F1")
+                ? (((avgScore - prevAvgScore.Value) / prevAvgScore.Value) * 100.0).ToString("0.##")
                 : null;
 
             int pendingCaps = await _context.CapTasks
@@ -127,8 +127,8 @@ namespace QSC.Api.Controllers
                     Code = g.Key.Code,
                     Name = g.Key.Name,
                     Region = g.Key.Region,
-                    LastScore = Math.Round(g.OrderByDescending(a => a.AuditDate).Select(a => a.PercentageScore).FirstOrDefault(), 1),
-                    AvgScore = Math.Round(g.Average(a => a.PercentageScore), 1),
+                    LastScore = Math.Round(g.OrderByDescending(a => a.AuditDate).Select(a => a.PercentageScore).FirstOrDefault(), 2),
+                    AvgScore = Math.Round(g.Average(a => a.PercentageScore), 2),
                     AuditCount = g.Count(),
                     LastAuditDate = g.Max(a => a.AuditDate),
                     HasAudited = true
@@ -196,8 +196,8 @@ namespace QSC.Api.Controllers
                     .Select(g => g.OrderByDescending(a => a.AuditDate).ThenByDescending(a => a.Id).First())
                     .ToList();
 
-                double? avg = latestMonthAudits.Any() ? Math.Round(latestMonthAudits.Average(a => a.PercentageScore), 1) : null;
-                double? passRate = latestMonthAudits.Any() ? Math.Round((double)latestMonthAudits.Count(a => a.IsPassed) / latestMonthAudits.Count * 100, 1) : null;
+                double? avg = latestMonthAudits.Any() ? Math.Round(latestMonthAudits.Average(a => a.PercentageScore), 2) : null;
+                double? passRate = latestMonthAudits.Any() ? Math.Round((double)latestMonthAudits.Count(a => a.IsPassed) / latestMonthAudits.Count * 100, 2) : null;
                 var monthLabel = thaiMonths[targetMonthBkk.Month - 1] + " " + ((targetMonthBkk.Year + 543) % 100);
 
                 months.Add(new
@@ -218,7 +218,7 @@ namespace QSC.Api.Controllers
                 .Select(g => new
                 {
                     region = g.Key,
-                    avgScore = Math.Round(g.Average(l => l.LastScore), 1),
+                    avgScore = Math.Round(g.Average(l => l.LastScore), 2),
                     totalBranches = g.Count()
                 })
                 .ToListAsync();
@@ -290,7 +290,7 @@ namespace QSC.Api.Controllers
                 {
                     var totalScoreGiven = g.Sum(x => x.ScoreGiven);
                     var totalFullScore = g.Sum(x => x.FullScore);
-                    var percentage = totalFullScore > 0 ? Math.Round((totalScoreGiven / totalFullScore) * 100.0, 1) : 0.0;
+                    var percentage = totalFullScore > 0 ? Math.Round((totalScoreGiven / totalFullScore) * 100.0, 2) : 0.0;
 
                     return new
                     {

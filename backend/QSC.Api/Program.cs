@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -109,6 +109,7 @@ builder.Services.AddSignalR(options =>
 
 // 5. Application Services
 builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
 
 // 6. Rate Limiting for AI Endpoints
@@ -118,8 +119,9 @@ builder.Services.AddRateLimiter(options =>
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
+        var msg = "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่";
         await context.HttpContext.Response.WriteAsync(
-            "{\"message\": \"คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่\", \"status\": 429}", 
+            $"{{\"message\": \"{msg}\", \"status\": 429, \"retryAfterSeconds\": 60}}", 
             token);
     };
 
@@ -164,21 +166,23 @@ app.UseCors("AllowReact");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Protect static uploads with authentication
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/uploads"))
-    {
-        if (!context.User.Identity?.IsAuthenticated ?? true)
-        {
-            context.Response.StatusCode = 401;
-            return;
-        }
-    }
-    await next();
-});
-
 app.UseStaticFiles();
+
+// 🌟 Static Files Configuration for Uploads from appsettings.json (Storage:UploadPath)
+var uploadsRootDirectory = QSC.Api.Helpers.UploadHelper.GetUploadsRootPath(app.Environment, app.Configuration);
+if (!string.IsNullOrWhiteSpace(uploadsRootDirectory) && Directory.Exists(uploadsRootDirectory))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsRootDirectory),
+        RequestPath = "/uploads",
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+        }
+    });
+}
 app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())

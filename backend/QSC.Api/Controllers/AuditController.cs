@@ -18,13 +18,15 @@ namespace QSC.Api.Controllers
         private readonly IWebHostEnvironment _env;
         private readonly ILogger<AuditController> _logger;
         private readonly IHubContext<CapChatHub> _hubContext;
+        private readonly IConfiguration _config;
 
-        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext)
+        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext, IConfiguration config)
         {
             _context = context;
             _env = env;
             _logger = logger;
             _hubContext = hubContext;
+            _config = config;
         }
 
         private static bool IsValidImageSignature(byte[] bytes)
@@ -427,6 +429,12 @@ namespace QSC.Api.Controllers
             public string Base64Data { get; set; } = string.Empty;
             public string FileName { get; set; } = "upload.webp";
             public string? PreviousUrl { get; set; }
+            public int? ScheduleId { get; set; }
+            public string? LocationCode { get; set; }
+            public int? SurveyItemId { get; set; }
+            public int? CapTaskId { get; set; }
+            public string? SignatoryType { get; set; }
+            public string? Prefix { get; set; }
         }
 
         [HttpPost("upload-image")]
@@ -435,13 +443,13 @@ namespace QSC.Api.Controllers
             if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest(new { message = "กรุณาแนบข้อมูลรูปภาพ" });
 
             // Clean previous image if exists
-            if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/audit_images/"))
+            if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/"))
             {
                 try
                 {
-                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
-                    var dir = Path.Combine(uploadsRoot, "audit_images");
-                    var oldFile = Path.Combine(dir, Path.GetFileName(dto.PreviousUrl));
+                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env, _config);
+                    var relPath = dto.PreviousUrl.Substring("/uploads/".Length).Replace('/', Path.DirectorySeparatorChar);
+                    var oldFile = Path.Combine(uploadsRoot, relPath);
                     if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
                 }
                 catch { }
@@ -449,7 +457,8 @@ namespace QSC.Api.Controllers
 
             try
             {
-                var relativeUrl = await SaveBase64IfPresentAsync(dto.Base64Data, "audit_images", "audit", 10 * 1024 * 1024);
+                var relativeUrl = await UploadHelper.SaveAuditItemPhotoAsync(
+                    _env, _config, dto.Base64Data, dto.ScheduleId, dto.LocationCode, dto.SurveyItemId, 10 * 1024 * 1024);
                 return Ok(new { url = relativeUrl });
             }
             catch (InvalidImageUploadException ex)
@@ -469,13 +478,13 @@ namespace QSC.Api.Controllers
             if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest(new { message = "กรุณาแนบข้อมูลลายเซ็น" });
 
             // Clean previous signature file to prevent disk clutter
-            if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/signatures/"))
+            if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/"))
             {
                 try
                 {
-                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
-                    var dir = Path.Combine(uploadsRoot, "signatures");
-                    var oldFile = Path.Combine(dir, Path.GetFileName(dto.PreviousUrl));
+                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env, _config);
+                    var relPath = dto.PreviousUrl.Substring("/uploads/".Length).Replace('/', Path.DirectorySeparatorChar);
+                    var oldFile = Path.Combine(uploadsRoot, relPath);
                     if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
                 }
                 catch { }
@@ -483,7 +492,8 @@ namespace QSC.Api.Controllers
 
             try
             {
-                var relativeUrl = await SaveBase64IfPresentAsync(dto.Base64Data, "signatures", "sig", 2 * 1024 * 1024);
+                var relativeUrl = await UploadHelper.SaveSignaturePhotoAsync(
+                    _env, _config, dto.Base64Data, dto.ScheduleId, dto.LocationCode, dto.SignatoryType ?? "auditor", 2 * 1024 * 1024);
                 return Ok(new { url = relativeUrl });
             }
             catch (InvalidImageUploadException ex)
@@ -699,7 +709,7 @@ namespace QSC.Api.Controllers
 
             var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
 
-            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 1) : 100.0;
+            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
 
             // 🛡️ Ensure valid PrimaryAuditorId (Foreign Key Validation)
@@ -824,8 +834,10 @@ namespace QSC.Api.Controllers
             try
             {
                 // Convert Base64 Signatures to Server Files (จำกัดขนาดลายเซ็นไม่เกิน 2MB)
-                var auditorSigUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor", 2 * 1024 * 1024);
-                var auditeeSigUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee", 2 * 1024 * 1024);
+                var auditorSigUrl = await UploadHelper.SaveSignaturePhotoAsync(
+                    _env, _config, dto.AuditorSignatureUrl, validScheduleId, location.Code, "auditor", 2 * 1024 * 1024);
+                var auditeeSigUrl = await UploadHelper.SaveSignaturePhotoAsync(
+                    _env, _config, dto.AuditeeSignatureUrl, validScheduleId, location.Code, "auditee", 2 * 1024 * 1024);
 
                 // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ
                 var effectiveStartedAt = dto.StartedAt ?? dto.AuditDate ?? DateTime.UtcNow;
@@ -888,7 +900,8 @@ namespace QSC.Api.Controllers
                         foreach (var imgUrl in computedResp.ImageUrls)
                         {
                             if (string.IsNullOrWhiteSpace(imgUrl)) continue;
-                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit", 10 * 1024 * 1024);
+                            var savedImgUrl = await UploadHelper.SaveAuditItemPhotoAsync(
+                                _env, _config, imgUrl, validScheduleId, location.Code, computedResp.SurveyItemId, 10 * 1024 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
                                 response.Images.Add(new AuditResponseImage
@@ -1466,7 +1479,7 @@ namespace QSC.Api.Controllers
                 .GroupBy(r => r.SurveyItemId)
                 .ToDictionary(g => g.Key, g => g.First().MaxScore!.Value);
             var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses, savedMaxByItem);
-            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 1) : 100.0;
+            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
 
             // 1. เก็บคำตอบและข้อมูลเดิมไว้ทำ Item-Level Diff ก่อนเคลียร์
@@ -1591,11 +1604,13 @@ namespace QSC.Api.Controllers
                 // ลายเซ็น (จำกัดขนาดไม่เกิน 2MB)
                 if (!string.IsNullOrWhiteSpace(dto.AuditorSignatureUrl))
                 {
-                    record.AuditorSignatureUrl = await SaveBase64IfPresentAsync(dto.AuditorSignatureUrl, "signatures", "sig_auditor", 2 * 1024 * 1024);
+                    record.AuditorSignatureUrl = await UploadHelper.SaveSignaturePhotoAsync(
+                        _env, _config, dto.AuditorSignatureUrl, record.AuditScheduleId, record.Location?.Code, "auditor", 2 * 1024 * 1024);
                 }
                 if (!string.IsNullOrWhiteSpace(dto.AuditeeSignatureUrl))
                 {
-                    record.AuditeeSignatureUrl = await SaveBase64IfPresentAsync(dto.AuditeeSignatureUrl, "signatures", "sig_auditee", 2 * 1024 * 1024);
+                    record.AuditeeSignatureUrl = await UploadHelper.SaveSignaturePhotoAsync(
+                        _env, _config, dto.AuditeeSignatureUrl, record.AuditScheduleId, record.Location?.Code, "auditee", 2 * 1024 * 1024);
                 }
 
                 // พิกัดสถานที่ (อนุญาตให้เป็น null ได้ หากไม่มี GPS หรือต้องการล้างค่า)
@@ -1673,7 +1688,8 @@ namespace QSC.Api.Controllers
                         foreach (var imgUrl in computedResp.ImageUrls)
                         {
                             if (string.IsNullOrWhiteSpace(imgUrl)) continue;
-                            var savedImgUrl = await SaveBase64IfPresentAsync(imgUrl, "audit_images", "audit", 10 * 1024 * 1024);
+                            var savedImgUrl = await UploadHelper.SaveAuditItemPhotoAsync(
+                                _env, _config, imgUrl, record.AuditScheduleId, record.Location?.Code, computedResp.SurveyItemId, 10 * 1024 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
                                 targetImageUrls.Add(savedImgUrl);

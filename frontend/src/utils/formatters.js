@@ -200,6 +200,11 @@ export const parseThaiMonthYearQuery = (text) => {
   return null;
 };
 
+export const formatScore = (val) => {
+  if (val === undefined || val === null || val === "" || isNaN(Number(val))) return "-";
+  return parseFloat(Number(val).toFixed(2)).toString();
+};
+
 export const getScoreStatus = (score) => {
   const s = Number(score) || 0;
   if (s < 70) {

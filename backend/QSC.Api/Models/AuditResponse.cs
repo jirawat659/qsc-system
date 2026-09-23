@@ -20,7 +20,6 @@ namespace QSC.Api.Models
         public bool IsPassed { get; set; }
         public bool IsNa { get; set; } = false; // Not Applicable (N/A) / ข้าม
         public string? CategoryName { get; set; } // Product, Process, Service, Cleanliness, Documents
-
         // รหัสหมวด "ณ วันตรวจ" (QLT/OPS/SVC/CLN/DOC) คู่กับ CategoryName — ระบบเดิมเคยย้ายข้อเดิมไปหมวดอื่น
         // ตามยุค SurveyItem.CategoryCode จึงถูกแค่ยุคล่าสุด null = คำตอบก่อนมีช่องนี้ → ใช้ของ SurveyItem
         public string? CategoryCode { get; set; }

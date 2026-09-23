@@ -18,12 +18,14 @@ namespace QSC.Api.Controllers
         private readonly AppDbContext _context;
         private readonly IWebHostEnvironment _env;
         private readonly IHubContext<CapChatHub> _hubContext;
+        private readonly IConfiguration _config;
 
-        public CapController(AppDbContext context, IWebHostEnvironment env, IHubContext<CapChatHub> hubContext)
+        public CapController(AppDbContext context, IWebHostEnvironment env, IHubContext<CapChatHub> hubContext, IConfiguration config)
         {
             _context = context;
             _env = env;
             _hubContext = hubContext;
+            _config = config;
         }
 
         private static bool IsValidImageSignature(byte[] bytes)
@@ -331,7 +333,7 @@ namespace QSC.Api.Controllers
                     foreach (var url in dto.ImageUrls)
                     {
                         if (string.IsNullOrWhiteSpace(url)) continue;
-                        var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "defect", 10 * 1024 * 1024);
+                        var savedUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, url, task.Id, "defect", 10 * 1024 * 1024);
                         if (!string.IsNullOrWhiteSpace(savedUrl))
                         {
                             _context.CapTaskImages.Add(new CapTaskImage
@@ -419,7 +421,7 @@ namespace QSC.Api.Controllers
                     foreach (var url in dto.ImageUrls)
                     {
                         if (string.IsNullOrWhiteSpace(url)) continue;
-                        var savedUrl = await SaveBase64IfPresentAsync(url, "cap_images", "cap", 10 * 1024 * 1024);
+                        var savedUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, url, id, "fix", 10 * 1024 * 1024);
                         if (!string.IsNullOrWhiteSpace(savedUrl))
                         {
                             if (firstSavedImageUrl == null)
@@ -792,7 +794,7 @@ namespace QSC.Api.Controllers
             {
                 try
                 {
-                    processedImageUrl = await SaveBase64IfPresentAsync(dto.ImageUrl, "cap_images", "cap", 10 * 1024 * 1024);
+                    processedImageUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, dto.ImageUrl, id, "chat", 10 * 1024 * 1024);
                 }
                 catch (InvalidImageUploadException ex)
                 {
@@ -845,7 +847,7 @@ namespace QSC.Api.Controllers
 
             try
             {
-                var relativeUrl = await SaveBase64IfPresentAsync(dto.Base64Data, "cap_images", "cap", 10 * 1024 * 1024);
+                var relativeUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, dto.Base64Data, dto.CapTaskId, dto.Prefix ?? "fix", 10 * 1024 * 1024);
                 return Ok(new { url = relativeUrl });
             }
             catch (InvalidImageUploadException ex)

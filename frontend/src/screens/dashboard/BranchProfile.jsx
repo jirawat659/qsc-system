@@ -61,7 +61,9 @@ export default function BranchProfile({ unit, onBack }) {
 
     if (sourceRecords.length > 0) {
       return sourceRecords.map(r => {
-        const score = Math.round(r.percentageScore || 0);
+        const score = r.percentageScore !== undefined && r.percentageScore !== null 
+          ? Number(r.percentageScore) 
+          : (r.score !== undefined && r.score !== null ? Number(r.score) : 0);
         const rawDate = r.auditDate || r.createdAt;
         const dateFormatted = rawDate ? new Date(rawDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-";
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";

@@ -55,7 +55,9 @@ export function formatThaiAuditDate(rawDate) {
 // 🌟 แปลง audit record ดิบ (จาก /audit/records ไม่ว่าจะมาจาก buffer หรือ fetch ตรงด้วย startDate/endDate)
 // ให้เป็น log object ที่หน้านี้ใช้แสดงผล — แยกออกมาเป็นฟังก์ชันระดับโมดูลเพื่อใช้ซ้ำได้ทั้งสองทาง
 function buildCompletedLog(r, forms, activeLocations) {
-  const score = Math.round(r.percentageScore || 0);
+  const score = r.percentageScore !== undefined && r.percentageScore !== null 
+    ? Number(r.percentageScore) 
+    : (r.score !== undefined && r.score !== null ? Number(r.score) : 0);
   const branchName = r.locationName || r.location?.name || "-";
   const branchFullName = r.locationName || r.location?.fullName || r.location?.name || "-";
   const rawDate = r.auditDate || r.createdAt;
@@ -216,14 +218,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const latest = sorted[0];
         const sc = latest.percentageScore !== undefined ? latest.percentageScore : latest.score;
         if (sc !== undefined && sc !== null) {
-          latestScore = Math.round(sc);
+          latestScore = Number(sc);
           isPassed = latest.isPassed !== undefined ? latest.isPassed : (latestScore >= 85);
         }
       }
 
       // ถ้ายังไม่มีใน auditRecords ลองดู loc.lastScore
       if (latestScore === null && typeof loc.lastScore === 'number' && loc.lastScore > 0) {
-        latestScore = Math.round(loc.lastScore);
+        latestScore = Number(loc.lastScore);
         isPassed = latestScore >= 85;
       }
 
@@ -247,12 +249,12 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   // 3. ถ้าไม่มีเลย -> 0
   const avgScore = useMemo(() => {
     if (auditedBranches.length > 0) {
-      return Math.round(auditedBranches.reduce((acc, b) => acc + b.latestScore, 0) / auditedBranches.length);
+      return auditedBranches.reduce((acc, b) => acc + b.latestScore, 0) / auditedBranches.length;
     }
     if (auditRecords && auditRecords.length > 0) {
       const validRecords = auditRecords.filter(r => (r.percentageScore !== undefined && r.percentageScore !== null) || (r.score !== undefined && r.score !== null));
       if (validRecords.length > 0) {
-        return Math.round(validRecords.reduce((acc, r) => acc + (r.percentageScore !== undefined ? r.percentageScore : r.score), 0) / validRecords.length);
+        return validRecords.reduce((acc, r) => acc + (r.percentageScore !== undefined ? r.percentageScore : r.score), 0) / validRecords.length;
       }
     }
     return 0;
@@ -650,7 +652,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       );
 
       const mappedHistory = branchAudits.map(r => {
-        const score = Math.round(r.percentageScore || 0);
+        const score = r.percentageScore !== undefined && r.percentageScore !== null 
+          ? Number(r.percentageScore) 
+          : (r.score !== undefined && r.score !== null ? Number(r.score) : 0);
         const rawDate = r.auditDate || r.createdAt;
         const dateFormatted = formatThaiAuditDate(rawDate);
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
@@ -1094,7 +1098,7 @@ const handleTriggerAudit = (record) => {
               ? "border-emerald-600 text-emerald-800 bg-white"
               : "border-amber-600 text-amber-800 bg-white";
             
-            scoreDisplay = log.score;
+            scoreDisplay = typeof log.score === 'number' ? parseFloat(log.score.toFixed(2)) : log.score;
             
             statusBadge = isCritical
               ? "bg-rose-100 text-rose-800"
@@ -1334,7 +1338,7 @@ const handleTriggerAudit = (record) => {
                     ? "border-emerald-600 text-emerald-800 bg-white"
                     : "border-amber-600 text-amber-800 bg-white";
                   
-                  scoreDisplay = log.score;
+                  scoreDisplay = typeof log.score === 'number' ? parseFloat(log.score.toFixed(2)) : log.score;
                   
                   scorePill = isCritical
                     ? "bg-rose-50 text-rose-700 border border-rose-200/60"
@@ -1381,7 +1385,7 @@ const handleTriggerAudit = (record) => {
                         <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
                           {rowNumber}
                         </span>
-                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono shadow-2xs ${circleColor}`}>
+                        <div className={`min-w-[42px] px-1 h-8 rounded-full border-2 flex items-center justify-center font-bold text-[10.5px] shrink-0 font-mono shadow-2xs ${circleColor}`}>
                           {scoreDisplay}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -1399,7 +1403,7 @@ const handleTriggerAudit = (record) => {
                     <td className="py-3.5 px-2 text-center overflow-hidden">
                       {log.type === 'completed' ? (
                         <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
-                          {log.score}%
+                          {typeof log.score === 'number' ? parseFloat(log.score.toFixed(2)) : log.score}%
                         </span>
                       ) : (
                         <span className="text-slate-400 font-bold">-</span>

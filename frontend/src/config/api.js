@@ -28,15 +28,15 @@ const defaultBackendPort = (typeof window !== 'undefined' && window.location.por
 export const SERVER_BASE_URL = envApiBaseUrl || `${protocol}//${hostname}${defaultBackendPort}`;
 export const API_BASE_URL = `${SERVER_BASE_URL}/api`;
 
-// 🖼️ URL Resolver: ดึงไฟล์รูปภาพตรงจาก frontend/public/uploads หรือ data URL
+// 🖼️ URL Resolver: ดึงไฟล์รูปภาพผ่าน Backend Server ตามการตั้งค่า Storage:UploadPath ใน appsettings.json
 export const getFullImageUrl = (url) => {
   if (!url) return '';
   if (typeof url !== 'string') return '';
   if (url.startsWith('data:image/') || url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:')) {
     return url;
   }
-  // เสิร์ฟโดยตรงจาก Frontend public path
-  return url.startsWith('/') ? url : `/${url}`;
+  const cleanUrl = url.startsWith('/') ? url : `/${url}`;
+  return `${SERVER_BASE_URL}${cleanUrl}`;
 };
 
 // 🌟 Timeout เฉพาะสำหรับ endpoint เรียก AI (/ai/*): local model (เช่น qwen3.5:9b) ช้ากว่า
