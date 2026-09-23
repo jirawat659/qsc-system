@@ -289,6 +289,10 @@ namespace QSC.Api.Migrations
                     b.Property<int>("AuditRecordId")
                         .HasColumnType("int");
 
+                    b.Property<string>("CategoryCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
                     b.Property<string>("CategoryName")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
@@ -306,6 +310,9 @@ namespace QSC.Api.Migrations
 
                     b.Property<bool>("IsPassed")
                         .HasColumnType("bit");
+
+                    b.Property<double?>("MaxScore")
+                        .HasColumnType("float");
 
                     b.Property<string>("Notes")
                         .HasColumnType("nvarchar(max)");

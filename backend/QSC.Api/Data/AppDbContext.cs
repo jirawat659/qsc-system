@@ -164,8 +164,11 @@ namespace QSC.Api.Data
                 e.Property(x => x.AuditeeSignatureUrl).HasMaxLength(500);
             });
 
-            modelBuilder.Entity<AuditResponse>()
-                .Property(x => x.CategoryName).HasMaxLength(100);
+            modelBuilder.Entity<AuditResponse>(e =>
+            {
+                e.Property(x => x.CategoryName).HasMaxLength(100);
+                e.Property(x => x.CategoryCode).HasMaxLength(20); // เท่ากับ SurveyItem.CategoryCode
+            });
 
             modelBuilder.Entity<AuditResponseImage>()
                 .Property(x => x.ImageUrl).HasMaxLength(500);
