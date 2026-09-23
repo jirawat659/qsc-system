@@ -1101,11 +1101,18 @@ export default function MainDashboard({ onLogout }) {
           </header>
 
           {/* MAIN CONTENT WORKSPACE (Fluid 100% Percentage Width) */}
-          <main ref={mainContentRef} className={`flex-1 flex flex-col min-h-screen pb-16 lg:pb-8 w-full max-w-full ${isLiveAuditScreen ? 'overflow-visible lg:h-auto' : 'overflow-y-auto lg:min-h-0 lg:h-full'}`}>
-            <div key={`${role}_${screen}`} className={`${isLiveAuditScreen ? '' : 'page-transition'} flex-1 flex flex-col w-full max-w-full`}>
-              {renderCurrentScreen()}
-            </div>
-          </main>
+          <main 
+            ref={mainContentRef} 
+            className={`flex-1 flex flex-col min-h-screen pb-16 lg:pb-8 w-full max-w-full ${
+              isLiveAuditScreen 
+                ? 'overflow-visible lg:overflow-y-auto lg:h-full lg:min-h-0' 
+                : 'overflow-y-auto lg:min-h-0 lg:h-full'
+            }`}
+          >
+  <div key={`${role}_${screen}`} className={`${isLiveAuditScreen ? '' : 'page-transition'} flex-1 flex flex-col w-full max-w-full`}>
+    {renderCurrentScreen()}
+  </div>
+</main>
 
           {/* MOBILE BOTTOM NAVIGATION: ซ่อนอัตโนมัติเมื่ออยู่ในหน้าย่อย หรือระหว่างที่กำลังทำการตรวจหน้างาน (Live Audit) */}
           {!isLiveAuditActive && !isMoreSubScreen && !isAuditFromReportList && !subHeader?.onBack && !subHeader?.hasBack && (

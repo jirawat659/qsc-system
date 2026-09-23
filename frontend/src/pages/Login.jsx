@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import api from '../config/api';
 import authStorage from '../config/storage';
 import { LogIn, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
@@ -9,53 +9,9 @@ function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // โหลดเวลา Lockout ที่ค้างไว้จาก localStorage (ถ้ามี เพื่อไม่ให้เวลารีเซ็ตเมื่อรีเฟรชหน้าเว็บ)
-  const [lockoutSeconds, setLockoutSeconds] = useState(() => {
-    try {
-      const storedUntil = localStorage.getItem('qsc_login_lockout_until');
-      if (storedUntil) {
-        const remaining = Math.ceil((Number(storedUntil) - Date.now()) / 1000);
-        return remaining > 0 ? remaining : 0;
-      }
-    } catch {
-      // ignore
-    }
-    return 0;
-  });
-
-  // ระบบนับเวลาถอยหลังเมื่อติด Lockout
-  useEffect(() => {
-    if (lockoutSeconds <= 0) {
-      try {
-        localStorage.removeItem('qsc_login_lockout_until');
-      } catch {}
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setLockoutSeconds(prev => {
-        if (prev <= 1) {
-          try {
-            localStorage.removeItem('qsc_login_lockout_until');
-          } catch {}
-          setError(''); // เคลียร์ข้อความระงับเมื่อครบกำหนด
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [lockoutSeconds]);
-
-  const formatTimer = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (lockoutSeconds > 0) return;
 
     if (!username.trim() || !password.trim()) {
       setError('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
@@ -82,30 +38,13 @@ function Login({ onLoginSuccess }) {
         localStorage.setItem('fullName', user.fullName);
       }
       
-      // ล้างข้อมูล lockout เมื่อล็อกอินสำเร็จ
-      try {
-        localStorage.removeItem('qsc_login_lockout_until');
-      } catch {}
-
       if (onLoginSuccess) {
         onLoginSuccess(token);
       } else {
         window.location.reload();
       }
     } catch (err) {
-      const data = err.response?.data;
-      const isRateLimited = data?.isLocked || err.response?.status === 429;
-      const retrySecs = Number(data?.retryAfterSeconds) || (isRateLimited ? 60 : 0);
-
-      if (isRateLimited && retrySecs > 0) {
-        setLockoutSeconds(retrySecs);
-        try {
-          localStorage.setItem('qsc_login_lockout_until', String(Date.now() + retrySecs * 1000));
-        } catch {}
-        setError(data?.message || `บัญชีถูกระงับชั่วคราว กรุณารอ ${formatTimer(retrySecs)}`);
-      } else {
-        setError(data?.message || 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบชื่อผู้ใช้และรหัสผ่าน');
-      }
+      setError(err.response?.data?.message || 'เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบชื่อผู้ใช้และรหัสผ่าน');
     } finally {
       setLoading(false);
     }

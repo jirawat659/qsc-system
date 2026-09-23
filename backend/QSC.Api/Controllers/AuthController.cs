@@ -1,12 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using QSC.Api.Data;
 using QSC.Api.Helpers;
 using QSC.Api.Models;
-using QSC.Api.Services;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -19,22 +17,11 @@ namespace QSC.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IConfiguration _config;
-        private readonly LoginRateLimiterService _rateLimiter;
 
-        public AuthController(AppDbContext context, IConfiguration config, LoginRateLimiterService rateLimiter)
+        public AuthController(AppDbContext context, IConfiguration config)
         {
             _context = context;
             _config = config;
-            _rateLimiter = rateLimiter;
-        }
-
-        private string GetClientIp()
-        {
-            if (Request.Headers.TryGetValue("X-Forwarded-For", out var forwardedFor) && !string.IsNullOrWhiteSpace(forwardedFor))
-            {
-                return forwardedFor.ToString().Split(',')[0].Trim();
-            }
-            return HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
         }
 
         public class LoginDto
@@ -57,48 +44,18 @@ namespace QSC.Api.Controllers
         }
 
         [AllowAnonymous]
-        [EnableRateLimiting("LoginRateLimit")]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
             var trimmedUsername = dto.Username?.Trim() ?? string.Empty;
-            var clientIp = GetClientIp();
-
-            // 1. ตรวจสอบสถานะ Account / IP Lockout ก่อนคำนวณรหัสผ่าน
-            if (_rateLimiter.IsLockedOut(trimmedUsername, clientIp, out int remainingLockSeconds))
-            {
-                var minutes = (int)Math.Ceiling(remainingLockSeconds / 60.0);
-                return StatusCode(StatusCodes.Status429TooManyRequests, new
-                {
-                    message = $"คุณกรอกรหัสผ่านผิดเกินกำหนด บัญชีถูกระงับชั่วคราว กรุณารออีก {minutes} นาที ({remainingLockSeconds} วินาที)",
-                    isLocked = true,
-                    retryAfterSeconds = remainingLockSeconds
-                });
-            }
 
             var user = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.Username == trimmedUsername);
+                .FirstOrDefaultAsync(u => u.Username.ToLower() == trimmedUsername.ToLower());
 
-            // 🌟 ตรวจสอบตัวพิมพ์เล็ก-พิมพ์ใหญ่ให้ตรงกันเป๊ะ (Case-Sensitive Match)
-            if (user == null || user.Username != trimmedUsername)
+            if (user == null)
             {
-                var (isLocked, remainingAttempts, lockoutSeconds) = _rateLimiter.RecordFailedAttempt(trimmedUsername, clientIp);
-                if (isLocked)
-                {
-                    return StatusCode(StatusCodes.Status429TooManyRequests, new
-                    {
-                        message = $"คุณกรอกรหัสผ่านผิดเกินกำหนด บัญชีถูกระงับชั่วคราวเป็นเวลา {LoginRateLimiterService.LockoutDuration.TotalMinutes} นาที",
-                        isLocked = true,
-                        retryAfterSeconds = lockoutSeconds
-                    });
-                }
-
-                return Unauthorized(new
-                {
-                    message = $"ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง (เหลือโอกาสอีก {remainingAttempts} ครั้ง)",
-                    remainingAttempts
-                });
+                return Unauthorized(new { message = "ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง" });
             }
 
             // Verify BCrypt Password
@@ -114,31 +71,13 @@ namespace QSC.Api.Controllers
 
             if (!passwordValid)
             {
-                var (isLocked, remainingAttempts, lockoutSeconds) = _rateLimiter.RecordFailedAttempt(trimmedUsername, clientIp);
-                if (isLocked)
-                {
-                    return StatusCode(StatusCodes.Status429TooManyRequests, new
-                    {
-                        message = $"คุณกรอกรหัสผ่านผิดเกินกำหนด บัญชีถูกระงับชั่วคราวเป็นเวลา {LoginRateLimiterService.LockoutDuration.TotalMinutes} นาที",
-                        isLocked = true,
-                        retryAfterSeconds = lockoutSeconds
-                    });
-                }
-
-                return Unauthorized(new
-                {
-                    message = $"ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง (เหลือโอกาสอีก {remainingAttempts} ครั้ง)",
-                    remainingAttempts
-                });
+                return Unauthorized(new { message = "ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง" });
             }
 
             if (!user.IsActive)
             {
                 return StatusCode(403, new { message = "บัญชีผู้ใช้นี้ถูกระงับการใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ" });
             }
-
-            // รีเซ็ตประวัติการล็อกอินผิดเมื่อเข้าสู่ระบบสำเร็จ
-            _rateLimiter.ResetAttempts(trimmedUsername, clientIp);
 
             // Load user permissions
             var permissions = await _context.RolePermissions

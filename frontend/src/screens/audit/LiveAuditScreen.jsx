@@ -140,7 +140,7 @@ const QuestionCard = React.memo(function QuestionCard({
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-            {getCategoryDisplay(getQuestionCategory(q, sec))}
+            {q.categoryName || q.category || "ทั่วไป"}
           </span>
           {q.isCritical && (
             <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
@@ -1550,8 +1550,8 @@ export default function LiveAuditScreen({
   const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
   const [isAuditHeaderScrolled, setIsAuditHeaderScrolled] = useState(false);
   const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
-  // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ใช้บันทึกหมวดหมู่ที่ถูกล็อคไว้ด้านบน และนำไปใช้ไฮไลต์ในเมนู drawer)
-  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ตั้งต้นเป็น null เพื่อไม่ให้โผล่ก่อนเลื่อน)
+  const [activeSectionIndex, setActiveSectionIndex] = useState(null);
   const activeSectionIdx = activeSectionIndex ?? 0;
 
   useEffect(() => {
@@ -1592,23 +1592,26 @@ export default function LiveAuditScreen({
       setIsAuditHeaderScrolled(scrollY > 60);
 
       if (activeTab === 2 && currentSectionsForHeader.length > 0) {
-        let current = 0;
-        for (let i = 0; i < currentSectionsForHeader.length; i++) {
-          const sectionEl = document.getElementById(`audit-section-${i}`);
-          const headerEl = document.getElementById(`audit-section-header-${i}`);
-          
-          if (sectionEl) {
-            const rect = sectionEl.getBoundingClientRect();
-            // เมื่อขอบบนของหมวดเลื่อนขึ้นมาถึง/ใกล้ขอบบน (top <= 95px) และขอบล่างยังไม่พ้นจอ (bottom > 50px)
-            if (rect.top <= 95 && rect.bottom > 50) {
-              current = i;
-              break;
-            }
-          } else if (headerEl) {
-            const rect = headerEl.getBoundingClientRect();
-            if (rect.top <= 95 && rect.bottom > 0) {
-              current = i;
-              break;
+        let current = null;
+        // ตรวจสอบเฉพาะเมื่อมีการเลื่อนจอลงมาแล้ว (ถ้ายังอยู่บนสุดจะคงค่า null ไว้)
+        if (scrollY > 50) {
+          for (let i = 0; i < currentSectionsForHeader.length; i++) {
+            const sectionEl = document.getElementById(`audit-section-${i}`);
+            const headerEl = document.getElementById(`audit-section-header-${i}`);
+            
+            if (sectionEl) {
+              const rect = sectionEl.getBoundingClientRect();
+              // เมื่อขอบบนของหมวดเลื่อนขึ้นมาถึง/ใกล้ขอบบน (top <= 95px) และขอบล่างยังไม่พ้นจอ (bottom > 50px)
+              if (rect.top <= 95 && rect.bottom > 50) {
+                current = i;
+                break;
+              }
+            } else if (headerEl) {
+              const rect = headerEl.getBoundingClientRect();
+              if (rect.top <= 95 && rect.bottom > 0) {
+                current = i;
+                break;
+              }
             }
           }
         }
@@ -3695,6 +3698,11 @@ export default function LiveAuditScreen({
                       rows={2}
                       value={currentVal || ""}
                       onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                      onInput={(e) => {
+                        // 🌟 ยืดขยายความสูงอัตโนมัติตามเนื้อหาที่พิมพ์จริง
+                        e.target.style.height = "auto";
+                        e.target.style.height = `${Math.max(56, e.target.scrollHeight)}px`;
+                      }}
                       placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
                       className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
                     />
@@ -3849,10 +3857,21 @@ export default function LiveAuditScreen({
                         {sec.title || `หมวดที่ ${sIdx + 1}`}
                       </span>
                     </div>
+
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] transition-all shrink-0 shadow-2xs ${isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""}`}>
-                        <ChevronDown size={18} strokeWidth={4} className="transition-transform" />
+                      {/* 🌟 ปุ่ม ChevronDown ที่คงอยู่ใน DOM เพื่อให้ CSS Transition คลี่ขยายและ Fade เข้าแบบนุ่มนวล */}
+                      <span
+                        className={`inline-flex items-center justify-center rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] shadow-2xs overflow-hidden transition-all duration-300 ease-in-out shrink-0 ${
+                          isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""
+                        } ${
+                          activeSectionIndex === sIdx
+                            ? "max-w-[32px] w-8 h-8 opacity-100 scale-100"
+                            : "max-w-0 w-0 h-0 opacity-0 scale-0 pointer-events-none"
+                        }`}
+                      >
+                        <ChevronDown size={18} strokeWidth={4} className="shrink-0 transition-transform" />
                       </span>
+
                       <span className="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs shrink-0 group-hover:border-emerald-200 transition-colors">
                         {sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length}/{sec.items?.length || 0} ตอบแล้ว
                       </span>

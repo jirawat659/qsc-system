@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { BarChart3, Download, X, Loader2, FileSpreadsheet } from "lucide-react";
+import { BarChart3, Download, X, Loader2, FileSpreadsheet, ChevronDown, Filter, Search } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { c, mono } from "../config/theme";
@@ -89,7 +89,33 @@ function makeSheet(aoa, widths) {
 }
 
 export default function MonthlyMeetingReportModal({ onClose }) {
-  const { visibleLocations = [], selectedBrand = "After You" } = React.useContext(DataContext);
+  const { 
+    locations = [], 
+    visibleLocations = [], 
+    brands = [], 
+    forms = [], 
+    selectedBrandId 
+  } = React.useContext(DataContext);
+
+  // กรองเฉพาะแบรนด์และฟอร์มที่เปิดใช้งาน
+  const activeBrands = useMemo(() => {
+    return (brands || []).filter(b => b.isActive !== false && b.isActive !== 0);
+  }, [brands]);
+
+  const activeForms = useMemo(() => {
+    return (forms || []).filter(f => f.isActive !== false && f.isActive !== 0);
+  }, [forms]);
+
+  // ตั้งค่าเริ่มต้นของแบรนด์
+  const [modalBrandId, setModalBrandId] = useState(() => {
+    if (selectedBrandId && activeBrands.some(b => b.id === selectedBrandId)) {
+      return String(selectedBrandId);
+    }
+    return activeBrands.length === 1 ? String(activeBrands[0].id) : "";
+  });
+
+  // 🌟 ตั้งค่าเริ่มต้นเป็น "" (ทุกแบบฟอร์ม) เพื่อไม่ให้ถูกล็อกค้างที่ฟอร์มแรก
+  const [modalFormId, setModalFormId] = useState("");
 
   const now = new Date();
   const currentMonth = now.getMonth();
@@ -100,89 +126,124 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   const monthNameShort = THAI_MONTHS_SHORT[currentMonth];
   const monthStr = String(currentMonth + 1).padStart(2, "0");
 
-  const [monthRecords, setMonthRecords] = useState([]);
-  const [allYearRecords, setAllYearRecords] = useState([]);
-  const [monthCaps, setMonthCaps] = useState([]);
-  const [isLoadingReport, setIsLoadingReport] = useState(true);
+  const [rawYearRecords, setRawYearRecords] = useState([]);
+  const [rawCaps, setRawCaps] = useState([]);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [reportError, setReportError] = useState(null);
 
-  const fetchAllPaged = async (endpoint, params = {}) => {
-    const pageSize = 100;
-    let page = 1;
-    let all = [];
-    let totalCount = Infinity;
-    while (all.length < totalCount) {
-      const res = await api.get(endpoint, { params: { ...params, page, pageSize, includeResponses: true } });
-      const data = res.data;
-      const items = Array.isArray(data) ? data : (data?.items || []);
-      totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
-      all = all.concat(items);
-      if (items.length === 0) break;
-      page += 1;
+  // 🌟 ฟังก์ชันโหลดข้อมูลรายงาน
+  const handleLoadReportData = async () => {
+    setIsLoadingReport(true);
+    setReportError(null);
+    try {
+      const startOfYear = new Date(currentYear, 0, 1, 0, 0, 0).toISOString();
+      const endOfYear = new Date(currentYear + 1, 0, 1, 0, 0, 0).toISOString();
+
+      const params = {
+        startDate: startOfYear,
+        endDate: endOfYear,
+        includeResponses: true
+      };
+      if (modalBrandId) {
+        params.brandId = Number(modalBrandId);
+      }
+
+      const [recordsRes, capsRes] = await Promise.all([
+        api.get('/audit/records', { params }),
+        api.get('/cap')
+      ]);
+
+      const rawRecords = Array.isArray(recordsRes.data) 
+        ? recordsRes.data 
+        : (recordsRes.data?.items || []);
+      
+      const allCapsData = Array.isArray(capsRes.data) 
+        ? capsRes.data 
+        : (capsRes.data?.items || []);
+
+      // กรองเฉพาะข้อมูลที่อยู่ในปีปัจจุบันจริง
+      const validYearRecords = rawRecords.filter(r => {
+        const rawDate = r.auditDate || r.submittedAt || r.createdAt;
+        if (!rawDate) return false;
+        const d = new Date(rawDate);
+        return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
+      });
+
+      setRawYearRecords(validYearRecords);
+      setRawCaps(allCapsData);
+      setHasLoaded(true);
+    } catch (err) {
+      console.error("Load report error:", err);
+      setReportError("ไม่สามารถดึงข้อมูลสำหรับสรุปรายงานประจำเดือนได้ครบถ้วน");
+    } finally {
+      setIsLoadingReport(false);
     }
-    return all;
   };
 
-  useEffect(() => {
-    let isMounted = true;
-    (async () => {
-      setIsLoadingReport(true);
-      setReportError(null);
-      try {
-        // 1. กำหนดช่วงเวลา: ตั้งแต่วันที่ 1 ม.ค. ถึง 31 ธ.ค. ของปีปัจจุบัน
-        const startOfYear = new Date(currentYear, 0, 1).toISOString();
-        const endOfYear = new Date(currentYear + 1, 0, 1).toISOString();
-
-        // 2. ดึงข้อมูลปีนี้รวดเดียวผ่าน API ที่ Backend คุณทำไว้แล้ว (ยิงแค่ 2 เส้นพร้อมกัน)
-        const [recordsRes, capsRes] = await Promise.all([
-          api.get('/audit/records', {
-            params: {
-              startDate: startOfYear,
-              endDate: endOfYear,
-              includeResponses: true // ดึง responses มาในตัว ไม่ต้องยิงซ้ำรายตัวอีก
-            }
-          }),
-          api.get('/cap')
-        ]);
-
-        const allYearRecordsData = Array.isArray(recordsRes.data) 
-          ? recordsRes.data 
-          : (recordsRes.data?.items || []);
-        
-        const allCapsData = Array.isArray(capsRes.data) 
-          ? capsRes.data 
-          : (capsRes.data?.items || []);
-
-        // 3. กรองเฉพาะเดือนนี้จากข้อมูลปีปัจจุบันที่ได้มา (คำนวณในแรม ไม่ต้องยิงเน็ตเพิ่ม)
-        const isThisMonth = (rawDate) => {
-          if (!rawDate) return false;
-          const d = new Date(rawDate);
-          return !isNaN(d.getTime()) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-        };
-
-        const recordsThisMonth = allYearRecordsData.filter(r => 
-          isThisMonth(r.auditDate || r.submittedAt || r.createdAt)
-        );
-        const capsThisMonth = allCapsData.filter(cItem => isThisMonth(cItem.createdAt));
-
-        if (isMounted) {
-          setAllYearRecords(allYearRecordsData);
-          setMonthRecords(recordsThisMonth);
-          setMonthCaps(capsThisMonth);
-        }
-      } catch (err) {
-        console.error("Load report error:", err);
-        if (isMounted) setReportError("ไม่สามารถดึงข้อมูลสำหรับสรุปรายงานประจำเดือนได้ครบถ้วน");
-      } finally {
-        if (isMounted) setIsLoadingReport(false);
+  // ── 🎯 กรองข้อมูลตามฟอร์มที่เลือก (ถ้าเลือก "ทุกแบบฟอร์ม" จะไม่ตัดทิ้ง) ─────────
+  const allYearRecords = useMemo(() => {
+    if (!hasLoaded) return [];
+    return rawYearRecords.filter(r => {
+      if (modalFormId && String(r.surveyFormId || r.formId) !== String(modalFormId)) {
+        return false;
       }
-    })();
-    return () => { isMounted = false; };
-  }, [currentMonth, currentYear]);
+      return true;
+    });
+  }, [rawYearRecords, modalFormId, hasLoaded]);
+
+  // กรองเฉพาะเดือนปัจจุบัน
+  const monthRecords = useMemo(() => {
+    if (!hasLoaded) return [];
+    return allYearRecords.filter(r => {
+      const rawDate = r.auditDate || r.submittedAt || r.createdAt;
+      if (!rawDate) return false;
+      const d = new Date(rawDate);
+      return !isNaN(d.getTime()) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    });
+  }, [allYearRecords, currentMonth, currentYear, hasLoaded]);
+
+  // กรองงาน CAP
+  const monthCaps = useMemo(() => {
+    if (!hasLoaded) return [];
+    return rawCaps.filter(cItem => {
+      const rawDate = cItem.createdAt;
+      if (!rawDate) return false;
+      const d = new Date(rawDate);
+      const isThisMonth = !isNaN(d.getTime()) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      if (!isThisMonth) return false;
+
+      if (modalBrandId) {
+        const loc = locations.find(l => l.id === cItem.locationId);
+        if (loc) {
+          const bId = Number(modalBrandId);
+          const matchBrand = loc.brandId === bId || 
+                             loc.locationBrands?.some(lb => lb.brandId === bId || lb.id === bId);
+          if (!matchBrand) return false;
+        }
+      }
+      return true;
+    });
+  }, [rawCaps, currentMonth, currentYear, modalBrandId, locations, hasLoaded]);
+
+  // สาขาที่เกี่ยวข้องตามแบรนด์
+  const activeLocationsList = useMemo(() => {
+    if (!modalBrandId) return visibleLocations.length > 0 ? visibleLocations : locations;
+    const bId = Number(modalBrandId);
+    return locations.filter(loc => 
+      loc.brandId === bId || loc.locationBrands?.some(lb => lb.brandId === bId || lb.id === bId)
+    );
+  }, [locations, visibleLocations, modalBrandId]);
+
+  const currentBrandObj = useMemo(() => activeBrands.find(b => String(b.id) === String(modalBrandId)), [activeBrands, modalBrandId]);
+  const currentBrandName = currentBrandObj?.name || (modalBrandId ? "Brand" : "After You");
+
+  const currentFormObj = useMemo(() => activeForms.find(f => String(f.id) === String(modalFormId)), [activeForms, modalFormId]);
+  const currentFormTitle = currentFormObj?.title || currentFormObj?.name || "AU. Operation Excellence";
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
-  const totalLocations = visibleLocations.length;
+  const totalLocations = activeLocationsList.length;
   const avgScore = monthRecords.length > 0
     ? Math.round(monthRecords.reduce((sum, r) => sum + (r.percentageScore || r.score || 0), 0) / monthRecords.length)
     : 0;
@@ -237,13 +298,17 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   const totalCaps = monthCaps.length;
   const pendingCaps = totalCaps - closedCaps;
 
-  // ── 🌟 สร้างรายงาน Excel 6 ชีทหลัก ──────────────────────────────────────────
+  // ── 🌟 สร้างรายงาน Excel ครบ 6 ชีทหลัก ─────────────────────────────────────
   const handleExportFullExcel = () => {
+    if (!hasLoaded || allYearRecords.length === 0) {
+      alert("ไม่พบข้อมูลผลการตรวจสำหรับเงื่อนไขที่เลือก กรุณาตรวจสอบแบรนด์หรือแบบฟอร์มอีกครั้ง");
+      return;
+    }
     setIsExportingExcel(true);
     try {
       const wb = XLSX.utils.book_new();
 
-      // 1. ชีท: บันทึกคะแนนตรวจ (ตัดค่าน้ำออก สูตรเลื่อนเป็น F ถึง K)
+      // 1. ชีท: บันทึกคะแนนตรวจ
       const dateHeader = `25${shortYear}-${monthStr}-01 00:00:00`;
       const sheet1Aoa = [
         [dateHeader],
@@ -285,9 +350,9 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       // 2. ชีท: เรียงอันดับ [เดือน]
       const sheet2Aoa = [
         [],
-        ["บริษัท  อาฟเตอร์ ยู จำกัด มหาชน"],
-        ["รายการผลการตรวจสอบคุณภาพ และมาตรฐานภายในบริษัท อาฟเตอร์ ยู"],
-        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนผลตรวจสาขาของ ${selectedBrand} ประจำเดือน ${monthNameShort}  ${thaiYear}`],
+        [`บริษัท  ${currentBrandName} จำกัด มหาชน`],
+        ["รายการผลการตรวจสอบคุณภาพ และมาตรฐานภายใน"],
+        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนผลตรวจสาขาของ ${currentBrandName} ประจำเดือน ${monthNameShort}  ${thaiYear}`],
         [...Array(17).fill(""), "สาขา", "Percent"]
       ];
       const sortedMonthRecords = [...monthRecords].sort((a, b) => (b.percentageScore || 0) - (a.percentageScore || 0));
@@ -296,43 +361,59 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       });
       XLSX.utils.book_append_sheet(wb, makeSheet(sheet2Aoa), `เรียงอันดับ ${monthNameShort}`);
 
-      // 3. ชีท: แยกหมวดหมู่คะแนนเฉลี่ยทุกสาขา (12 เดือน)
+      // 3. ชีท: แยกหมวดเฉลี่ยสาขา (ภาพรวม 12 เดือน 5 หมวดคะแนน ข้ามทุกสาขา)
       const sheet3Aoa = [
         [],
-        ["บริษัท  อาฟเตอร์ ยู จำกัด มหาชน"],
-        [`แผนภูมิแสดงเปอร์เซ็นต์เปรียบเทียบแยกหมวด รวมทั้งบริษัท ของ ${selectedBrand} ปี ${thaiYear}`],
+        [`บริษัท  ${currentBrandName} จำกัด มหาชน`],
+        [`แผนภูมิแสดงเปอร์เซ็นต์เปรียบเทียบแยกหมวด รวมทั้งบริษัท ของ ${currentBrandName} ปี ${thaiYear}`],
         [],
         ["หมวด", ...THAI_MONTHS_SHORT, "เฉลี่ยทั้งปี"]
       ];
       ["PD", "PC", "S", "C", "DM"].forEach((cat, idx) => {
         const row = [cat];
         for (let m = 0; m < 12; m++) {
-          const mRecords = allYearRecords.filter(r => new Date(r.auditDate).getMonth() === m);
+          if (m > currentMonth) {
+            row.push("-");
+            continue;
+          }
+          const mRecords = allYearRecords.filter(r => {
+            const d = new Date(r.auditDate);
+            return d.getFullYear() === currentYear && d.getMonth() === m;
+          });
           const scores = mRecords.map(r => getCategoryScores(r)[cat]).filter(s => typeof s === "number");
           row.push(scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : "-");
         }
         row.push({ t: "n", f: `AVERAGE(B${6 + idx}:M${6 + idx})` });
         sheet3Aoa.push(row);
       });
-      XLSX.utils.book_append_sheet(wb, makeSheet(sheet3Aoa, [10, ...Array(12).fill(8), 12]), "แยกหมวดแยกสาขา");
+      XLSX.utils.book_append_sheet(wb, makeSheet(sheet3Aoa, [10, ...Array(12).fill(8), 12]), "แยกหมวดเฉลี่ยสาขา");
 
       // 4. ชีท: ภาพรวมบริษัทต่อปี (12 เดือน)
       const sheet4Aoa = [
         [],
-        ["บริษัท  อาฟเตอร์ ยู จำกัด มหาชน"],
-        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนโดยรวมทั้งบริษัทของ ${selectedBrand} ปี ${thaiYear}`],
+        [`บริษัท  ${currentBrandName} จำกัด มหาชน`],
+        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนโดยรวมทั้งบริษัทของ ${currentBrandName} ปี ${thaiYear}`],
         [],
         [...Array(10).fill(""), "เดือน", "Percent"]
       ];
       for (let m = 0; m < 12; m++) {
-        const mRecords = allYearRecords.filter(r => new Date(r.auditDate).getMonth() === m);
-        const avg = mRecords.length > 0 ? Math.round(mRecords.reduce((s, r) => s + (r.percentageScore || 0), 0) / mRecords.length) : "-";
+        if (m > currentMonth) {
+          sheet4Aoa.push([...Array(10).fill(""), THAI_MONTHS_SHORT[m], "-"]);
+          continue;
+        }
+        const mRecords = allYearRecords.filter(r => {
+          const d = new Date(r.auditDate);
+          return d.getFullYear() === currentYear && d.getMonth() === m;
+        });
+        const avg = mRecords.length > 0 
+          ? Math.round(mRecords.reduce((s, r) => s + (r.percentageScore || 0), 0) / mRecords.length) 
+          : "-";
         sheet4Aoa.push([...Array(10).fill(""), THAI_MONTHS_SHORT[m], avg]);
       }
       sheet4Aoa.push([...Array(10).fill(""), "เฉลี่ย", { t: "n", f: "AVERAGE(L6:L17)" }]);
       XLSX.utils.book_append_sheet(wb, makeSheet(sheet4Aoa), `Company ${thaiYear}`);
 
-      // 5. ชีท: แยกหมวดหมู่คะแนนตามสาขา (สาขา x 6 แถว x 12 เดือน)
+      // 5. ชีท: แยกหมวดหมู่คะแนนตามสาขา (รายละเอียดย่อย: สาขา x 6 แถว x 12 เดือน)
       const sheet5Aoa = [
         [`คะแนนแยกหมวด(แยกสาขา) ${thaiYear}`],
         ["No.", "Branch/ Month", "", ...ENG_MONTHS_SHORT, "%  เฉลี่ย "]
@@ -344,17 +425,31 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         ["PD", "PC", "S", "C", "DM", "%"].forEach((metric, mIdx) => {
           const row = [mIdx === 0 ? bIdx + 1 : "", mIdx === 0 ? bName : "", metric];
           for (let m = 0; m < 12; m++) {
-            const mRec = bRecords.find(r => new Date(r.auditDate).getMonth() === m);
-            if (!mRec) row.push("-");
-            else if (metric === "%") row.push(Math.round(mRec.percentageScore || 0));
-            else row.push(getCategoryScores(mRec)[metric] ?? "-");
+            if (m > currentMonth) {
+              row.push("-");
+              continue;
+            }
+            const mRecs = bRecords.filter(r => {
+              const d = new Date(r.auditDate);
+              return d.getFullYear() === currentYear && d.getMonth() === m;
+            });
+
+            if (mRecs.length === 0) {
+              row.push("-");
+            } else if (metric === "%") {
+              const avg = Math.round(mRecs.reduce((sum, r) => sum + (r.percentageScore || 0), 0) / mRecs.length);
+              row.push(avg);
+            } else {
+              const scores = mRecs.map(r => getCategoryScores(r)[metric]).filter(s => typeof s === "number");
+              row.push(scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : "-");
+            }
           }
           row.push({ t: "n", f: `AVERAGE(D${curRow}:O${curRow})` });
           sheet5Aoa.push(row);
           curRow++;
         });
       });
-      XLSX.utils.book_append_sheet(wb, makeSheet(sheet5Aoa, [6, 18, 8, ...Array(12).fill(7), 12]), "แยกหมวดสาขา");
+      XLSX.utils.book_append_sheet(wb, makeSheet(sheet5Aoa, [6, 18, 8, ...Array(12).fill(7), 12]), "แยกหมวดแยกสาขา");
 
       // 6. ชีท: คะแนนเฉลี่ยทั้งปีจัดแบ่งเกรดตามกรุ๊ป (A / B / C)
       const sheet6Aoa = [
@@ -366,26 +461,42 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       const branchSummary = uniqueBranches.map(name => {
         const bRecs = allYearRecords.filter(r => (r.locationCode || r.locationName) === name);
         const avg = bRecs.length > 0 ? Math.round(bRecs.reduce((s, r) => s + (r.percentageScore || 0), 0) / bRecs.length) : 0;
-        return { name, avg };
+        
+        const cats = {};
+        ["PD", "PC", "S", "C", "DM"].forEach(cat => {
+          const scores = bRecs.map(r => getCategoryScores(r)[cat]).filter(s => typeof s === "number");
+          cats[cat] = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : "-";
+        });
+
+        return { name, avg, cats };
       }).sort((a, b) => b.avg - a.avg);
 
       branchSummary.forEach((b, i) => {
         const grp = b.avg >= 90 ? "Group A" : b.avg >= 87 ? "Group B" : "Group C";
-        sheet6Aoa.push([grp, i + 1, b.name, "-", "-", "-", "-", "-", b.avg]);
+        sheet6Aoa.push([
+          grp,
+          i + 1,
+          b.name,
+          b.cats.PD,
+          b.cats.PC,
+          b.cats.S,
+          b.cats.C,
+          b.cats.DM,
+          b.avg
+        ]);
       });
       XLSX.utils.book_append_sheet(wb, makeSheet(sheet6Aoa), "คะแนนเฉลี่ยทั้งปี");
 
-      // ── ตั้งชื่อไฟล์ด้วยตัวย่อแบรนด์ ─────────────────────────────
-      const brandShort = (BRAND_ABBR_MAP[selectedBrand] || selectedBrand || "AU").trim();
-      const formName = "AU. Operation Excellence";
+      // ── ตั้งชื่อไฟล์ด้วยตัวย่อแบรนด์และชื่อฟอร์ม ───────────────────
+      const brandShort = (BRAND_ABBR_MAP[currentBrandName] || currentBrandName || "AU").trim();
       let fileTitle = "";
-      if (formName.toLowerCase().startsWith(brandShort.toLowerCase())) {
-        fileTitle = formName;
+      if (currentFormTitle.toLowerCase().startsWith(brandShort.toLowerCase())) {
+        fileTitle = currentFormTitle;
       } else {
-        fileTitle = `${brandShort} ${formName}`.trim();
+        fileTitle = `${brandShort} ${currentFormTitle}`.trim();
       }
 
-      const yearTwoDigits = String(currentYear).slice(-2); // เช่น 2026 -> 26
+      const yearTwoDigits = String(currentYear).slice(-2);
       const fileName = `${fileTitle} ${monthStr}.${yearTwoDigits}.xlsx`
         .replace(/[\\/:*?"<>|]/g, "_")
         .replace(/\s+/g, " ")
@@ -410,7 +521,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
           </div>
           <div>
             <h3 className="text-sm sm:text-base font-bold text-slate-800">รายงานสรุปผลการตรวจสำหรับที่ประชุมประจำเดือน</h3>
-            <p className="text-xs text-slate-500">Executive Monthly Quality &amp; Standards Review</p>
+            <p className="text-xs text-slate-500">Executive Monthly Quality &amp; Standards Review ({currentBrandName})</p>
           </div>
         </div>
         <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-200 active:scale-90 cursor-pointer transition-all">
@@ -419,19 +530,106 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 p-4 sm:p-6 space-y-5">
+      <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 p-4 sm:p-6 space-y-4">
+        
+        {/* 🌟 1. ส่วนเลือกแบรนด์ + แบบฟอร์ม + ปุ่มโหลดข้อมูลรายงาน */}
+        <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+            <Filter size={14} className="text-[#0F6659]" />
+            <span>กรองข้อมูลรายงานที่ต้องการสรุปและส่งออก</span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* เลือกแบรนด์ */}
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 block mb-1">แบรนด์ที่เปิดใช้งาน (Active Brands)</label>
+              <div className="relative">
+                <select
+                  value={modalBrandId}
+                  onChange={(e) => {
+                    setModalBrandId(e.target.value);
+                    setHasLoaded(false);
+                  }}
+                  className="w-full text-xs font-semibold pl-3 pr-8 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer appearance-none truncate"
+                >
+                  <option value="">ทุกแบรนด์ที่เปิดใช้งาน</option>
+                  {activeBrands.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* เลือกแบบฟอร์ม (เปิดให้เลือก "ทุกแบบฟอร์ม" ได้) */}
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 block mb-1">แบบฟอร์มการตรวจ (Forms)</label>
+              <div className="relative">
+                <select
+                  value={modalFormId}
+                  onChange={(e) => {
+                    setModalFormId(e.target.value);
+                    setHasLoaded(false);
+                  }}
+                  className="w-full text-xs font-semibold pl-3 pr-8 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer appearance-none truncate"
+                >
+                  <option value="">ทุกแบบฟอร์ม (All Forms)</option>
+                  {activeForms.map(f => (
+                    <option key={f.id} value={f.id}>{f.title || f.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          {/* ปุ่มโหลดข้อมูลรายงาน */}
+          <button
+            type="button"
+            onClick={handleLoadReportData}
+            disabled={isLoadingReport}
+            className="w-full mt-1 py-2.5 px-4 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer active:scale-98 disabled:opacity-50"
+          >
+            {isLoadingReport ? (
+              <>
+                <Loader2 size={15} className="animate-spin" />
+                <span>กำลังโหลดข้อมูลรายงาน...</span>
+              </>
+            ) : (
+              <>
+                <Search size={15} />
+                <span>โหลดข้อมูลรายงาน</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* 🌟 2. สถานะการแสดงผลข้อมูล */}
         {isLoadingReport && (
-          <div className="flex flex-col items-center justify-center py-10 gap-2 text-slate-400">
-            <Loader2 size={22} className="animate-spin" />
-            <span className="text-xs font-bold">กำลังรวบรวมข้อมูลสำหรับรายงานประจำเดือน...</span>
+          <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-400">
+            <Loader2 size={24} className="animate-spin text-[#0F6659]" />
+            <span className="text-xs font-bold">กำลังรวบรวมและประมวลผลข้อมูลรายงานประจำเดือน...</span>
           </div>
         )}
+
         {!isLoadingReport && reportError && (
           <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 text-center">
             {reportError}
           </div>
         )}
-        {!isLoadingReport && (
+
+        {!hasLoaded && !isLoadingReport && (
+          <div className="p-8 text-center rounded-2xl bg-white border border-dashed border-slate-200 text-slate-400 space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-slate-50 text-[#0F6659] flex items-center justify-center mx-auto border border-slate-100">
+              <FileSpreadsheet size={24} />
+            </div>
+            <p className="text-xs font-bold text-slate-700">กรุณาเลือกแบรนด์และแบบฟอร์ม แล้วกดปุ่ม "โหลดข้อมูลรายงาน"</p>
+            <p className="text-[11px] text-slate-400">แนะนำ: หากต้องการดูผลตรวจทั้งหมดให้เลือกแบบฟอร์มเป็น "ทุกแบบฟอร์ม (All Forms)"</p>
+          </div>
+        )}
+
+        {/* เมื่อโหลดข้อมูลสำเร็จ */}
+        {hasLoaded && !isLoadingReport && (
         <>
         <div className="flex flex-wrap items-center justify-between gap-2 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
           <div>
@@ -439,6 +637,11 @@ export default function MonthlyMeetingReportModal({ onClose }) {
             <div className="text-xs sm:text-sm font-bold text-slate-800">
               สรุปผลการตรวจสอบมาตรฐาน Q.S.C. ประจำเดือน {currentMonthName}
             </div>
+            {monthRecords.length === 0 && allYearRecords.length > 0 && (
+              <div className="text-[11px] text-amber-700 font-semibold mt-0.5">
+                ℹ️ เดือนนี้ยังไม่มีรอบตรวจของฟอร์มนี้ (แต่มีข้อมูลในรอบเดือนอื่น {allYearRecords.length} รายการ สามารถกดดาวน์โหลดรายงานทั้งปีได้)
+              </div>
+            )}
           </div>
           <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">
             ตรวจแล้ว {monthRecords.length}/{totalLocations} สาขา
@@ -545,11 +748,13 @@ export default function MonthlyMeetingReportModal({ onClose }) {
 
       {/* Footer Actions */}
       <div className="shrink-0 p-4 border-t bg-slate-50 flex items-center justify-between gap-2" style={{ borderColor: c.border }}>
+        {/* 🌟 ปลดล็อกปุ่ม: ดาวน์โหลดได้ทันทีที่มีข้อมูลของปีนี้ (allYearRecords > 0) */}
         <button
           type="button"
           onClick={handleExportFullExcel}
-          disabled={isLoadingReport || isExportingExcel}
+          disabled={!hasLoaded || isLoadingReport || isExportingExcel || allYearRecords.length === 0}
           className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-xs font-bold text-white cursor-pointer shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          title={!hasLoaded ? "กรุณากดโหลดข้อมูลรายงานก่อน" : (allYearRecords.length === 0 ? "ไม่พบข้อมูลสำหรับเงื่อนไขนี้" : "")}
         >
           {isExportingExcel ? (
             <Loader2 size={15} className="animate-spin" />
