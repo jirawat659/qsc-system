@@ -16,10 +16,15 @@ variables:
   # FRONTEND_ENV_FILE เป็น CI/CD variable (Type: File) แยกต่างหากจาก ENV_FILE — template
   # ผูก ENV_FILE/ENV_FILE_DEST ให้อัตโนมัติแค่คู่เดียว ไฟล์ที่สองต้อง copy เองใน
   # BUILD_COMMAND นี้ (รันผ่าน cmd.exe /c จึงใช้ %VAR% แบบ cmd ไม่ใช่ $env: แบบ PowerShell)
-  # guard ด้วย if not "" ทำให้ build ไม่พังถ้ายังไม่ได้สร้างตัวแปรนี้ใน environment นั้น
+  #
+  # guard ต้องใช้ "if exist" ไม่ใช่ if not "%VAR%"=="" — ถ้าไม่ได้สร้างตัวแปรนี้ใน
+  # environment นั้น (เช่น production ที่เจตนาปล่อยว่างให้ frontend ตรวจ hostname เอง)
+  # cmd.exe จะไม่ขยาย %FRONTEND_ENV_FILE% แต่คงตัวอักษรเดิมไว้ เงื่อนไข != "" จึงเป็นจริง
+  # แล้ว copy ทำงานด้วย path ที่ไม่มีจริง -> "The system cannot find the file specified."
+  # และ && ตัด chain ทำให้ npm run build ไม่ได้รัน (build 5629 พังแบบนี้)
   BUILD_COMMAND: >
     dotnet publish backend\QSC.Api\QSC.Api.csproj -c Release -r win-x64 --self-contained false -p:SatelliteResourceLanguages=en -o publish\backend &&
-    if not "%FRONTEND_ENV_FILE%"=="" copy /Y "%FRONTEND_ENV_FILE%" frontend\.env &&
+    (if exist "%FRONTEND_ENV_FILE%" (copy /Y "%FRONTEND_ENV_FILE%" frontend\.env) else (echo no FRONTEND_ENV_FILE for this environment - frontend will auto-detect hostname)) &&
     cd frontend && npm install --no-audit --no-fund && npm run build && cd .. &&
     xcopy frontend\dist publish\frontend /E /I /Y /Q
 
@@ -55,10 +60,10 @@ variables:
     for ($$i = 0; $$i -lt 30; $$i++) { if ((Get-WebAppPoolState -Name 'qsc-apppool').Value -eq 'Stopped') { break }; Start-Sleep -Seconds 1 };
     Get-Process -Name w3wp -ErrorAction SilentlyContinue | ForEach-Object { $$cmd = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $$_.Id)).CommandLine; if ($$cmd -match 'qsc-apppool') { Stop-Process -Id $$_.Id -Force -ErrorAction SilentlyContinue } };
     Start-Sleep -Seconds 2;
-    robocopy publish\backend 'G:\Website\QSC Service\backend' /E /R:3 /W:5;
+    robocopy publish\backend 'E:\Production\QSC Service\backend' /E /R:3 /W:5;
     if ($$LASTEXITCODE -ge 8) { Start-WebAppPool 'qsc-apppool'; exit $$LASTEXITCODE };
     Start-WebAppPool 'qsc-apppool';
-    robocopy publish\frontend 'G:\Website\QSC Service\frontend' /E /R:3 /W:5;
+    robocopy publish\frontend 'E:\Production\QSC Service\frontend' /E /R:3 /W:5;
     if ($$LASTEXITCODE -ge 8) { exit $$LASTEXITCODE };
     exit 0
     "

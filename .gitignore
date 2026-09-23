@@ -104,9 +104,20 @@ qsc-clean-source/
 *.rar
 *.7z
 
+# bcp export files (มีข้อมูลจริง เช่น ชื่อผู้จัดการสาขา — ห้าม commit)
+backend/QSC.Api/Data/Seed/*.dat
+
+# generated seed files ที่มี BCrypt hash จริงของบัญชี prod (รหัสเดาได้ตามแพทเทิร์น
+# {username}@change ที่ README บันทึกไว้ — ห้าม commit) รัน generator ในเครื่องเอง
+backend/QSC.Api/Data/Seed/seed-reset-passwords.sql
+backend/QSC.Api/Data/Seed/seed-user-brandscope.sql
+
+# Claude Code local session state (permission allowlist ต่อเครื่อง/ผู้ใช้ — เคยมี
+# GitLab token หลุดฝังอยู่ในนี้มาแล้ว ห้าม commit เด็ดขาด)
+.claude/
+
 # ==========================================
 # 🛑 AI Agent Scratch & Workspaces
 # ==========================================
 .agent/
 .agents/
-

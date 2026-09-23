@@ -13,13 +13,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 // 1. Database Configuration
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<QSC.Api.Services.LoginRateLimiterService>();
 builder.Services.AddScoped<AuditStampInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"), sqlServerOptions =>
-    {
-        sqlServerOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery);
-    });
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
     options.AddInterceptors(sp.GetRequiredService<AuditStampInterceptor>());
 });
 
@@ -112,7 +111,6 @@ builder.Services.AddSignalR(options =>
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
-builder.Services.AddHostedService<QSC.Api.Services.OrphanFileCleanupService>();
 
 // 6. Rate Limiting for AI Endpoints
 builder.Services.AddRateLimiter(options =>
@@ -168,8 +166,6 @@ app.UseCors("AllowReact");
 app.UseAuthentication();
 app.UseAuthorization();
 
-
-
 app.UseStaticFiles();
 
 // 🌟 Static Files Configuration for Uploads from appsettings.json (Storage:UploadPath)
@@ -208,17 +204,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        // Seed check (use --seed-fresh argument or SEED_FORCE_RECREATE env var if full reseed needed)
-        bool shouldRecreate = builder.Configuration.GetValue<bool>("Seed:ForceRecreate", false)
-            || Environment.GetEnvironmentVariable("SEED_FORCE_RECREATE") == "true"
-            || args.Contains("--seed-fresh");
-
-        DatabaseSeeder.Initialize(db, app.Environment, forceRecreate: shouldRecreate);
-        Console.WriteLine("✅ Database migration and enterprise seeding checked successfully!");
+        DatabaseSeeder.Initialize(db, app.Environment);
+        Console.WriteLine("✅ Database migration and system config checked successfully!");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"⚠️ Seeder error: {ex.Message}");
+        // log ให้เต็ม — ก่อนหน้านี้พิมพ์แค่ ex.Message ทำให้ปัญหา seed หาสาเหตุไม่ได้
+        Console.WriteLine($"⚠️ Seeder error: {ex}");
     }
 }
+
 app.Run();

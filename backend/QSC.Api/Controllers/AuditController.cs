@@ -560,6 +560,7 @@ namespace QSC.Api.Controllers
         {
             public int SurveyItemId { get; set; }
             public double ScoreGiven { get; set; }
+            public double MaxScore { get; set; } // คะแนนเต็มที่ใช้คิดข้อนี้ → AuditResponse.MaxScore
             public bool IsPassed { get; set; }
             public bool IsNa { get; set; }
             public string? Notes { get; set; }
@@ -577,8 +578,14 @@ namespace QSC.Api.Controllers
         }
 
         // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
+        //
+        // maxScoreByItem: คะแนนเต็มของข้อที่บันทึกไว้แล้ว (AuditResponse.MaxScore) ใช้ตอนแก้ไขงานเดิม
+        // เพื่อให้คิดคะแนนใหม่ด้วยคะแนนเต็ม ณ วันตรวจ ไม่ใช่คะแนนเต็มปัจจุบันของฟอร์ม — งานประวัติที่
+        // import มา ข้อเดียวกันมีคะแนนต่างกันตามยุค ถ้าใช้ SurveyItem.FullScore แก้แค่หมายเหตุ
+        // คะแนนรวม/ผ่าน-ไม่ผ่าน ก็เพี้ยนทันที ข้อที่ไม่มีใน dictionary (งานใหม่ หรือข้อที่เพิ่งเพิ่ม)
+        // ใช้ SurveyItem.FullScore ตามเดิม
         private (double TotalScore, double MaxScore, bool HasCriticalDefect, List<ComputedItemResponse> Responses, Dictionary<int, SurveyItem> AllItems) ComputeScoring(
-            SurveyForm form, List<ResponseSubmitDto> responses)
+            SurveyForm form, List<ResponseSubmitDto> responses, IReadOnlyDictionary<int, double>? maxScoreByItem = null)
         {
             var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
 
@@ -590,6 +597,10 @@ namespace QSC.Api.Controllers
             foreach (var respDto in responses)
             {
                 if (!allItems.TryGetValue(respDto.SurveyItemId, out var item)) continue;
+
+                double fullScore = maxScoreByItem != null && maxScoreByItem.TryGetValue(item.Id, out var savedMax)
+                    ? savedMax
+                    : item.FullScore;
 
                 string raw = (respDto.RawAnswer ?? respDto.AnswerValue ?? (respDto.IsNa ? "na" : (respDto.IsPassed ? "yes" : "no"))).Trim().ToLower();
                 bool isNa = respDto.IsNa || raw == "na" || raw == "skip" || raw == "ข้าม";
@@ -607,14 +618,14 @@ namespace QSC.Api.Controllers
                     double scaleVal = 0.0;
                     if (double.TryParse(raw, out double parsedVal)) scaleVal = parsedVal;
                     else if (respDto.ScaleScore.HasValue) scaleVal = respDto.ScaleScore.Value;
-                    else if (item.FullScore > 0) scaleVal = (respDto.ScoreGiven / item.FullScore) * 5.0;
+                    else if (fullScore > 0) scaleVal = (respDto.ScoreGiven / fullScore) * 5.0;
                     else scaleVal = 3.0;
 
                     scaleVal = Math.Clamp(scaleVal, 1.0, 5.0);
-                    scoreGiven = Math.Round((scaleVal / 5.0) * item.FullScore, 2);
+                    scoreGiven = Math.Round((scaleVal / 5.0) * fullScore, 2);
                     isPassed = scaleVal >= 3.0;
 
-                    maxScore += item.FullScore;
+                    maxScore += fullScore;
                     totalScore += scoreGiven;
 
                     if (item.IsCritical && !isPassed)
@@ -643,10 +654,10 @@ namespace QSC.Api.Controllers
                         isYes = false;
                     }
 
-                    scoreGiven = isYes ? item.FullScore : 0.0;
+                    scoreGiven = isYes ? fullScore : 0.0;
                     isPassed = isYes;
 
-                    maxScore += item.FullScore;
+                    maxScore += fullScore;
                     totalScore += scoreGiven;
 
                     if (item.IsCritical && !isPassed)
@@ -659,6 +670,9 @@ namespace QSC.Api.Controllers
                 {
                     SurveyItemId = respDto.SurveyItemId,
                     ScoreGiven = scoreGiven,
+                    // เก็บทุกข้อรวม N/A — ผู้อ่านกรอง N/A ออกจากคะแนนเต็มเอง และถ้าภายหลังแก้ข้อ N/A
+                    // เป็นผ่าน/ไม่ผ่าน จะยังรู้คะแนนเต็ม ณ วันตรวจ
+                    MaxScore = fullScore,
                     IsPassed = isPassed,
                     IsNa = isNa,
                     Notes = respDto.Notes,
@@ -872,10 +886,12 @@ namespace QSC.Api.Controllers
                     {
                         SurveyItemId = computedResp.SurveyItemId,
                         ScoreGiven = computedResp.ScoreGiven,
+                        MaxScore = computedResp.MaxScore,
                         IsPassed = computedResp.IsPassed,
                         IsNa = computedResp.IsNa,
                         Notes = computedResp.Notes,
-                        CategoryName = catName
+                        CategoryName = catName,
+                        CategoryCode = item?.CategoryCode
                     };
 
                     // Attach Images (auto-saved to /uploads/audit_images/ if base64)
@@ -1218,9 +1234,11 @@ namespace QSC.Api.Controllers
                             surveyItemId = res.SurveyItemId,
                             questionText = res.SurveyItem?.QuestionText,
                             sectionTitle = res.SurveyItem?.SurveySection?.Title,
-                            categoryCode = res.SurveyItem?.CategoryCode,
+                            // หมวด ณ วันตรวจของคำตอบก่อน (ระบบเดิมเคยย้ายข้อเดิมไปหมวดอื่นตามยุค) → หมวดของคำถาม
+                            categoryCode = res.CategoryCode ?? res.SurveyItem?.CategoryCode,
                             categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
-                            fullScore = res.SurveyItem?.FullScore ?? 0,
+                            // คะแนนเต็ม ณ วันตรวจ (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) → ค่าปัจจุบันของฟอร์ม
+                            fullScore = res.MaxScore ?? res.SurveyItem?.FullScore ?? 0,
                             scoreGiven = res.ScoreGiven,
                             isPassed = res.IsPassed,
                             isNa = res.IsNa,
@@ -1338,7 +1356,8 @@ namespace QSC.Api.Controllers
                         surveyItemId = res.SurveyItemId,
                         questionText = res.SurveyItem?.QuestionText,
                         questionType = res.SurveyItem?.QuestionType,
-                        fullScore = res.SurveyItem?.FullScore,
+                        // คะแนนเต็ม ณ วันตรวจ → ค่าปัจจุบันของฟอร์ม (คะแนนแยกหมวดในหน้ารายละเอียดคิดจากค่านี้)
+                        fullScore = res.MaxScore ?? res.SurveyItem?.FullScore,
                         isCritical = res.SurveyItem?.IsCritical,
                         orderIndex = res.SurveyItem?.OrderIndex,
                         surveySectionId = res.SurveyItem?.SurveySectionId,
@@ -1349,6 +1368,9 @@ namespace QSC.Api.Controllers
                         isNa = res.IsNa,
                         notes = res.Notes,
                         categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
+                        // หมวด ณ วันตรวจของคำตอบ — frontend (getQuestionCategory) อ่าน categoryCode ก่อน
+                        // surveyItem.categoryCode ซึ่งเป็นหมวดของคำถามยุคล่าสุด
+                        categoryCode = res.CategoryCode ?? res.SurveyItem?.CategoryCode,
                         surveyItem = res.SurveyItem,
                         images = res.Images?.Select(img => new
                         {
@@ -1450,7 +1472,13 @@ namespace QSC.Api.Controllers
             if (form == null) return NotFound(new { message = "ไม่พบแบบฟอร์มการตรวจที่ผูกกับบันทึกนี้" });
 
             // 4) คำนวณคะแนนใหม่ทั้งชุดฝั่ง server (ใช้ helper เดียวกับตอนส่งครั้งแรก — ห้ามเชื่อคะแนนจาก client)
-            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
+            //    ใช้คะแนนเต็ม ณ วันตรวจที่บันทึกไว้ (AuditResponse.MaxScore) ไม่ใช่คะแนนเต็มปัจจุบันของฟอร์ม
+            //    — ไม่งั้นแก้งานประวัติแม้แค่หมายเหตุ คะแนนรวม/ผ่าน-ไม่ผ่านจะเพี้ยนจากระบบเดิม
+            var savedMaxByItem = record.Responses
+                .Where(r => r.MaxScore.HasValue)
+                .GroupBy(r => r.SurveyItemId)
+                .ToDictionary(g => g.Key, g => g.First().MaxScore!.Value);
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses, savedMaxByItem);
             double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
 
@@ -1675,10 +1703,15 @@ namespace QSC.Api.Controllers
                         // 🟢 In-place Update คำตอบเดิม (Id เดิมไม่เปลี่ยน, FK ไม่หลุด)
                         response = existingResp;
                         response.ScoreGiven = computedResp.ScoreGiven;
+                        response.MaxScore = computedResp.MaxScore;
                         response.IsPassed = computedResp.IsPassed;
                         response.IsNa = computedResp.IsNa;
                         response.Notes = computedResp.Notes;
+                        // เก็บหมวด ณ วันตรวจของคำตอบเดิมไว้ ไม่เขียนทับจากตัวคำถาม — งานประวัติ ระบบเดิม
+                        // เคยย้ายข้อเดิมไปหมวดอื่นตามยุค หมวดของ SurveyItem จึงถูกแค่ยุคล่าสุด
+                        if (!string.IsNullOrWhiteSpace(response.CategoryName)) catName = response.CategoryName;
                         response.CategoryName = catName;
+                        response.CategoryCode ??= itemMeta?.CategoryCode;
 
                         // ลบรูปภาพที่ถูกนำออก
                         var imagesToRemove = response.Images
@@ -1723,10 +1756,12 @@ namespace QSC.Api.Controllers
                         {
                             SurveyItemId = computedResp.SurveyItemId,
                             ScoreGiven = computedResp.ScoreGiven,
+                            MaxScore = computedResp.MaxScore,
                             IsPassed = computedResp.IsPassed,
                             IsNa = computedResp.IsNa,
                             Notes = computedResp.Notes,
-                            CategoryName = catName
+                            CategoryName = catName,
+                            CategoryCode = itemMeta?.CategoryCode
                         };
 
                         foreach (var targetUrl in targetImageUrls)
