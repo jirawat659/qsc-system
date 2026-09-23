@@ -109,19 +109,42 @@ SELECT As_code, Toppic_num, Subtoppic_no, Subtoppic_name, tsCode FROM ranked WHE
 "@
 $items = Invoke-Read $AuServer 'PI_QSC' $itemSql
 
+# FullScore ต่อข้อ = ค่า scoreGet ที่พบบ่อยที่สุดของข้อนั้น (ไม่นับแถว N/A) เสมอกัน → ค่าที่ใช้ล่าสุด
+# scoreGet ของระบบเดิมคือ "คะแนนของข้อ ณ วันตรวจ" และระบบเดิมเคยปรับคะแนนของข้อเดิมหลายรอบ
+# (เช่น OP006 ข้อ 1.3: 1 → 5 → 3 → 2) — เดิมใช้ MAX ทำให้คะแนนเต็มเกินจริงเกือบทุกงาน
+# ค่าที่พบบ่อยสุดตรง ~93.65% ของคำตอบทั้งหมด (ระบบใหม่เก็บคะแนนเต็มได้ค่าเดียวต่อข้อ)
+# ส่วนคะแนนรวมของงานคิดจาก scoreGet ตรงๆ ใน seed-job-history-import.sql จึงตรงระบบเดิม 100%
+# ต้องตรงกับขั้น 5 ของ fix-job-history-scores.sql
 $scoreSql = @"
-SELECT h.As_code, d.Toppic_num, d.Subtoppic_no,
-       MAX(CASE WHEN d.IsCheck = 1 THEN d.scoreGet END) AS scoreWhenChecked,
-       MAX(d.scoreGet) AS scoreAny
-FROM JobDetail d JOIN JobHead h ON h.JobId = d.JobId
-WHERE h.As_code IN ($codeList) AND d.Toppic_num IS NOT NULL AND d.Subtoppic_no IS NOT NULL
-GROUP BY h.As_code, d.Toppic_num, d.Subtoppic_no
+WITH c AS (
+  SELECT h.As_code, d.Toppic_num, d.Subtoppic_no, d.scoreGet,
+         COUNT(*) AS cnt, MAX(COALESCE(h.CheckOn, h.CheckOut)) AS lastUsed
+  FROM JobDetail d JOIN JobHead h ON h.JobId = d.JobId
+  WHERE h.As_code IN ($codeList) AND d.Toppic_num IS NOT NULL AND d.Subtoppic_no IS NOT NULL
+    AND d.scoreGet IS NOT NULL
+    AND NOT (ISNULL(d.IsCheck, 0) = 0 AND ISNULL(d.IsNotCheck, 0) = 0)
+  GROUP BY h.As_code, d.Toppic_num, d.Subtoppic_no, d.scoreGet
+), ranked AS (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY As_code, Toppic_num, Subtoppic_no
+                               ORDER BY cnt DESC, lastUsed DESC) AS rn
+  FROM c
+), anyScore AS (
+  SELECT h.As_code, d.Toppic_num, d.Subtoppic_no, MAX(d.scoreGet) AS scoreAny
+  FROM JobDetail d JOIN JobHead h ON h.JobId = d.JobId
+  WHERE h.As_code IN ($codeList) AND d.Toppic_num IS NOT NULL AND d.Subtoppic_no IS NOT NULL
+  GROUP BY h.As_code, d.Toppic_num, d.Subtoppic_no
+)
+SELECT a.As_code, a.Toppic_num, a.Subtoppic_no, r.scoreGet AS scoreMode, a.scoreAny
+FROM anyScore a
+LEFT JOIN ranked r ON r.As_code = a.As_code AND r.Toppic_num = a.Toppic_num
+                  AND r.Subtoppic_no = a.Subtoppic_no AND r.rn = 1
 "@
 $scores = Invoke-Read $AuServer 'PI_QSC' $scoreSql
 $scoreMap = @{}
 foreach ($s in $scores) {
     $k = "$($s['As_code'])|$($s['Toppic_num'])|$($s['Subtoppic_no'])"
-    $v = if ($s['scoreWhenChecked'] -isnot [System.DBNull]) { [double]$s['scoreWhenChecked'] }
+    # scoreAny ใช้เฉพาะข้อที่มีแต่แถว N/A ตลอดประวัติ (ไม่มีค่าที่พบบ่อยสุดให้เลือก)
+    $v = if ($s['scoreMode'] -isnot [System.DBNull]) { [double]$s['scoreMode'] }
          elseif ($s['scoreAny'] -isnot [System.DBNull]) { [double]$s['scoreAny'] }
          else { 1.0 }
     $scoreMap[$k] = $v

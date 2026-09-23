@@ -166,6 +166,14 @@ foreach ($name in ($allNames | Sort-Object)) {
     if ($fromAudit.ContainsKey($name)) { foreach ($b in $fromAudit[$name]) { [void]$brands.Add($b) } }
     if ($fromFlag.ContainsKey($name))  { foreach ($b in $fromFlag[$name])  { [void]$brands.Add($b) } }
 
+    # Business rule (2026-09-23): After You auditors see every real brand except
+    # Mikka. Anyone whose derived set includes AU also gets LG, SAM, SCR, SD.
+    # MK is deliberately not added. Same rule as seed-user-brandscope-au-extend.sql,
+    # kept here so re-running this generator does not undo it.
+    if ($brands.Contains('AU')) {
+        foreach ($b in @('LG','SAM','SCR','SD')) { [void]$brands.Add($b) }
+    }
+
     $unknown = @($brands | Where-Object { -not $knownBrands.Contains($_) })
     if ($unknown.Count -gt 0) { throw "user $name maps to unknown brand(s): $($unknown -join ',')" }
     if ($brands.Count -eq 0)  { throw "user $name resolved to zero brands" }

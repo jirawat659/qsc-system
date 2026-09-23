@@ -110,14 +110,24 @@ SELECT DISTINCT h.As_code AS [As_code ที่ไม่มีฟอร์มป
 FROM stg_JobHead h
 WHERE h.As_code IS NULL OR NOT EXISTS (SELECT 1 FROM #HistForm hf WHERE hf.AsCode = h.As_code);
 
-/* --- 4. รวมคะแนนต่องาน --- */
+/* --- 4. รวมคะแนนต่องาน ---
+   scoreGet ของระบบเดิมคือ "คะแนนของข้อนั้น ณ วันตรวจ" เก็บไว้ทุกแถวไม่ว่าผ่านหรือไม่ผ่าน
+   (ไม่ใช่ "คะแนนที่ได้") ระบบเดิมคิด SUM(scoreGet ข้อผ่าน) / SUM(scoreGet ข้อที่ไม่ใช่ N/A)
+   ต้องคิดจาก scoreGet ตรงๆ ไม่ใช่จาก SurveyItems.FullScore — ระบบเดิมเคยปรับคะแนนของข้อเดิม
+   หลายรอบ คะแนนเต็มรายข้อของฟอร์มประวัติ (ค่าเดียวต่อข้อ) จึงไม่ตรงทุกยุค
+   นับทุกแถวของงาน รวมแถวที่ไม่มีเลขข้อ (ระบบเดิมนับเข้าคะแนน แม้จะ map เป็นคำตอบรายข้อไม่ได้)
+   N/A = ไม่ได้ติ๊กทั้งผ่านและไม่ผ่าน → ไม่นับทั้งตัวตั้งและตัวหาร
+   (เวอร์ชันก่อน 23 ก.ย. 2026 ใช้ SUM(scoreGet ทุกแถว) / SUM(FullScore) ซึ่งผิด —
+    DB ที่ import ด้วยเวอร์ชันนั้นต้องรัน fix-job-history-scores.sql) */
 PRINT '4) รวมคะแนนต่องานตรวจ';
 CREATE TABLE #JobScore (JobId uniqueidentifier NOT NULL PRIMARY KEY, TotalScore float NOT NULL, MaxScore float NOT NULL);
 INSERT INTO #JobScore (JobId, TotalScore, MaxScore)
-SELECT h.JobId, SUM(ISNULL(d.scoreGet, 0)), SUM(im.FullScore)
+SELECT h.JobId,
+       SUM(CASE WHEN d.IsCheck = 1 THEN ISNULL(d.scoreGet, 0) ELSE 0 END),
+       SUM(CASE WHEN ISNULL(d.IsCheck, 0) = 0 AND ISNULL(d.IsNotCheck, 0) = 0 THEN 0
+                ELSE ISNULL(d.scoreGet, 0) END)
 FROM   stg_JobHead h
-JOIN   stg_JobDetail d ON d.JobId = h.JobId AND d.Toppic_num IS NOT NULL AND d.Subtoppic_no IS NOT NULL
-JOIN   #ItemMap im ON im.AsCode = h.As_code AND im.Toppic_num = d.Toppic_num AND im.Subtoppic_no = d.Subtoppic_no
+JOIN   stg_JobDetail d ON d.JobId = h.JobId
 GROUP  BY h.JobId;
 
 /* --- 5. AuditRecords (ใช้ MERGE เพื่อจับคู่ JobId(GUID) เดิม กับ Id(int) ใหม่ ผ่าน OUTPUT) --- */
@@ -158,17 +168,44 @@ VALUES (
 )
 OUTPUT src.JobId, inserted.Id INTO #JobIdMap (JobId, AuditRecordId);
 
-/* --- 6. AuditResponses --- */
+/* --- 6. AuditResponses ---
+   ScoreGiven   = คะแนนที่ได้จริง: ผ่าน = scoreGet (คะแนนของข้อ), ไม่ผ่าน/N/A = 0 — แบบเดียวกับแอป
+   MaxScore     = scoreGet = คะแนนเต็มของข้อ ณ วันตรวจ (SurveyItem.FullScore เก็บได้ค่าเดียว
+                  แต่ระบบเดิมเคยปรับคะแนนของข้อเดิมหลายรอบ คะแนนแยกหมวดคิดจากค่านี้)
+   CategoryCode / CategoryName = หมวดตาม tsCode ของแถวนั้น ณ วันตรวจ (ระบบเดิมเคยย้ายข้อเดิม
+                  ไปหมวดอื่นตามยุค หมวดของ SurveyItem จึงถูกแค่ยุคล่าสุด)
+   ต้องรันหลังแอปสร้างคอลัมน์ MaxScore/CategoryCode แล้ว (migration AddMaxScoreAndCategoryCodeToAuditResponse) */
 PRINT '6) สร้าง AuditResponses';
-INSERT INTO AuditResponses (AuditRecordId, SurveyItemId, ScoreGiven, IsPassed, IsNa, CategoryName, Notes, CreatedAt)
-SELECT jim.AuditRecordId, im.SurveyItemId, ISNULL(d.scoreGet, 0),
+DECLARE @TsMap TABLE (tsCode varchar(10) PRIMARY KEY, CategoryCode nvarchar(20) NOT NULL);
+INSERT INTO @TsMap (tsCode, CategoryCode) VALUES
+    ('C', N'CLN'), ('DM', N'DOC'), ('PC', N'OPS'), ('PD', N'QLT'), ('Q', N'QLT'), ('S', N'SVC');
+/* ชื่อหมวดของแต่ละรหัส = ชื่อที่ฟอร์มประวัติใช้กับรหัสนั้นบ่อยที่สุด (ไม่พิมพ์ชื่อไทยซ้ำในสคริปต์) */
+DECLARE @CatName TABLE (CategoryCode nvarchar(20) PRIMARY KEY, CategoryName nvarchar(100) NOT NULL);
+INSERT INTO @CatName (CategoryCode, CategoryName)
+SELECT CategoryCode, CategoryName FROM (
+    SELECT si.CategoryCode, si.CategoryName,
+           ROW_NUMBER() OVER (PARTITION BY si.CategoryCode ORDER BY COUNT(*) DESC) AS rn
+    FROM   #ItemMap im JOIN SurveyItems si ON si.Id = im.SurveyItemId
+    WHERE  si.CategoryCode IS NOT NULL AND si.CategoryName IS NOT NULL
+    GROUP  BY si.CategoryCode, si.CategoryName) x
+WHERE rn = 1;
+
+INSERT INTO AuditResponses (AuditRecordId, SurveyItemId, ScoreGiven, MaxScore, IsPassed, IsNa,
+                            CategoryName, CategoryCode, Notes, CreatedAt)
+SELECT jim.AuditRecordId, im.SurveyItemId,
+       CASE WHEN d.IsCheck = 1 THEN ISNULL(d.scoreGet, 0) ELSE 0 END,
+       ISNULL(d.scoreGet, 0),
        CASE WHEN d.IsCheck = 1 THEN 1 ELSE 0 END,
        CASE WHEN ISNULL(d.IsCheck, 0) = 0 AND ISNULL(d.IsNotCheck, 0) = 0 THEN 1 ELSE 0 END,
-       im.CategoryName, d.comment, SYSUTCDATETIME()
+       COALESCE(cn.CategoryName, im.CategoryName), COALESCE(tm.CategoryCode, si.CategoryCode),
+       d.comment, SYSUTCDATETIME()
 FROM   stg_JobDetail d
 JOIN   stg_JobHead h ON h.JobId = d.JobId
 JOIN   #JobIdMap jim ON jim.JobId = d.JobId
-JOIN   #ItemMap im ON im.AsCode = h.As_code AND im.Toppic_num = d.Toppic_num AND im.Subtoppic_no = d.Subtoppic_no;
+JOIN   #ItemMap im ON im.AsCode = h.As_code AND im.Toppic_num = d.Toppic_num AND im.Subtoppic_no = d.Subtoppic_no
+JOIN   SurveyItems si ON si.Id = im.SurveyItemId
+LEFT   JOIN @TsMap tm ON tm.tsCode = d.tsCode
+LEFT   JOIN @CatName cn ON cn.CategoryCode = tm.CategoryCode;
 
 /* --- 7. รายงานผล --- */
 PRINT '7) สรุปผล';
