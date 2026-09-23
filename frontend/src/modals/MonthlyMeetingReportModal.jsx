@@ -245,15 +245,15 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const totalLocations = activeLocationsList.length;
   const avgScore = monthRecords.length > 0
-    ? Math.round(monthRecords.reduce((sum, r) => sum + (r.percentageScore || r.score || 0), 0) / monthRecords.length)
+    ? (monthRecords.reduce((sum, r) => sum + (r.percentageScore || r.score || 0), 0) / monthRecords.length)
     : 0;
   const passRate = monthRecords.length > 0
-    ? Math.round(monthRecords.filter(r => r.isPassed).length / monthRecords.length * 100)
+    ? (monthRecords.filter(r => r.isPassed).length / monthRecords.length * 100)
     : 0;
   const passedCount = monthRecords.filter(r => r.isPassed).length;
   const excellentCount = monthRecords.filter(r => (r.percentageScore || r.score || 0) >= 90).length;
   const excellentRate = monthRecords.length > 0
-    ? Math.round(excellentCount / monthRecords.length * 100)
+    ? (excellentCount / monthRecords.length * 100)
     : 0;
 
   // ── Section Breakdown ─────────────────────────────────────────────────────
@@ -271,7 +271,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
     return Object.entries(categoryScores)
       .map(([title, s]) => ({
         title,
-        percent: s.count > 0 ? Math.round((s.total / s.count) * 100) : 0,
+        percent: s.count > 0 ? Number(((s.total / s.count) * 100).toFixed(2)) : 0,
       }))
       .sort((a, b) => b.percent - a.percent);
   }, [monthRecords]);
@@ -653,15 +653,15 @@ export default function MonthlyMeetingReportModal({ onClose }) {
           <div className="text-xs font-bold text-slate-500 mb-2">สรุปภาพรวม KPI ประจำเดือน</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 text-center">
-              <div className="text-2xl font-bold text-slate-800 font-mono">{avgScore}%</div>
+              <div className="text-2xl font-bold text-slate-800 font-mono">{parseFloat(Number(avgScore).toFixed(2))}%</div>
               <div className="text-xs text-slate-500 font-bold mt-0.5">คะแนนเฉลี่ยรวม</div>
             </div>
             <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
-              <div className="text-2xl font-bold text-emerald-800 font-mono">{passRate}%</div>
+              <div className="text-2xl font-bold text-emerald-800 font-mono">{parseFloat(Number(passRate).toFixed(2))}%</div>
               <div className="text-xs text-emerald-700 font-bold mt-0.5">อัตราผ่านเกณฑ์</div>
             </div>
             <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
-              <div className="text-2xl font-bold text-emerald-800 font-mono">{excellentRate}%</div>
+              <div className="text-2xl font-bold text-emerald-800 font-mono">{parseFloat(Number(excellentRate).toFixed(2))}%</div>
               <div className="text-xs text-emerald-700 font-bold mt-0.5">ดีเยี่ยม (≥90%)</div>
             </div>
             <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-center">
@@ -681,7 +681,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
                   <div className="flex items-center justify-between text-xs font-bold mb-1.5">
                     <span className="text-slate-700">{s.title}</span>
                     <span className={s.percent >= 85 ? "text-emerald-700" : "text-amber-700"}>
-                      {s.percent}%
+                      {parseFloat(Number(s.percent).toFixed(2))}%
                     </span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-slate-200 overflow-hidden">

@@ -274,9 +274,9 @@ namespace QSC.Api.Services
                 .ToListAsync();
 
             var totalAudits = auditStats.Count;
-            var avgScore = totalAudits > 0 ? Math.Round(auditStats.Average(r => r.PercentageScore), 1) : 0;
+            var avgScore = totalAudits > 0 ? Math.Round(auditStats.Average(r => r.PercentageScore), 2) : 0;
             var passCount = auditStats.Count(r => r.IsPassed);
-            var passRate = totalAudits > 0 ? Math.Round((double)passCount / totalAudits * 100, 1) : 0;
+            var passRate = totalAudits > 0 ? Math.Round((double)passCount / totalAudits * 100, 2) : 0;
 
             // 🚀 Query 2: นับจำนวนงาน CAP ค้างด้วย CountAsync ตรงๆ ใน DB (ไม่โหลดทั้ง Entity เข้า Memory)
             var pendingCapsQuery = _context.CapTasks

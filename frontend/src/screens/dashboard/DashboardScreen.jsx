@@ -265,7 +265,7 @@ export default function DashboardScreen({ role, isDesktop }) {
       .slice(0, 5)
       .map(b => ({
         ...b,
-        effectiveScore: Math.round(b.lastScore ?? b.percentageScore ?? 0),
+        effectiveScore: Number(b.lastScore ?? b.percentageScore ?? 0),
         hasAudit: true
       }));
   }, [activeLocations]);
@@ -434,7 +434,7 @@ export default function DashboardScreen({ role, isDesktop }) {
     if (topBranches && topBranches.length > 0) {
       return topBranches.map(b => ({
         ...b,
-        effectiveScore: Math.round(b.lastScore ?? b.percentageScore ?? b.avgScore ?? 0),
+        effectiveScore: Number(b.lastScore ?? b.percentageScore ?? b.avgScore ?? 0),
         hasAudit: true
       }));
     }
@@ -604,7 +604,7 @@ export default function DashboardScreen({ role, isDesktop }) {
             />
           </div>
           <div className="flex items-end gap-1 sm:gap-2">
-            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{passRate}%</div>
+            <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-mono">{parseFloat(Number(passRate).toFixed(2))}%</div>
             <div className="text-[10px] sm:text-xs font-medium text-emerald-600 mb-0.5 sm:mb-1">({passedCount} ผ่าน)</div>
           </div>
         </div>
@@ -645,7 +645,7 @@ export default function DashboardScreen({ role, isDesktop }) {
               </PieChart>
             </ResponsiveContainer>
             <div className="absolute top-[68%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-              <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 font-mono">{avgScore}%</div>
+              <div className="text-3xl sm:text-4xl font-extrabold text-slate-900 font-mono">{parseFloat(Number(avgScore).toFixed(2))}%</div>
             </div>
             <div className="absolute top-[35%] right-[12%] sm:right-[15%] flex flex-col items-center pointer-events-none">
               <div className="w-1 h-3 bg-[#0F6659] rounded-full mb-0.5"></div>
@@ -700,7 +700,7 @@ export default function DashboardScreen({ role, isDesktop }) {
               <div key={i}>
                 <div className="flex justify-between items-center mb-1.5">
                   <span className="text-xs font-semibold text-slate-700">{getCategoryDisplay(cat.name)}</span>
-                  <span className="text-xs font-bold font-mono text-slate-900">{cat.score}%</span>
+                  <span className="text-xs font-bold font-mono text-slate-900">{parseFloat(Number(cat.score).toFixed(2))}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex relative">
                   <div className={`h-full rounded-full transition-all duration-500 ${cat.score >= (cat.target || 85) ? "bg-[#0F6659]" : "bg-amber-500"}`} style={{ width: `${cat.score}%` }}></div>
@@ -749,7 +749,7 @@ export default function DashboardScreen({ role, isDesktop }) {
                           <td className="py-2.5 px-2 text-xs font-bold text-slate-800 group-hover:text-[#0F6659] transition-colors">{b.name}</td>
                           <td className="py-2.5 px-3 text-center">
                             <div className="inline-flex items-center justify-center font-mono font-bold text-sm text-slate-900">
-                              {score !== null ? `${score}%` : "-"}
+                              {score !== null ? `${parseFloat(Number(score).toFixed(2))}%` : "-"}
                             </div>
                           </td>
                           <td className="py-2.5 px-3 text-center">

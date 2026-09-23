@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3 } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -384,7 +384,15 @@ function SignaturePadCanvas({ initialSignatureUrl, onDone, onCancel }) {
     const canvas = canvasRef.current;
     if (!canvas || !hasSigned) return;
     try {
-      const dataUrl = canvas.toDataURL('image/png');
+      let dataUrl;
+      try {
+        dataUrl = canvas.toDataURL('image/webp', 0.85);
+        if (!dataUrl.startsWith('data:image/webp')) {
+          dataUrl = canvas.toDataURL('image/png');
+        }
+      } catch {
+        dataUrl = canvas.toDataURL('image/png');
+      }
       onDone(dataUrl);
     } catch (e) {
       console.warn("Canvas toDataURL failed (possibly cross-origin), falling back to initial signature", e);
@@ -523,7 +531,8 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
               setIsUploading(true);
               const res = await api.post('/audit/upload-signature', { 
                 base64Data: dataUrl,
-                previousUrl: signatureUrl
+                previousUrl: signatureUrl,
+                signatoryType: label?.includes("ผู้รับ") ? "auditee" : "auditor"
               });
               if (res.data?.url) {
                 onSignChange(res.data.url);
@@ -708,6 +717,7 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
         <div className="space-y-2 overflow-y-auto px-5 py-3 flex-1">
           {categoryItems.map((item, itemIndex) => {
             const isCurrent = (item.id === "details" && activeTab === 1) ||
+                              (item.id === "summary" && activeTab === 3) ||
                               (item.id === "submit" && activeTab === 3) ||
                               (activeTab === 2 && item.index === activeSectionIdx);
             return (
@@ -730,10 +740,12 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
                   {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
+                  {item.id === "summary" && <span className="block text-[11px] text-slate-400">สรุปผลการตรวจและข้อเสนอแนะภาพรวม</span>}
+                  {item.id === "submit" && <span className="block text-[11px] text-slate-400">ลงลายมือชื่อดิจิทัลและส่งผลตรวจ</span>}
                 </div>
                 {item.count && (
                   <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
-                    {item.count} ตอบแล้ว
+                    {item.count === "พิมพ์แล้ว" ? "พิมพ์แล้ว" : `${item.count} ตอบแล้ว`}
                   </span>
                 )}
                 {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
@@ -1455,7 +1467,12 @@ export default function LiveAuditScreen({
     return "";
   });
 
-  const [extraNote, setExtraNote] = useState(isResumeDraft ? (parsedDraftPayload?.extraNote || "") : "");
+  const [extraNote, setExtraNote] = useState(() => {
+    if (isResumeDraft) {
+      return parsedDraftPayload?.extraNote || parsedDraftPayload?.notes || parsedDraftPayload?.auditNotes || parsedDraftPayload?.summary || "";
+    }
+    return "";
+  });
   const [isBackdated, setIsBackdated] = useState(() => Boolean(parsedDraftPayload?.isBackdated));
   const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
   const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
@@ -2308,7 +2325,7 @@ export default function LiveAuditScreen({
       });
     });
 
-    const percentage = maxScore > 0 ? Math.round((earnedScore / maxScore) * 100) : 100;
+    const percentage = maxScore > 0 ? Number(((earnedScore / maxScore) * 100).toFixed(2)) : 100;
     const isPassed = percentage >= passingScore && !hasCriticalDefect;
 
     return { earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, failedQuestions };
@@ -2359,7 +2376,7 @@ export default function LiveAuditScreen({
     });
 
     const categories = Array.from(catMap.values()).map((cat) => {
-      const percentage = cat.maxScore > 0 ? Math.round((cat.earnedScore / cat.maxScore) * 100) : 0;
+      const percentage = cat.maxScore > 0 ? Number(((cat.earnedScore / cat.maxScore) * 100).toFixed(2)) : 0;
       return {
         ...cat,
         percentage,
@@ -2987,7 +3004,7 @@ export default function LiveAuditScreen({
                                 ? "bg-amber-50 text-amber-800 border-amber-200/80"
                                 : "bg-slate-50 text-slate-500 border-slate-200/80")
                         }`}>
-                          คะแนนล่าสุด {u.lastScore !== undefined && u.lastScore !== null ? `${u.lastScore}%` : "-"}
+                          คะแนนล่าสุด {u.lastScore !== undefined && u.lastScore !== null ? `${parseFloat(Number(u.lastScore).toFixed(2))}%` : "-"}
                         </span>
                       </div>
                     </div>
@@ -3219,6 +3236,7 @@ export default function LiveAuditScreen({
         count: `${sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length || 0}/${sec.items?.length || 0}`,
         index,
       })),
+      { id: "summary", label: "สรุป", icon: <FileText size={16} />, count: extraNote?.trim() ? "พิมพ์แล้ว" : null },
       { id: "submit", label: "ลงชื่อและส่งผล", icon: <PenTool size={16} />, count: null },
     ];
 
@@ -3227,6 +3245,23 @@ export default function LiveAuditScreen({
       if (item.id === "details") {
         setActiveTab(1);
         window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (item.id === "summary") {
+        setActiveTab(3);
+        setTimeout(() => {
+          const el = document.getElementById("audit-section-summary");
+          if (el) {
+            const topOffset = 70;
+            const elPosition = el.getBoundingClientRect().top;
+            const currentScroll = window.scrollY || document.documentElement.scrollTop || document.querySelector('main')?.scrollTop || 0;
+            const targetTop = elPosition + currentScroll - topOffset;
+            window.scrollTo({ top: targetTop, behavior: "smooth" });
+            document.querySelector('main')?.scrollTo({ top: targetTop, behavior: "smooth" });
+          } else {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        }, 150);
         return;
       }
       if (item.id === "submit") {
@@ -3321,7 +3356,7 @@ export default function LiveAuditScreen({
                     <path className={`${scoreAnalysis.percentage >= passingScore ? 'text-emerald-500' : 'text-amber-500'} transition-all duration-1000 ease-out`} strokeDasharray={`${scoreAnalysis.percentage}, 100`} strokeWidth="4" stroke="currentColor" fill="none" strokeLinecap="round" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-sm sm:text-base font-black text-slate-800 leading-none">{scoreAnalysis.percentage}%</span>
+                    <span className="text-[12px] sm:text-sm font-black text-slate-800 leading-none">{parseFloat(Number(scoreAnalysis.percentage).toFixed(2))}%</span>
                   </div>
                 </div>
                 <span className={`text-[9px] sm:text-[10px] font-extrabold mt-1.5 ${scoreAnalysis.isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
@@ -3400,9 +3435,9 @@ export default function LiveAuditScreen({
                             />
                           </div>
 
-                          <div className="w-10 text-right shrink-0">
+                          <div className="min-w-[50px] text-right shrink-0">
                             <span className={`font-mono font-black text-xs ${textColor}`}>
-                              {cat.percentage}%
+                              {parseFloat(Number(cat.percentage).toFixed(2))}%
                             </span>
                           </div>
                         </div>
@@ -3421,7 +3456,7 @@ export default function LiveAuditScreen({
             {[
               { id: 1, label: "ข้อมูลการตรวจ", icon: <ClipboardList size={14} /> },
               { id: 2, label: "รายการตรวจ", icon: <CheckCheck size={14} /> },
-              { id: 3, label: "ลงชื่อ&ส่งผล", icon: <PenTool size={14} /> }
+              { id: 3, label: "สรุป & ลงชื่อ", icon: <PenTool size={14} /> }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -3904,7 +3939,7 @@ export default function LiveAuditScreen({
 
               <div className="pt-4">
                 <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2">
-                  ไปที่การลงชื่อและส่งผล <ChevronRight size={16} />
+                  ไปที่สรุปและการลงชื่อ <ChevronRight size={16} />
                 </button>
               </div>
               {hasUserAnswers && (
@@ -3925,6 +3960,52 @@ export default function LiveAuditScreen({
           {/* TAB 3: SIGNATURES & SUBMIT */}
           {activeTab === 3 && (
             <div className="space-y-4 animate-in fade-in duration-200">
+              {/* 🌟 หมวดหมู่: สรุป (Audit Conclusion & Overall Remarks) - วางก่อนลายเซ็น มีการพิมพ์ตัวอักษรอย่างเดียว */}
+              <div id="audit-section-summary" className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/60 flex items-center justify-center shrink-0">
+                      <FileText size={17} />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-800">หมวดหมู่: สรุป</h3>
+                      <p className="text-[11px] font-medium text-slate-500">สรุปผลการตรวจประเมิน ข้อสังเกต หรือข้อเสนอแนะภาพรวม</p>
+                    </div>
+                  </div>
+                  {extraNote?.trim() ? (
+                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      ✓ บันทึกแล้ว
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500">
+                      ข้อความสรุป
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <textarea
+                    rows={4}
+                    value={extraNote}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setExtraNote(val);
+                      performSaveDraft({ extraNote: val });
+                    }}
+                    onInput={(e) => {
+                      e.target.style.height = "auto";
+                      e.target.style.height = `${Math.max(96, e.target.scrollHeight)}px`;
+                    }}
+                    placeholder="พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ หรือข้อสังเกตภาพรวมก่อนลงนาม..."
+                    className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-2xl border border-slate-200 outline-none font-medium bg-slate-50/50 focus:bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[96px] text-slate-800 leading-relaxed transition-all"
+                  />
+                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                    <span className="italic">พิมพ์ตัวอักษรอย่างเดียว</span>
+                    <span>{extraNote?.length || 0} ตัวอักษร</span>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-5">
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ (${unit?.fullName || unit?.name})`}
@@ -3950,7 +4031,7 @@ export default function LiveAuditScreen({
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-bold text-slate-800">สรุปคะแนนประเมิน</h3>
                   <span className={`text-xs font-black px-2.5 py-1 rounded-xl ${scoreAnalysis.isPassed ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
-                    {scoreAnalysis.percentage}%
+                    {parseFloat(Number(scoreAnalysis.percentage).toFixed(2))}%
                   </span>
                 </div>
                 <div className="space-y-2 text-xs font-medium text-slate-600">
@@ -4008,7 +4089,7 @@ export default function LiveAuditScreen({
 
               <div className={`rounded-2xl p-4 text-center border ${scoreAnalysis.isPassed ? 'bg-emerald-50/70 border-emerald-300' : 'bg-red-50/70 border-red-300'}`}>
                 <div className="text-4xl sm:text-5xl font-black mb-2" style={{ color: scoreAnalysis.isPassed ? '#0F6659' : '#B91C1C', fontFamily: mono }}>
-                  {scoreAnalysis.percentage}%
+                  {parseFloat(Number(scoreAnalysis.percentage).toFixed(2))}%
                 </div>
                 <div className={`text-xs font-extrabold ${scoreAnalysis.isPassed ? 'text-emerald-800' : 'text-red-800'}`}>
                   {scoreAnalysis.isPassed ? "✓ ผ่านเกณฑ์มาตรฐาน Q.S.C." : "⚠️ ไม่ผ่านเกณฑ์"}

@@ -429,7 +429,7 @@ export default function LocationSelectModal({
                         <div className={`text-xs sm:text-sm font-black font-mono ${
                           loc.lastScore >= 85 ? "text-[#0F6659]" : "text-amber-600"
                         }`}>
-                          {loc.lastScore}%
+                          {parseFloat(Number(loc.lastScore).toFixed(2))}%
                         </div>
                       </div>
                     )}

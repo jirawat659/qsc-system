@@ -171,6 +171,22 @@ app.UseAuthorization();
 
 
 app.UseStaticFiles();
+
+// 🌟 Static Files Configuration for Uploads from appsettings.json (Storage:UploadPath)
+var uploadsRootDirectory = QSC.Api.Helpers.UploadHelper.GetUploadsRootPath(app.Environment, app.Configuration);
+if (!string.IsNullOrWhiteSpace(uploadsRootDirectory) && Directory.Exists(uploadsRootDirectory))
+{
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsRootDirectory),
+        RequestPath = "/uploads",
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+        }
+    });
+}
 app.UseRateLimiter();
 
 if (app.Environment.IsDevelopment())

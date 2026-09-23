@@ -250,7 +250,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
   // Normalized audit record attributes
   const isBackdated = Boolean(currentRecord.isBackdated);
-  const score = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
+  const score = typeof currentRecord.percentageScore === "number" 
+    ? currentRecord.percentageScore 
+    : (typeof currentRecord.score === "number" ? currentRecord.score : 0);
   const passingScore = currentRecord.passingScore || currentRecord.surveyForm?.passingScore || 85;
   const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
   const actualInspectDateStr = currentRecord.startedAt ? new Date(currentRecord.startedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : dateStr;
@@ -581,7 +583,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     const categories = Array.from(catMap.values()).map(cat => {
       const roundedScore = Math.round(cat.score * 10) / 10;
-      const percent = cat.max > 0 ? Math.round((cat.score / cat.max) * 100) : 100;
+      const percent = cat.max > 0 ? (cat.score / cat.max) * 100 : 100;
       return {
         title: cat.title,
         score: roundedScore,
@@ -757,21 +759,21 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4 sm:gap-5 min-w-0">
             {/* Circular Gauge Ring with 12 o'clock notch */}
-            <div className={`relative flex items-center justify-center w-[74px] h-[74px] sm:w-[82px] sm:h-[82px] rounded-full border-[5.5px] shadow-2xs shrink-0 bg-white font-mono font-black text-xl sm:text-2xl text-slate-900 select-none ${
+            <div className={`relative flex items-center justify-center w-[80px] h-[80px] sm:w-[88px] sm:h-[88px] rounded-full border-[5.5px] shadow-2xs shrink-0 bg-white font-mono font-black text-sm sm:text-base text-slate-900 select-none ${
               passed
                 ? 'border-[#0F6659]'
                 : hasCritical
                 ? 'border-rose-600'
                 : 'border-amber-500'
             }`}>
-              {score}%
+              {parseFloat(Number(score).toFixed(2))}%
               <div className="absolute -top-[5.5px] left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full" />
             </div>
 
             {/* Score Text & Status Pill */}
             <div className="min-w-0">
               <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight leading-none">
-                {score}%
+                {parseFloat(Number(score).toFixed(2))}%
               </div>
               <div className="text-xs sm:text-sm font-semibold text-slate-400 mt-1">
                 เกณฑ์ผ่าน ≥{passingScore}%
@@ -923,8 +925,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       {/* 🌟 5-TAB SEGMENTED SELECTOR (ตรงตาม Mockup) */}
       <div className="grid grid-cols-5 bg-white rounded-2xl p-1.5 border border-slate-200/80 shadow-2xs gap-1">
         {[
-          { key: "responses", label: "ผลตรวจ", icon: ClipboardCheck },
           { key: "overview", label: "คะแนน", icon: BarChart3 },
+          { key: "responses", label: "ผลตรวจ", icon: ClipboardCheck },
           { key: "photos", label: "รูปภาพ", icon: Camera },
           { key: "sign", label: "ลายเซ็น", icon: PenTool },
           { key: "location", label: "ตำแหน่ง", icon: MapPin },
@@ -1352,7 +1354,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                   <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-xs font-bold text-slate-800">{getCategoryDisplay(s.title)}</span>
-                      <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({s.percent}%)</span>
+                      <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({parseFloat(Number(s.percent).toFixed(2))}%)</span>
                     </div>
                     <div className="h-2 rounded-full overflow-hidden bg-slate-100">
                       <div
@@ -1561,6 +1563,24 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       {/* TAB 4: SIGNATURES & ACKNOWLEDGEMENT */}
       {activeTab === "sign" && (
         <div className="space-y-4 animate-in fade-in duration-200">
+          {/* 🌟 หมวดหมู่: สรุป (Audit Conclusion & Overall Remarks) - วางก่อนลายเซ็น */}
+          {Boolean(currentRecord.notes && currentRecord.notes.trim()) && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-xl bg-emerald-50 text-[#0F6659] border border-emerald-200/60 flex items-center justify-center shrink-0">
+                  <FileText size={15} />
+                </div>
+                <div>
+                  <h3 className="text-xs sm:text-sm font-extrabold text-slate-800">หมวดหมู่: สรุป</h3>
+                  <p className="text-[11px] font-medium text-slate-500">สรุปผลการตรวจประเมิน ข้อสังเกต หรือข้อเสนอแนะภาพรวม</p>
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 text-xs sm:text-sm text-slate-700 font-medium whitespace-pre-wrap leading-relaxed">
+                {currentRecord.notes}
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Inspector Signature */}
             <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-2.5">

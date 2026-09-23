@@ -929,7 +929,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       }
     });
 
-    const percent = max > 0 ? Math.round((earned / max) * 100) : 0;
+    const percent = max > 0 ? Number(((earned / max) * 100).toFixed(2)) : 0;
     const isPassed = percent >= (currentRecord?.surveyForm?.passingScore || 85) && !hasCritFail;
 
     return { earned, max, percent, isPassed, hasCritFail };
@@ -945,7 +945,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
   if (!isOpen || !currentRecord) return null;
 
-  const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? Math.round(currentRecord.percentageScore) : 0;
+  const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? currentRecord.percentageScore : 0;
   const auditDurationText = getAuditDurationText(startedAt, submittedAt);
 
   const handleToggleYesNo = (itemId, choice) => {
@@ -1198,11 +1198,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 style={{ fontFamily: mono }}
               >
                 <span className={`line-through text-[11px] ${liveScoring.isPassed ? 'opacity-70 text-emerald-100' : 'opacity-75 text-amber-900'}`}>
-                  {originalScore}%
+                  {parseFloat(Number(originalScore).toFixed(2))}%
                 </span>
                 <ArrowRight size={12} className={liveScoring.isPassed ? "text-emerald-300 shrink-0" : "text-amber-900 shrink-0"} />
                 <span className={`text-[10px] sm:text-sm font-black ${liveScoring.isPassed ? 'text-emerald-200' : 'text-slate-900'}`}>
-                  {liveScoring.percent}%
+                  {parseFloat(Number(liveScoring.percent).toFixed(2))}%
                 </span>
               </div>
 

@@ -42,23 +42,23 @@ export const validateImageFile = (file, maxSizeBytes = MAX_PHOTO_SIZE_BYTES, all
   return { valid: true };
 };
 
-export const TARGET_MAX_PHOTO_SIZE_BYTES = 60 * 1024; // 60KB
+export const TARGET_MAX_PHOTO_SIZE_BYTES = 30 * 1024; // 30KB
 
 /**
- * บีบอัดรูปภาพฝั่ง Client ก่อนอัปโหลดให้มีขนาดไม่เกิน Target Size (ค่าเริ่มต้นไม่เกิน 60KB)
- * โดยเน้นเก็บภาพรวมหลักฐานที่คมชัดพอดี และประหยัดพื้นที่จัดเก็บบนเครื่องเซิร์ฟเวอร์
+ * บีบอัดรูปภาพฝั่ง Client ก่อนอัปโหลดให้มีขนาดไม่เกิน Target Size (ค่าเริ่มต้นไม่เกิน 30KB)
+ * โดยเน้นแปลงเป็น WebP เพื่อประหยัดพื้นที่จัดเก็บบนเครื่องเซิร์ฟเวอร์และเพิ่มความเร็วในการอัปโหลด
  * @param {File} file
- * @param {number} maxWidth ความกว้างสูงสุดเริ่มต้น (ค่าเริ่มต้น 1024px)
- * @param {number} maxHeight ความสูงสูงสุดเริ่มต้น (ค่าเริ่มต้น 1024px)
- * @param {number} initialQuality คุณภาพเริ่มต้น (ค่าเริ่มต้น 0.7)
- * @param {number} maxTargetBytes ขนาดไฟล์เป้าหมายสูงสุด (ค่าเริ่มต้น 60KB)
- * @returns {Promise<string>} Base64 Data URL
+ * @param {number} maxWidth ความกว้างสูงสุดเริ่มต้น (ค่าเริ่มต้น 800px)
+ * @param {number} maxHeight ความสูงสูงสุดเริ่มต้น (ค่าเริ่มต้น 800px)
+ * @param {number} initialQuality คุณภาพเริ่มต้น (ค่าเริ่มต้น 0.65)
+ * @param {number} maxTargetBytes ขนาดไฟล์เป้าหมายสูงสุด (ค่าเริ่มต้น 30KB)
+ * @returns {Promise<string>} Base64 Data URL (WebP)
  */
 export const compressImageFile = (
   file,
-  maxWidth = 1024,
-  maxHeight = 1024,
-  initialQuality = 0.7,
+  maxWidth = 800,
+  maxHeight = 800,
+  initialQuality = 0.65,
   maxTargetBytes = TARGET_MAX_PHOTO_SIZE_BYTES
 ) => {
   return new Promise((resolve, reject) => {

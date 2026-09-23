@@ -166,7 +166,7 @@ export default function LocationManagementTab({
                           </td>
                           <td className="py-3.5 px-4">
                             <span className="text-emerald-800 font-mono font-black text-sm">
-                              {loc.lastScore ? `${loc.lastScore}%` : "-"}
+                              {loc.lastScore ? `${parseFloat(Number(loc.lastScore).toFixed(2))}%` : "-"}
                             </span>
                           </td>
                           <td className="py-3.5 px-4">
@@ -251,7 +251,7 @@ export default function LocationManagementTab({
                       <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
                         <div>
                           <span className="text-slate-400 font-semibold">คะแนน: </span>
-                          <span className="text-emerald-800 font-mono font-black text-sm">{loc.lastScore ? `${loc.lastScore}%` : "ยังไม่ตรวจ"}</span>
+                          <span className="text-emerald-800 font-mono font-black text-sm">{loc.lastScore ? `${parseFloat(Number(loc.lastScore).toFixed(2))}%` : "ยังไม่ตรวจ"}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-slate-400 group-hover:text-[#0F6659] font-extrabold transition-colors">
