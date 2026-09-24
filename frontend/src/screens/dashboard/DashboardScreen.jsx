@@ -637,7 +637,7 @@ export default function DashboardScreen({ role, isDesktop }) {
                   ]}
                   cx="50%" cy="80%"
                   startAngle={180} endAngle={0}
-                  innerRadius={50} outerRadius={70}
+                  innerRadius={60} outerRadius={80}
                   dataKey="value"
                   stroke="none"
                   cornerRadius={4}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, FileText, Calendar, User, FileSpreadsheet, Sparkles, Coins, Banknote } from "lucide-react";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, FileText, Calendar, User, FileSpreadsheet, Sparkles, Coins, Banknote } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -75,6 +75,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
   // 🌟 Local Record State for Immediate UI Updates on Edit
   const [currentRecord, setCurrentRecord] = useState(record);
+  const [isCategoryScoresExpanded, setIsCategoryScoresExpanded] = useState(true);
 
   const loadCapTasksForRecord = async () => {
     const recId = currentRecord?.id || record?.id;
@@ -269,6 +270,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const passingScore = currentRecord.passingScore || currentRecord.surveyForm?.passingScore || 85;
   const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
   const actualInspectDateStr = currentRecord.startedAt ? new Date(currentRecord.startedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : dateStr;
+  const createdDateStr = currentRecord.createdAt ? new Date(currentRecord.createdAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
   const auditorName = currentRecord.auditor || currentRecord.auditorName || currentRecord.primaryAuditor?.fullName || "-";
   const formTitle = currentRecord.form || currentRecord.formName || currentRecord.surveyFormTitle || currentRecord.surveyForm?.title || "-";
   const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= passingScore && !currentRecord.hasCriticalDefect);
@@ -882,11 +884,16 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <Calendar size={16} />
             </div>
-            <div className="min-w-0">
-              <div className="text-[11px] text-slate-400 font-semibold">วันที่ตรวจ</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] text-slate-400 font-semibold">วันที่ลงตรวจ</div>
               <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words">
                 {isBackdated ? `${actualInspectDateStr} (${startedTimeStr} - ${submittedTimeStr})` : dateStr}
               </div>
+              {createdDateStr && (
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5" title="วันเวลาที่บันทึกข้อมูลเข้าระบบจริง">
+                  บันทึกเข้าระบบ: {createdDateStr} น.
+                </div>
+              )}
             </div>
           </div>
 
@@ -941,7 +948,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           { key: "overview", label: "คะแนน", icon: BarChart3 },
           { key: "responses", label: "ผลตรวจ", icon: ClipboardCheck },
           { key: "photos", label: "รูปภาพ", icon: Camera },
-          { key: "sign", label: "ลายเซ็น", icon: PenTool },
+          { key: "sign", label: "สรุป&ลงชื่อ", icon: PenTool },
           { key: "location", label: "ตำแหน่ง", icon: MapPin },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -1422,29 +1429,54 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       {/* TAB 2: OVERVIEW SCORES & CAP ISSUES */}
       {activeTab === "overview" && (
         <div className="space-y-4 animate-in fade-in duration-200">
-          <Section title="คะแนนแยกตามหมวดหมู่">
-            <div className="rounded-2xl overflow-hidden shadow-2xs" style={cardStyle}>
-              {categoryScores.map((s, i) => {
-                const isPassing = s.percent >= (currentRecord?.passingScore || 85);
-                return (
-                  <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-bold text-slate-800">{getCategoryDisplay(s.title)}</span>
-                      <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({parseFloat(Number(s.percent).toFixed(2))}%)</span>
+          <Section
+            title={
+              <div
+                className="flex items-center gap-1.5 cursor-pointer select-none"
+                onClick={() => setIsCategoryScoresExpanded(prev => !prev)}
+              >
+                <span>คะแนนแยกตามหมวดหมู่</span>
+              </div>
+            }
+            action={
+              <button
+                type="button"
+                onClick={() => setIsCategoryScoresExpanded(prev => !prev)}
+                className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-xl transition-all cursor-pointer"
+                title={isCategoryScoresExpanded ? "ซ่อนคะแนนแยกตามหมวดหมู่" : "แสดงคะแนนแยกตามหมวดหมู่"}
+              >
+                <span>{isCategoryScoresExpanded ? "ซ่อน" : "แสดง"}</span>
+                <ChevronDown
+                  size={13}
+                  className={`transition-transform duration-200 ${isCategoryScoresExpanded ? "rotate-180" : ""}`}
+                />
+              </button>
+            }
+          >
+            {isCategoryScoresExpanded && (
+              <div className="rounded-2xl overflow-hidden shadow-2xs animate-in fade-in duration-200" style={cardStyle}>
+                {categoryScores.map((s, i) => {
+                  const isPassing = s.percent >= (currentRecord?.passingScore || 85);
+                  return (
+                    <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-bold text-slate-800">{getCategoryDisplay(s.title)}</span>
+                        <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({parseFloat(Number(s.percent).toFixed(2))}%)</span>
+                      </div>
+                      <div className="h-2 rounded-full overflow-hidden bg-slate-100">
+                        <div
+                          className="h-full rounded-full transition-all duration-500 ease-out"
+                          style={{
+                            width: `${s.max > 0 ? Math.min(100, Math.max(0, (s.score / s.max) * 100)) : 0}%`,
+                            background: isPassing ? c.accent : s.percent >= 70 ? c.warn : c.risk
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2 rounded-full overflow-hidden bg-slate-100">
-                      <div
-                        className="h-full rounded-full transition-all duration-500 ease-out"
-                        style={{
-                          width: `${s.max > 0 ? Math.min(100, Math.max(0, (s.score / s.max) * 100)) : 0}%`,
-                          background: isPassing ? c.accent : s.percent >= 70 ? c.warn : c.risk
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </Section>
 
           {/* ข้อมูลและตัวแปรเฉพาะรอบการตรวจ (Custom Audit Details) */}

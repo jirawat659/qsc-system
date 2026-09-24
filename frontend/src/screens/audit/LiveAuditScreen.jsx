@@ -113,7 +113,8 @@ const QuestionCard = React.memo(function QuestionCard({
   onCommentChange,
   onPhotoUpload,
   onPhotoDelete,
-  onToggleComment
+  onToggleComment,
+  onViewPhoto
 }) {
   const isNa = answer === "na";
   const isFailed = !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
@@ -201,7 +202,13 @@ const QuestionCard = React.memo(function QuestionCard({
         <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
           {questionPhotos.map((imgUrl, imgIdx) => (
             <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
-              <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
+              <img
+                src={imgUrl}
+                alt={`Evidence ${imgIdx + 1}`}
+                onClick={() => onViewPhoto && onViewPhoto(imgUrl)}
+                className="h-20 w-28 object-cover cursor-pointer hover:opacity-90 active:scale-95 transition-all"
+                title="คลิกเพื่อดูรูปภาพขนาดเต็ม"
+              />
               <button
                 type="button"
                 onClick={() => onPhotoDelete(q.id, imgIdx)}
@@ -720,8 +727,7 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
         <div className="space-y-2 overflow-y-auto px-5 py-3 flex-1">
           {categoryItems.map((item, itemIndex) => {
             const isCurrent = (item.id === "details" && activeTab === 1) ||
-                              (item.id === "summary" && activeTab === 3) ||
-                              (item.id === "submit" && activeTab === 3) ||
+                              ((item.id === "summary" || item.id === "submit") && activeTab === 3) ||
                               (activeTab === 2 && item.index === activeSectionIdx);
             return (
               <button
@@ -744,15 +750,14 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
                   <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
                   {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
                   {item.id === "cash-audit" && <span className="block text-[11px] text-slate-400">ตรวจนับเงินสดตามชนิดธนบัตรและเหรียญ</span>}
-                  {item.id === "summary" && <span className="block text-[11px] text-slate-400">สรุปผลการตรวจและข้อเสนอแนะภาพรวม</span>}
-                  {item.id === "submit" && <span className="block text-[11px] text-slate-400">ลงลายมือชื่อดิจิทัลและส่งผลตรวจ</span>}
+                  {(item.id === "summary" || item.id === "submit") && <span className="block text-[11px] text-slate-400">สรุปผลการตรวจและลงลายมือชื่อ</span>}
                 </div>
                 {item.count && (
                   <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
                     {item.count.startsWith("฿") || item.count === "พิมพ์แล้ว" || item.count.includes("แล้ว") ? item.count : `${item.count} ตอบแล้ว`}
                   </span>
                 )}
-                {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
+                {itemIndex > 0 && item.id !== "summary" && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
               </button>
             );
           })}
@@ -1684,6 +1689,20 @@ export default function LiveAuditScreen({
   // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ตั้งต้นเป็น null เพื่อไม่ให้โผล่ก่อนเลื่อน)
   const [activeSectionIndex, setActiveSectionIndex] = useState(null);
   const activeSectionIdx = activeSectionIndex ?? 0;
+  const [previewImageUrl, setPreviewImageUrl] = useState(null);
+
+  useEffect(() => {
+    if (!previewImageUrl) return;
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setPreviewImageUrl(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewImageUrl]);
 
   useEffect(() => {
     if (!isCategoryDrawerOpen) return;
@@ -1874,7 +1893,7 @@ export default function LiveAuditScreen({
         }
       }
       setStep("audit");
-      setActiveTab(2);
+      setActiveTab(1);
     }
   }, [parsedDraftPayload, isResumeDraft, unit, selectedForm, formList]);
 
@@ -2004,7 +2023,7 @@ export default function LiveAuditScreen({
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [step, activeTab]);
+  }, [step]);
 
   const autoSaveTimerRef = useRef(null);
   const isSavingRef = useRef(false);
@@ -3400,8 +3419,12 @@ export default function LiveAuditScreen({
         icon: <Coins size={16} />,
         count: totalCashAmount > 0 ? `฿${totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : "0 บาท",
       }] : []),
-      { id: "summary", label: "สรุป", icon: <FileText size={16} />, count: extraNote?.trim() ? "พิมพ์แล้ว" : null },
-      { id: "submit", label: "ลงชื่อและส่งผล", icon: <PenTool size={16} />, count: null },
+      { 
+        id: "summary", 
+        label: "สรุป&ลงชื่อ", 
+        icon: <PenTool size={16} />, 
+        count: (auditorSignature && auditeeSignature) ? "ลงชื่อแล้ว" : (extraNote?.trim() ? "พิมพ์แล้ว" : null) 
+      },
     ];
 
     const jumpToCategory = (item) => {
@@ -3413,7 +3436,7 @@ export default function LiveAuditScreen({
       }
       if (item.id === "cash-audit") {
         setActiveTab(2);
-        setIsCashSystemOpen(true);
+        setIsCashSystemOpen(false);
         setIsPettyCashOpen(true);
         setTimeout(() => {
           const el = document.getElementById("audit-section-cash");
@@ -3430,7 +3453,7 @@ export default function LiveAuditScreen({
         }, 150);
         return;
       }
-      if (item.id === "summary") {
+      if (item.id === "summary" || item.id === "submit") {
         setActiveTab(3);
         setTimeout(() => {
           const el = document.getElementById("audit-section-summary");
@@ -3445,11 +3468,6 @@ export default function LiveAuditScreen({
             window.scrollTo({ top: 0, behavior: "smooth" });
           }
         }, 150);
-        return;
-      }
-      if (item.id === "submit") {
-        setActiveTab(3);
-        window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
       // ไม่ให้เด้งขึ้นมาบนสุด
@@ -3639,7 +3657,7 @@ export default function LiveAuditScreen({
             {[
               { id: 1, label: "ข้อมูลการตรวจ", icon: <ClipboardList size={14} /> },
               { id: 2, label: "รายการตรวจ", icon: <CheckCheck size={14} /> },
-              { id: 3, label: "สรุป & ลงชื่อ", icon: <PenTool size={14} /> }
+              { id: 3, label: "สรุป&ลงชื่อ", icon: <PenTool size={14} /> }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -4114,6 +4132,7 @@ export default function LiveAuditScreen({
                         onPhotoUpload={handlePhotoUpload}
                         onPhotoDelete={handlePhotoDelete}
                         onToggleComment={handleToggleComment}
+                        onViewPhoto={setPreviewImageUrl}
                       />
                     ))}
                   </div>
@@ -4131,9 +4150,6 @@ export default function LiveAuditScreen({
                       className="flex items-center justify-between cursor-pointer select-none px-2 py-1"
                     >
                       <div className="flex items-center gap-2.5">
-                        <span className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs font-bold">
-                          <Coins size={17} />
-                        </span>
                         <div>
                           <h3 className="text-sm sm:text-base font-black text-slate-800">
                             ระบบเงินสด
@@ -4145,9 +4161,6 @@ export default function LiveAuditScreen({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-black text-[#0F6659] bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs">
-                          รวม: ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                        </span>
                         <button
                           type="button"
                           className="w-7 h-7 rounded-full bg-white hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors shadow-2xs"
@@ -4168,12 +4181,12 @@ export default function LiveAuditScreen({
                             <Banknote size={16} className="text-[#0F6659]" />
                             <h4 className="text-xs sm:text-sm font-black text-slate-800">เงินสดย่อย</h4>
                           </div>
-                          <button
+                          {/*<button
                             type="button"
                             className="text-slate-400 hover:text-slate-600 p-1"
                           >
                             {isPettyCashOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                          </button>
+                          </button>*/}
                         </div>
 
                         {isPettyCashOpen && (
@@ -4198,7 +4211,7 @@ export default function LiveAuditScreen({
                                             <span>{denom >= 1 ? denom.toLocaleString() : denom}</span>
                                             {subtotal > 0 && (
                                               <span className="text-[10px] text-slate-400 font-normal">
-                                                (= ฿{subtotal.toLocaleString()})
+                                                (฿{subtotal.toLocaleString()})
                                               </span>
                                             )}
                                           </div>
@@ -4242,14 +4255,14 @@ export default function LiveAuditScreen({
                                         <span className="font-mono text-sm sm:text-base font-black text-[#0F6659]">
                                           ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                                         </span>
-                                        <button
+                                        {/*<button
                                           type="button"
                                           onClick={handleResetCashCounts}
                                           className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                                           title="ล้างค่าทั้งหมดเป็น 0"
                                         >
                                           <RotateCcw size={15} />
-                                        </button>
+                                        </button>*/}
                                       </div>
                                     </td>
                                   </tr>
@@ -4266,7 +4279,7 @@ export default function LiveAuditScreen({
 
               <div className="pt-4">
                 <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2">
-                  ไปที่สรุปและการลงชื่อ <ChevronRight size={16} />
+                  ไปที่สรุปและลงชื่อ <ChevronRight size={16} />
                 </button>
               </div>
               {hasUserAnswers && (
@@ -4490,6 +4503,37 @@ export default function LiveAuditScreen({
           >
             <ChevronUp size={20} strokeWidth={2.8} />
           </button>,
+          document.body
+        )}
+
+        {/* 🌟 Simple Fullscreen Image Preview Modal */}
+        {previewImageUrl && typeof document !== "undefined" && createPortal(
+          <div
+            className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 pt-14 pb-6 animate-in fade-in duration-200 select-none cursor-pointer"
+            onClick={() => setPreviewImageUrl(null)}
+          >
+            {/* Image Box - constrained size so it never overflows and button stays visible */}
+            <div
+              className="relative inline-block max-w-[85vw] max-h-[68vh] sm:max-h-[76vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button at top-right of image (original style) */}
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="absolute -top-10 right-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/25 hover:bg-white/40 active:bg-white/60 text-white flex items-center justify-center text-sm sm:text-base font-bold cursor-pointer transition-all shadow-lg border border-white/20 active:scale-95"
+                title="ปิด (Esc)"
+              >
+                ✕
+              </button>
+
+              <img
+                src={previewImageUrl}
+                alt="Preview"
+                className="max-w-[85vw] max-h-[68vh] sm:max-h-[76vh] object-contain rounded-xl sm:rounded-2xl shadow-2xl block cursor-default border border-white/10"
+              />
+            </div>
+          </div>,
           document.body
         )}
       </div>

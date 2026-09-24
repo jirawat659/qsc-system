@@ -878,20 +878,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           title={title}
           subtitle={`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length}`}
           onBack={onBack}
-          action={
-            <div className="flex items-center gap-2">
-              {onStartNewAudit && (
-                <button
-                  type="button"
-                  onClick={onStartNewAudit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
-                >
-                  <Plus size={14} />
-                  <span>ตรวจงานใหม่</span>
-                </button>
-              )}
-            </div>
-          }
         />
       ) : (
         <div className="flex items-center justify-between pb-1 px-1">
@@ -900,18 +886,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             <p className="text-xs font-semibold text-slate-500 mt-0.5">
               {`${currentAuditorName ? `ประวัติที่ ${currentAuditorName} ตรวจ · ` : ""}บันทึกผลการตรวจทั้งหมด ${baseLogs.length} รอบตรวจ`}
             </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {onStartNewAudit && (
-              <button
-                type="button"
-                onClick={onStartNewAudit}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-colors shadow-sm cursor-pointer active:scale-95"
-              >
-                <Plus size={14} />
-                <span>ตรวจงานใหม่</span>
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -1149,7 +1123,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             >
               {/* บรรทัดที่ 1: วงกลมคะแนน (ซ้าย) + ป้ายสถานะ (ขวา) */}
               <div className="flex items-center justify-between">
-                <div className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono shadow-2xs shrink-0 ${circleColor}`}>
+                <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono shadow-2xs shrink-0 ${circleColor}`}>
                   {scoreDisplay}
                 </div>
                 <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>

@@ -632,7 +632,7 @@ export default function MainDashboard({ onLogout }) {
     setAuditHeaderOffset(0);
   }, [screen]);
 
-  const isLiveAuditScreen = screen === "audit" || Boolean(subHeader?.isAudit);
+  const isLiveAuditScreen = Boolean(subHeader?.isAudit);
 
   // 🌟 Dynamic Scroll Listener: แถบหลักจะไม่ยุบจนกว่าจุดมาร์คของหมวดแรก (Section 1) จะเลื่อนขึ้นมาชน
   useEffect(() => {
