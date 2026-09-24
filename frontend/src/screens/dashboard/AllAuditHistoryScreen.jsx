@@ -816,12 +816,20 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   };
 
   const handleTriggerResume = (record) => {
-  setActiveDirectPlan({ ...record, isResume: true });
-};
+    if (onResumeDraft) {
+      onResumeDraft(record);
+    } else {
+      setActiveDirectPlan({ ...record, isResume: true });
+    }
+  };
 
-const handleTriggerAudit = (record) => {
-  setActiveDirectPlan(record);
-};
+  const handleTriggerAudit = (record) => {
+    if (onStartAudit) {
+      onStartAudit(record);
+    } else {
+      setActiveDirectPlan(record);
+    }
+  };
 
   if (activeDirectPlan) {
     return (
