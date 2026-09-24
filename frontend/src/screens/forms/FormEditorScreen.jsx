@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Store, Loader2 } from "lucide-react";
+import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Store, Loader2, Coins } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
@@ -153,6 +153,10 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               setMetadataConfig(formData.metadataConfig);
             }
 
+            if (formData.hasCashAudit !== undefined) {
+              setHasCashAudit(Boolean(formData.hasCashAudit));
+            }
+
             // 🌟 ซิงค์ sections/items ชุดเต็มจริงกลับเข้า state เสมอ (แก้บั๊คข้อมูลหาย)
             // form ตัวตั้งต้นอาจมาจากหน้ารายการแบบ summary (ไม่มี sections) แล้วเคยเข้าเงื่อนไข
             // default stub 1 หมวด/1 ข้อ มาก่อน พอโหลดชุดเต็มสำเร็จ ต้องเขียนทับให้ตรงของจริงเสมอ
@@ -227,6 +231,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     };
   }, [contextBrands, form?.id]);
   const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
+  const [hasCashAudit, setHasCashAudit] = useState(() => Boolean(form?.hasCashAudit));
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
       return form.metadataConfig;
@@ -1161,6 +1166,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       version: form?.version || "v1.0",
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
       categoryOrderJson: JSON.stringify(categories),
+      hasCashAudit: Boolean(hasCashAudit),
       sections: sections.map((sec, sIdx) => ({
         id: typeof sec.id === 'number' ? sec.id : undefined,
         title: sec.title,
@@ -1219,6 +1225,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       metadataConfig: cleanMetadataConfig,
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
       categoryOrderJson: JSON.stringify(categories),
+      hasCashAudit: Boolean(hasCashAudit),
       categories: categories,
       sections: sections,
       itemCount: totalQuestions,
@@ -2035,6 +2042,62 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       {/* ⚙️ TAB 2: AUDIT DETAILS METADATA CONFIG */}
       {activeEditorTab === "metadata" && (
         <div className="space-y-4 animate-in fade-in duration-150">
+          {/* 💰 CASH AUDIT TOGGLE CARD */}
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+                  <Coins size={20} />
+                </span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                      ระบบตรวจนับเงินสด (Cash Audit)
+                    </h3>
+                    <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                      hasCashAudit
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                        : "bg-slate-100 text-slate-500 border-slate-200"
+                    }`}>
+                      {hasCashAudit ? "เปิดใช้งานแล้ว" : "ปิดใช้งาน"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    เปิดใช้งานการตรวจนับเงินสด (เงินสดย่อย) ตามชนิดธนบัตรและเหรียญ พร้อมสรุปรวมยอดเงินอัตโนมัติในขั้นตอนการตรวจหน้างาน
+                  </p>
+                </div>
+              </div>
+
+              {!isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() => setHasCashAudit(prev => !prev)}
+                  className={`relative inline-flex h-7 w-13 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    hasCashAudit ? "bg-[#0F6659]" : "bg-slate-300"
+                  }`}
+                  title={hasCashAudit ? "คลิกเพื่อปิดระบบตรวจนับเงินสด" : "คลิกเพื่อเปิดระบบตรวจนับเงินสด"}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      hasCashAudit ? "translate-x-6" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              )}
+            </div>
+
+            {hasCashAudit && (
+              <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 text-xs text-emerald-900 flex items-start gap-3">
+                <CheckCircle2 size={16} className="text-[#0F6659] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-[#0F6659]">ตารางนับเงินสดที่ระบบจะแสดงในหน้าตรวจหน้างาน:</p>
+                  <p className="text-emerald-800 mt-1">
+                    ธนบัตร 1,000, 500, 100, 50, 20 และเหรียญ 10, 5, 2, 1, 0.50, 0.25 (บังคับระบุจำนวนทุกช่อง หากไม่มีให้ใส่ 0 พร้อมคำนวณยอดเงินรวมอัตโนมัติ)
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
           <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-2xs space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
               <div>

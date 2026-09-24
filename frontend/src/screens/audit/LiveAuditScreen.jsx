@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, Coins, Banknote } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -18,6 +18,9 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
+
+// 💰 ชนิดธนบัตรและเหรียญมาตรฐานสำหรับระบบตรวจนับเงินสด
+export const CASH_DENOMINATIONS = [1000, 500, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25];
 
 const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -740,12 +743,13 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
                   {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
+                  {item.id === "cash-audit" && <span className="block text-[11px] text-slate-400">ตรวจนับเงินสดตามชนิดธนบัตรและเหรียญ</span>}
                   {item.id === "summary" && <span className="block text-[11px] text-slate-400">สรุปผลการตรวจและข้อเสนอแนะภาพรวม</span>}
                   {item.id === "submit" && <span className="block text-[11px] text-slate-400">ลงลายมือชื่อดิจิทัลและส่งผลตรวจ</span>}
                 </div>
                 {item.count && (
                   <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
-                    {item.count === "พิมพ์แล้ว" ? "พิมพ์แล้ว" : `${item.count} ตอบแล้ว`}
+                    {item.count.startsWith("฿") || item.count === "พิมพ์แล้ว" || item.count.includes("แล้ว") ? item.count : `${item.count} ตอบแล้ว`}
                   </span>
                 )}
                 {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
@@ -1153,8 +1157,14 @@ export default function LiveAuditScreen({
   const currentUser = propUser || ctxUser;
   const formList = forms || [];
 
-  const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
-  const targetFormId = preselectedPlan?.surveyFormId;
+  const targetLocationId = preselectedPlan?.locationId != null && !isNaN(Number(preselectedPlan.locationId))
+    ? Number(preselectedPlan.locationId)
+    : (preselectedPlan?.locationName
+        ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id
+        : (typeof preselectedPlan?.unit === 'object' && preselectedPlan?.unit?.id ? Number(preselectedPlan.unit.id) : null));
+  const targetFormId = preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId))
+    ? Number(preselectedPlan.surveyFormId)
+    : null;
 
   const matchedDraftRecord = useMemo(() => {
     if (preselectedPlan?.isNewAudit) return null;
@@ -1164,7 +1174,7 @@ export default function LiveAuditScreen({
     if (preselectedPlan?.isResume) {
       const explicitDraftId = preselectedPlan.originalId || preselectedPlan.id;
       if (explicitDraftId && typeof explicitDraftId === 'number') {
-        const foundById = allDrafts.find(d => d.id === explicitDraftId);
+        const foundById = allDrafts.find(d => Number(d.id) === Number(explicitDraftId));
         if (foundById) return foundById;
       }
       if (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers) {
@@ -1181,17 +1191,21 @@ export default function LiveAuditScreen({
     }
 
     if (preselectedPlan?.id && typeof preselectedPlan.id === 'number') {
-      const foundBySched = allDrafts.find(d => d.auditScheduleId === preselectedPlan.id);
+      const foundBySched = allDrafts.find(d => Number(d.auditScheduleId) === Number(preselectedPlan.id));
       if (foundBySched) return foundBySched;
     }
+
+    const pUnitName = typeof preselectedPlan?.unit === 'string'
+      ? preselectedPlan.unit
+      : (preselectedPlan?.unit?.fullName || preselectedPlan?.unit?.name);
 
     const found = allDrafts.find(d => {
       const dLocId = d.locationId || d.location?.id || d.unit?.id;
       const dLocName = d.locationName || d.locationFullName || d.unit?.name || d.unit?.fullName;
-      const matchLoc = (targetLocationId && dLocId === targetLocationId) ||
-        (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === preselectedPlan.unit)) ||
-        (preselectedPlan?.unit && (dLocName === preselectedPlan.unit || (d.locationFullName && d.locationFullName.includes(preselectedPlan.unit))));
-      const matchForm = !targetFormId || d.surveyFormId === targetFormId || d.formId === targetFormId;
+      const matchLoc = (targetLocationId && Number(dLocId) === Number(targetLocationId)) ||
+        (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === pUnitName)) ||
+        (pUnitName && (dLocName === pUnitName || (d.locationFullName && d.locationFullName.includes(pUnitName))));
+      const matchForm = !targetFormId || Number(d.surveyFormId) === Number(targetFormId) || Number(d.formId) === Number(targetFormId);
       return matchLoc && matchForm;
     });
 
@@ -1307,38 +1321,101 @@ export default function LiveAuditScreen({
   };
 
   const [unit, setUnit] = useState(() => {
-    if (isResumeDraft && parsedDraftPayload?.unit) return parsedDraftPayload.unit;
-    if (isFromAssignedPlan || isResumeDraft) {
-      const locId = preselectedPlan?.locationId || targetLocationId;
-      const locName = preselectedPlan?.locationName || preselectedPlan?.unit;
-      return allLocations.find(u =>
-        (locId && u.id === locId) ||
+    if (typeof preselectedPlan?.unit === 'object' && preselectedPlan?.unit?.name) {
+      if (!targetLocationId || Number(preselectedPlan.unit.id) === Number(targetLocationId)) {
+        return preselectedPlan.unit;
+      }
+    }
+    if (isResumeDraft && parsedDraftPayload?.unit) {
+      if (!targetLocationId || Number(parsedDraftPayload.unit.id) === Number(targetLocationId)) {
+        return parsedDraftPayload.unit;
+      }
+    }
+    if (isFromAssignedPlan || isResumeDraft || targetLocationId || preselectedPlan?.locationName) {
+      const locId = targetLocationId || preselectedPlan?.locationId;
+      const locName = preselectedPlan?.locationName || (typeof preselectedPlan?.unit === 'string' ? preselectedPlan?.unit : preselectedPlan?.unit?.name);
+      const found = allLocations.find(u =>
+        (locId && Number(u.id) === Number(locId)) ||
         (locName && (u.name === locName || u.fullName === locName || (u.fullName && u.fullName.includes(locName))))
-      ) || allLocations[0];
+      );
+      if (found) return found;
+      if (typeof preselectedPlan?.unit === 'object' && preselectedPlan?.unit) {
+        return preselectedPlan.unit;
+      }
     }
     return null;
   });
 
   const applicableForms = useMemo(() => {
     const activeLatestForms = formList.filter(f => 
-      ((f.isLatest !== false && f.isLatest !== 0) || f.id === preselectedPlan?.surveyFormId || f.id === targetFormId) &&
+      ((f.isLatest !== false && f.isLatest !== 0) || Number(f.id) === Number(preselectedPlan?.surveyFormId) || Number(f.id) === Number(targetFormId)) &&
       f.isActive !== false && f.isActive !== 0
     );
     if (!unit) return activeLatestForms;
-    return activeLatestForms.filter(f => isFormApplicableToLocation(f, unit));
+    return activeLatestForms.filter(f => 
+      (preselectedPlan?.surveyFormId && Number(f.id) === Number(preselectedPlan.surveyFormId)) ||
+      (targetFormId && Number(f.id) === Number(targetFormId)) ||
+      isFormApplicableToLocation(f, unit)
+    );
   }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
-    const targetFId = (isResumeDraft && parsedDraftPayload?.formId) ? parsedDraftPayload.formId : (preselectedPlan?.surveyFormId || targetFormId);
+    // 🌟 ให้ความสำคัญกับ SurveyFormId จากฐานข้อมูลภายนอก / Plan ก่อนเสมอ ถ้าไม่มีค่อย fallback ไปใช้ formId ใน JSON Draft
+    const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
+      ? Number(preselectedPlan.surveyFormId)
+      : (targetFormId != null && !isNaN(Number(targetFormId))
+          ? Number(targetFormId)
+          : (isResumeDraft && parsedDraftPayload?.formId ? Number(parsedDraftPayload.formId) : null));
     if (targetFId) {
-      return formList.find(f => f.id === targetFId) || formList[0];
+      const found = formList.find(f => Number(f.id) === Number(targetFId));
+      if (found) return found;
     }
     if (unit) {
       const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
       if (matched.length > 0) return matched[0];
     }
-    return formList[0];
+    return null;
   });
+
+  // 🌟 Sync unit from allLocations once data finishes loading asynchronously
+  useEffect(() => {
+    if (!allLocations || allLocations.length === 0) return;
+    const locId = targetLocationId || preselectedPlan?.locationId;
+    const locName = preselectedPlan?.locationName || (typeof preselectedPlan?.unit === 'string' ? preselectedPlan?.unit : preselectedPlan?.unit?.name);
+    if (locId || locName) {
+      const found = allLocations.find(u =>
+        (locId && Number(u.id) === Number(locId)) ||
+        (locName && (u.name === locName || u.fullName === locName || (u.fullName && u.fullName.includes(locName))))
+      );
+      if (found) {
+        if (!unit || Number(unit.id) !== Number(found.id)) {
+          setUnit(found);
+        }
+      }
+    }
+  }, [allLocations, targetLocationId, preselectedPlan?.locationId, preselectedPlan?.locationName, preselectedPlan?.unit]);
+
+  // 🌟 Sync selectedForm from formList once forms finish loading asynchronously
+  useEffect(() => {
+    if (!formList || formList.length === 0) return;
+    // 🌟 ยึดตัวนอก (preselectedPlan.surveyFormId / targetFormId) ก่อนตัวใน JSON Draft เสมอ
+    const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
+      ? Number(preselectedPlan.surveyFormId)
+      : (targetFormId != null && !isNaN(Number(targetFormId))
+          ? Number(targetFormId)
+          : (isResumeDraft && parsedDraftPayload?.formId ? Number(parsedDraftPayload.formId) : null));
+    if (targetFId) {
+      const found = formList.find(f => Number(f.id) === Number(targetFId));
+      if (found && (!selectedForm || Number(selectedForm.id) !== Number(found.id))) {
+        setSelectedForm(found);
+      }
+    } else if (!selectedForm && unit) {
+      const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
+      if (matched.length > 0) {
+        setSelectedForm(matched[0]);
+      }
+    }
+  }, [formList, targetFormId, preselectedPlan?.surveyFormId, isResumeDraft, parsedDraftPayload?.formId, unit]);
 
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
@@ -1476,6 +1553,43 @@ export default function LiveAuditScreen({
   const [isBackdated, setIsBackdated] = useState(() => Boolean(parsedDraftPayload?.isBackdated));
   const [backdatedStartDate, setBackdatedStartDate] = useState(() => parsedDraftPayload?.backdatedStartDate || "");
   const [backdatedEndDate, setBackdatedEndDate] = useState(() => parsedDraftPayload?.backdatedEndDate || "");
+
+  // 💰 ระบบตรวจนับเงินสด (Cash Audit State)
+  const [cashCounts, setCashCounts] = useState(() => {
+    if (parsedDraftPayload?.cashCounts && typeof parsedDraftPayload.cashCounts === 'object') {
+      return parsedDraftPayload.cashCounts;
+    }
+    const initial = {};
+    CASH_DENOMINATIONS.forEach(d => { initial[d] = "0"; });
+    return initial;
+  });
+  const [isCashSystemOpen, setIsCashSystemOpen] = useState(true);
+  const [isPettyCashOpen, setIsPettyCashOpen] = useState(true);
+
+  // คำนวณยอดเงินรวมทั้งหมดแบบเรียลไทม์
+  const totalCashAmount = useMemo(() => {
+    return CASH_DENOMINATIONS.reduce((sum, denom) => {
+      const count = Number(cashCounts[denom]);
+      if (!isNaN(count) && count > 0) {
+        return sum + count * denom;
+      }
+      return sum;
+    }, 0);
+  }, [cashCounts]);
+
+  const handleCashCountChange = useCallback((denom, val) => {
+    const cleaned = val === "" ? "" : (val.replace(/[^0-9.]/g, '') || "0");
+    setCashCounts(prev => ({
+      ...prev,
+      [denom]: cleaned
+    }));
+  }, []);
+
+  const handleResetCashCounts = useCallback(() => {
+    const initial = {};
+    CASH_DENOMINATIONS.forEach(d => { initial[d] = "0"; });
+    setCashCounts(initial);
+  }, []);
 
   // 🛡️ Accurately resolve effective schedule ID across all entry points
   const effectiveSchedId = useMemo(() => {
@@ -1742,15 +1856,22 @@ export default function LiveAuditScreen({
         setSectionIdx(parsedDraftPayload.sectionIdx);
       }
       if (parsedDraftPayload.unit && !unit) {
-        setUnit(parsedDraftPayload.unit);
+        if (!targetLocationId || Number(parsedDraftPayload.unit.id) === Number(targetLocationId)) {
+          setUnit(parsedDraftPayload.unit);
+        }
+      }
+      if (parsedDraftPayload.cashCounts && typeof parsedDraftPayload.cashCounts === 'object') {
+        setCashCounts(parsedDraftPayload.cashCounts);
       }
       if (parsedDraftPayload.startedAt) {
         setAuditStartedAt(parsedDraftPayload.startedAt);
         auditStartedAtRef.current = parsedDraftPayload.startedAt;
       }
-      if (parsedDraftPayload.formId && (!selectedForm || selectedForm.id !== parsedDraftPayload.formId)) {
-        const foundForm = formList.find(f => f.id === parsedDraftPayload.formId);
-        if (foundForm) setSelectedForm(foundForm);
+      if (parsedDraftPayload.formId && (!selectedForm || Number(selectedForm.id) !== Number(parsedDraftPayload.formId))) {
+        if (!targetFormId || Number(targetFormId) === Number(parsedDraftPayload.formId)) {
+          const foundForm = formList.find(f => Number(f.id) === Number(parsedDraftPayload.formId));
+          if (foundForm) setSelectedForm(foundForm);
+        }
       }
       setStep("audit");
       setActiveTab(2);
@@ -1949,6 +2070,7 @@ export default function LiveAuditScreen({
       const currentAuditeeSignature = overrideData.auditeeSignature !== undefined ? overrideData.auditeeSignature : auditeeSignature;
       const currentAuditorSignature = overrideData.auditorSignature !== undefined ? overrideData.auditorSignature : auditorSignature;
       const currentAuditeeSignName = overrideData.auditeeSignName !== undefined ? overrideData.auditeeSignName : auditeeSignName;
+      const currentCashCounts = overrideData.cashCounts !== undefined ? overrideData.cashCounts : cashCounts;
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
@@ -1956,8 +2078,9 @@ export default function LiveAuditScreen({
       }
 
       const totalAnswered = Object.keys(currentAnswers).length;
+      const hasCashData = currentCashCounts && Object.values(currentCashCounts).some(v => v !== "" && v !== "0" && v !== 0);
 
-      if (totalAnswered === 0 && !currentAuditeeSignature && !currentAuditorSignature) {
+      if (totalAnswered === 0 && !currentAuditeeSignature && !currentAuditorSignature && !hasCashData) {
         setSyncStatus("idle");
         return;
       }
@@ -1974,6 +2097,7 @@ export default function LiveAuditScreen({
         auditType: currentAuditType,
         extraNote: currentExtraNote,
         metadataValues: currentMetadataValues,
+        cashCounts: currentCashCounts,
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
         backdatedEndDate: currentBackdatedEndDate,
@@ -2587,6 +2711,24 @@ export default function LiveAuditScreen({
       return false;
     }
 
+    if (selectedForm?.hasCashAudit) {
+      for (const denom of CASH_DENOMINATIONS) {
+        const raw = cashCounts[denom];
+        if (raw === undefined || raw === null || raw === "" || isNaN(Number(raw)) || Number(raw) < 0) {
+          skipScrollToTopRef.current = true;
+          setActiveTab(2);
+          setIsCashSystemOpen(true);
+          setIsPettyCashOpen(true);
+          setTimeout(() => {
+            const el = document.getElementById("audit-section-cash");
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 150);
+          alert(`⚠️ กรุณากรอกจำนวนสำหรับเงิน ${denom} บาท ในระบบเงินสด (หากไม่มีให้ใส่ 0)`);
+          return false;
+        }
+      }
+    }
+
     if (!auditeeSignName?.trim()) {
       setActiveTab(3);
       alert("⚠️ กรุณาระบุชื่อ-นามสกุลของผู้รับการตรวจ");
@@ -2705,6 +2847,14 @@ export default function LiveAuditScreen({
           ...metadataValues,
           ...(staffCount !== "" && staffCount !== undefined ? { staff_count: staffCount } : {})
         }),
+        cashAuditDataJson: selectedForm?.hasCashAudit ? JSON.stringify({
+          totalAmount: totalCashAmount,
+          items: CASH_DENOMINATIONS.map(denom => ({
+            denomination: denom,
+            count: Number(cashCounts[denom]) || 0,
+            amount: (Number(cashCounts[denom]) || 0) * denom
+          }))
+        }) : null,
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
@@ -3192,6 +3342,14 @@ export default function LiveAuditScreen({
   // AUDIT WORKFLOW (3 TABS)
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "audit") {
+    if (!unit || !selectedForm) {
+      return (
+        <div className="w-full min-h-screen bg-slate-50/50 flex flex-col items-center justify-center p-6 space-y-3 pt-20">
+          <Loader2 className="w-8 h-8 animate-spin text-[#0F6659]" />
+          <p className="text-sm font-semibold text-slate-600">กำลังเตรียมข้อมูลการตรวจ...</p>
+        </div>
+      );
+    }
     const handleProceedToSection = () => {
       for (const field of activeMetadataFields) {
         if (!field.required) continue;
@@ -3236,6 +3394,12 @@ export default function LiveAuditScreen({
         count: `${sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length || 0}/${sec.items?.length || 0}`,
         index,
       })),
+      ...(selectedForm?.hasCashAudit ? [{
+        id: "cash-audit",
+        label: "ระบบเงินสด",
+        icon: <Coins size={16} />,
+        count: totalCashAmount > 0 ? `฿${totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : "0 บาท",
+      }] : []),
       { id: "summary", label: "สรุป", icon: <FileText size={16} />, count: extraNote?.trim() ? "พิมพ์แล้ว" : null },
       { id: "submit", label: "ลงชื่อและส่งผล", icon: <PenTool size={16} />, count: null },
     ];
@@ -3245,6 +3409,25 @@ export default function LiveAuditScreen({
       if (item.id === "details") {
         setActiveTab(1);
         window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (item.id === "cash-audit") {
+        setActiveTab(2);
+        setIsCashSystemOpen(true);
+        setIsPettyCashOpen(true);
+        setTimeout(() => {
+          const el = document.getElementById("audit-section-cash");
+          if (el) {
+            const topOffset = 70;
+            const elPosition = el.getBoundingClientRect().top;
+            const currentScroll = window.scrollY || document.documentElement.scrollTop || document.querySelector('main')?.scrollTop || 0;
+            const targetTop = elPosition + currentScroll - topOffset;
+            window.scrollTo({ top: targetTop, behavior: "smooth" });
+            document.querySelector('main')?.scrollTo({ top: targetTop, behavior: "smooth" });
+          } else {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }
+        }, 150);
         return;
       }
       if (item.id === "summary") {
@@ -3937,6 +4120,150 @@ export default function LiveAuditScreen({
                 </div>
               ))}
 
+              {/* 💰 ระบบเงินสด (Cash Audit / Petty Cash System) ตามรูปแรก */}
+              {selectedForm?.hasCashAudit && (
+                <div id="audit-section-cash" className="audit-section-anchor space-y-3 pt-1">
+                  {/* Container หลัก: ระบบเงินสด */}
+                  <div className="bg-slate-100/80 rounded-3xl p-3 sm:p-5 border border-slate-200/90 shadow-2xs space-y-3">
+                    {/* Header บาร์: ระบบเงินสด พร้อมปุ่มพับเก็บ */}
+                    <div
+                      onClick={() => setIsCashSystemOpen(prev => !prev)}
+                      className="flex items-center justify-between cursor-pointer select-none px-2 py-1"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs font-bold">
+                          <Coins size={17} />
+                        </span>
+                        <div>
+                          <h3 className="text-sm sm:text-base font-black text-slate-800">
+                            ระบบเงินสด
+                          </h3>
+                          <p className="text-[11px] text-slate-500">
+                            ตรวจนับเงินสดตามชนิดธนบัตรและเหรียญ
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-[#0F6659] bg-white px-2.5 py-1 rounded-xl border border-slate-200 shadow-2xs">
+                          รวม: ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </span>
+                        <button
+                          type="button"
+                          className="w-7 h-7 rounded-full bg-white hover:bg-slate-200 text-slate-600 flex items-center justify-center transition-colors shadow-2xs"
+                        >
+                          {isCashSystemOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* กล่องย่อย: เงินสดย่อย */}
+                    {isCashSystemOpen && (
+                      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-2xs space-y-4">
+                        <div
+                          onClick={() => setIsPettyCashOpen(prev => !prev)}
+                          className="flex items-center justify-between cursor-pointer select-none pb-2 border-b border-slate-100"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Banknote size={16} className="text-[#0F6659]" />
+                            <h4 className="text-xs sm:text-sm font-black text-slate-800">เงินสดย่อย</h4>
+                          </div>
+                          <button
+                            type="button"
+                            className="text-slate-400 hover:text-slate-600 p-1"
+                          >
+                            {isPettyCashOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                          </button>
+                        </div>
+
+                        {isPettyCashOpen && (
+                          <div className="space-y-3">
+                            {/* ตารางนับเงิน */}
+                            <div className="overflow-hidden rounded-xl border border-slate-200/90">
+                              <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                                    <th className="py-2.5 px-4 w-1/2">ธนบัตร</th>
+                                    <th className="py-2.5 px-4 w-1/2 text-right">จำนวน (แบงค์/เหรียญ)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {CASH_DENOMINATIONS.map((denom) => {
+                                    const count = cashCounts[denom] ?? "";
+                                    const subtotal = (Number(count) || 0) * denom;
+                                    return (
+                                      <tr key={denom} className="hover:bg-slate-50/60 transition-colors">
+                                        <td className="py-2.5 px-4 font-mono font-bold text-slate-800">
+                                          <div className="flex items-center gap-1.5">
+                                            <span>{denom >= 1 ? denom.toLocaleString() : denom}</span>
+                                            {subtotal > 0 && (
+                                              <span className="text-[10px] text-slate-400 font-normal">
+                                                (= ฿{subtotal.toLocaleString()})
+                                              </span>
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="py-1.5 px-4 text-right">
+                                          <div className="inline-flex items-center justify-end gap-1.5 max-w-[140px] ml-auto">
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="1"
+                                              inputMode="numeric"
+                                              pattern="[0-9]*"
+                                              value={count}
+                                              onChange={(e) => handleCashCountChange(denom, e.target.value)}
+                                              onFocus={(e) => {
+                                                if (e.target.value === "0") {
+                                                  handleCashCountChange(denom, "");
+                                                }
+                                              }}
+                                              onBlur={(e) => {
+                                                if (e.target.value === "") {
+                                                  handleCashCountChange(denom, "0");
+                                                }
+                                              }}
+                                              placeholder="0"
+                                              className="w-full text-right font-mono font-bold text-slate-800 py-1.5 px-3 rounded-lg border border-slate-200 bg-white focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] outline-none text-xs sm:text-sm shadow-2xs transition-all"
+                                            />
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="bg-emerald-50/70 border-t-2 border-emerald-200/80 font-bold text-slate-900">
+                                    <td className="py-3 px-4 text-xs sm:text-sm font-black text-slate-900">
+                                      รวม
+                                    </td>
+                                    <td className="py-3 px-4 text-right">
+                                      <div className="flex items-center justify-end gap-3">
+                                        <span className="font-mono text-sm sm:text-base font-black text-[#0F6659]">
+                                          ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={handleResetCashCounts}
+                                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                          title="ล้างค่าทั้งหมดเป็น 0"
+                                        >
+                                          <RotateCcw size={15} />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="pt-4">
                 <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2">
                   ไปที่สรุปและการลงชื่อ <ChevronRight size={16} />
@@ -3968,19 +4295,10 @@ export default function LiveAuditScreen({
                       <FileText size={17} />
                     </div>
                     <div>
-                      <h3 className="text-sm font-extrabold text-slate-800">หมวดหมู่: สรุป</h3>
-                      <p className="text-[11px] font-medium text-slate-500">สรุปผลการตรวจประเมิน ข้อสังเกต หรือข้อเสนอแนะภาพรวม</p>
+                      <h3 className="text-sm font-extrabold text-slate-800">สรุปการประเมิน</h3>
+                      <p className="text-[11px] font-medium text-slate-500">สรุปผลการตรวจประเมินภาพรวม</p>
                     </div>
                   </div>
-                  {extraNote?.trim() ? (
-                    <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      ✓ บันทึกแล้ว
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500">
-                      ข้อความสรุป
-                    </span>
-                  )}
                 </div>
 
                 <div className="space-y-1.5">
@@ -3996,13 +4314,9 @@ export default function LiveAuditScreen({
                       e.target.style.height = "auto";
                       e.target.style.height = `${Math.max(96, e.target.scrollHeight)}px`;
                     }}
-                    placeholder="พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ หรือข้อสังเกตภาพรวมก่อนลงนาม..."
+                    placeholder="พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ..."
                     className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-2xl border border-slate-200 outline-none font-medium bg-slate-50/50 focus:bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[96px] text-slate-800 leading-relaxed transition-all"
                   />
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                    <span className="italic">พิมพ์ตัวอักษรอย่างเดียว</span>
-                    <span>{extraNote?.length || 0} ตัวอักษร</span>
-                  </div>
                 </div>
               </div>
 

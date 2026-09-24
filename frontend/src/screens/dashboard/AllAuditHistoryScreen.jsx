@@ -363,6 +363,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             auditScheduleId: d.auditScheduleId || d.scheduleId || null,
             scheduleId: d.auditScheduleId || d.scheduleId || null,
             locationId: d.locationId,
+            locationName: branchName,
+            locationFullName: branchFullName,
             surveyFormId: formId,
             unit: d.location || { id: d.locationId, name: branchName, fullName: branchFullName },
             answers: parsedPayload?.answers || d.answers || {},
@@ -814,12 +816,20 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
   };
 
   const handleTriggerResume = (record) => {
-  setActiveDirectPlan({ ...record, isResume: true });
-};
+    if (onResumeDraft) {
+      onResumeDraft(record);
+    } else {
+      setActiveDirectPlan({ ...record, isResume: true });
+    }
+  };
 
-const handleTriggerAudit = (record) => {
-  setActiveDirectPlan(record);
-};
+  const handleTriggerAudit = (record) => {
+    if (onStartAudit) {
+      onStartAudit(record);
+    } else {
+      setActiveDirectPlan(record);
+    }
+  };
 
   if (activeDirectPlan) {
     return (

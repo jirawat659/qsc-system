@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, FileText, Calendar, User, FileSpreadsheet, Sparkles } from "lucide-react";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, FileText, Calendar, User, FileSpreadsheet, Sparkles, Coins, Banknote } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -239,6 +239,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     if (!targetId) return null;
     return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
   }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
+
+  // 💰 ข้อมูลการตรวจนับเงินสด (Cash Audit)
+  const parsedCashAudit = useMemo(() => {
+    if (!currentRecord?.cashAuditDataJson) return null;
+    try {
+      const data = typeof currentRecord.cashAuditDataJson === 'string'
+        ? JSON.parse(currentRecord.cashAuditDataJson)
+        : currentRecord.cashAuditDataJson;
+      return data;
+    } catch {
+      return null;
+    }
+  }, [currentRecord?.cashAuditDataJson]);
 
   // 🌟 โหลด form detail ของเวอร์ชันที่ตรงกับรอบตรวจนี้ (ตาม surveyFormId) หากยังไม่มี sections
   useEffect(() => {
@@ -1277,6 +1290,69 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               </div>
             );
           }))}
+
+          {/* 💰 ข้อมูลการตรวจนับเงินสด (เงินสดย่อย) */}
+          {parsedCashAudit && (
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs font-bold">
+                    <Coins size={17} />
+                  </span>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-black text-slate-800">
+                      ระบบเงินสด (เงินสดย่อย)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      ผลการตรวจนับเงินสดตามชนิดธนบัตรและเหรียญ
+                    </p>
+                  </div>
+                </div>
+
+                <span className="text-xs sm:text-sm font-black text-[#0F6659] bg-emerald-50 px-3 py-1 rounded-xl border border-emerald-200 shadow-2xs">
+                  รวม: ฿{(parsedCashAudit.totalAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              {/* ตารางแสดงรายการธนบัตรและเหรียญ */}
+              <div className="overflow-hidden rounded-xl border border-slate-200/90">
+                <table className="w-full text-xs sm:text-sm text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                      <th className="py-2.5 px-4 w-1/3">ธนบัตร / เหรียญ</th>
+                      <th className="py-2.5 px-4 w-1/3 text-center">จำนวนที่นับได้</th>
+                      <th className="py-2.5 px-4 w-1/3 text-right">ยอดเงิน (บาท)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(parsedCashAudit.items || []).map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="py-2 px-4 font-mono font-bold text-slate-800">
+                          {item.denomination >= 1 ? item.denomination.toLocaleString() : item.denomination} บาท
+                        </td>
+                        <td className="py-2 px-4 text-center font-mono font-medium text-slate-700">
+                          {item.count ? `${item.count.toLocaleString()} ฉบับ/เหรียญ` : "0"}
+                        </td>
+                        <td className="py-2 px-4 text-right font-mono font-bold text-slate-900">
+                          ฿{(item.amount || (item.count * item.denomination) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-emerald-50/70 border-t-2 border-emerald-200/80 font-bold text-slate-900">
+                      <td colSpan={2} className="py-3 px-4 text-xs sm:text-sm font-black text-slate-900">
+                        รวมเงินสดทั้งหมด
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono text-sm sm:text-base font-black text-[#0F6659]">
+                        ฿{(parsedCashAudit.totalAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
