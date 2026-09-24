@@ -363,6 +363,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             auditScheduleId: d.auditScheduleId || d.scheduleId || null,
             scheduleId: d.auditScheduleId || d.scheduleId || null,
             locationId: d.locationId,
+            locationName: branchName,
+            locationFullName: branchFullName,
             surveyFormId: formId,
             unit: d.location || { id: d.locationId, name: branchName, fullName: branchFullName },
             answers: parsedPayload?.answers || d.answers || {},

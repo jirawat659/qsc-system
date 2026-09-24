@@ -1157,8 +1157,14 @@ export default function LiveAuditScreen({
   const currentUser = propUser || ctxUser;
   const formList = forms || [];
 
-  const targetLocationId = preselectedPlan?.locationId || (preselectedPlan?.locationName ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id : null);
-  const targetFormId = preselectedPlan?.surveyFormId;
+  const targetLocationId = preselectedPlan?.locationId != null && !isNaN(Number(preselectedPlan.locationId))
+    ? Number(preselectedPlan.locationId)
+    : (preselectedPlan?.locationName
+        ? allLocations.find(l => l.name === preselectedPlan.locationName || l.fullName === preselectedPlan.locationName)?.id
+        : (typeof preselectedPlan?.unit === 'object' && preselectedPlan?.unit?.id ? Number(preselectedPlan.unit.id) : null));
+  const targetFormId = preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId))
+    ? Number(preselectedPlan.surveyFormId)
+    : null;
 
   const matchedDraftRecord = useMemo(() => {
     if (preselectedPlan?.isNewAudit) return null;
@@ -1168,7 +1174,7 @@ export default function LiveAuditScreen({
     if (preselectedPlan?.isResume) {
       const explicitDraftId = preselectedPlan.originalId || preselectedPlan.id;
       if (explicitDraftId && typeof explicitDraftId === 'number') {
-        const foundById = allDrafts.find(d => d.id === explicitDraftId);
+        const foundById = allDrafts.find(d => Number(d.id) === Number(explicitDraftId));
         if (foundById) return foundById;
       }
       if (preselectedPlan?.draftPayloadJson || preselectedPlan?.answers) {
@@ -1185,17 +1191,21 @@ export default function LiveAuditScreen({
     }
 
     if (preselectedPlan?.id && typeof preselectedPlan.id === 'number') {
-      const foundBySched = allDrafts.find(d => d.auditScheduleId === preselectedPlan.id);
+      const foundBySched = allDrafts.find(d => Number(d.auditScheduleId) === Number(preselectedPlan.id));
       if (foundBySched) return foundBySched;
     }
+
+    const pUnitName = typeof preselectedPlan?.unit === 'string'
+      ? preselectedPlan.unit
+      : (preselectedPlan?.unit?.fullName || preselectedPlan?.unit?.name);
 
     const found = allDrafts.find(d => {
       const dLocId = d.locationId || d.location?.id || d.unit?.id;
       const dLocName = d.locationName || d.locationFullName || d.unit?.name || d.unit?.fullName;
-      const matchLoc = (targetLocationId && dLocId === targetLocationId) ||
-        (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === preselectedPlan.unit)) ||
-        (preselectedPlan?.unit && (dLocName === preselectedPlan.unit || (d.locationFullName && d.locationFullName.includes(preselectedPlan.unit))));
-      const matchForm = !targetFormId || d.surveyFormId === targetFormId || d.formId === targetFormId;
+      const matchLoc = (targetLocationId && Number(dLocId) === Number(targetLocationId)) ||
+        (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === pUnitName)) ||
+        (pUnitName && (dLocName === pUnitName || (d.locationFullName && d.locationFullName.includes(pUnitName))));
+      const matchForm = !targetFormId || Number(d.surveyFormId) === Number(targetFormId) || Number(d.formId) === Number(targetFormId);
       return matchLoc && matchForm;
     });
 
@@ -1311,38 +1321,95 @@ export default function LiveAuditScreen({
   };
 
   const [unit, setUnit] = useState(() => {
-    if (isResumeDraft && parsedDraftPayload?.unit) return parsedDraftPayload.unit;
-    if (isFromAssignedPlan || isResumeDraft) {
-      const locId = preselectedPlan?.locationId || targetLocationId;
-      const locName = preselectedPlan?.locationName || preselectedPlan?.unit;
-      return allLocations.find(u =>
-        (locId && u.id === locId) ||
+    if (typeof preselectedPlan?.unit === 'object' && preselectedPlan?.unit?.name) {
+      if (!targetLocationId || Number(preselectedPlan.unit.id) === Number(targetLocationId)) {
+        return preselectedPlan.unit;
+      }
+    }
+    if (isResumeDraft && parsedDraftPayload?.unit) {
+      if (!targetLocationId || Number(parsedDraftPayload.unit.id) === Number(targetLocationId)) {
+        return parsedDraftPayload.unit;
+      }
+    }
+    if (isFromAssignedPlan || isResumeDraft || targetLocationId || preselectedPlan?.locationName) {
+      const locId = targetLocationId || preselectedPlan?.locationId;
+      const locName = preselectedPlan?.locationName || (typeof preselectedPlan?.unit === 'string' ? preselectedPlan?.unit : preselectedPlan?.unit?.name);
+      const found = allLocations.find(u =>
+        (locId && Number(u.id) === Number(locId)) ||
         (locName && (u.name === locName || u.fullName === locName || (u.fullName && u.fullName.includes(locName))))
-      ) || allLocations[0];
+      );
+      if (found) return found;
+      if (typeof preselectedPlan?.unit === 'object' && preselectedPlan?.unit) {
+        return preselectedPlan.unit;
+      }
     }
     return null;
   });
 
   const applicableForms = useMemo(() => {
     const activeLatestForms = formList.filter(f => 
-      ((f.isLatest !== false && f.isLatest !== 0) || f.id === preselectedPlan?.surveyFormId || f.id === targetFormId) &&
+      ((f.isLatest !== false && f.isLatest !== 0) || Number(f.id) === Number(preselectedPlan?.surveyFormId) || Number(f.id) === Number(targetFormId)) &&
       f.isActive !== false && f.isActive !== 0
     );
     if (!unit) return activeLatestForms;
-    return activeLatestForms.filter(f => isFormApplicableToLocation(f, unit));
+    return activeLatestForms.filter(f => 
+      (preselectedPlan?.surveyFormId && Number(f.id) === Number(preselectedPlan.surveyFormId)) ||
+      (targetFormId && Number(f.id) === Number(targetFormId)) ||
+      isFormApplicableToLocation(f, unit)
+    );
   }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
-    const targetFId = (isResumeDraft && parsedDraftPayload?.formId) ? parsedDraftPayload.formId : (preselectedPlan?.surveyFormId || targetFormId);
+    const targetFId = (isResumeDraft && parsedDraftPayload?.formId) 
+      ? Number(parsedDraftPayload.formId) 
+      : (preselectedPlan?.surveyFormId ? Number(preselectedPlan.surveyFormId) : (targetFormId ? Number(targetFormId) : null));
     if (targetFId) {
-      return formList.find(f => f.id === targetFId) || formList[0];
+      const found = formList.find(f => Number(f.id) === Number(targetFId));
+      if (found) return found;
     }
     if (unit) {
       const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
       if (matched.length > 0) return matched[0];
     }
-    return formList[0];
+    return null;
   });
+
+  // 🌟 Sync unit from allLocations once data finishes loading asynchronously
+  useEffect(() => {
+    if (!allLocations || allLocations.length === 0) return;
+    const locId = targetLocationId || preselectedPlan?.locationId;
+    const locName = preselectedPlan?.locationName || (typeof preselectedPlan?.unit === 'string' ? preselectedPlan?.unit : preselectedPlan?.unit?.name);
+    if (locId || locName) {
+      const found = allLocations.find(u =>
+        (locId && Number(u.id) === Number(locId)) ||
+        (locName && (u.name === locName || u.fullName === locName || (u.fullName && u.fullName.includes(locName))))
+      );
+      if (found) {
+        if (!unit || Number(unit.id) !== Number(found.id)) {
+          setUnit(found);
+        }
+      }
+    }
+  }, [allLocations, targetLocationId, preselectedPlan?.locationId, preselectedPlan?.locationName, preselectedPlan?.unit]);
+
+  // 🌟 Sync selectedForm from formList once forms finish loading asynchronously
+  useEffect(() => {
+    if (!formList || formList.length === 0) return;
+    const targetFId = (isResumeDraft && parsedDraftPayload?.formId) 
+      ? Number(parsedDraftPayload.formId) 
+      : (preselectedPlan?.surveyFormId ? Number(preselectedPlan.surveyFormId) : (targetFormId ? Number(targetFormId) : null));
+    if (targetFId) {
+      const found = formList.find(f => Number(f.id) === Number(targetFId));
+      if (found && (!selectedForm || Number(selectedForm.id) !== Number(found.id))) {
+        setSelectedForm(found);
+      }
+    } else if (!selectedForm && unit) {
+      const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
+      if (matched.length > 0) {
+        setSelectedForm(matched[0]);
+      }
+    }
+  }, [formList, targetFormId, preselectedPlan?.surveyFormId, isResumeDraft, parsedDraftPayload?.formId, unit]);
 
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
@@ -1769,7 +1836,9 @@ export default function LiveAuditScreen({
         setSectionIdx(parsedDraftPayload.sectionIdx);
       }
       if (parsedDraftPayload.unit && !unit) {
-        setUnit(parsedDraftPayload.unit);
+        if (!targetLocationId || Number(parsedDraftPayload.unit.id) === Number(targetLocationId)) {
+          setUnit(parsedDraftPayload.unit);
+        }
       }
       if (parsedDraftPayload.cashCounts && typeof parsedDraftPayload.cashCounts === 'object') {
         setCashCounts(parsedDraftPayload.cashCounts);
@@ -1778,8 +1847,8 @@ export default function LiveAuditScreen({
         setAuditStartedAt(parsedDraftPayload.startedAt);
         auditStartedAtRef.current = parsedDraftPayload.startedAt;
       }
-      if (parsedDraftPayload.formId && (!selectedForm || selectedForm.id !== parsedDraftPayload.formId)) {
-        const foundForm = formList.find(f => f.id === parsedDraftPayload.formId);
+      if (parsedDraftPayload.formId && (!selectedForm || Number(selectedForm.id) !== Number(parsedDraftPayload.formId))) {
+        const foundForm = formList.find(f => Number(f.id) === Number(parsedDraftPayload.formId));
         if (foundForm) setSelectedForm(foundForm);
       }
       setStep("audit");
@@ -3251,6 +3320,14 @@ export default function LiveAuditScreen({
   // AUDIT WORKFLOW (3 TABS)
   // ════════════════════════════════════════════════════════════════════════════
   if (step === "audit") {
+    if (!unit || !selectedForm) {
+      return (
+        <div className="w-full min-h-screen bg-slate-50/50 flex flex-col items-center justify-center p-6 space-y-3 pt-20">
+          <Loader2 className="w-8 h-8 animate-spin text-[#0F6659]" />
+          <p className="text-sm font-semibold text-slate-600">กำลังเตรียมข้อมูลการตรวจ...</p>
+        </div>
+      );
+    }
     const handleProceedToSection = () => {
       for (const field of activeMetadataFields) {
         if (!field.required) continue;
