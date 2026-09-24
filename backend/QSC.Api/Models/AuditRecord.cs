@@ -26,6 +26,7 @@ namespace QSC.Api.Models
         public string AuditType { get; set; } = "announced";
         public string? Notes { get; set; }
         public string? MetadataValuesJson { get; set; }
+        public string? CashAuditDataJson { get; set; }
         public string? AiAnalysisJson { get; set; }
         public DateTime? AiAnalysisGeneratedAt { get; set; }
         

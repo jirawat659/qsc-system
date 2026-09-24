@@ -22,6 +22,7 @@ namespace QSC.Api.Models
         public User? Creator { get; set; }
         public string? MetadataConfigJson { get; set; }
         public string? CategoryOrderJson { get; set; }
+        public bool HasCashAudit { get; set; } = false;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public List<SurveySection> Sections { get; set; } = new();

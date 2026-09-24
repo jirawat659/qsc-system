@@ -523,6 +523,7 @@ namespace QSC.Api.Controllers
             public string AuditType { get; set; } = "announced";
             public string? Notes { get; set; }
             public string? MetadataValuesJson { get; set; }
+            public string? CashAuditDataJson { get; set; }
 
             // Signatures
             public string? AuditorSignatureUrl { get; set; }
@@ -861,6 +862,7 @@ namespace QSC.Api.Controllers
                     AuditType = NormalizeAuditType(dto.AuditType),
                     Notes = dto.Notes,
                     MetadataValuesJson = dto.MetadataValuesJson,
+                    CashAuditDataJson = dto.CashAuditDataJson,
                     AuditorSignatureUrl = string.IsNullOrWhiteSpace(auditorSigUrl) ? null : auditorSigUrl,
                     AuditeeSignatureUrl = string.IsNullOrWhiteSpace(auditeeSigUrl) ? null : auditeeSigUrl,
                     SignedAt = dto.SignedAt ?? DateTime.UtcNow,
@@ -1337,6 +1339,7 @@ namespace QSC.Api.Controllers
                 auditType = r.AuditType,
                 notes = r.Notes,
                 metadataValuesJson = r.MetadataValuesJson,
+                cashAuditDataJson = r.CashAuditDataJson,
                 auditorSignatureUrl = r.AuditorSignatureUrl,
                 auditeeSignatureUrl = r.AuditeeSignatureUrl,
                 signedAt = r.SignedAt,
@@ -1398,6 +1401,7 @@ namespace QSC.Api.Controllers
             public string AuditType { get; set; } = "announced";
             public string? Notes { get; set; }
             public string? MetadataValuesJson { get; set; }
+            public string? CashAuditDataJson { get; set; }
 
             // Start & End times
             public DateTime? StartedAt { get; set; }
@@ -1591,6 +1595,7 @@ namespace QSC.Api.Controllers
                 record.AuditType = NormalizeAuditType(dto.AuditType);
                 record.Notes = dto.Notes;
                 record.MetadataValuesJson = dto.MetadataValuesJson;
+                if (dto.CashAuditDataJson != null) record.CashAuditDataJson = dto.CashAuditDataJson;
 
                 // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
                 if (dto.StartedAt.HasValue)
