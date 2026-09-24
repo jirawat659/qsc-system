@@ -1571,6 +1571,20 @@ export default function LiveAuditScreen({
     }, 0);
   }, [cashCounts]);
 
+  const handleCashCountChange = useCallback((denom, val) => {
+    const cleaned = val === "" ? "" : (val.replace(/[^0-9.]/g, '') || "0");
+    setCashCounts(prev => ({
+      ...prev,
+      [denom]: cleaned
+    }));
+  }, []);
+
+  const handleResetCashCounts = useCallback(() => {
+    const initial = {};
+    CASH_DENOMINATIONS.forEach(d => { initial[d] = "0"; });
+    setCashCounts(initial);
+  }, []);
+
   // 🛡️ Accurately resolve effective schedule ID across all entry points
   const effectiveSchedId = useMemo(() => {
     if (preselectedPlan?.auditScheduleId && Number(preselectedPlan.auditScheduleId) > 0) {
