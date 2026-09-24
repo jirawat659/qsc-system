@@ -147,6 +147,7 @@ namespace QSC.Api.Controllers
                     version = f.Version,
                     isLatest = f.IsLatest,
                     isActive = f.IsActive,
+                    hasCashAudit = f.HasCashAudit,
                     metadataConfigJson = f.MetadataConfigJson,
                     categoryOrderJson = f.CategoryOrderJson,
                     createdAt = f.CreatedAt,
@@ -245,6 +246,7 @@ namespace QSC.Api.Controllers
                 version = f.Version,
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
+                hasCashAudit = f.HasCashAudit,
                 metadataConfigJson = f.MetadataConfigJson,
                 categoryOrderJson = f.CategoryOrderJson,
                 createdAt = f.CreatedAt,
@@ -298,6 +300,7 @@ namespace QSC.Api.Controllers
             public string Version { get; set; } = "v1.0";
             public string? MetadataConfigJson { get; set; }
             public string? CategoryOrderJson { get; set; }
+            public bool HasCashAudit { get; set; } = false;
             public int? CreatedBy { get; set; }
             public List<int> TargetLocationIds { get; set; } = new();
             public List<SectionDto> Sections { get; set; } = new();
@@ -367,6 +370,7 @@ namespace QSC.Api.Controllers
                     Version = dto.Version,
                     MetadataConfigJson = dto.MetadataConfigJson,
                     CategoryOrderJson = dto.CategoryOrderJson,
+                    HasCashAudit = dto.HasCashAudit,
                     IsLatest = true,
                     IsActive = true,
                     CreatedBy = dto.CreatedBy,
@@ -563,6 +567,7 @@ namespace QSC.Api.Controllers
                     form.Version = dto.Version;
                     form.MetadataConfigJson = dto.MetadataConfigJson;
                     form.CategoryOrderJson = dto.CategoryOrderJson;
+                    form.HasCashAudit = dto.HasCashAudit;
 
                     // Sync Brands (SurveyFormBrands)
                     var existingBrands = await _context.SurveyFormBrands.Where(b => b.SurveyFormId == id).ToListAsync();
@@ -723,6 +728,7 @@ namespace QSC.Api.Controllers
                         Version = nextVersion,
                         MetadataConfigJson = dto.MetadataConfigJson,
                         CategoryOrderJson = dto.CategoryOrderJson,
+                        HasCashAudit = dto.HasCashAudit,
                         IsLatest = true,
                         IsActive = true,
                         CreatedBy = dto.CreatedBy ?? form.CreatedBy,
