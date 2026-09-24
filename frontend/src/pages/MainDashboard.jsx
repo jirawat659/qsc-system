@@ -632,7 +632,7 @@ export default function MainDashboard({ onLogout }) {
     setAuditHeaderOffset(0);
   }, [screen]);
 
-  const isLiveAuditScreen = screen === "audit" && Boolean(subHeader?.isAudit);
+  const isLiveAuditScreen = screen === "audit" || Boolean(subHeader?.isAudit);
 
   // 🌟 Dynamic Scroll Listener: แถบหลักจะไม่ยุบจนกว่าจุดมาร์คของหมวดแรก (Section 1) จะเลื่อนขึ้นมาชน
   useEffect(() => {
@@ -643,9 +643,11 @@ export default function MainDashboard({ onLogout }) {
 
       if (isLiveAuditScreen) {
         // หาจุดมาร์คของหมวดแรก
-        const marker0 = document.getElementById("audit-section-header-0") || document.getElementById("audit-section-0");
+        const marker0 = document.getElementById("audit-section-header-0") || 
+                        document.getElementById("audit-section-0") ||
+                        document.querySelector(".audit-section-anchor");
+        const topBarH = headerRef.current?.offsetHeight || 58;
         if (marker0) {
-          const topBarH = headerRef.current?.offsetHeight || 58;
           const rect = marker0.getBoundingClientRect();
           // เมื่อจุดมาร์คของหมวดแรกยังอยู่ต่ำกว่าแถบบนสุด (rect.top >= topBarH) -> ไม่ต้องยุบแถบหลัก (offset = 0)
           // เมื่อจุดมาร์คเลื่อนขึ้นมาชนแถบบนสุด (rect.top < topBarH) -> แถบหลักจะค่อยๆ เลื่อนขึ้นไป 1:1 ตามการเลื่อนของจุดมาร์ค
@@ -655,6 +657,9 @@ export default function MainDashboard({ onLogout }) {
           } else {
             setAuditHeaderOffset(0);
           }
+        } else if (scrollY > 80) {
+          // Fallback หากยังไม่ได้ render marker0 แต่หน้าจอเลื่อนลงมาแล้ว
+          setAuditHeaderOffset(topBarH);
         } else {
           setAuditHeaderOffset(0);
         }
@@ -663,6 +668,10 @@ export default function MainDashboard({ onLogout }) {
       }
     };
 
+    // 🌟 เรียกทันทีเมื่อ mount หรือเมื่อ isLiveAuditScreen เปลี่ยน เพื่อคำนวณ offset ทันทีหากหน้าเลื่อนอยู่แล้ว
+    handleScroll();
+    const t = setTimeout(handleScroll, 60);
+
     window.addEventListener("scroll", handleScroll, { passive: true });
     const mainEl = mainContentRef.current;
     if (mainEl) {
@@ -670,6 +679,7 @@ export default function MainDashboard({ onLogout }) {
     }
 
     return () => {
+      clearTimeout(t);
       window.removeEventListener("scroll", handleScroll);
       if (mainEl) {
         mainEl.removeEventListener("scroll", handleScroll);
