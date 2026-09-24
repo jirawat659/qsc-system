@@ -2206,12 +2206,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   <Coins size={15} className="text-[#0F6659]" />
                   <span className="text-xs font-extrabold text-slate-800">การตรวจนับเงินสด (Cash Audit)</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-bold text-slate-500">ยอดรวมสุทธิ:</span>
-                  <span className="text-sm font-extrabold text-[#0F6659] bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200 font-mono">
-                    ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
               </div>
 
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
@@ -2219,23 +2213,17 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                     <tr>
                       <th className="py-2.5 px-3">ชนิดธนบัตร / เหรียญ</th>
-                      <th className="py-2.5 px-3 text-center w-28 sm:w-36">จำนวน (ใบ/เหรียญ)</th>
-                      <th className="py-2.5 px-3 text-right">จำนวนเงิน (บาท)</th>
+                      <th className="py-2.5 px-3 text-center w-28 sm:w-36">จำนวน</th>
+                      <th className="py-2.5 px-3 text-right">จำนวนเงิน</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {CASH_DENOMINATIONS.map((denom) => {
                       const count = cashCounts[denom] ?? "";
                       const subtotal = (Number(count) || 0) * denom;
-                      const isBanknote = denom >= 20;
                       return (
                         <tr key={denom} className="hover:bg-slate-50/60 transition-colors">
                           <td className="py-2 px-3 font-medium text-slate-700">
-                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mr-2 ${
-                              isBanknote ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-slate-100 text-slate-700 border border-slate-200"
-                            }`}>
-                              {isBanknote ? "ธนบัตร" : "เหรียญ"}
-                            </span>
                             <span className="font-mono font-bold">{denom >= 1 ? denom.toLocaleString() : denom} บาท</span>
                           </td>
                           <td className="py-1.5 px-3 text-center">
