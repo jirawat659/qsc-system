@@ -40,18 +40,20 @@ function HeaderTitleContent({ subHeader }) {
   if (subHeader?.sectionBadgeNumber) {
     return (
       <div
-        className="flex items-center gap-2 min-w-0 cursor-pointer group"
+        className="flex items-center justify-between gap-2 min-w-0 w-full cursor-pointer group"
         onClick={subHeader.onMenuClick}
         title="แตะเพื่อเลือกหมวดการตรวจ"
       >
-        <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-emerald-700 transition-colors shadow-2xs">
-          {subHeader.sectionBadgeNumber}
-        </span>
-        <span className="text-sm font-black text-slate-900 truncate leading-tight min-w-0 group-hover:text-[#0F6659] transition-colors">
-          {subHeader.title}
-        </span>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-emerald-700 transition-colors shadow-2xs">
+            {subHeader.sectionBadgeNumber}
+          </span>
+          <span className="text-sm font-black text-slate-900 truncate leading-tight min-w-0 group-hover:text-[#0F6659] transition-colors">
+            {subHeader.title}
+          </span>
+        </div>
         {subHeader?.subtitle && (
-          <span className="text-[10px] font-bold text-[#0F6659] bg-white px-2.5 py-1 rounded-lg border border-[#CCE3DC] shadow-2xs shrink-0">
+          <span className="text-[10px] font-bold text-[#0F6659] bg-white px-2.5 py-1 rounded-lg border border-[#CCE3DC] shadow-2xs shrink-0 ml-auto">
             {subHeader.subtitle}
           </span>
         )}
@@ -102,14 +104,14 @@ function PushingHeaderTitle({ subHeader }) {
   }, [titleKey]);
 
   return (
-    <div className="relative h-9 overflow-hidden">
+    <div className="relative h-9 overflow-hidden w-full">
       {previous && (
-        <div className="absolute inset-0 flex items-center animate-push-up-out">
+        <div className="absolute inset-0 flex items-center w-full animate-push-up-out">
           <HeaderTitleContent subHeader={previous.subHeader} />
         </div>
       )}
       <div
-        className={`${previous ? "absolute inset-0" : "relative h-full"} flex items-center ${
+        className={`${previous ? "absolute inset-0" : "relative h-full"} flex items-center w-full ${
           previous ? "animate-push-up-in" : ""
         }`}
       >
@@ -121,6 +123,8 @@ function PushingHeaderTitle({ subHeader }) {
 
 // 🌟 แถบ TopBar ย่อยสำหรับหน้ารายละเอียด และหน้าตรวจประเมิน (Live Audit)
 function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
+  const isCategoryMode = Boolean(subHeader?.sectionBadgeNumber);
+
   return (
     <div className="flex items-center justify-between gap-2 min-w-0 w-full">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -129,7 +133,7 @@ function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
             type="button"
             onClick={subHeader.leftActionType === "menu" ? subHeader.onMenuClick : subHeader.onBack}
             className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border shrink-0 group ${
-              subHeader?.sectionBadgeNumber
+              isCategoryMode
                 ? "bg-white/95 text-[#0F6659] border-[#CCE3DC] hover:bg-emerald-50"
                 : "bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 border-slate-200"
             }`}
@@ -151,20 +155,24 @@ function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
         </div>
       </div>
 
-
-      <div className="flex items-center gap-2 shrink-0">
-        {subHeader?.action}
-        <button
-          type="button"
-          onClick={() => setShowProfileModal(true)}
-          className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
-          title="ดูโปรไฟล์และบัญชีผู้ใช้"
-        >
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
-            {currentUser?.avatar || "ผ"}
-          </div>
-        </button>
-      </div>
+      {/* 🌟 แสดง action (ปุ่มแก้ไข) และปุ่มโปรไฟล์ เฉพาะตอนที่ไม่ได้อยู่ในหน้ารายการข้อหมวดหมู่ */}
+      {!isCategoryMode && (
+        <div className="flex items-center gap-2 shrink-0 animate-in fade-in duration-150">
+          {subHeader?.action}
+          {currentUser && setShowProfileModal && (
+            <button
+              type="button"
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
+              title="ดูโปรไฟล์และบัญชีผู้ใช้"
+            >
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+                {currentUser?.avatar || "ผ"}
+              </div>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
