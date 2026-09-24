@@ -47,7 +47,7 @@ function InfoPopover({ title, description, align="right" }) {
 
       {open && (
         <div
-          className={`absolute top-full mt-2 w-56 sm:w-64 p-3 bg-slate-900/95 text-white rounded-xl shadow-2xl z-50 text-xs border border-slate-700 animate-in fade-in zoom-in-95 backdrop-blur-sm ${
+          className={`absolute top-full mt-2 w-56 sm:w-64 p-3 bg-slate-900/95 text-white rounded-xl shadow-2xl z-20 text-xs border border-slate-700 animate-in fade-in zoom-in-95 backdrop-blur-sm ${
             isAlignRight ? "-right-2 sm:right-0" : "-left-2 sm:left-0"
           }`}
         >
@@ -88,7 +88,7 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
   const current = options.find((o) => o.value === value);
 
   return (
-    <div ref={ref} className="relative z-50">
+    <div ref={ref} className={`relative ${open ? "z-20" : "z-auto"}`}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -102,7 +102,7 @@ function PeriodDropdown({ value, onChange, options, size = "sm" }) {
       </button>
 
       {open && (
-        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-50 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95">
+        <div className="absolute left-0 mt-1.5 rounded-2xl border bg-white shadow-xl overflow-hidden z-20 py-1 min-w-[200px] border-slate-200 animate-in fade-in zoom-in-95">
           {options.map((opt) => (
             <button
               key={opt.value}

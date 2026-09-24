@@ -1046,7 +1046,7 @@ export default function MainDashboard({ onLogout }) {
                   }
                 : undefined
             }
-            className={`flex lg:hidden flex-col shrink-0 sticky top-0 z-30 px-3.5 pt-3.5 pb-3 border-b ${
+            className={`flex lg:hidden flex-col shrink-0 sticky top-0 z-40 px-3.5 pt-3.5 pb-3 border-b ${
               (isScrolled || subHeader)
                 ? "bg-white/90 backdrop-blur-md border-slate-200/60 shadow-xs"
                 : "bg-transparent border-transparent shadow-none"
