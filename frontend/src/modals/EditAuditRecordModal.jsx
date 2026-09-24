@@ -2244,8 +2244,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   </tbody>
                   <tfoot className="bg-slate-50 border-t border-slate-200 font-extrabold text-slate-800">
                     <tr>
-                      <td colSpan={2} className="py-2.5 px-3 text-right text-xs">ยอดรวมทั้งหมด:</td>
-                      <td className="py-2.5 px-3 text-right text-sm font-mono text-[#0F6659]">
+                      <td colSpan={2} className="py-2.5 px-3 text-left text-xs font-extrabold text-slate-800">ยอดรวมทั้งหมด:</td>
+                      <td className="py-2.5 px-3 text-right text-sm font-mono font-black text-[#0F6659]">
                         ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
