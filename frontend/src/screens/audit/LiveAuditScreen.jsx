@@ -1360,9 +1360,12 @@ export default function LiveAuditScreen({
   }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
-    const targetFId = (isResumeDraft && parsedDraftPayload?.formId) 
-      ? Number(parsedDraftPayload.formId) 
-      : (preselectedPlan?.surveyFormId ? Number(preselectedPlan.surveyFormId) : (targetFormId ? Number(targetFormId) : null));
+    // 🌟 ให้ความสำคัญกับ SurveyFormId จากฐานข้อมูลภายนอก / Plan ก่อนเสมอ ถ้าไม่มีค่อย fallback ไปใช้ formId ใน JSON Draft
+    const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
+      ? Number(preselectedPlan.surveyFormId)
+      : (targetFormId != null && !isNaN(Number(targetFormId))
+          ? Number(targetFormId)
+          : (isResumeDraft && parsedDraftPayload?.formId ? Number(parsedDraftPayload.formId) : null));
     if (targetFId) {
       const found = formList.find(f => Number(f.id) === Number(targetFId));
       if (found) return found;
@@ -1395,9 +1398,12 @@ export default function LiveAuditScreen({
   // 🌟 Sync selectedForm from formList once forms finish loading asynchronously
   useEffect(() => {
     if (!formList || formList.length === 0) return;
-    const targetFId = (isResumeDraft && parsedDraftPayload?.formId) 
-      ? Number(parsedDraftPayload.formId) 
-      : (preselectedPlan?.surveyFormId ? Number(preselectedPlan.surveyFormId) : (targetFormId ? Number(targetFormId) : null));
+    // 🌟 ยึดตัวนอก (preselectedPlan.surveyFormId / targetFormId) ก่อนตัวใน JSON Draft เสมอ
+    const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
+      ? Number(preselectedPlan.surveyFormId)
+      : (targetFormId != null && !isNaN(Number(targetFormId))
+          ? Number(targetFormId)
+          : (isResumeDraft && parsedDraftPayload?.formId ? Number(parsedDraftPayload.formId) : null));
     if (targetFId) {
       const found = formList.find(f => Number(f.id) === Number(targetFId));
       if (found && (!selectedForm || Number(selectedForm.id) !== Number(found.id))) {
@@ -1862,8 +1868,10 @@ export default function LiveAuditScreen({
         auditStartedAtRef.current = parsedDraftPayload.startedAt;
       }
       if (parsedDraftPayload.formId && (!selectedForm || Number(selectedForm.id) !== Number(parsedDraftPayload.formId))) {
-        const foundForm = formList.find(f => Number(f.id) === Number(parsedDraftPayload.formId));
-        if (foundForm) setSelectedForm(foundForm);
+        if (!targetFormId || Number(targetFormId) === Number(parsedDraftPayload.formId)) {
+          const foundForm = formList.find(f => Number(f.id) === Number(parsedDraftPayload.formId));
+          if (foundForm) setSelectedForm(foundForm);
+        }
       }
       setStep("audit");
       setActiveTab(2);
