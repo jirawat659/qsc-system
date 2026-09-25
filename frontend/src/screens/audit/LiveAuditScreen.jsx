@@ -1011,6 +1011,18 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
     };
   }
 
+  // 🛡️ ตรวจสอบว่าแบบร่างตรงกับแบบฟอร์มนี้หรือไม่ ถ้าเป็นฟอร์มคนละอัน ห้ามนำคำตอบมาจับคู่ข้ามฟอร์มเด็ดขาด
+  const draftFormId = draftPayload.formId || draftPayload.surveyFormId;
+  if (draftFormId && Number(draftFormId) !== Number(form.id)) {
+    console.warn(`[Draft] Form mismatch: draft was created for form ID ${draftFormId}, but current form is ID ${form.id}. Skipping answer remapping.`);
+    return {
+      answers: {},
+      photos: {},
+      comments: {},
+      oldToNewIdMap: {}
+    };
+  }
+
   const currentItemsFlat = [];
   const currentItemIds = new Set();
   for (const sec of form.sections) {
@@ -1041,7 +1053,7 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
     }
   }
 
-  // 🌟 Fallback สำหรับกรณีที่มีการอัปเดตหรือ Clone ฟอร์มใหม่ ทำให้ ID ของข้อตรวจเปลี่ยนไป (เช่น 5877-5896 -> 5897-5916)
+  // 🌟 สำหรับกรณีที่มีการ Clone เวอร์ชันใหม่ของฟอร์มเดียวกัน ทำให้ ID ของข้อเลื่อนไปทั้งชุด (เช่น 5877-5896 -> 5897-5916)
   if (unmatchedDraftKeys.length > 0 && currentItemsFlat.length > 0) {
     unmatchedDraftKeys.sort((a, b) => {
       const numA = Number(a);
@@ -1062,7 +1074,7 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
 
     const usedNewIds = new Set(Object.values(oldToNewIdMap));
 
-    // กลยุทธ์ A: ถ้าช่วง ID เก่าเป็นช่วงตัวเลขออโต้รันที่พอดีกับช่วง index ของข้อปัจจุบัน
+    // กลยุทธ์ A: ถ้าช่วง ID เก่าเป็นช่วงตัวเลขออโต้รันที่พอดีกับช่วง index ของข้อปัจจุบัน (สำหรับ Clone Form เวอร์ชันใหม่ของแบบฟอร์มเดิม)
     if (isAllNumeric && minOldId !== null && oldSpan <= currentItemsFlat.length) {
       for (const oldNum of numericKeys) {
         const targetIdx = oldNum - minOldId;
@@ -1075,22 +1087,7 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
         }
       }
     }
-
-    // กลยุทธ์ B: สำหรับคีย์ที่ยังไม่ได้จับคู่ ให้จับคู่ตามลำดับข้อที่ยังว่างอยู่
-    let fallbackIdx = 0;
-    for (const oldK of unmatchedDraftKeys) {
-      if (!oldToNewIdMap[oldK]) {
-        while (fallbackIdx < currentItemsFlat.length && usedNewIds.has(String(currentItemsFlat[fallbackIdx].id))) {
-          fallbackIdx++;
-        }
-        if (fallbackIdx < currentItemsFlat.length) {
-          const targetItem = currentItemsFlat[fallbackIdx];
-          oldToNewIdMap[oldK] = String(targetItem.id);
-          usedNewIds.add(String(targetItem.id));
-          fallbackIdx++;
-        }
-      }
-    }
+    // ⚠️ ลบกลยุทธ์ B (ที่สุ่มยัดคำตอบลงข้อว่างตามลำดับ) ทิ้งเด็ดขาด เพื่อป้องกันคำตอบไปสวมรอยข้ออื่น
   }
 
   const resolveMappedKey = (key) => oldToNewIdMap[String(key)] || (currentItemIds.has(String(key)) ? String(key) : null);
@@ -1224,7 +1221,9 @@ export default function LiveAuditScreen({
 
     if (targetLocationId) {
       try {
-        const localKey = `qsc_draft_${targetLocationId}_${targetFormId || 1}`;
+        const localKey = targetFormId
+          ? `qsc_draft_${targetLocationId}_${targetFormId}`
+          : `qsc_draft_${targetLocationId}`;
         const localStr = localStorage.getItem(localKey);
         if (localStr) return JSON.parse(localStr);
       } catch (e) { }
@@ -1407,7 +1406,7 @@ export default function LiveAuditScreen({
       }
     } else if (!selectedForm && unit) {
       const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
-      if (matched.length > 0) {
+      if (matched.length === 1) {
         setSelectedForm(matched[0]);
       }
     }
@@ -2088,7 +2087,7 @@ export default function LiveAuditScreen({
         id: currDraftId,
         locationId: currentUnit.id,
         surveyFormId: currentForm.id,
-        auditorId: currentUser?.id || 1,
+        auditorId: currentUser?.id ? Number(currentUser.id) : null,
         auditScheduleId: currSchedId,
         draftPayloadJson: draftPayloadJson,
         currentSectionIdx: currentSectionIdx,
@@ -2686,6 +2685,18 @@ export default function LiveAuditScreen({
   };
 
   const handleFinalSubmit = async () => {
+    if (!unit?.id) {
+      alert("⚠️ เกิดข้อผิดพลาด: ไม่พบข้อมูลสาขาที่ทำการตรวจ กรุณาตรวจสอบหรือรีเฟรชหน้าจอใหม่อีกครั้ง");
+      setShowConfirmModal(false);
+      return;
+    }
+
+    if (!selectedForm?.id) {
+      alert("⚠️ เกิดข้อผิดพลาด: ไม่พบข้อมูลแบบฟอร์มการตรวจ กรุณาตรวจสอบหรือรีเฟรชหน้าจอใหม่อีกครั้ง");
+      setShowConfirmModal(false);
+      return;
+    }
+
     if (!validateEntireAuditForm()) {
       setShowConfirmModal(false);
       return;
@@ -2770,7 +2781,7 @@ export default function LiveAuditScreen({
       const payload = {
         draftId: targetDraftId || null,
         locationId: Number(unit.id),
-        surveyFormId: Number(selectedForm?.id || 1),
+        surveyFormId: Number(selectedForm.id),
         primaryAuditorId: currentUser?.id ? Number(currentUser.id) : null,
         auditeeUserId: (unit.managerUserId && Number(unit.managerUserId) > 0) ? Number(unit.managerUserId) : null,
         auditeeNameText: auditeeSignName || unit.managerName || "-",
@@ -2809,7 +2820,7 @@ export default function LiveAuditScreen({
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (unit?.id) {
-          localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm?.id || 1}`);
+          if (selectedForm?.id) localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm.id}`);
           localStorage.removeItem(`qsc_draft_${unit.id}`);
         }
         if (targetSchedId) {
@@ -2881,8 +2892,8 @@ export default function LiveAuditScreen({
       const targetDraftId = getEffectiveDraftId();
       const targetScheduleId = effectiveSchedId;
       const targetLocId = unit?.id || preselectedPlan?.locationId;
-      const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || 1;
-      const targetAuditorId = currentUser?.id || 1;
+      const targetFormId = selectedForm?.id || parsedDraftPayload?.formId || preselectedPlan?.surveyFormId || null;
+      const targetAuditorId = currentUser?.id ? Number(currentUser.id) : null;
 
       const params = new URLSearchParams();
       if (targetDraftId) {
@@ -2898,7 +2909,7 @@ export default function LiveAuditScreen({
       try {
         localStorage.removeItem('qsc_live_audit_draft');
         if (targetLocId) {
-          localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
+          if (targetFormId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
           localStorage.removeItem(`qsc_draft_${targetLocId}`);
         }
         if (targetScheduleId) localStorage.removeItem(`qsc_draft_sched_${targetScheduleId}`);
@@ -3029,8 +3040,10 @@ export default function LiveAuditScreen({
                   onClick={() => {
                     setUnit(u);
                     const matchedForms = formList.filter(f => isFormApplicableToLocation(f, u));
-                    if (matchedForms.length > 0) {
+                    if (matchedForms.length === 1) {
                       setSelectedForm(matchedForms[0]);
+                    } else {
+                      setSelectedForm(null);
                     }
                     setStep("select-form");
                   }}

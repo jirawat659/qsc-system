@@ -256,20 +256,6 @@ export default function DashboardScreen({ role, isDesktop }) {
     fetchAiDashboardInsights(false);
   }, [dashboardCacheKey]);
 
-  // 🌟 Client fallback for top branches in case backend returns empty top5
-  const clientFallbackTopBranches = useMemo(() => {
-    if (!activeLocations || activeLocations.length === 0) return [];
-    return activeLocations
-      .filter(loc => (loc.lastScore ?? loc.percentageScore) !== undefined)
-      .sort((a, b) => (b.lastScore ?? b.percentageScore ?? 0) - (a.lastScore ?? a.percentageScore ?? 0))
-      .slice(0, 5)
-      .map(b => ({
-        ...b,
-        effectiveScore: Number(b.lastScore ?? b.percentageScore ?? 0),
-        hasAudit: true
-      }));
-  }, [activeLocations]);
-
   // รับผลรวม KPI สรุปจาก Database (พร้อม Stale-While-Revalidate In-Memory Cache)
   const cacheKey = `${periodFilter}_${effectiveBrandId || 'all'}`;
   const initialCached = dashboardApiCache.get(cacheKey);
@@ -430,7 +416,6 @@ export default function DashboardScreen({ role, isDesktop }) {
   }, [trendsData, auditRecords, avgScore]);
 
   const rankedBranches = useMemo(() => {
-    // 🌟 1. ถ้ามี topBranches จาก API สำหรับรอบเวลานี้โดยเฉพาะ (คัดมาจาก AuditRecords ตาม period แล้ว)
     if (topBranches && topBranches.length > 0) {
       return topBranches.map(b => ({
         ...b,
@@ -439,9 +424,8 @@ export default function DashboardScreen({ role, isDesktop }) {
       }));
     }
 
-    // 🌟 2. Client fallback: ดึงจาก clientFallbackTopBranches
-    return clientFallbackTopBranches;
-  }, [topBranches, clientFallbackTopBranches]);
+    return [];
+  }, [topBranches]);
 
   const topPendingCapTopic = useMemo(() => {
     if (!capTasks || capTasks.length === 0) return "";

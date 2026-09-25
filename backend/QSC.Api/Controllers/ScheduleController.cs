@@ -137,7 +137,7 @@ namespace QSC.Api.Controllers
 
             var schedules = await query.ToListAsync();
 
-            // 🛡️ Auto-heal: Ensure schedules that have already been audited are marked as completed
+            // 🛡️ Auto-heal: Ensure schedules that have an actual AuditRecord linked (via AuditScheduleId) are marked as completed
             var scheduleIds = schedules.Select(s => s.Id).ToList();
             var auditedScheduleIds = await _context.AuditRecords
                 .Where(r => r.AuditScheduleId.HasValue && scheduleIds.Contains(r.AuditScheduleId.Value))
@@ -145,49 +145,32 @@ namespace QSC.Api.Controllers
                 .Distinct()
                 .ToListAsync();
 
-            var uncompletedSchedules = schedules.Where(s => s.Status != "completed").ToList();
-            if (uncompletedSchedules.Any())
+            var uncompletedAuditedSchedules = schedules
+                .Where(s => s.Status != "completed" && auditedScheduleIds.Contains(s.Id))
+                .ToList();
+
+            if (uncompletedAuditedSchedules.Any())
             {
-                var locIds = uncompletedSchedules.Select(s => s.LocationId).Distinct().ToList();
-                var recentAudits = await _context.AuditRecords
-                    .Where(r => locIds.Contains(r.LocationId))
-                    .Select(r => new { r.Id, r.LocationId, r.SurveyFormId, r.AuditDate, r.AuditScheduleId })
-                    .ToListAsync();
-
-                var healedScheduleIds = new List<int>();
-                foreach (var s in uncompletedSchedules)
+                var healedScheduleIds = uncompletedAuditedSchedules.Select(s => s.Id).ToList();
+                foreach (var s in uncompletedAuditedSchedules)
                 {
-                    bool isAudited = auditedScheduleIds.Contains(s.Id) ||
-                        recentAudits.Any(r => 
-                            (r.AuditScheduleId == s.Id) ||
-                            (r.LocationId == s.LocationId && 
-                             (s.SurveyFormId == 0 || r.SurveyFormId == s.SurveyFormId) &&
-                             Math.Abs((r.AuditDate.Date - s.ScheduledDate.Date).TotalDays) <= 2));
-
-                    if (isAudited)
-                    {
-                        s.Status = "completed";
-                        healedScheduleIds.Add(s.Id);
-                    }
+                    s.Status = "completed";
                 }
 
-                if (healedScheduleIds.Any())
+                try
                 {
-                    try
+                    var dbSchedules = await _context.AuditSchedules
+                        .Where(s => healedScheduleIds.Contains(s.Id) && s.Status != "completed")
+                        .ToListAsync();
+                    foreach (var dbs in dbSchedules)
                     {
-                        var dbSchedules = await _context.AuditSchedules
-                            .Where(s => healedScheduleIds.Contains(s.Id) && s.Status != "completed")
-                            .ToListAsync();
-                        foreach (var dbs in dbSchedules)
-                        {
-                            dbs.Status = "completed";
-                        }
-                        await _context.SaveChangesAsync();
+                        dbs.Status = "completed";
                     }
-                    catch
-                    {
-                        // Ignore background healing exceptions
-                    }
+                    await _context.SaveChangesAsync();
+                }
+                catch
+                {
+                    // Ignore background sync exceptions
                 }
             }
 
@@ -311,6 +294,12 @@ namespace QSC.Api.Controllers
                 }
             }
 
+            int effectiveCreatedBy = currentUserId > 0 ? currentUserId : (dto.CreatedBy > 0 ? dto.CreatedBy : 0);
+            if (effectiveCreatedBy <= 0 || !await _context.Users.AnyAsync(u => u.Id == effectiveCreatedBy))
+            {
+                return BadRequest(new { message = "ไม่พบข้อมูลผู้สร้างกำหนดการในระบบ กรุณาระบุผู้สร้างที่ถูกต้อง" });
+            }
+
             using var transaction = await _context.Database.BeginTransactionAsync();
 
             var schedule = new AuditSchedule
@@ -322,7 +311,7 @@ namespace QSC.Api.Controllers
                 AuditType = dto.AuditType,
                 Status = "pending",
                 Notes = dto.Notes,
-                CreatedBy = currentUserId > 0 ? currentUserId : (dto.CreatedBy > 0 ? dto.CreatedBy : 1),
+                CreatedBy = effectiveCreatedBy,
                 CreatedAt = DateTime.UtcNow
             };
 

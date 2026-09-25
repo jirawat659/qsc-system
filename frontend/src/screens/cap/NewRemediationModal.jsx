@@ -17,7 +17,7 @@ export const CORE_SCORE_CATEGORIES = [
 ];
 
 export default function NewRemediationModal({ onClose, onSuccess, locations = [], currentUser }) {
-  const [selectedLocationId, setSelectedLocationId] = useState(locations[0]?.id || null);
+  const [selectedLocationId, setSelectedLocationId] = useState(null);
   const [showLocationSelectModal, setShowLocationSelectModal] = useState(false);
 
   // Cascading Form & Category States
@@ -41,7 +41,7 @@ export default function NewRemediationModal({ onClose, onSuccess, locations = []
   const fileInputRef = useRef(null);
 
   const selectedLoc = useMemo(() => {
-    return locations.find(l => String(l.id) === String(selectedLocationId)) || locations[0];
+    return locations.find(l => String(l.id) === String(selectedLocationId)) || null;
   }, [locations, selectedLocationId]);
 
   // ดึงรายการแบบฟอร์มทั้งหมดตอนเปิด Modal

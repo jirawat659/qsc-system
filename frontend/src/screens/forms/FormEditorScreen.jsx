@@ -743,10 +743,12 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     }));
   };
 
-  // On blur, if score is empty or 0, fallback to 10
+  // On blur, if score is empty or NaN, fallback to 10
   const handleItemScoreBlur = (secIdx, itemId, currentVal) => {
-    if (currentVal === "" || isNaN(Number(currentVal)) || Number(currentVal) < 1) {
+    if (currentVal === "" || isNaN(Number(currentVal))) {
       updateItemScore(secIdx, itemId, 10);
+    } else if (Number(currentVal) < 0) {
+      updateItemScore(secIdx, itemId, 0);
     }
   };
 
