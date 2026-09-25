@@ -23,10 +23,7 @@ function resolveFormTitle(formId, directTitle, forms) {
     const found = forms.find(f => Number(f.id) === Number(formId));
     if (found && (found.title || found.name)) return (found.title || found.name).trim();
   }
-  if (forms && forms.length > 0 && (forms[0].title || forms[0].name)) {
-    return (forms[0].title || forms[0].name).trim();
-  }
-  return "แบบฟอร์มมาตรฐานใหม่";
+  return formId ? `ไม่พบแบบฟอร์ม (ID: ${formId})` : "-";
 }
 
 function getBrandsForLoc(locId, directLoc, activeLocations) {
@@ -289,13 +286,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       sortedDrafts.forEach((d) => {
         const branchName = d.locationName || d.location?.name || "-";
         const branchFullName = d.locationFullName || d.locationName || d.location?.fullName || d.location?.name || "-";
-        const rawDate = d.updatedAt || d.createdAt || d.startedAt || null;
-        const dateFormatted = formatThaiAuditDate(rawDate);
-        const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher
-        
-        const formId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id;
-        const directForm = d.surveyFormTitle || d.formTitle || d.surveyForm?.title || d.formName || d.form?.title || d.form?.name;
-        const formVal = resolveFormTitle(formId, directForm, forms);
         
         let parsedPayload = null;
         if (d.draftPayloadJson) {
@@ -303,6 +293,17 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             parsedPayload = typeof d.draftPayloadJson === 'string' ? JSON.parse(d.draftPayloadJson) : d.draftPayloadJson;
           } catch (e) {}
         }
+
+        // 🌟 ใช้วันที่เริ่มสร้าง / เริ่มตรวจ (StartedAt) เป็นหลัก แทนวันที่มีการอัปเดตล่าสุด
+        const rawDate = (parsedPayload?.isBackdated && parsedPayload?.backdatedStartDate)
+          ? parsedPayload.backdatedStartDate
+          : (d.startedAt || parsedPayload?.startedAt || d.createdAt || d.updatedAt || null);
+        const dateFormatted = formatThaiAuditDate(rawDate);
+        const timestamp = parseAuditTimestamp(rawDate, d.id) + 1000000000; // prioritize drafts slightly higher
+        
+        const formId = d.surveyFormId || d.formId || d.form?.id || d.surveyForm?.id;
+        const directForm = d.surveyFormTitle || d.formTitle || d.surveyForm?.title || d.formName || d.form?.title || d.form?.name;
+        const formVal = resolveFormTitle(formId, directForm, forms);
 
         const auditorVal = parsedPayload?.auditorName || d.auditorName || d.primaryAuditor?.fullName || d.auditor?.fullName || "-";
 

@@ -172,13 +172,15 @@ namespace QSC.Api.Controllers
 
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.UTF8.GetBytes(jwtKey);
+            var roleCode = user.Role?.Code ?? string.Empty;
+
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(new[]
                 {
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                     new Claim(ClaimTypes.Name, user.Username),
-                    new Claim(ClaimTypes.Role, user.Role?.Code ?? "AUDITOR")
+                    new Claim(ClaimTypes.Role, roleCode)
                 }),
                 Expires = DateTime.UtcNow.AddHours(8),
                 Issuer = jwtIssuer,
@@ -189,7 +191,6 @@ namespace QSC.Api.Controllers
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var tokenString = tokenHandler.WriteToken(token);
 
-            var roleCode = user.Role?.Code ?? "AUDITOR";
             var navConfig = RoleNavHelper.ParseOrDefault(user.Role?.NavConfigJson, roleCode);
             var navConfigJson = !string.IsNullOrWhiteSpace(user.Role?.NavConfigJson)
                 ? user.Role.NavConfigJson

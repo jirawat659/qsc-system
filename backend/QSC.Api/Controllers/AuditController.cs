@@ -180,8 +180,7 @@ namespace QSC.Api.Controllers
                 int effectiveAuditorId = (role == "ADMIN" && dto.AuditorId > 0) ? dto.AuditorId : currentUserId;
                 if (effectiveAuditorId <= 0 || !await _context.Users.AnyAsync(u => u.Id == effectiveAuditorId))
                 {
-                    var fallbackUser = await _context.Users.FirstOrDefaultAsync(u => u.IsActive);
-                    effectiveAuditorId = fallbackUser != null ? fallbackUser.Id : (currentUserId > 0 ? currentUserId : 1);
+                    return BadRequest(new { message = "ไม่พบข้อมูลผู้ตรวจในระบบ กรุณาระบุผู้ตรวจที่ถูกต้อง" });
                 }
 
                 // Ensure valid SurveyFormId (H2: ห้าม fallback สุ่มผูกฟอร์มอื่น หากฟอร์มไม่ถูกต้องให้แจ้งเตือนทันที)
@@ -722,8 +721,7 @@ namespace QSC.Api.Controllers
                 }
                 else
                 {
-                    var fallbackUser = await _context.Users.FirstOrDefaultAsync();
-                    primaryAuditorId = fallbackUser != null ? fallbackUser.Id : (currentUserId > 0 ? currentUserId : 1);
+                    return BadRequest(new { message = "ไม่พบข้อมูลผู้ตรวจในระบบ กรุณาระบุผู้ตรวจที่ถูกต้อง" });
                 }
             }
 
@@ -760,19 +758,16 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            // Fallback 2: Check if there is an in-progress schedule for this branch & form
+            // Fallback 2: Check if there is an in-progress schedule for this branch & form specifically for this auditor
             if (!validScheduleId.HasValue)
             {
-                var baseSchedQuery = _context.AuditSchedules
+                var inProgressSched = await _context.AuditSchedules
                     .Where(s => s.LocationId == dto.LocationId &&
-                                (s.SurveyFormId == 0 || s.SurveyFormId == dto.SurveyFormId) &&
-                                s.Status == "in_progress");
-
-                var inProgressSched = await baseSchedQuery
-                    .Where(s => s.Auditors.Any(a => a.AuditorId == primaryAuditorId) || s.CreatedBy == primaryAuditorId)
+                                s.SurveyFormId == dto.SurveyFormId &&
+                                s.Status == "in_progress" &&
+                                (s.Auditors.Any(a => a.AuditorId == primaryAuditorId) || s.CreatedBy == primaryAuditorId))
                     .OrderByDescending(s => s.ScheduledDate)
-                    .FirstOrDefaultAsync()
-                    ?? await baseSchedQuery.OrderByDescending(s => s.ScheduledDate).FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync();
 
                 if (inProgressSched != null)
                 {

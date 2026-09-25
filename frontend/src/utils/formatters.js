@@ -39,10 +39,12 @@ export const parseAuditTimestamp = (dateVal, fallbackId = 0) => {
   const parts = String(dateVal).trim().split(/\s+/);
   if (parts.length >= 3) {
     const day = parseInt(parts[0], 10);
-    const month = THAI_MONTH_INDEX_MAP[parts[1]] ?? 7;
+    const month = THAI_MONTH_INDEX_MAP[parts[1]];
     let year = parseInt(parts[2], 10);
     if (year > 2500) year -= 543;
-    if (!isNaN(day) && !isNaN(year)) return new Date(year, month, day).getTime();
+    if (!isNaN(day) && month !== undefined && !isNaN(year)) {
+      return new Date(year, month, day).getTime();
+    }
   }
   return Number(fallbackId) || 0;
 };
@@ -56,10 +58,10 @@ export const parseAuditDate = (dateVal) => {
   const parts = String(dateVal).trim().split(/\s+/);
   if (parts.length >= 3) {
     const day = parseInt(parts[0], 10);
-    const month = THAI_MONTH_INDEX_MAP[parts[1]] ?? 7;
+    const month = THAI_MONTH_INDEX_MAP[parts[1]];
     let year = parseInt(parts[2], 10);
     if (year > 2500) year -= 543;
-    if (!isNaN(day) && !isNaN(year)) {
+    if (!isNaN(day) && month !== undefined && !isNaN(year)) {
       return new Date(year, month, day);
     }
   }

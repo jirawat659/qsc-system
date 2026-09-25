@@ -239,7 +239,7 @@ const getAuditDurationText = (startStr, endStr) => {
 
 // 🔍 Helper หาค่าประเภทการตรวจที่ตรงกับตัวเลือกในฟอร์ม (ครอบคลุมทั้ง EN และ TH)
 export const matchAuditTypeOption = (raw, options = []) => {
-  if (!raw) return (options && options[0]) || "";
+  if (!raw) return "";
   const rawStr = String(raw).trim().toLowerCase();
 
   // 1. ตรงกันเป๊ะ (Case-insensitive)
@@ -275,7 +275,7 @@ export const matchAuditTypeOption = (raw, options = []) => {
 
   // 5. Fallback หาตัวเลือกที่มีคำคล้าย
   const fallback = (options || []).find(opt => opt && (opt.toLowerCase().includes(rawStr) || rawStr.includes(opt.toLowerCase())));
-  return fallback || (options && options[0]) || raw;
+  return fallback || raw || "";
 };
 
 // 👤 Helper ดึงชื่อผู้ตรวจจาก record ที่ครอบคลุมทุก navigation property และ metadata
