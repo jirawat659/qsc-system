@@ -9,6 +9,7 @@ namespace QSC.Api.Models
         public SurveyForm? SurveyForm { get; set; }
         public string Title { get; set; } = string.Empty;
         public int OrderIndex { get; set; } = 0;
+        // Deprecated: ระบบคิดคะแนนตาม FullScore รายข้อคำถาม (SurveyItem) แล้ว คงฟิลด์ไว้เพื่อความเข้ากันได้กับ DB schema เดิม
         public double WeightPercent { get; set; } = 0.0;
         public bool IsActive { get; set; } = true;
 

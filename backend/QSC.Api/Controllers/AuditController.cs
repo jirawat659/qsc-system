@@ -180,8 +180,7 @@ namespace QSC.Api.Controllers
                 int effectiveAuditorId = (role == "ADMIN" && dto.AuditorId > 0) ? dto.AuditorId : currentUserId;
                 if (effectiveAuditorId <= 0 || !await _context.Users.AnyAsync(u => u.Id == effectiveAuditorId))
                 {
-                    var fallbackUser = await _context.Users.FirstOrDefaultAsync(u => u.IsActive);
-                    effectiveAuditorId = fallbackUser != null ? fallbackUser.Id : (currentUserId > 0 ? currentUserId : 1);
+                    return BadRequest(new { message = "ไม่พบข้อมูลผู้ตรวจในระบบ กรุณาระบุผู้ตรวจที่ถูกต้อง" });
                 }
 
                 // Ensure valid SurveyFormId (H2: ห้าม fallback สุ่มผูกฟอร์มอื่น หากฟอร์มไม่ถูกต้องให้แจ้งเตือนทันที)
@@ -523,7 +522,6 @@ namespace QSC.Api.Controllers
             public string AuditType { get; set; } = "announced";
             public string? Notes { get; set; }
             public string? MetadataValuesJson { get; set; }
-            public string? CashAuditDataJson { get; set; }
 
             // Signatures
             public string? AuditorSignatureUrl { get; set; }
@@ -603,6 +601,41 @@ namespace QSC.Api.Controllers
                     ? savedMax
                     : item.FullScore;
 
+                string qType = (item.QuestionType ?? "YESNO").Trim().ToUpper();
+                bool isNonScored = fullScore == 0 ||
+                    qType == "GRID" || qType == "NUMBER" || qType == "SELECT" ||
+                    qType == "RADIO" || qType == "CHECKBOX" || qType == "DATE" ||
+                    qType == "TIME" || qType == "AUDITOR" || qType == "TEXT" ||
+                    item.CategoryCode == "INFO";
+
+                if (isNonScored)
+                {
+                    // 🌟 ข้อที่ไม่คิดคะแนน (Non-scored/Info items):
+                    // ไม่นับรวมใน totalScore, ไม่เพิ่ม maxScore, ไม่ถือว่าตก (isPassed = true เสมอ),
+                    // ไม่ trigger critical defect, และไม่สร้างใบงาน CAP อัตโนมัติ
+                    string? infoAnswer = respDto.Notes;
+                    if (string.IsNullOrWhiteSpace(infoAnswer))
+                    {
+                        infoAnswer = respDto.RawAnswer ?? respDto.AnswerValue;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(respDto.RawAnswer) && respDto.RawAnswer != respDto.Notes && !infoAnswer.Contains(respDto.RawAnswer))
+                    {
+                        infoAnswer = $"{respDto.RawAnswer}\n[หมายเหตุ]: {respDto.Notes}";
+                    }
+
+                    processedResponses.Add(new ComputedItemResponse
+                    {
+                        SurveyItemId = respDto.SurveyItemId,
+                        ScoreGiven = 0.0,
+                        MaxScore = 0.0,
+                        IsPassed = true,
+                        IsNa = false,
+                        Notes = infoAnswer,
+                        ImageUrls = respDto.ImageUrls ?? new List<string>()
+                    });
+                    continue;
+                }
+
                 string raw = (respDto.RawAnswer ?? respDto.AnswerValue ?? (respDto.IsNa ? "na" : (respDto.IsPassed ? "yes" : "no"))).Trim().ToLower();
                 bool isNa = respDto.IsNa || raw == "na" || raw == "skip" || raw == "ข้าม";
                 double scoreGiven = 0.0;
@@ -617,12 +650,28 @@ namespace QSC.Api.Controllers
                 else if (item.QuestionType?.ToLower() == "scale")
                 {
                     double scaleVal = 0.0;
-                    if (double.TryParse(raw, out double parsedVal)) scaleVal = parsedVal;
-                    else if (respDto.ScaleScore.HasValue) scaleVal = respDto.ScaleScore.Value;
-                    else if (fullScore > 0) scaleVal = (respDto.ScoreGiven / fullScore) * 5.0;
-                    else scaleVal = 3.0;
+                    if (double.TryParse(raw, out double parsedVal))
+                    {
+                        scaleVal = parsedVal;
+                    }
+                    else if (respDto.ScaleScore.HasValue)
+                    {
+                        scaleVal = respDto.ScaleScore.Value;
+                    }
+                    else if (fullScore > 0 && respDto.ScoreGiven > 0)
+                    {
+                        scaleVal = (respDto.ScoreGiven / fullScore) * 5.0;
+                    }
+                    else
+                    {
+                        throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) ได้รับค่าคำตอบที่ไม่ถูกต้อง: '{(string.IsNullOrWhiteSpace(raw) ? "(ว่าง)" : raw)}' กรุณาระบุคะแนนระหว่าง 1 ถึง 5");
+                    }
 
-                    scaleVal = Math.Clamp(scaleVal, 1.0, 5.0);
+                    if (scaleVal < 1.0 || scaleVal > 5.0)
+                    {
+                        throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) คะแนนต้องอยู่ระหว่าง 1 ถึง 5 (ค่าที่ส่งมา: {scaleVal})");
+                    }
+
                     scoreGiven = Math.Round((scaleVal / 5.0) * fullScore, 2);
                     isPassed = scaleVal >= 3.0;
 
@@ -708,7 +757,16 @@ namespace QSC.Api.Controllers
 
             if (form == null || !form.IsActive) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจหรือแบบฟอร์มถูกปิดการใช้งาน" });
 
-            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
+            (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
+            try
+            {
+                scoredResult = ComputeScoring(form, dto.Responses);
+            }
+            catch (ArgumentException argEx)
+            {
+                return BadRequest(new { message = argEx.Message });
+            }
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = scoredResult;
 
             double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
@@ -723,8 +781,7 @@ namespace QSC.Api.Controllers
                 }
                 else
                 {
-                    var fallbackUser = await _context.Users.FirstOrDefaultAsync();
-                    primaryAuditorId = fallbackUser != null ? fallbackUser.Id : (currentUserId > 0 ? currentUserId : 1);
+                    return BadRequest(new { message = "ไม่พบข้อมูลผู้ตรวจในระบบ กรุณาระบุผู้ตรวจที่ถูกต้อง" });
                 }
             }
 
@@ -761,19 +818,16 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            // Fallback 2: Check if there is an in-progress schedule for this branch & form
+            // Fallback 2: Check if there is an in-progress schedule for this branch & form specifically for this auditor
             if (!validScheduleId.HasValue)
             {
-                var baseSchedQuery = _context.AuditSchedules
+                var inProgressSched = await _context.AuditSchedules
                     .Where(s => s.LocationId == dto.LocationId &&
-                                (s.SurveyFormId == 0 || s.SurveyFormId == dto.SurveyFormId) &&
-                                s.Status == "in_progress");
-
-                var inProgressSched = await baseSchedQuery
-                    .Where(s => s.Auditors.Any(a => a.AuditorId == primaryAuditorId) || s.CreatedBy == primaryAuditorId)
+                                s.SurveyFormId == dto.SurveyFormId &&
+                                s.Status == "in_progress" &&
+                                (s.Auditors.Any(a => a.AuditorId == primaryAuditorId) || s.CreatedBy == primaryAuditorId))
                     .OrderByDescending(s => s.ScheduledDate)
-                    .FirstOrDefaultAsync()
-                    ?? await baseSchedQuery.OrderByDescending(s => s.ScheduledDate).FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync();
 
                 if (inProgressSched != null)
                 {
@@ -862,7 +916,6 @@ namespace QSC.Api.Controllers
                     AuditType = NormalizeAuditType(dto.AuditType),
                     Notes = dto.Notes,
                     MetadataValuesJson = dto.MetadataValuesJson,
-                    CashAuditDataJson = dto.CashAuditDataJson,
                     AuditorSignatureUrl = string.IsNullOrWhiteSpace(auditorSigUrl) ? null : auditorSigUrl,
                     AuditeeSignatureUrl = string.IsNullOrWhiteSpace(auditeeSigUrl) ? null : auditeeSigUrl,
                     SignedAt = dto.SignedAt ?? DateTime.UtcNow,
@@ -1150,7 +1203,7 @@ namespace QSC.Api.Controllers
                 query = query.Where(r => r.AuditDate < endDate.Value);
             }
 
-            query = query.OrderByDescending(r => r.AuditDate);
+            query = query.OrderByDescending(r => r.AuditDate).ThenByDescending(r => r.Id);
 
             // 🚀 Pagination support: If page or pageSize is specified, apply pagination
             int totalCount = 0;
@@ -1339,7 +1392,6 @@ namespace QSC.Api.Controllers
                 auditType = r.AuditType,
                 notes = r.Notes,
                 metadataValuesJson = r.MetadataValuesJson,
-                cashAuditDataJson = r.CashAuditDataJson,
                 auditorSignatureUrl = r.AuditorSignatureUrl,
                 auditeeSignatureUrl = r.AuditeeSignatureUrl,
                 signedAt = r.SignedAt,
@@ -1401,7 +1453,6 @@ namespace QSC.Api.Controllers
             public string AuditType { get; set; } = "announced";
             public string? Notes { get; set; }
             public string? MetadataValuesJson { get; set; }
-            public string? CashAuditDataJson { get; set; }
 
             // Start & End times
             public DateTime? StartedAt { get; set; }
@@ -1482,7 +1533,16 @@ namespace QSC.Api.Controllers
                 .Where(r => r.MaxScore.HasValue)
                 .GroupBy(r => r.SurveyItemId)
                 .ToDictionary(g => g.Key, g => g.First().MaxScore!.Value);
-            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses, savedMaxByItem);
+            (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
+            try
+            {
+                scoredResult = ComputeScoring(form, dto.Responses, savedMaxByItem);
+            }
+            catch (ArgumentException argEx)
+            {
+                return BadRequest(new { message = argEx.Message });
+            }
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = scoredResult;
             double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
 
@@ -1595,7 +1655,6 @@ namespace QSC.Api.Controllers
                 record.AuditType = NormalizeAuditType(dto.AuditType);
                 record.Notes = dto.Notes;
                 record.MetadataValuesJson = dto.MetadataValuesJson;
-                if (dto.CashAuditDataJson != null) record.CashAuditDataJson = dto.CashAuditDataJson;
 
                 // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
                 if (dto.StartedAt.HasValue)

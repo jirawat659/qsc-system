@@ -640,7 +640,9 @@ export default function MainDashboard({ onLogout }) {
     setAuditHeaderOffset(0);
   }, [screen]);
 
-  const isLiveAuditScreen = Boolean(subHeader?.isAudit);
+  // 🌟 แถบส่วนหัวจะยุบเฉพาะตอนอยู่ในขั้นตอนตรวจข้อคำถามจริง (step === "audit" / isLiveAuditActive) เท่านั้น
+  // หากอยู่ในหน้าเลือกสาขา (select-unit) หรือเลือกฟอร์ม (select-form) จะไม่ยุบหรือเลื่อนลบ -58px
+  const isLiveAuditScreen = (screen === "audit" && isLiveAuditActive) || Boolean(subHeader?.isAudit);
 
   // 🌟 Dynamic Scroll Listener: แถบหลักจะไม่ยุบจนกว่าจุดมาร์คของหมวดแรก (Section 1) จะเลื่อนขึ้นมาชน
   useEffect(() => {

@@ -120,7 +120,7 @@ function TimePicker24({ value, onChange, title }) {
 }
 
 export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, currentUser, locations = [], forms = [], scheduleToEdit = null, brands = [] }) {
-  const [selectedUnitName, setSelectedUnitName] = useState(() => scheduleToEdit?.unit || scheduleToEdit?.locationName || locations[0]?.name || "");
+  const [selectedUnitName, setSelectedUnitName] = useState(() => scheduleToEdit?.unit || scheduleToEdit?.locationName || "");
   const [showLocationSelectModal, setShowLocationSelectModal] = useState(false);
 
   // 📅 Accurate Initial Date parsing (Supports scheduledDate, dateFormatted, day, and defaultDay)
@@ -181,7 +181,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
     if (scheduleToEdit?.auditorId) return scheduleToEdit.auditorId;
     return null;
   });
-  const [selectedFormId, setSelectedFormId] = useState(() => scheduleToEdit?.surveyFormId || forms[0]?.id || 1);
+  const [selectedFormId, setSelectedFormId] = useState(() => scheduleToEdit?.surveyFormId || null);
   const [auditType, setAuditType] = useState(() => scheduleToEdit?.auditType || "announced");
   const [notes, setNotes] = useState(() => scheduleToEdit?.notes || "");
   const [isSaving, setIsSaving] = useState(false);
@@ -213,8 +213,8 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
               }
 
               // Default to actual AUDITOR role user (e.g. somchai), not the admin/creator
-              const defaultAuditor = auditors.find(a => a.roleCode === 'AUDITOR') || auditors[0];
-              return defaultAuditor.id;
+              const defaultAuditor = auditors.find(a => a.roleCode === 'AUDITOR');
+              return defaultAuditor ? defaultAuditor.id : null;
             });
           }
         }
@@ -223,7 +223,7 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
     return () => { isMounted = false; };
   }, [scheduleToEdit]);
 
-  const selectedUnit = locations.find(u => u.name === selectedUnitName || u.fullName === selectedUnitName) || locations[0];
+  const selectedUnit = locations.find(u => u.name === selectedUnitName || u.fullName === selectedUnitName) || null;
 
   // 💡 Fetch pending CAP recommendations for selected location
   const [pendingRecommendations, setPendingRecommendations] = useState([]);
@@ -258,14 +258,18 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
   }, [forms, selectedUnit, scheduleToEdit]);
 
   useEffect(() => {
-    if (availableForms.length > 0 && !availableForms.some(f => f.id === selectedFormId)) {
+    if (availableForms.length === 1) {
       setSelectedFormId(availableForms[0].id);
-    } else if (availableForms.length === 0) {
+    } else if (availableForms.length > 1) {
+      if (selectedFormId && !availableForms.some(f => f.id === selectedFormId)) {
+        setSelectedFormId(null);
+      }
+    } else {
       setSelectedFormId(null);
     }
   }, [availableForms, selectedFormId]);
 
-  const selectedForm = availableForms.find(f => f.id === selectedFormId) || availableForms[0] || null;
+  const selectedForm = availableForms.find(f => f.id === selectedFormId) || null;
 
   const [saveError, setSaveError] = useState(null);
 
@@ -274,20 +278,20 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
     setIsSaving(true);
     setSaveError(null);
 
-    if (!selectedFormId || availableForms.length === 0) {
-      setSaveError("สาขานี้ยังไม่มีแบบฟอร์มที่ตรงกับประเภทสถานที่หรือแบรนด์ กรุณาเลือกสาขาอื่น");
-      setIsSaving(false);
-      return;
-    }
-
     if (!selectedUnit?.id) {
       setSaveError("กรุณาเลือกสาขาก่อนบันทึกกำหนดการ");
       setIsSaving(false);
       return;
     }
 
-    const chosenAuditor = dbAuditors.find(a => a.id === assignedAuditorId) || dbAuditors[0];
-    const auditorId = chosenAuditor?.id || (currentUser?.id || null);
+    if (!selectedFormId && !selectedForm?.id) {
+      setSaveError("กรุณาเลือกแบบฟอร์มการตรวจ");
+      setIsSaving(false);
+      return;
+    }
+
+    const chosenAuditor = dbAuditors.find(a => a.id === assignedAuditorId) || null;
+    const auditorId = chosenAuditor?.id || (assignedAuditorId || null);
     const auditorFullName = chosenAuditor?.fullName || chosenAuditor?.username || "-";
 
     const formattedTime = endTime ? `${startTime} - ${endTime} น.` : `${startTime} น.`;
@@ -297,11 +301,18 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
 
     try {
       let savedId = scheduleToEdit?.id;
+      const targetFormId = typeof selectedFormId === 'number' ? selectedFormId : (selectedForm?.id || null);
+      if (!targetFormId) {
+        setSaveError("กรุณาเลือกแบบฟอร์มการตรวจที่ถูกต้อง");
+        setIsSaving(false);
+        return;
+      }
+
       const payload = {
         locationId: selectedUnit.id,
-        surveyFormId: typeof selectedFormId === 'number' ? selectedFormId : (selectedForm?.id || 1),
+        surveyFormId: targetFormId,
         auditorIds: auditorId ? [auditorId] : [],
-        createdBy: currentUser?.id || 1,
+        createdBy: currentUser?.id ? Number(currentUser.id) : null,
         auditType: auditType.toLowerCase(),
         scheduledDate: localDateTimeStr,
         time: formattedTime,
@@ -507,15 +518,18 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
             <div className="relative">
               <select
                 value={assignedAuditorId || ""}
-                onChange={(e) => setAssignedAuditorId(Number(e.target.value))}
+                onChange={(e) => setAssignedAuditorId(Number(e.target.value) || null)}
                 className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
               >
                 {dbAuditors.length > 0 ? (
-                  dbAuditors.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.fullName || a.username} ({a.roleName || a.roleCode || a.role || 'ผู้ตรวจ'})
-                    </option>
-                  ))
+                  <>
+                    <option value="">-- กรุณาเลือกผู้ตรวจ --</option>
+                    {dbAuditors.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.fullName || a.username} ({a.roleName || a.roleCode || a.role || 'ผู้ตรวจ'})
+                      </option>
+                    ))}
+                  </>
                 ) : (
                   <option value="">-- ไม่พบรายชื่อผู้ตรวจ / กำลังโหลด --</option>
                 )}
@@ -536,17 +550,22 @@ export default function NewScheduleModal({ onClose, onSave, defaultDay = 18, cur
             <div className="relative">
               <select
                 value={selectedFormId || ""}
-                onChange={(e) => setSelectedFormId(Number(e.target.value) || e.target.value)}
+                onChange={(e) => setSelectedFormId(Number(e.target.value) || null)}
                 disabled={availableForms.length === 0}
                 className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {availableForms.length > 0 ? (
-                  availableForms.map(f => {
-                    const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
-                    return (
-                      <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
-                    );
-                  })
+                  <>
+                    {availableForms.length > 1 && (
+                      <option value="">-- กรุณาเลือกแบบฟอร์ม ({availableForms.length} แบบฟอร์ม) --</option>
+                    )}
+                    {availableForms.map(f => {
+                      const bTag = f.brandNames && f.brandNames.length > 0 ? ` [${f.brandNames.join(', ')}]` : (f.brandName ? ` [${f.brandName}]` : '');
+                      return (
+                        <option key={f.id} value={f.id}>{f.title || f.name}{bTag}</option>
+                      );
+                    })}
+                  </>
                 ) : (
                   <option value="">-- ไม่พบแบบฟอร์มที่ตรงกับสาขานี้ --</option>
                 )}

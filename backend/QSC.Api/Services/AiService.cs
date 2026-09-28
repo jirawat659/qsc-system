@@ -188,9 +188,11 @@ namespace QSC.Api.Services
 
         private string GetBaseUrl()
         {
-            return _config["AI:BaseUrl"]
-                ?? Environment.GetEnvironmentVariable("AI_BASE_URL")
-                ?? "http://localhost:11434";
+            var url = _config["AI:BaseUrl"];
+            if (!string.IsNullOrWhiteSpace(url)) return url;
+            var envUrl = Environment.GetEnvironmentVariable("AI_BASE_URL");
+            if (!string.IsNullOrWhiteSpace(envUrl)) return envUrl;
+            return "http://localhost:11434";
         }
 
         private bool IsAiEnabled()

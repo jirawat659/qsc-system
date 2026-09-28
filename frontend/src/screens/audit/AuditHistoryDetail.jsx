@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, User, FileSpreadsheet, Sparkles, Coins, Banknote } from "lucide-react";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, User, FileSpreadsheet, Sparkles } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -20,6 +20,22 @@ import CapDetailScreen from "../cap/CapDetailScreen";
 import AuditEditLogsModal from "../../modals/AuditEditLogsModal";
 import EditAuditRecordModal from "../../modals/EditAuditRecordModal";
 import AiAuditDefectModal from "../../modals/AiAuditDefectModal";
+import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
+
+const NON_SCORED_NOTE_MARKER = "\n[หมายเหตุ]: ";
+
+// backend เก็บคำตอบข้อไม่คิดคะแนนไว้ใน Notes: "คำตอบ" หรือ "คำตอบ\n[หมายเหตุ]: คอมเมนต์"
+const splitNonScoredNotes = (notes, qType) => {
+  const text = (notes || "").toString();
+  const idx = text.indexOf(NON_SCORED_NOTE_MARKER);
+  let answer = idx >= 0 ? text.slice(0, idx) : text;
+  const comment = idx >= 0 ? text.slice(idx + NON_SCORED_NOTE_MARKER.length).trim() : "";
+  const t = String(qType || "").toLowerCase();
+  if ((t === "grid" || t === "checkbox") && answer.trim()) {
+    try { answer = JSON.parse(answer); } catch {}
+  }
+  return { answer, comment: comment || null };
+};
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
@@ -63,8 +79,10 @@ export const getQuestionCategory = (q, sec) => {
 
 // 🌟 สรุปสถิติคะแนน/การผ่านของหมวดหมู่
 export const getSectionStats = (sec) => {
-  const totalQ = sec?.questions?.length || 0;
-  const passedQ = (sec?.questions || []).filter(q => {
+  const isInfo = sec?.sectionType === "INFO" || (sec?.questions && sec.questions.length > 0 && sec.questions.every(q => q.isScored === false));
+  const scoredQuestions = (sec?.questions || []).filter(q => q.isScored !== false && !["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType));
+  const totalQ = scoredQuestions.length;
+  const passedQ = scoredQuestions.filter(q => {
     if (q.isNa) return true;
     if (q.isPassed !== undefined) return q.isPassed;
     if (q.type === "yesno") return q.answer === true;
@@ -72,7 +90,7 @@ export const getSectionStats = (sec) => {
     return true;
   }).length;
   const secPassed = totalQ > 0 ? passedQ === totalQ : true;
-  return { totalQ, passedQ, secPassed };
+  return { totalQ, passedQ, secPassed, isInfo, allCount: sec?.questions?.length || 0 };
 };
 
 // 🌟 Drawer เลือกกระโดดไปยังหมวดหมู่ในหน้ารายละเอียดผลตรวจ (Quick Navigation Drawer)
@@ -483,19 +501,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
   }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
 
-  // 💰 ข้อมูลการตรวจนับเงินสด (Cash Audit)
-  const parsedCashAudit = useMemo(() => {
-    if (!currentRecord?.cashAuditDataJson) return null;
-    try {
-      const data = typeof currentRecord.cashAuditDataJson === 'string'
-        ? JSON.parse(currentRecord.cashAuditDataJson)
-        : currentRecord.cashAuditDataJson;
-      return data;
-    } catch {
-      return null;
-    }
-  }, [currentRecord?.cashAuditDataJson]);
-
   // 🌟 โหลด form detail ของเวอร์ชันที่ตรงกับรอบตรวจนี้ (ตาม surveyFormId) หากยังไม่มี sections
   useEffect(() => {
     const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
@@ -593,6 +598,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             id: field.id,
             label: field.label || field.id.replace(/_/g, ' '),
             value: displayVal,
+            rawValue: val,
+            type: field.type || "text",
+            fieldConfig: field.fieldConfig,
             unit: field.unit ? ` ${field.unit}` : ""
           });
         }
@@ -669,9 +677,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
             const qText = item.questionText || item.text || res.questionText || `ข้อตรวจที่ ${runningNum}`;
             const qType = (res.questionType || item.questionType || item.type || "YESNO").toLowerCase();
-            const fullSc = res.fullScore !== undefined ? res.fullScore : (item.fullScore || 10);
-            const isCrit = res.isCritical !== undefined ? res.isCritical : (item.isCritical || item.critical || false);
-            const isNa = !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
+            const isNonScored = (sec.sectionType === "INFO") || item.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+            const fullSc = isNonScored ? 0 : (res.fullScore !== undefined ? res.fullScore : (item.fullScore || 10));
+            const isCrit = !isNonScored && (res.isCritical !== undefined ? res.isCritical : (item.isCritical || item.critical || false));
+            const isNa = !isNonScored && !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
 
             const calculatedScaleScore = res.scaleScore !== undefined && res.scaleScore !== null
               ? Number(res.scaleScore)
@@ -681,15 +690,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                       ? Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullSc) * 5)))
                       : null));
 
-            const isPass = isNa
+            const isPass = isNonScored
               ? true
-              : (res.isPassed !== undefined
-                  ? Boolean(res.isPassed)
-                  : (qType === "scale"
-                      ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
-                      : (res.scoreGiven > 0)));
+              : (isNa
+                  ? true
+                  : (res.isPassed !== undefined
+                      ? Boolean(res.isPassed)
+                      : (qType === "scale"
+                          ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
+                          : (res.scoreGiven > 0))));
 
-            const calculatedScore = isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0));
+            const calculatedScore = isNonScored ? 0 : (isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0)));
+
+            const nonScored = isNonScored ? splitNonScoredNotes(res.notes, qType) : null;
 
             secQuestions.push({
               num: runningNum++,
@@ -698,9 +711,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               surveyItemId: res.surveyItemId || item.id || null,
               text: qText,
               type: qType,
+              questionType: qType,
+              isScored: !isNonScored,
+              fieldConfig: item.fieldConfig || res.fieldConfig || res.surveyItem?.fieldConfig,
+              rawAnswer: isNonScored ? nonScored.answer : (res.rawAnswer || res.answerValue || ""),
               answer: qType === "scale"
                 ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
-                : isPass,
+                : isNonScored ? (res.rawAnswer || res.answerValue || "") : isPass,
               scoreGiven: calculatedScore,
               scaleScore: calculatedScaleScore,
               fullScore: fullSc,
@@ -720,6 +737,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             resultSections.push({
               title: sec.title || `หมวดที่ ${sIdx + 1}`,
               orderIndex: sec.orderIndex !== undefined ? sec.orderIndex : sIdx + 1,
+              sectionType: sec.sectionType || (sec.items?.every(i => i.isScored === false) ? "INFO" : "AUDIT"),
               questions: secQuestions
             });
           }
@@ -738,9 +756,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         const secName = res.sectionTitle || res.surveyItem?.surveySection?.title || `หมวดที่ 1: การประเมินมาตรฐาน`;
         const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
         const qType = (res.questionType || res.surveyItem?.questionType || "YESNO").toLowerCase();
-        const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
-        const fullSc = res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10);
-        const isNa = !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
+        const isNonScored = res.isScored === false || res.surveyItem?.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isCrit = !isNonScored && (res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false));
+        const fullSc = isNonScored ? 0 : (res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
+        const isNa = !isNonScored && !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
 
         const calculatedScaleScore = res.scaleScore !== undefined && res.scaleScore !== null
           ? Number(res.scaleScore)
@@ -750,23 +769,28 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                   ? Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullSc) * 5)))
                   : null));
 
-        const isPass = isNa
+        const isPass = isNonScored
           ? true
-          : (res.isPassed !== undefined
-              ? Boolean(res.isPassed)
-              : (qType === "scale"
-                  ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
-                  : (res.scoreGiven > 0)));
+          : (isNa
+              ? true
+              : (res.isPassed !== undefined
+                  ? Boolean(res.isPassed)
+                  : (qType === "scale"
+                      ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
+                      : (res.scoreGiven > 0))));
 
-        const calculatedScore = isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0));
+        const calculatedScore = isNonScored ? 0 : (isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0)));
 
         if (!sectionsMap.has(secName)) {
           sectionsMap.set(secName, {
             title: secName,
             orderIndex: res.sectionOrderIndex !== undefined ? res.sectionOrderIndex : sectionsMap.size + 1,
+            sectionType: res.sectionType || "AUDIT",
             questions: []
           });
         }
+
+        const nonScored = isNonScored ? splitNonScoredNotes(res.notes, qType) : null;
 
         sectionsMap.get(secName).questions.push({
           num: runningNum++,
@@ -775,9 +799,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           surveyItemId: res.surveyItemId || null,
           text: qText,
           type: qType,
+          questionType: qType,
+          isScored: !isNonScored,
+          fieldConfig: res.fieldConfig || res.surveyItem?.fieldConfig,
+          rawAnswer: isNonScored ? nonScored.answer : (res.rawAnswer || res.answerValue || ""),
           answer: qType === "scale"
             ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
-            : isPass,
+            : isNonScored ? (res.rawAnswer || res.answerValue || "") : isPass,
           scoreGiven: calculatedScore,
           scaleScore: calculatedScaleScore,
           fullScore: fullSc,
@@ -806,6 +834,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     formBreakdown.forEach(sec => {
       (sec.questions || []).forEach(q => {
+        if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) {
+          return;
+        }
         const catName = getQuestionCategory(q, sec);
         if (!catMap.has(catName)) {
           catMap.set(catName, {
@@ -869,6 +900,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     const list = [];
     formBreakdown.forEach(sec => {
       sec.questions.forEach(q => {
+        if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) return;
         if (q.isNa) return;
 
         const full = Number(q.fullScore) || 10;
@@ -1046,13 +1078,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   // 🌟 รายการหมวดหมู่สำหรับ Quick Navigation Drawer
   const categoryItems = useMemo(() => {
     return formBreakdown.map((sec, index) => {
-      const { totalQ, passedQ, secPassed } = getSectionStats(sec);
+      const { totalQ, passedQ, secPassed, isInfo, allCount } = getSectionStats(sec);
       return {
         id: `history-section-${index}`,
         index,
         label: sec.title || `หมวดที่ ${index + 1}`,
-        count: `ผ่าน (${passedQ}/${totalQ})`,
-        isPassed: secPassed
+        count: isInfo ? `${allCount} รายการ (ข้อมูลทั่วไป)` : `ผ่าน (${passedQ}/${totalQ})`,
+        isPassed: isInfo ? true : secPassed
       };
     });
   }, [formBreakdown]);
@@ -1343,7 +1375,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             </div>
           ) : (
             formBreakdown.map((sec, secIdx) => {
-            const { totalQ, passedQ, secPassed } = getSectionStats(sec);
+            const { totalQ, passedQ, secPassed, isInfo, allCount } = getSectionStats(sec);
 
             return (
               <div 
@@ -1372,30 +1404,39 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
                   {/* Section Status Badge */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                      secPassed 
-                        ? "bg-emerald-50 text-[#0F6659] border-emerald-200" 
-                        : "bg-amber-50 text-amber-900 border-amber-200"
-                    }`}>
-                      ผ่าน ({passedQ}/{totalQ})
-                    </span>
+                    {isInfo ? (
+                      <span className="text-xs font-bold px-3 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-200">
+                        {allCount} รายการ (ข้อมูลทั่วไป)
+                      </span>
+                    ) : (
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                        secPassed 
+                          ? "bg-emerald-50 text-[#0F6659] border-emerald-200" 
+                          : "bg-amber-50 text-amber-900 border-amber-200"
+                      }`}>
+                        ผ่าน ({passedQ}/{totalQ})
+                      </span>
+                    )}
                   </div>
                 </div>
 
                 {/* QUESTIONS CONTAINER */}
                 <div className="p-3.5 sm:p-5 space-y-3">
                   {sec.questions.map((q) => {
+                    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType);
                     const full = Number(q.fullScore) || 10;
                     const currentSc = q.scoreGiven !== undefined ? Number(q.scoreGiven) : (typeof q.answer === 'number' ? q.answer : (q.answer === true ? full : 0));
-                    const isPass = q.isNa
+                    const isPass = isNonScored
                       ? true
-                      : q.isPassed !== undefined
-                      ? q.isPassed
-                      : q.type === "yesno" 
-                      ? q.answer === true 
-                      : q.type === "scale" 
-                        ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
-                        : true;
+                      : (q.isNa
+                          ? true
+                          : q.isPassed !== undefined
+                          ? q.isPassed
+                          : q.type === "yesno" 
+                          ? q.answer === true 
+                          : q.type === "scale" 
+                            ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
+                            : true);
 
                     return (
                       <div 
@@ -1414,9 +1455,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap mt-1">
                                 <span className="inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                                  {getCategoryDisplay(getQuestionCategory(q, sec))}
+                                  {isNonScored ? "ข้อมูลทั่วไป" : getCategoryDisplay(getQuestionCategory(q, sec))}
                                 </span>
-                                {q.isCritical && (
+                                {!isNonScored && q.isCritical && (
                                   <span className="inline-block text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
                                     ⚠️ สำคัญ
                                   </span>
@@ -1425,22 +1466,36 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                             </div>
                           </div>
 
-                          {/* 🌟 มุมขวาบนของข้อ: แสดงเป็นคะแนนเสมอ */}
+                          {/* 🌟 มุมขวาบนของข้อ: แสดงเป็นคะแนน หรือ ข้อมูลไม่คิดคะแนน */}
                           <div className="shrink-0">
-                            <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-bold px-3 py-1 rounded-full border shadow-2xs ${
-                              q.isNa
-                                ? "bg-slate-100 text-slate-500 border-slate-200"
-                                : isPass
-                                ? "bg-emerald-50 text-[#0F6659] border-emerald-200"
-                                : "bg-red-50 text-red-700 border-red-300"
-                             } font-mono`}>
-                              <span>{q.scoreGiven !== undefined ? q.scoreGiven : (isPass ? full : 0)} / {full}</span>
-                            </span>
+                            {isNonScored ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-bold px-2.5 py-1 rounded-full border bg-slate-100 text-slate-600 border-slate-200">
+                                ข้อมูลไม่คิดคะแนน
+                              </span>
+                            ) : (
+                              <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-bold px-3 py-1 rounded-full border shadow-2xs ${
+                                q.isNa
+                                  ? "bg-slate-100 text-slate-500 border-slate-200"
+                                  : isPass
+                                  ? "bg-emerald-50 text-[#0F6659] border-emerald-200"
+                                  : "bg-red-50 text-red-700 border-red-300"
+                               } font-mono`}>
+                                <span>{q.scoreGiven !== undefined ? q.scoreGiven : (isPass ? full : 0)} / {full}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        {/* 🌟 แสดงรูปแบบปุ่มเหมือนตอนตรวจหน้าร้าน (Live Audit) แต่เป็นโทนสีเทาสุขุมแบบ Disabled (กดแก้ไขไม่ได้) */}
-                        {q.type === "scale" ? (
+                        {/* 🌟 แสดงรูปแบบคำตอบ: หากเป็นข้อไม่คิดคะแนน ให้เรนเดอร์ DynamicFieldRenderer (readOnly) */}
+                        {isNonScored ? (
+                          <div className="pt-1 pointer-events-none select-none">
+                            <DynamicFieldRenderer
+                              type={q.type || q.questionType}
+                              fieldConfig={q.fieldConfig}
+                              value={q.rawAnswer || q.answer}
+                            />
+                          </div>
+                        ) : q.type === "scale" ? (
                           <div className="pt-1 space-y-1.5 pointer-events-none select-none cursor-default">
                             <div className="flex gap-1.5 items-center w-full">
                               {[5, 4, 3, 2, 1].map((n) => {
@@ -1656,65 +1711,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               </div>
             );
           }))}
-
-          {/* 💰 ข้อมูลการตรวจนับเงินสด (เงินสดย่อย) */}
-          {parsedCashAudit && (
-            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-8 h-8 rounded-xl bg-emerald-50 border border-emerald-200 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs font-bold">
-                    <Coins size={17} />
-                  </span>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-black text-slate-800">
-                      ระบบเงินสด
-                    </h3>
-                    <p className="text-[11px] text-slate-500">
-                      ผลการตรวจนับเงินสด
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* ตารางแสดงรายการธนบัตรและเหรียญ */}
-              <div className="overflow-hidden rounded-xl border border-slate-200/90">
-                <table className="w-full text-xs sm:text-sm text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                      <th className="py-2.5 px-4 w-1/3">ธนบัตร / เหรียญ</th>
-                      <th className="py-2.5 px-4 w-1/3 text-center">จำนวน</th>
-                      <th className="py-2.5 px-4 w-1/3 text-right">ยอดเงิน</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {(parsedCashAudit.items || []).map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
-                        <td className="py-2 px-4 font-mono font-bold text-slate-800">
-                          {item.denomination >= 1 ? item.denomination.toLocaleString() : item.denomination} บาท
-                        </td>
-                        <td className="py-2 px-4 text-center font-mono font-medium text-slate-700">
-                          {item.count ? item.count.toLocaleString() : "0"}
-                        </td>
-                        <td className="py-2 px-4 text-right font-mono font-bold text-slate-900">
-                          ฿{(item.amount || (item.count * item.denomination) || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="bg-emerald-50/70 border-t-2 border-emerald-200/80 font-bold text-slate-900">
-                      <td colSpan={2} className="py-3 px-4 text-xs sm:text-sm font-black text-slate-900">
-                        รวมเงินสดทั้งหมด
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono text-sm sm:text-base font-black text-[#0F6659]">
-                        ฿{(parsedCashAudit.totalAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -1863,14 +1859,29 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               {isAuditDetailsExpanded && (
                 <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3 animate-in fade-in duration-200">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {allDisplayMetadataFields.map((item) => (
-                      <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                        <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
-                        <div className="text-sm font-extrabold text-slate-800 mt-0.5">
-                          {item.value}{item.unit}
+                    {allDisplayMetadataFields.map((item) => {
+                      if (item.type === "grid") {
+                        return (
+                          <div key={item.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 col-span-1 sm:col-span-2 md:col-span-3 space-y-2">
+                            <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                            <DynamicFieldRenderer
+                              type="grid"
+                              fieldConfig={item.fieldConfig}
+                              value={item.rawValue}
+                              readOnly={true}
+                            />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                          <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                          <div className="text-sm font-extrabold text-slate-800 mt-0.5">
+                            {item.value}{item.unit}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

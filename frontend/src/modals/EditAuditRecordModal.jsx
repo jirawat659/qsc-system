@@ -4,13 +4,14 @@ import {
   X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2,
   ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock,
   SlidersHorizontal, ChevronDown, Camera, Plus, MapPin, PenTool, RotateCcw,
-  Navigation, CheckSquare, Trash2, ExternalLink, Check, Coins
+  Navigation, CheckSquare, Trash2, ExternalLink, Check
 } from "lucide-react";
 import api, { getFullImageUrl } from "../config/api";
 import { compressImageFile, validateImageFile } from "../utils/imageCompressor";
 import { mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
+import DynamicFieldRenderer from "../shared/DynamicFieldRenderer";
 
 // ✍️ Digital Signature Pad Modal (High-DPI Touch & Mouse)
 function SignaturePadModal({ title, initialSignatureUrl, onDone, onCancel }) {
@@ -239,7 +240,7 @@ const getAuditDurationText = (startStr, endStr) => {
 
 // 🔍 Helper หาค่าประเภทการตรวจที่ตรงกับตัวเลือกในฟอร์ม (ครอบคลุมทั้ง EN และ TH)
 export const matchAuditTypeOption = (raw, options = []) => {
-  if (!raw) return (options && options[0]) || "";
+  if (!raw) return "";
   const rawStr = String(raw).trim().toLowerCase();
 
   // 1. ตรงกันเป๊ะ (Case-insensitive)
@@ -275,11 +276,8 @@ export const matchAuditTypeOption = (raw, options = []) => {
 
   // 5. Fallback หาตัวเลือกที่มีคำคล้าย
   const fallback = (options || []).find(opt => opt && (opt.toLowerCase().includes(rawStr) || rawStr.includes(opt.toLowerCase())));
-  return fallback || (options && options[0]) || raw;
+  return fallback || raw || "";
 };
-
-// 💰 ชนิดธนบัตรและเหรียญสำหรับการตรวจนับเงินสด
-export const CASH_DENOMINATIONS = [1000, 500, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.25];
 
 // 👤 Helper ดึงชื่อผู้ตรวจจาก record ที่ครอบคลุมทุก navigation property และ metadata
 export const getAuditorNameFromRecord = (rec) => {
@@ -295,7 +293,7 @@ export const getAuditorNameFromRecord = (rec) => {
 };
 
 // 🌟 หมวดหมู่ข้อตรวจ Drawer พร้อมแอนิเมชั่นเลื่อนเข้า-ออก (Slide-in / Slide-out Animation)
-function EditSectionNavigationDrawer({ isOpen, onClose, groupedSections, onSelectSection, hasCashAudit }) {
+function EditSectionNavigationDrawer({ isOpen, onClose, groupedSections, onSelectSection }) {
   const [shouldRender, setShouldRender] = useState(isOpen);
   const [animOpen, setAnimOpen] = useState(false);
 
@@ -367,8 +365,7 @@ function EditSectionNavigationDrawer({ isOpen, onClose, groupedSections, onSelec
               count: `${sec.items.length} ข้อ`,
               isSection: true,
               isSubItem: true,
-            })),
-            ...(hasCashAudit ? [{ id: 'sec-cash-audit', label: 'ตรวจนับเงินสด', icon: '💵' }] : [])
+            }))
           ].map((item) => (
             <button
               key={item.id}
@@ -566,61 +563,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
   }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
 
-  // 💰 ข้อมูลการตรวจนับเงินสด (Cash Audit)
-  const hasCashAudit = Boolean(matchedForm?.hasCashAudit || currentRecord?.cashAuditDataJson);
-
-  const [cashCounts, setCashCounts] = useState(() => {
-    const initial = {};
-    CASH_DENOMINATIONS.forEach(d => { initial[d] = "0"; });
-    if (record?.cashAuditDataJson) {
-      try {
-        const parsed = typeof record.cashAuditDataJson === 'string' ? JSON.parse(record.cashAuditDataJson) : record.cashAuditDataJson;
-        if (parsed?.items && Array.isArray(parsed.items)) {
-          parsed.items.forEach(it => {
-            if (it.denomination !== undefined) {
-              initial[it.denomination] = String(it.count ?? 0);
-            }
-          });
-        }
-      } catch (e) {}
-    }
-    return initial;
-  });
-
-  useEffect(() => {
-    if (currentRecord?.cashAuditDataJson) {
-      try {
-        const parsed = typeof currentRecord.cashAuditDataJson === 'string' ? JSON.parse(currentRecord.cashAuditDataJson) : currentRecord.cashAuditDataJson;
-        if (parsed?.items && Array.isArray(parsed.items)) {
-          setCashCounts(prev => {
-            const updated = { ...prev };
-            parsed.items.forEach(it => {
-              if (it.denomination !== undefined) {
-                updated[it.denomination] = String(it.count ?? 0);
-              }
-            });
-            return updated;
-          });
-        }
-      } catch (e) {}
-    }
-  }, [currentRecord?.cashAuditDataJson]);
-
-  const totalCashAmount = useMemo(() => {
-    return CASH_DENOMINATIONS.reduce((sum, denom) => {
-      const count = Number(cashCounts[denom]);
-      if (!isNaN(count) && count > 0) {
-        return sum + count * denom;
-      }
-      return sum;
-    }, 0);
-  }, [cashCounts]);
-
-  const handleCashCountChange = (denom, val) => {
-    const cleaned = val === "" ? "" : (val.replace(/[^0-9.]/g, '') || "0");
-    setCashCounts(prev => ({ ...prev, [denom]: cleaned }));
-  };
-
   // 🌟 forms จาก context เป็นแบบ summary (ไม่มี sections) — โหลดเต็มตาม surveyFormId ของรอบตรวจจริง
   useEffect(() => {
     const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
@@ -659,6 +601,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           const qType = (res.questionType || res.surveyItem?.questionType || item.questionType || item.type || "yesno").toLowerCase();
           const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || item.fullScore || 10));
           const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || item.isCritical || item.critical || false);
+          const isNonScored = (sec.sectionType === "INFO") || item.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
 
           // 🌟 สกัดหรือคำนวณเลขข้อที่แท้จริง (เช่น "1.1", "1.2", "2.1")
           const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
@@ -673,10 +616,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             surveyItemId: itemId,
             questionText: qText,
             questionType: qType,
-            fullScore: fullScore,
-            isCritical: isCrit,
+            fullScore: isNonScored ? 0 : fullScore,
+            isCritical: isNonScored ? false : isCrit,
+            isScored: !isNonScored,
+            fieldConfig: item.fieldConfig || res.fieldConfig || res.surveyItem?.fieldConfig,
             sectionId: sec.id || `sec_${secIdx}`,
             sectionTitle: sec.title || `หมวดที่ ${secIdx + 1}`,
+            sectionType: sec.sectionType || "AUDIT",
             originalRes: res
           });
         });
@@ -691,6 +637,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       const qType = (res.questionType || res.surveyItem?.questionType || "yesno").toLowerCase();
       const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
       const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
+      const isNonScored = res.isScored === false || res.surveyItem?.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
       const secTitle = res.surveyItem?.surveySection?.title || "รายการตรวจประเมิน";
 
       const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
@@ -703,8 +650,10 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         surveyItemId: itemId,
         questionText: qText,
         questionType: qType,
-        fullScore: fullScore,
-        isCritical: isCrit,
+        fullScore: isNonScored ? 0 : fullScore,
+        isCritical: isNonScored ? false : isCrit,
+        isScored: !isNonScored,
+        fieldConfig: res.fieldConfig || res.surveyItem?.fieldConfig,
         sectionId: `sec_0`,
         sectionTitle: secTitle,
         originalRes: res
@@ -721,6 +670,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           id: `sec-cat-${secIdx}`,
           title: sec.title || `หมวดที่ ${secIdx + 1}`,
           description: sec.description || "",
+          sectionType: sec.sectionType || (sec.items?.every(i => i.isScored === false) ? "INFO" : "AUDIT"),
           items: items.length > 0 ? items : []
         };
       }).filter(s => s.items.length > 0);
@@ -744,6 +694,29 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const res = q.originalRes || {};
     const qType = (q.questionType || "yesno").toLowerCase();
     const fullScore = Number(q.fullScore || 10);
+    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
+    if (isNonScored) {
+      let parsedImages = [];
+      if (Array.isArray(res.images)) {
+        parsedImages = res.images.map(img => img.imageUrl || img).filter(Boolean);
+      } else if (Array.isArray(res.imageUrls)) {
+        parsedImages = [...res.imageUrls].filter(Boolean);
+      }
+      return {
+        surveyItemId: q.surveyItemId,
+        isNa: false,
+        isPassed: true,
+        scoreGiven: 0,
+        fullScore: 0,
+        type: qType,
+        scaleScore: null,
+        rawAnswer: res.rawAnswer || res.answerValue || "",
+        answerValue: res.answerValue || res.rawAnswer || "",
+        notes: res.notes || "",
+        imageUrls: parsedImages
+      };
+    }
 
     const isNa = res.isNa === true || res.isNa === 1 || res.isNa === "true" || res.rawAnswer === "na" || res.answerValue === "na";
 
@@ -1075,6 +1048,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return false;
   };
 
+  const isAnswerEdited = (itemId) => {
+    const orig = initialAnswers[itemId];
+    const curr = answersState[itemId];
+    if (!orig || !curr) return false;
+    return (orig.rawAnswer || orig.answerValue || "") !== (curr.rawAnswer || curr.answerValue || "");
+  };
+
   const isPhotosEdited = (itemId) => {
     const orig = initialAnswers[itemId];
     const curr = answersState[itemId];
@@ -1092,7 +1072,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return (orig.notes || "").trim() !== (curr.notes || "").trim();
   };
 
-  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId);
+  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isAnswerEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId);
 
   const liveScoring = useMemo(() => {
     let earned = 0;
@@ -1100,6 +1080,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     let hasCritFail = false;
 
     checklistQuestions.forEach((q) => {
+      const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+      if (isNonScored) return;
+
       const state = answersState[q.surveyItemId];
       if (!state) return;
       const full = state.fullScore || 10;
@@ -1135,6 +1118,24 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
   const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? currentRecord.percentageScore : 0;
   const auditDurationText = getAuditDurationText(startedAt, submittedAt);
+
+  const handleSetCustomValue = (itemId, val) => {
+    setAnswersState((prev) => {
+      const current = prev[itemId] || { fullScore: 0, notes: "", imageUrls: [] };
+      const strVal = typeof val === "object" ? JSON.stringify(val) : String(val ?? "");
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          rawAnswer: strVal,
+          answerValue: strVal,
+          scoreGiven: 0,
+          isPassed: true,
+          isNa: false
+        }
+      };
+    });
+  };
 
   const handleToggleYesNo = (itemId, choice) => {
     setAnswersState((prev) => {
@@ -1265,6 +1266,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
     const invalidEditedItems = checklistQuestions.filter((q) => {
       const itemId = q.surveyItemId;
+      if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType)) return false;
       if (!isScoreEdited(itemId)) return false;
       const note = answersState[itemId]?.notes?.trim();
       return !note;
@@ -1294,12 +1296,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     try {
       const payloadResponses = checklistQuestions.map((q) => {
         const s = answersState[q.surveyItemId] || parseResponseAnswer(q);
+        const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
         return {
           surveyItemId: Number(q.surveyItemId) || q.originalRes?.surveyItemId || 0,
-          scoreGiven: s.scoreGiven,
-          isPassed: s.isPassed,
-          isNa: s.isNa,
-          rawAnswer: s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no")),
+          scoreGiven: isNonScored ? 0 : s.scoreGiven,
+          isPassed: isNonScored ? true : s.isPassed,
+          isNa: isNonScored ? false : s.isNa,
+          rawAnswer: isNonScored
+            ? (s.rawAnswer || s.answerValue || (typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value ?? "")))
+            : (s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no"))),
           notes: s.notes || null,
           imageUrls: s.imageUrls || []
         };
@@ -1333,14 +1338,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         endLatitude: endLatitude ? parseFloat(endLatitude) : null,
         endLongitude: endLongitude ? parseFloat(endLongitude) : null,
         metadataValuesJson: JSON.stringify(finalMetadata),
-        cashAuditDataJson: hasCashAudit ? JSON.stringify({
-          totalAmount: totalCashAmount,
-          items: CASH_DENOMINATIONS.map(denom => ({
-            denomination: denom,
-            count: Number(cashCounts[denom]) || 0,
-            amount: (Number(cashCounts[denom]) || 0) * denom
-          }))
-        }) : (currentRecord?.cashAuditDataJson || null),
         responses: payloadResponses
       };
 
@@ -1420,7 +1417,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           onClose={() => setSectionDrawerOpen(false)}
           groupedSections={groupedSections}
           onSelectSection={scrollToSection}
-          hasCashAudit={hasCashAudit}
         />
 
         {/* Form Body */}
@@ -1672,6 +1668,24 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   }
 
                   const isTemp = field.unit?.includes('°') || field.label?.includes('อุณหภูมิ');
+
+                  if (field.type === 'grid' || field.type === 'radio' || field.type === 'checkbox') {
+                    return (
+                      <div key={field.id} className="col-span-full space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                          <FileText size={12} className="text-[#0F6659]" />
+                          <span>{field.label}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <DynamicFieldRenderer
+                          type={field.type}
+                          fieldConfig={field.fieldConfig || { options: field.options }}
+                          value={val}
+                          onChange={(newVal) => handleMetaValueChange(field.id, newVal)}
+                        />
+                      </div>
+                    );
+                  }
 
                   if (field.id === 'auditor' || field.type === 'auditor') {
                     return (
@@ -1943,7 +1957,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                     <span>{sec.title}</span>
                   </h4>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-[#0F6659] border border-emerald-200/80 shadow-2xs">
-                    {sec.items.length} ข้อ
+                    {sec.sectionType === "INFO" ? `${sec.items.length} รายการ (ข้อมูลทั่วไป)` : `${sec.items.length} ข้อ`}
                   </span>
                 </div>
 
@@ -1954,7 +1968,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                     const state = answersState[itemId] || parseResponseAnswer(q);
                     const qText = q.questionText;
                     const qNo = q.questionNo || `${secIdx + 1}.${qIdx + 1}`;
-                    const isCrit = q.isCritical;
+                    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+                    const isCrit = !isNonScored && q.isCritical;
                     const isScoreChanged = isScoreEdited(itemId);
                     const isEdited = isQuestionEdited(itemId);
                     const isNoteMissing = isScoreChanged && (!state.notes || !state.notes.trim());
@@ -1989,11 +2004,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                             <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-mono text-xs font-bold border border-slate-200/60 shadow-2xs">
                               ข้อ {qNo}
                             </span>
-                            {isCrit && (
+                            {isNonScored ? (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                ข้อมูลไม่คิดคะแนน
+                              </span>
+                            ) : isCrit ? (
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
                                 Critical
                               </span>
-                            )}
+                            ) : null}
                           </div>
 
                           <div className="flex items-center gap-1.5">
@@ -2101,7 +2120,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
                         {/* ตัวเลือกแก้ไขคำตอบ */}
                         <div>
-                          {state.type === "scale" ? (
+                          {isNonScored ? (
+                            <DynamicFieldRenderer
+                              type={q.questionType}
+                              fieldConfig={q.fieldConfig}
+                              value={state.rawAnswer ?? state.answerValue}
+                              onChange={(newVal) => handleSetCustomValue(itemId, newVal)}
+                              auditorOptions={auditorSuggestions}
+                            />
+                          ) : state.type === "scale" ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {[5, 4, 3, 2, 1].map((num) => (
                                 <button
@@ -2197,63 +2224,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
               </div>
             ))}
           </div>
-
-          {/* 🌟 7. ตรวจนับเงินสด (Cash Audit) - แสดงเมื่อฟอร์มเปิดหรือมีข้อมูลเดิม */}
-          {hasCashAudit && (
-            <div id="sec-cash-audit" className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
-              <div className="flex items-center justify-between border-b border-slate-200/60 pb-2 flex-wrap gap-2">
-                <div className="flex items-center gap-1.5">
-                  <Coins size={15} className="text-[#0F6659]" />
-                  <span className="text-xs font-extrabold text-slate-800">การตรวจนับเงินสด (Cash Audit)</span>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
-                    <tr>
-                      <th className="py-2.5 px-3">ชนิดธนบัตร / เหรียญ</th>
-                      <th className="py-2.5 px-3 text-center w-28 sm:w-36">จำนวน</th>
-                      <th className="py-2.5 px-3 text-right">จำนวนเงิน</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {CASH_DENOMINATIONS.map((denom) => {
-                      const count = cashCounts[denom] ?? "";
-                      const subtotal = (Number(count) || 0) * denom;
-                      return (
-                        <tr key={denom} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="py-2 px-3 font-medium text-slate-700">
-                            <span className="font-mono font-bold">{denom >= 1 ? denom.toLocaleString() : denom} บาท</span>
-                          </td>
-                          <td className="py-1.5 px-3 text-center">
-                            <input
-                              type="number"
-                              min="0"
-                              value={count}
-                              onChange={(e) => handleCashCountChange(denom, e.target.value)}
-                              className="w-20 sm:w-28 text-center text-xs py-1.5 px-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
-                            />
-                          </td>
-                          <td className="py-2 px-3 text-right font-mono font-bold text-slate-800">
-                            ฿{subtotal.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot className="bg-slate-50 border-t border-slate-200 font-extrabold text-slate-800">
-                    <tr>
-                      <td colSpan={2} className="py-2.5 px-3 text-left text-xs font-extrabold text-slate-800">ยอดรวมทั้งหมด:</td>
-                      <td className="py-2.5 px-3 text-right text-sm font-mono font-black text-[#0F6659]">
-                        ฿{totalCashAmount.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-          )}
         </form>
 
         {/* Footer Buttons */}

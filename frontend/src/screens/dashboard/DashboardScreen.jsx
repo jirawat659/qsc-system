@@ -202,73 +202,13 @@ export default function DashboardScreen({ role, isDesktop }) {
     setAiCooldown(seconds);
   };
 
-  const fetchAiDashboardInsights = async (isManual = false) => {
-    // 🌟 ถ้าเป็นการเปิดหน้าจอ และมี Cache อยู่แล้วในเซสชันนี้ -> ดึงจาก Cache ทันที ไม่ยิง API ซ้ำ
-    if (!isManual) {
-      try {
-        const cached = sessionStorage.getItem(dashboardCacheKey);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && parsed.highlight) {
-            setAiInsightsData(parsed);
-            return;
-          }
-        }
-      } catch (e) {}
-      // ถ้ายังไม่มี Cache (เพิ่งเข้าระบบมาครั้งแรก) จะไหลลงไปยิงขอคำแนะนำจาก AI อัตโนมัติ 1 ครั้งแรก
-    }
-
-    if (isAiLoading || (isManual && getRemainingDashboardCooldown() > 0)) return;
-    setIsAiLoading(true);
-    try {
-      const params = {};
-      if (periodFilter) params.period = periodFilter;
-      if (effectiveBrandId) params.brandId = effectiveBrandId;
-
-      const res = await api.get('/ai/dashboard-insights', { 
-        params,
-        timeout: AI_REQUEST_TIMEOUT_MS 
-      });
-      if (res.data) {
-        try {
-          sessionStorage.setItem(dashboardCacheKey, JSON.stringify(res.data));
-        } catch (e) {}
-        setAiInsightsData(res.data);
-        if (isManual) {
-          setCooldownSeconds(15);
-          setJustUpdated(true);
-          setTimeout(() => setJustUpdated(false), 3500);
-        }
-      }
-    } catch (err) {
-      if (err?.response?.status === 429) {
-        console.warn('AI Rate Limit reached, using smart analytics engine fallback.');
-        if (isManual) setCooldownSeconds(30);
-      } else {
-        console.warn('AI dashboard insights unavailable, using smart analytics fallback:', err?.message || err);
-      }
-    } finally {
-      setIsAiLoading(false);
-    }
+  const fetchAiDashboardInsights = async () => {
+    // ปิดการเรียก AI - ใช้ข้อมูลสถิติจริงจาก Database โดยตรง
   };
 
   useEffect(() => {
-    fetchAiDashboardInsights(false);
+    // ปิดการเรียก AI อัตโนมัติ
   }, [dashboardCacheKey]);
-
-  // 🌟 Client fallback for top branches in case backend returns empty top5
-  const clientFallbackTopBranches = useMemo(() => {
-    if (!activeLocations || activeLocations.length === 0) return [];
-    return activeLocations
-      .filter(loc => (loc.lastScore ?? loc.percentageScore) !== undefined)
-      .sort((a, b) => (b.lastScore ?? b.percentageScore ?? 0) - (a.lastScore ?? a.percentageScore ?? 0))
-      .slice(0, 5)
-      .map(b => ({
-        ...b,
-        effectiveScore: Number(b.lastScore ?? b.percentageScore ?? 0),
-        hasAudit: true
-      }));
-  }, [activeLocations]);
 
   // รับผลรวม KPI สรุปจาก Database (พร้อม Stale-While-Revalidate In-Memory Cache)
   const cacheKey = `${periodFilter}_${effectiveBrandId || 'all'}`;
@@ -395,7 +335,7 @@ export default function DashboardScreen({ role, isDesktop }) {
     if (trendsData && trendsData.length > 0) {
       return trendsData.map(t => ({
         label: t.month,
-        avgScore: t.score !== null && t.score !== undefined ? Math.round(t.score) : avgScore
+        avgScore: t.score !== null && t.score !== undefined ? Math.round(t.score) : 0
       }));
     }
 
@@ -416,21 +356,18 @@ export default function DashboardScreen({ role, isDesktop }) {
         return d && d >= startOfMonth && d <= endOfMonth;
       });
 
-      let monthAvg = null;
+      let monthAvg = 0;
       if (monthAudits.length > 0) {
         monthAvg = Math.round(monthAudits.reduce((acc, r) => acc + (r.percentageScore || r.score || 0), 0) / monthAudits.length);
-      } else {
-        monthAvg = avgScore > 0 ? avgScore : 93;
       }
 
       months.push({ label, avgScore: monthAvg });
     }
 
     return months;
-  }, [trendsData, auditRecords, avgScore]);
+  }, [trendsData, auditRecords]);
 
   const rankedBranches = useMemo(() => {
-    // 🌟 1. ถ้ามี topBranches จาก API สำหรับรอบเวลานี้โดยเฉพาะ (คัดมาจาก AuditRecords ตาม period แล้ว)
     if (topBranches && topBranches.length > 0) {
       return topBranches.map(b => ({
         ...b,
@@ -439,9 +376,8 @@ export default function DashboardScreen({ role, isDesktop }) {
       }));
     }
 
-    // 🌟 2. Client fallback: ดึงจาก clientFallbackTopBranches
-    return clientFallbackTopBranches;
-  }, [topBranches, clientFallbackTopBranches]);
+    return [];
+  }, [topBranches]);
 
   const topPendingCapTopic = useMemo(() => {
     if (!capTasks || capTasks.length === 0) return "";
@@ -676,7 +612,7 @@ export default function DashboardScreen({ role, isDesktop }) {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
                 <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748B" }} />
-                <YAxis domain={[60, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748B" }} />
+                <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#64748B" }} />
                 <Tooltip 
                   contentStyle={{ borderRadius: 8, border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }}
                   itemStyle={{ color: "#0F6659", fontWeight: "bold" }}
@@ -778,85 +714,25 @@ export default function DashboardScreen({ role, isDesktop }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <Sparkles size={16} className="text-[#0F6659]" /> AI Insights
+              <BarChart3 size={16} className="text-[#0F6659]" /> สรุปข้อมูลภาพรวม
             </h3>
-            {justUpdated && (
-              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 animate-in fade-in flex items-center gap-1 shadow-2xs">
-                <CheckCircle2 size={12} className="text-emerald-600" /> อัปเดตข้อมูล
-              </span>
-            )}
           </div>
-          <button
-            onClick={() => fetchAiDashboardInsights(true)}
-            disabled={isAiLoading || aiCooldown > 0}
-            className={`px-3 py-1.5 rounded-2xl border text-xs font-bold shadow-2xs transition-all flex items-center gap-2 ${
-              isAiLoading || aiCooldown > 0
-                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
-                : 'bg-[#0F6659] hover:bg-emerald-800 text-white border-[#0F6659] cursor-pointer active:scale-95'
-            }`}
-          >
-            <Sparkles size={14} className={isAiLoading ? "animate-spin text-white" : aiCooldown > 0 ? "text-slate-400" : "text-emerald-200"} />
-            <span>{isAiLoading ? "กำลังวิเคราะห์..." : aiCooldown > 0 ? `รอ ${aiCooldown} วิ` : "วิเคราะห์ด้วย AI"}</span>
-          </button>
         </div>
 
-        {isAiLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Skeleton 1: จุดเด่น */}
-            <div className="rounded-2xl p-4 shadow-sm border border-emerald-200/80 bg-emerald-50/40 animate-pulse flex flex-col gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {aiInsightsList.map((ins) => (
+            <div
+              key={ins.type}
+              className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 transition-all duration-300 ${ins.bgClass}`}
+            >
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-emerald-200/90 shrink-0" />
-                <div className="h-3.5 w-28 rounded-md bg-emerald-200/90" />
+                <span className="text-lg">{ins.icon}</span>
+                <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
               </div>
-              <div className="space-y-1.5 pt-1">
-                <div className="h-3 w-full rounded bg-emerald-200/50" />
-                <div className="h-3 w-4/5 rounded bg-emerald-200/40" />
-                <div className="h-3 w-2/3 rounded bg-emerald-200/30" />
-              </div>
+              <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
             </div>
-
-            {/* Skeleton 2: จุดเฝ้าระวัง */}
-            <div className="rounded-2xl p-4 shadow-sm border border-amber-200/80 bg-amber-50/40 animate-pulse flex flex-col gap-2.5">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-amber-200/90 shrink-0" />
-                <div className="h-3.5 w-28 rounded-md bg-amber-200/90" />
-              </div>
-              <div className="space-y-1.5 pt-1">
-                <div className="h-3 w-full rounded bg-amber-200/50" />
-                <div className="h-3 w-4/5 rounded bg-amber-200/40" />
-                <div className="h-3 w-2/3 rounded bg-amber-200/30" />
-              </div>
-            </div>
-
-            {/* Skeleton 3: ข้อเสนอแนะ */}
-            <div className="rounded-2xl p-4 shadow-sm border border-teal-200/80 bg-teal-50/40 animate-pulse flex flex-col gap-2.5">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-teal-200/90 shrink-0" />
-                <div className="h-3.5 w-28 rounded-md bg-teal-200/90" />
-              </div>
-              <div className="space-y-1.5 pt-1">
-                <div className="h-3 w-full rounded bg-teal-200/50" />
-                <div className="h-3 w-4/5 rounded bg-teal-200/40" />
-                <div className="h-3 w-2/3 rounded bg-teal-200/30" />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {aiInsightsList.map((ins) => (
-              <div
-                key={ins.type}
-                className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 transition-all duration-300 ${ins.bgClass}`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{ins.icon}</span>
-                  <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
-                </div>
-                <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
-              </div>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
       </div>
 
       {showExportModal && <ExcelExportModal onClose={() => setShowExportModal(false)} />}
