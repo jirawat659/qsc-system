@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { CalendarDays, ChevronDown, CheckCircle2, Sparkles, BarChart3, FileSpreadsheet, Info, X, AlertCircle } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronRight, CheckCircle2, Sparkles, BarChart3, FileSpreadsheet, Info, X, AlertCircle } from "lucide-react";
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine, AreaChart, Area, PieChart, Pie } from "recharts";
 
 import { c, mono, cardStyle } from "../../config/theme";
@@ -18,6 +18,7 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import ExcelExportModal from "../../modals/ExcelExportModal";
 import MonthlyMeetingReportModal from "../../modals/MonthlyMeetingReportModal";
 import BranchProfile from "./BranchProfile";
+import AllBranchesScreen from "./AllBranchesScreen";
 import AllAuditHistoryScreen from "./AllAuditHistoryScreen";
 import AuditHistoryDetail from "../audit/AuditHistoryDetail";
 
@@ -312,6 +313,7 @@ export default function DashboardScreen({ role, isDesktop }) {
   }, []);
 
   const [viewUnit, setViewUnit] = useState(null);
+  const [showAllBranches, setShowAllBranches] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [trendsData, setTrendsData] = useState([]);
@@ -441,6 +443,7 @@ export default function DashboardScreen({ role, isDesktop }) {
       })()
     }
   ], [aiInsightsData, avgScore, passRate, pendingCapCount, topPendingCapTopic, brandDisplayName]);
+  if (showAllBranches) return <AllBranchesScreen onBack={() => setShowAllBranches(false)} onSelectUnit={(u) => { setShowAllBranches(false); setViewUnit(u); }} />;
   if (viewUnit) return <BranchProfile unit={viewUnit} onBack={() => setViewUnit(null)} />;
 
   return (
@@ -651,6 +654,14 @@ export default function DashboardScreen({ role, isDesktop }) {
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 flex flex-col min-w-0">
             <div className="flex items-center justify-between mb-3 sm:mb-4">
               <h3 className="text-sm font-bold text-slate-700">อันดับสาขา (Top 5)</h3>
+              <button
+                type="button"
+                onClick={() => setShowAllBranches(true)}
+                className="text-xs font-bold text-[#0F6659] hover:text-[#0b4e44] hover:underline cursor-pointer flex items-center gap-0.5 transition-colors"
+              >
+                <span>ดูทั้งหมด</span>
+                <ChevronRight size={14} className="mt-0.5" />
+              </button>
             </div>
             <div className="overflow-x-auto flex-1">
               {rankedBranches.length === 0 ? (

@@ -5,7 +5,8 @@ import { CheckCircle2, Check, X, Search, Download, FileSpreadsheet, ChevronDown 
 
 import { c, sans, mono, cardStyle } from "../config/theme";
 import { DataContext } from "../context/DataContext";
-import { exportToExcel } from "../utils/exportToExcel";
+import { exportToExcel, getFetchStart, toDateParam } from "../utils/exportToExcel";
+import { fetchAllAuditRecords } from "../utils/fetchAllAuditRecords";
 import api from "../config/api";
 import ModalWrapper from "../shared/ModalWrapper";
 import Header from "../shared/Header";
@@ -26,27 +27,8 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
   const [timeRange, setTimeRange] = useState("all"); // 'all' | '1M' | '3M' | '6M' | '1Y'
   const [regionFilter, setRegionFilter] = useState("all");
   const [isExporting, setIsExporting] = useState(false);
+  const [progress, setProgress] = useState(null);
   const [exportError, setExportError] = useState(null);
-
-  // 🌟 Export ต้องใช้ข้อมูลผลตรวจ "ครบทุกรายการ" ไม่ใช่แค่ buffer 50 รายการที่โหลดไว้ใน
-  // context (Phase 3.3) ดังนั้นตอนกดดาวน์โหลดจะดึงข้อมูลสดจาก API วนหน้าจนครบ totalCount
-  // includeResponses=true: ส่งเพื่อให้ backend ส่งคำตอบรายข้อมาด้วย (สำหรับชีทรายข้อใน .xlsx)
-  const fetchAllAuditRecords = async (params = {}) => {
-    const pageSize = 100;
-    let page = 1;
-    let all = [];
-    let totalCount = Infinity;
-    while (all.length < totalCount) {
-      const res = await api.get('/audit/records', { params: { ...params, page, pageSize, includeResponses: true } });
-      const data = res.data;
-      const items = Array.isArray(data) ? data : (data?.items || []);
-      totalCount = Array.isArray(data) ? items.length : (data?.totalCount ?? items.length);
-      all = all.concat(items);
-      if (items.length === 0) break;
-      page += 1;
-    }
-    return all;
-  };
 
 
   const timeRangeOptions = useMemo(() => {
@@ -101,11 +83,15 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
   const handleDownload = async () => {
     setIsExporting(true);
     setExportError(null);
+    setProgress(null);
     try {
-      // 🌟 ดึงข้อมูลผลตรวจแบบเต็มจาก API สดๆ ตอนกดดาวน์โหลด — ถ้าเปิดจากโปรไฟล์สาขา
-      // (isBranchScoped) กรองเฉพาะสาขานั้นที่ backend เพื่อลดขนาดข้อมูลที่ต้องดึง
+      const fetchStart = getFetchStart(timeRange);
       const fullAuditRecords = await fetchAllAuditRecords(
-        isBranchScoped && selectedUnit?.id ? { locationId: selectedUnit.id } : {}
+        {
+          ...(selectedUnit?.id && (isBranchScoped || exportMode === "branch") ? { locationId: selectedUnit.id } : {}),
+          ...(fetchStart ? { startDate: toDateParam(fetchStart) } : {}),
+        },
+        { onProgress: (d, t) => setProgress({ d, t }) }
       );
 
       const selectedTimeOption = timeRangeOptions.find(opt => opt.value === timeRange);
@@ -121,9 +107,11 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
       });
       onClose();
     } catch (err) {
+      console.error("[ExcelExportModal] Error exporting:", err);
       setExportError("ไม่สามารถดึงข้อมูลสำหรับส่งออกได้ครบถ้วน กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsExporting(false);
+      setProgress(null);
     }
   };
 
@@ -140,7 +128,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
             </div>
             <div>
               <span className="text-sm font-bold block" style={{ color: c.ink }}>
-                {isBranchScoped ? `ส่งออกรายงาน: ${selectedUnit.fullName || selectedUnit.name}` : "ส่งออกข้อมูลรายงาน Excel (.csv)"}
+                {isBranchScoped ? `ส่งออกรายงาน: ${selectedUnit.fullName || selectedUnit.name}` : "ส่งออกข้อมูลรายงาน Excel (.xlsx)"}
               </span>
               <span className="text-xs text-slate-500">
                 {isBranchScoped ? `ภูมิภาค: ${selectedUnit.region}` : "ศูนย์รวบรวมข้อมูลการตรวจมาตรฐาน Q.S.C."}
@@ -328,7 +316,7 @@ export default function ExcelExportModal({ initialUnit = null, onClose }) {
           <Download size={16} className="shrink-0" />
           <span className="truncate max-w-[260px] sm:max-w-none">
             {isExporting
-              ? "กำลังเตรียมข้อมูล..."
+              ? `กำลังดึงข้อมูล ${progress?.d ?? 0}/${progress?.t ?? "?"}...`
               : isBranchScoped
               ? `ดาวน์โหลดรายงาน Excel (.xlsx) — ${selectedUnit.name}`
               : exportMode === "org"
