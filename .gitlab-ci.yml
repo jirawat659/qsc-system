@@ -60,10 +60,10 @@ variables:
     for ($$i = 0; $$i -lt 30; $$i++) { if ((Get-WebAppPoolState -Name 'qsc-apppool').Value -eq 'Stopped') { break }; Start-Sleep -Seconds 1 };
     Get-Process -Name w3wp -ErrorAction SilentlyContinue | ForEach-Object { $$cmd = (Get-CimInstance Win32_Process -Filter ('ProcessId=' + $$_.Id)).CommandLine; if ($$cmd -match 'qsc-apppool') { Stop-Process -Id $$_.Id -Force -ErrorAction SilentlyContinue } };
     Start-Sleep -Seconds 2;
-    robocopy publish\backend 'G:\Website\QSC Service\backend' /E /R:3 /W:5;
+    robocopy publish\backend 'E:\Production\QSC Service\backend' /E /R:3 /W:5;
     if ($$LASTEXITCODE -ge 8) { Start-WebAppPool 'qsc-apppool'; exit $$LASTEXITCODE };
     Start-WebAppPool 'qsc-apppool';
-    robocopy publish\frontend 'G:\Website\QSC Service\frontend' /E /R:3 /W:5;
+    robocopy publish\frontend 'E:\Production\QSC Service\frontend' /E /R:3 /W:5;
     if ($$LASTEXITCODE -ge 8) { exit $$LASTEXITCODE };
     exit 0
     "
