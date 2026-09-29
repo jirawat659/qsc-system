@@ -27,7 +27,6 @@ namespace QSC.Api.Data
             EnsureUploadDirectories(env);
 
             context.Database.Migrate();
-            EnsureCashAuditSchema(context);
 
             DedupeLegacyDuplicates(context);
             EnsureRoles(context);
@@ -35,85 +34,6 @@ namespace QSC.Api.Data
             EnsureRolePermissions(context);
             EnsureLocationTypes(context);
             EnsureAdminUser(context);
-        }
-
-        private static void EnsureCashAuditSchema(AppDbContext context)
-        {
-            try
-            {
-                if (context.Database.IsSqlServer())
-                {
-                    context.Database.ExecuteSqlRaw(@"
-                        IF NOT EXISTS (
-                            SELECT 1 FROM sys.columns 
-                            WHERE object_id = OBJECT_ID('SurveyForms') AND name = 'HasCashAudit'
-                        )
-                        BEGIN
-                            ALTER TABLE SurveyForms ADD HasCashAudit BIT NOT NULL DEFAULT 0;
-                        END
-
-                        IF NOT EXISTS (
-                            SELECT 1 FROM sys.columns 
-                            WHERE object_id = OBJECT_ID('AuditRecords') AND name = 'CashAuditDataJson'
-                        )
-                        BEGIN
-                            ALTER TABLE AuditRecords ADD CashAuditDataJson NVARCHAR(MAX) NULL;
-                        END
-                    ");
-                }
-                else if (context.Database.IsSqlite())
-                {
-                    var conn = context.Database.GetDbConnection();
-                    if (conn.State != System.Data.ConnectionState.Open) conn.Open();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "PRAGMA table_info(SurveyForms);";
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        bool hasCol = false;
-                        while (reader.Read())
-                        {
-                            if (string.Equals(reader["name"]?.ToString(), "HasCashAudit", StringComparison.OrdinalIgnoreCase))
-                            {
-                                hasCol = true;
-                                break;
-                            }
-                        }
-                        reader.Close();
-                        if (!hasCol)
-                        {
-                            using var alterCmd = conn.CreateCommand();
-                            alterCmd.CommandText = "ALTER TABLE SurveyForms ADD COLUMN HasCashAudit INTEGER NOT NULL DEFAULT 0;";
-                            alterCmd.ExecuteNonQuery();
-                        }
-                    }
-
-                    using var cmd2 = conn.CreateCommand();
-                    cmd2.CommandText = "PRAGMA table_info(AuditRecords);";
-                    using (var reader2 = cmd2.ExecuteReader())
-                    {
-                        bool hasCol = false;
-                        while (reader2.Read())
-                        {
-                            if (string.Equals(reader2["name"]?.ToString(), "CashAuditDataJson", StringComparison.OrdinalIgnoreCase))
-                            {
-                                hasCol = true;
-                                break;
-                            }
-                        }
-                        reader2.Close();
-                        if (!hasCol)
-                        {
-                            using var alterCmd = conn.CreateCommand();
-                            alterCmd.CommandText = "ALTER TABLE AuditRecords ADD COLUMN CashAuditDataJson TEXT NULL;";
-                            alterCmd.ExecuteNonQuery();
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[DatabaseSeeder] EnsureCashAuditSchema notice: {ex.Message}");
-            }
         }
 
         // ==========================================================
