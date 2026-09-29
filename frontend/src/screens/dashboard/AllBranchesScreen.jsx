@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, CheckCircle2, X, Search, Filter, AlertTriangle, Download, Wrench, ArrowUpDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, CheckCircle2, X, Search, Filter, AlertTriangle, Download, Wrench, ArrowUpDown, Calendar } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -9,6 +9,7 @@ import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAN
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportToExcel } from "../../utils/exportToExcel";
+import api from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
 import Header from "../../shared/Header";
@@ -18,20 +19,145 @@ import HistoryList from "../../shared/HistoryList";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import ExcelExportModal from "../../modals/ExcelExportModal";
 
+// ---------- เกณฑ์และตัวช่วยสรุปสถานะรายสาขา ----------
+const PASS_SCORE = 85;      // ผ่านเกณฑ์
+const WARN_SCORE = 70;      // ต่ำกว่านี้ = วิกฤต
+const STALE_DAYS = 90;      // ไม่ได้ตรวจเกินกี่วันถือว่า "ตกรอบ"
+
+// สาขาที่ยังไม่เคยมีผลตรวจ: Locations.LastAuditDate = null และ LastScore = 0
+// (ห้ามนับเป็น "วิกฤต" เพราะคะแนน 0 ไม่ใช่คะแนนจริง)
+const hasAudit = (u) => !!u?.lastAuditDate;
+
+// ---------- รอบเดือน (เทียบตามเวลาไทย UTC+7) ----------
+const bkkParts = (d) => {
+  const x = new Date(new Date(d).getTime() + 7 * 3600000);
+  return { y: x.getUTCFullYear(), m: x.getUTCMonth(), day: x.getUTCDate() };
+};
+
+// ตรวจแล้วในเดือนปัจจุบันหรือยัง (ถ้ายัง = ยังไม่นับคะแนน แสดงเป็น "-")
+const isAuditedThisMonth = (u) => {
+  if (!hasAudit(u)) return false;
+  if (Number.isNaN(new Date(u.lastAuditDate).getTime())) return false;
+  const a = bkkParts(u.lastAuditDate);
+  const n = bkkParts(Date.now());
+  return a.y === n.y && a.m === n.m;
+};
+
+// สถานะรายสาขา: คิดคะแนนเฉพาะที่ตรวจในเดือนนี้ ที่เหลือ = "pending" (รอตรวจเดือนนี้)
+const getBranchStatus = (u) => {
+  if (!isAuditedThisMonth(u)) return "pending";
+  const sc = Number(u.lastScore) || 0;
+  return sc >= PASS_SCORE ? "passed" : sc >= WARN_SCORE ? "improve" : "critical";
+};
+
+const fmtDate = (d) =>
+  new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit", timeZone: "Asia/Bangkok" });
+
+// ชื่อสาขาแบบ [รหัสย่อ] · [ชื่อเต็ม] (ถ้าไม่มีรหัสแสดงเฉพาะชื่อ)
+const BranchTitle = ({ u }) => (
+  <>
+    {u.code && (
+      <>
+        <span className="font-mono font-medium text-slate-400">{u.code}</span>
+        <span className="font-normal text-slate-300"> · </span>
+      </>
+    )}
+    {u.name}
+  </>
+);
+
+// สีของวงกลมคะแนน / ป้ายสถานะ (ใช้ร่วมกันทั้งตารางและการ์ดมือถือ)
+const STATUS_STYLE = {
+  passed:   { circle: "border-emerald-600 text-emerald-800", badge: "bg-emerald-100 text-emerald-800", text: "ผ่านเกณฑ์" },
+  improve:  { circle: "border-amber-600 text-amber-800",     badge: "bg-amber-100 text-amber-900",     text: "ต้องปรับปรุง" },
+  critical: { circle: "border-rose-600 text-rose-700",       badge: "bg-rose-100 text-rose-800",       text: "วิกฤต" },
+  pending:  { circle: "border-slate-300 text-slate-400",     badge: "bg-slate-100 text-slate-600",     text: "รอตรวจเดือนนี้" },
+};
+
+const daysSinceAudit = (u) => {
+  if (!hasAudit(u)) return null;
+  const t = new Date(u.lastAuditDate).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / 86400000);
+};
+
+const isStaleBranch = (u) => {
+  const d = daysSinceAudit(u);
+  return d !== null && d > STALE_DAYS;
+};
+
+const STATUS_SEGMENTS = [
+  { key: "passed",    label: "ผ่านเกณฑ์",     hint: `≥${PASS_SCORE}%`,               bar: "bg-[#0F6659]", dot: "bg-[#0F6659]", activeCls: "border-[#0F6659] ring-2 ring-emerald-500/40" },
+  { key: "improve",   label: "ต้องปรับปรุง",  hint: `${WARN_SCORE}-${PASS_SCORE - 1}%`, bar: "bg-amber-500", dot: "bg-amber-500", activeCls: "border-amber-600 ring-2 ring-amber-400/50" },
+  { key: "critical",  label: "วิกฤต",         hint: `<${WARN_SCORE}%`,               bar: "bg-rose-600",  dot: "bg-rose-600",  activeCls: "border-rose-600 ring-2 ring-rose-400/50" },
+  { key: "pending",   label: "รอตรวจเดือนนี้", hint: "ยังไม่มีผล",                   bar: "bg-slate-300", dot: "bg-slate-400", activeCls: "border-slate-500 ring-2 ring-slate-300" },
+];
+
 export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel }) {
-  const { locations: visibleLocations } = React.useContext(DataContext);
-  const activeLocations = visibleLocations || [];
+  const { locations: visibleLocations, capTasks } = React.useContext(DataContext);
+  // ตัดสาขาที่ปิดกิจการ (isActive = false) ออกจากทั้งตารางและตัวเลขสรุป
+  const activeLocations = useMemo(
+    () => (visibleLocations || []).filter(l => l.isActive !== false),
+    [visibleLocations]
+  );
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
   const [sortBy, setSortBy] = useState("score-desc"); // 'score-desc' | 'score-asc' | 'name' | 'date'
   const [currentPage, setCurrentPage] = useState(1);
   const [showExportModal, setShowExportModal] = useState(false);
+  // งาน CAP ที่ยังค้าง (OPEN + REJECTED) — ดึงตรงจาก /cap เพราะ capTasks ใน context เป็นแค่ buffer บางส่วน
+  const [capRaw, setCapRaw] = useState({ loading: true, tasks: [] });
   const pageSize = 10;
 
   // Reset page to 1 when filters change
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterCategory, sortBy]);
+
+  // ดึง CAP ค้างดำเนินการ (สถานะ OPEN / REJECTED) ทุกหน้า แล้วเก็บเฉพาะ locationId + วันกำหนดส่ง
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const tasks = [];
+        for (const status of ["OPEN", "REJECTED"]) {
+          for (let page = 1; page <= 10; page++) {
+            const res = await api.get("/cap", { params: { status, page, pageSize: 100 } });
+            const data = res.data;
+            const items = Array.isArray(data) ? data : (data?.items || []);
+            items.forEach(t => tasks.push({ locationId: t.locationId, deadline: t.submissionDeadline }));
+            if (Array.isArray(data) || items.length < 100) break;
+          }
+        }
+        if (!cancelled) setCapRaw({ loading: false, tasks });
+      } catch (e) {
+        if (!cancelled) setCapRaw({ loading: false, tasks: [] });
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [capTasks?.length]);
+
+  // สรุป CAP เฉพาะสาขาที่แสดงอยู่ในหน้านี้
+  const capStats = useMemo(() => {
+    const visibleIds = new Set(activeLocations.map(l => l.id));
+    const now = Date.now();
+    const mine = capRaw.tasks.filter(t => visibleIds.has(t.locationId));
+    const overdue = mine.filter(t => t.deadline && new Date(t.deadline).getTime() < now).length;
+    const overdueByLoc = new Map();
+    mine.forEach(t => {
+      if (t.deadline && new Date(t.deadline).getTime() < now) {
+        overdueByLoc.set(t.locationId, (overdueByLoc.get(t.locationId) || 0) + 1);
+      }
+    });
+    return {
+      loading: capRaw.loading,
+      open: mine.length,
+      overdue,
+      overdueByLoc,
+      locationIds: new Set(mine.map(t => t.locationId)),
+    };
+  }, [capRaw, activeLocations]);
 
   const filteredAndSorted = useMemo(() => {
     let list = [...activeLocations];
@@ -58,12 +184,12 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
       });
     }
 
-    if (filterCategory === "passed") {
-      list = list.filter(u => u.lastScore >= 85);
-    } else if (filterCategory === "improve") {
-      list = list.filter(u => u.lastScore >= 70 && u.lastScore < 85);
-    } else if (filterCategory === "critical") {
-      list = list.filter(u => u.lastScore < 70);
+    if (["passed", "improve", "critical", "pending"].includes(filterCategory)) {
+      list = list.filter(u => getBranchStatus(u) === filterCategory);
+    } else if (filterCategory === "stale") {
+      list = list.filter(isStaleBranch);
+    } else if (filterCategory === "cap") {
+      list = list.filter(u => capStats.locationIds.has(u.id));
     } else if (filterCategory === "bkk") {
       list = list.filter(u => u.region.includes("กรุงเทพ"));
     } else if (filterCategory === "upcountry") {
@@ -78,18 +204,23 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
 
     if (sortBy === "distance") {
       list.sort((a, b) => parseDistance(a.distance) - parseDistance(b.distance));
-    } else if (sortBy === "score-desc") {
-      list.sort((a, b) => b.lastScore - a.lastScore);
-    } else if (sortBy === "score-asc") {
-      list.sort((a, b) => a.lastScore - b.lastScore);
+    } else if (sortBy === "score-desc" || sortBy === "score-asc") {
+      // สาขาที่ยังไม่ตรวจเดือนนี้ (แสดง "-") อยู่ท้ายเสมอ
+      const dir = sortBy === "score-desc" ? -1 : 1;
+      list.sort((a, b) => {
+        const pa = !isAuditedThisMonth(a), pb = !isAuditedThisMonth(b);
+        if (pa !== pb) return pa ? 1 : -1;
+        return dir * ((Number(a.lastScore) || 0) - (Number(b.lastScore) || 0));
+      });
     } else if (sortBy === "name") {
       list.sort((a, b) => a.name.localeCompare(b.name, "th"));
     } else if (sortBy === "date") {
-      list.sort((a, b) => (b.history?.[0]?.date || "").localeCompare(a.history?.[0]?.date || ""));
+      const ts = (u) => (u.lastAuditDate ? new Date(u.lastAuditDate).getTime() || 0 : 0);
+      list.sort((a, b) => ts(b) - ts(a));
     }
 
     return list;
-  }, [searchTerm, filterCategory, sortBy]);
+  }, [activeLocations, capStats, searchTerm, filterCategory, sortBy]);
 
   const totalCount = filteredAndSorted.length;
   const totalPages = Math.ceil(totalCount / pageSize) || 1;
@@ -98,9 +229,36 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
   const startItem = totalCount === 0 ? 0 : startIndex + 1;
   const endItem = Math.min(startIndex + pageSize, totalCount);
 
-  const passedCount = activeLocations.filter(u => u.lastScore >= 85).length;
-  const improveCount = activeLocations.filter(u => u.lastScore >= 70 && u.lastScore < 85).length;
-  const criticalCount = activeLocations.filter(u => u.lastScore < 70).length;
+  // ---------- ตัวเลขสรุปเหนือตาราง ----------
+  const summary = useMemo(() => {
+    const counts = { passed: 0, improve: 0, critical: 0, pending: 0 };
+    let scoreSum = 0, audited = 0, stale = 0, neverAudited = 0;
+    for (const u of activeLocations) {
+      const st = getBranchStatus(u);
+      counts[st] += 1;
+      if (st !== "pending") {
+        audited += 1; // ตรวจแล้วในเดือนนี้
+        scoreSum += Number(u.lastScore) || 0;
+      }
+      if (!hasAudit(u)) neverAudited += 1;
+      else if (isStaleBranch(u)) stale += 1;
+    }
+    return {
+      total: activeLocations.length,
+      counts, audited, stale, neverAudited,
+      avg: audited > 0 ? scoreSum / audited : null,
+    };
+  }, [activeLocations]);
+
+  const toggleFilter = (key) => setFilterCategory(prev => (prev === key ? "all" : key));
+
+  const avgText = summary.avg === null ? "-" : `${parseFloat(summary.avg.toFixed(1))}%`;
+  const avgTone = summary.avg === null ? "none" : summary.avg >= PASS_SCORE ? "good" : summary.avg >= WARN_SCORE ? "warn" : "bad";
+  const ringBorder = { good: "border-[#0F6659]", warn: "border-amber-500", bad: "border-rose-600", none: "border-slate-300" }[avgTone];
+  const pillCls = { good: "bg-[#0F6659] text-white", warn: "bg-amber-500 text-white", bad: "bg-rose-600 text-white", none: "bg-slate-200 text-slate-600" }[avgTone];
+  const pillText = { good: "ภาพรวมผ่านเกณฑ์", warn: "ภาพรวมต้องปรับปรุง", bad: "ภาพรวมวิกฤต", none: "ยังไม่มีผลตรวจเดือนนี้" }[avgTone];
+
+  const monthLabel = new Date().toLocaleDateString("th-TH", { month: "short", year: "numeric", timeZone: "Asia/Bangkok" });
 
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
@@ -110,91 +268,62 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
         onBack={onBack}
       />
 
-      {/* 🌟 1. PREMIUM INTERACTIVE SUMMARY KPI CARDS (คลิกการ์ดเพื่อกรองตารางได้ทันที) */}
-      <div className="grid grid-cols-3 gap-2.5 sm:gap-4">
-        {/* Card 1: ผ่านเกณฑ์ */}
-        <button
-          type="button"
-          onClick={() => setFilterCategory(filterCategory === "passed" ? "all" : "passed")}
-          className={`rounded-2xl sm:rounded-3xl p-3 sm:p-4.5 bg-gradient-to-b from-emerald-50/80 via-white to-white border shadow-2xs hover:shadow-xs transition-all text-left flex flex-col justify-between gap-2 cursor-pointer active:scale-98 ${
-            filterCategory === "passed"
-              ? "border-[#0F6659] ring-2 ring-emerald-500/40 shadow-sm"
-              : "border-emerald-200/80 hover:border-emerald-400"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11.5px] sm:text-xs font-extrabold text-emerald-950 truncate">ผ่านเกณฑ์ (≥85%)</span>
-            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
-              <CheckCircle2 size={15} strokeWidth={2.5} />
-            </div>
+      {/* 🌟 1. HERO SUMMARY CARD (ดีไซน์เดียวกับหน้ารายงานผลตรวจรายครั้ง แต่สรุปภาพรวมทุกสาขา — คลิกเพื่อกรองตารางได้) */}
+      <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200/90 shadow-2xs space-y-4">
+        {/* Top: วงแหวนคะแนนเฉลี่ย + ตัวเลขหลัก + สถานะภาพรวม */}
+        <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+          <div className={`relative flex items-center justify-center w-[80px] h-[80px] sm:w-[88px] sm:h-[88px] rounded-full border-[5.5px] shadow-2xs shrink-0 bg-white font-mono font-black text-sm sm:text-base text-slate-900 select-none ${ringBorder}`}>
+            {avgText}
+            <div className="absolute -top-[5.5px] left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full" />
           </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-none font-mono">
-              {passedCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
+          <div className="min-w-0">
+            <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight leading-none">
+              {summary.counts.passed}
+              <span className="text-lg sm:text-xl font-bold text-slate-400"> / {summary.audited} สาขา</span>
             </div>
-            <div className="mt-1.5">
-              <span className="text-[10px] sm:text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200/60 px-1.5 py-0.5 rounded-md">
-                คิดเป็น {Math.round((passedCount / activeLocations.length) * 100)}%
+            <div className="text-xs sm:text-sm font-semibold text-slate-400 mt-1">
+              ผ่านเกณฑ์ ≥{PASS_SCORE}% เดือน ({monthLabel})
+            </div>
+            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+              <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full shadow-2xs ${pillCls}`}>
+                {avgTone === "good" ? <CheckCircle2 size={13} className="shrink-0" /> : <AlertTriangle size={13} className="shrink-0" />}
+                <span>{pillText}</span>
               </span>
             </div>
           </div>
-        </button>
+        </div>
 
-        {/* Card 2: ต้องปรับปรุง */}
-        <button
-          type="button"
-          onClick={() => setFilterCategory(filterCategory === "improve" ? "all" : "improve")}
-          className={`rounded-2xl sm:rounded-3xl p-3 sm:p-4.5 bg-gradient-to-b from-amber-50/80 via-white to-white border shadow-2xs hover:shadow-xs transition-all text-left flex flex-col justify-between gap-2 cursor-pointer active:scale-98 ${
-            filterCategory === "improve"
-              ? "border-amber-600 ring-2 ring-amber-400/50 shadow-sm"
-              : "border-amber-200/80 hover:border-amber-400"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11.5px] sm:text-xs font-extrabold text-amber-950 truncate">ต้องปรับปรุง (70-84%)</span>
-            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-              <Wrench size={15} strokeWidth={2.5} />
-            </div>
+        {/* แถบสัดส่วนสถานะทุกสาขา + ชิปกรอง */}
+        <div className="space-y-2.5">
+          <div className="flex w-full h-3 rounded-full overflow-hidden bg-slate-100">
+            {STATUS_SEGMENTS.map(seg => summary.counts[seg.key] > 0 && (
+              <button
+                key={seg.key}
+                type="button"
+                onClick={() => toggleFilter(seg.key)}
+                title={`${seg.label} ${summary.counts[seg.key]} สาขา`}
+                style={{ width: `${(summary.counts[seg.key] / summary.total) * 100}%` }}
+                className={`${seg.bar} h-full cursor-pointer transition-opacity ${filterCategory !== "all" && filterCategory !== seg.key ? "opacity-40" : ""}`}
+              />
+            ))}
           </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-amber-900 leading-none font-mono">
-              {improveCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
-            </div>
-            <div className="mt-1.5">
-              <span className="text-[10px] sm:text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-200/60 px-1.5 py-0.5 rounded-md">
-                มีงานแก้ไข CAP
-              </span>
-            </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            {STATUS_SEGMENTS.map(seg => (
+              <button
+                key={seg.key}
+                type="button"
+                onClick={() => toggleFilter(seg.key)}
+                className={`inline-flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-opacity ${
+                  filterCategory === seg.key ? "text-slate-900" : "text-slate-500"
+                } ${filterCategory !== "all" && filterCategory !== seg.key ? "opacity-40" : ""}`}
+              >
+                <span className={`w-2 h-2 rounded-full shrink-0 ${seg.dot}`} />
+                <span>{seg.label}</span>
+                <span className="font-mono font-extrabold text-slate-900">{summary.counts[seg.key]}</span>
+              </button>
+            ))}
           </div>
-        </button>
-
-        {/* Card 3: วิกฤต */}
-        <button
-          type="button"
-          onClick={() => setFilterCategory(filterCategory === "critical" ? "all" : "critical")}
-          className={`rounded-2xl sm:rounded-3xl p-3 sm:p-4.5 bg-gradient-to-b from-rose-50/80 via-white to-white border shadow-2xs hover:shadow-xs transition-all text-left flex flex-col justify-between gap-2 cursor-pointer active:scale-98 ${
-            filterCategory === "critical"
-              ? "border-rose-600 ring-2 ring-rose-400/50 shadow-sm"
-              : "border-rose-200/80 hover:border-rose-400"
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11.5px] sm:text-xs font-extrabold text-rose-950 truncate">วิกฤต (&lt;70%)</span>
-            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-              <AlertTriangle size={15} strokeWidth={2.5} />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl sm:text-3xl font-extrabold text-rose-800 leading-none font-mono">
-              {criticalCount} <span className="text-xs font-bold text-slate-400">สาขา</span>
-            </div>
-            <div className="mt-1.5">
-              <span className="text-[10px] sm:text-[11px] font-bold text-rose-800 bg-rose-50 border border-rose-200/60 px-1.5 py-0.5 rounded-md">
-                ต้องเข้าตรวจซ้ำ
-              </span>
-            </div>
-          </div>
-        </button>
+        </div>
       </div>
 
       {/* 🌟 2. Search & Excel Export Row (ปุ่ม Excel อยู่แถวเดียวกับค้นหา) */}
@@ -242,6 +371,9 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             {filterCategory === "passed" && "✓ ผ่านเกณฑ์ (≥85%)"}
             {filterCategory === "improve" && "⚠️ ต้องปรับปรุง (70-84%)"}
             {filterCategory === "critical" && "🚨 วิกฤต (<70%)"}
+            {filterCategory === "pending" && "⏳ รอตรวจเดือนนี้"}
+            {filterCategory === "stale" && `🕒 ไม่ได้ตรวจเกิน ${STALE_DAYS} วัน`}
+            {filterCategory === "cap" && "🛠️ มี CAP ค้างดำเนินการ"}
             {filterCategory === "bkk" && "📍 กรุงเทพฯ และปริมณฑล"}
             {filterCategory === "upcountry" && "📍 ต่างจังหวัด"}
             <button type="button" onClick={() => setFilterCategory("all")} className="hover:text-red-700 cursor-pointer">
@@ -254,8 +386,115 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
         </div>
       )}
 
-      {/* 🌟 4. Mobile-Friendly Horizontal Scroll Table */}
-      <div className="rounded-3xl bg-white border border-slate-200 shadow-2xs overflow-hidden">
+      {/* 📱 แถบเรียงลำดับสำหรับมือถือ (หัวตารางซ่อนอยู่ จึงต้องมีปุ่มเรียงแยก) */}
+      <div className="md:hidden flex items-center gap-2 overflow-x-auto custom-tab-scrollbar pb-0.5">
+        <span className="text-xs font-bold text-slate-400 shrink-0">เรียงตาม</span>
+        {[
+          { key: "score", label: `คะแนน${sortBy === "score-desc" ? " ↓" : sortBy === "score-asc" ? " ↑" : ""}`, active: sortBy.startsWith("score"), onClick: () => setSortBy(p => (p === "score-desc" ? "score-asc" : "score-desc")) },
+          { key: "name", label: "ชื่อ", active: sortBy === "name", onClick: () => setSortBy("name") },
+          { key: "date", label: "ตรวจล่าสุด", active: sortBy === "date", onClick: () => setSortBy("date") },
+        ].map(chip => (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={chip.onClick}
+            className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all active:scale-95 ${
+              chip.active
+                ? "bg-[#0F6659] text-white shadow-2xs"
+                : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 📱 Mobile View (<768px): การ์ดต่อสาขา สไตล์เดียวกับหน้ารายงานผลตรวจ */}
+      <div className="block md:hidden space-y-3">
+        {paginatedUnits.map((u, idx) => {
+          const st = getBranchStatus(u);
+          const style = STATUS_STYLE[st];
+          const isPending = st === "pending";
+          const stale = isStaleBranch(u);
+          const capOverdue = capStats.overdueByLoc.get(u.id) || 0;
+          const typeName = u.locationType?.name || (typeof u.locationType === "string" ? u.locationType : null) || u.type;
+          const subLine = [u.region, typeName].filter(Boolean).join(" · ");
+
+          return (
+            <div
+              key={u.id ?? idx}
+              onClick={() => onSelectUnit(u)}
+              className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs hover:border-[#0F6659] active:scale-[0.99] transition-all cursor-pointer space-y-2 group"
+            >
+              {/* บรรทัด 1: วงกลมคะแนน + ป้ายสถานะ */}
+              <div className="flex items-center justify-between">
+                <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono bg-white shadow-2xs shrink-0 ${style.circle}`}>
+                  {isPending ? "-" : parseFloat(Number(u.lastScore).toFixed(2))}
+                </div>
+                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${style.badge}`}>
+                  {style.text}
+                </span>
+              </div>
+
+              {/* บรรทัด 2-3: ชื่อสาขา + ภูมิภาค/ประเภท */}
+              <div className="space-y-0.5">
+                <h3 className="text-sm font-bold text-slate-900 leading-snug break-words group-hover:text-[#0F6659] transition-colors">
+                  <BranchTitle u={u} />
+                </h3>
+                {subLine && <p className="text-xs text-slate-500 font-medium truncate">{subLine}</p>}
+              </div>
+
+              {/* บรรทัด 4: วันที่ตรวจล่าสุด (+ แท็กเตือนเฉพาะเมื่อมีปัญหา) */}
+              <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-400 font-normal">
+                <Calendar size={12} className="shrink-0" />
+                <span>
+                  {!hasAudit(u) ? "ยังไม่เคยตรวจ" : isPending ? `ตรวจล่าสุด ${fmtDate(u.lastAuditDate)}` : fmtDate(u.lastAuditDate)}
+                </span>
+                {stale && <span className="text-rose-600 font-bold">· เกิน {STALE_DAYS} วัน</span>}
+                {capOverdue > 0 && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold">
+                    <Wrench size={10} /> CAP เกินกำหนด {capOverdue}
+                  </span>
+                )}
+                <ChevronRight size={15} className="ml-auto text-slate-300 group-hover:text-[#0F6659] transition-colors shrink-0" />
+              </div>
+            </div>
+          );
+        })}
+
+        {paginatedUnits.length === 0 && (
+          <div className="text-center py-12 text-xs text-slate-400 font-medium bg-white rounded-2xl border border-slate-200 shadow-2xs">
+            ไม่พบสาขาที่ตรงกับคำค้นหาหรือตัวกรอง
+          </div>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between p-3.5 bg-white rounded-2xl border border-slate-200 shadow-2xs text-xs font-medium text-slate-500">
+            <span>หน้า {currentPage} / {totalPages} ({totalCount} สาขา)</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+              >
+                ก่อนหน้า
+              </button>
+              <button
+                type="button"
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+              >
+                ถัดไป
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 💻 Tablet & Desktop View (>=768px): ตารางเต็มรูปแบบ */}
+      <div className="hidden md:block rounded-3xl bg-white border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto custom-tab-scrollbar">
           <table className="w-full min-w-[780px] text-left border-collapse">
             <thead>
@@ -297,33 +536,41 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {paginatedUnits.map((u, idx) => {
-                const isPassed = u.lastScore >= 85;
-                const isCritical = u.lastScore < 70;
+                const st = getBranchStatus(u);
+                const isUnaudited = st === "pending"; // ยังไม่ตรวจเดือนนี้ → แสดง "-"
+                const isPassed = st === "passed";
+                const isCritical = st === "critical";
 
-                const circleColor = isCritical
+                const circleColor = isUnaudited
+                  ? "border-slate-300 text-slate-400"
+                  : isCritical
                   ? "border-rose-600 text-rose-700"
                   : isPassed
                   ? "border-emerald-600 text-emerald-800"
                   : "border-amber-600 text-amber-800";
 
-                const scorePill = isCritical
+                const scorePill = isUnaudited
+                  ? "bg-slate-100 text-slate-500 border border-slate-200/60"
+                  : isCritical
                   ? "bg-rose-50 text-rose-700 border border-rose-200/60"
                   : isPassed
                   ? "bg-emerald-50 text-emerald-700 border border-emerald-200/60"
                   : "bg-amber-50 text-amber-700 border border-amber-200/60";
 
-                const statusBadge = isCritical
+                const statusBadge = isUnaudited
+                  ? "bg-slate-100 text-slate-600"
+                  : isCritical
                   ? "bg-rose-100 text-rose-800"
                   : isPassed
                   ? "bg-emerald-100 text-emerald-800"
                   : "bg-amber-100 text-amber-900";
 
-                const statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
+                const statusText = isUnaudited ? "รอตรวจเดือนนี้" : isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
                 const overallIdx = startIndex + idx + 1;
 
                 return (
                   <tr
-                    key={u.name || idx}
+                    key={u.id ?? idx}
                     onClick={() => onSelectUnit(u)}
                     className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                   >
@@ -333,12 +580,12 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                         <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
                           {overallIdx}
                         </span>
-                        <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
-                          {u.lastScore}
+                        <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
+                          {isUnaudited ? "-" : parseFloat(Number(u.lastScore).toFixed(2))}
                         </div>
                         <div className="min-w-0">
                           <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
-                            {u.name}
+                            <BranchTitle u={u} />
                           </div>
                           <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
                             {u.fullName || u.region}
@@ -364,7 +611,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     {/* 2. คะแนน */}
                     <td className="py-3.5 px-4 text-center">
                       <span className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-bold font-mono ${scorePill}`}>
-                        {u.lastScore}%
+                        {isUnaudited ? "-" : `${u.lastScore}%`}
                       </span>
                     </td>
 
@@ -380,7 +627,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
 
                     {/* 4. วันที่ตรวจล่าสุด */}
                     <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
-                      {u.history && u.history[0]?.date ? u.history[0].date : (u.lastAuditDate ? new Date(u.lastAuditDate).toLocaleDateString('th-TH') : "-")}
+                      {u.lastAuditDate ? fmtDate(u.lastAuditDate) : "-"}
                     </td>
 
                     {/* 5. ผู้ตรวจประเมิน */}

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, ArrowUpDown, ChevronDown, Download, X, Filter, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight } from "lucide-react";
+import { Search, ArrowUpDown, ArrowDown, ArrowUp, Download, X, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight } from "lucide-react";
 
 
 import { c, sans, mono } from "../../config/theme";
@@ -34,6 +34,24 @@ function getBrandsForLoc(locId, directLoc, activeLocations) {
   return brands.join(" ");
 }
 
+// รหัสสาขา (code) ของรายการ: ใช้จาก location ที่แนบมา หรือค้นจากรายชื่อสาขาด้วย locationId
+function getCodeForLoc(locId, directLoc, activeLocations) {
+  return directLoc?.code || (activeLocations || []).find(al => al.id === locId)?.code || "";
+}
+
+// ชื่อสาขาแบบ [รหัสย่อ] · [ชื่อเต็ม] (ถ้าไม่มีรหัสแสดงเฉพาะชื่อ)
+const BranchTitle = ({ code, name }) => (
+  <>
+    {code && (
+      <>
+        <span className="font-mono font-medium text-slate-400">{code}</span>
+        <span className="font-normal text-slate-300"> · </span>
+      </>
+    )}
+    {name}
+  </>
+);
+
 // 🌟 ฟังก์ชันแปลงวันที่ให้ล็อกเป็น Timezone ประเทศไทย (+07:00 Asia/Bangkok) เสมอ (L1)
 export function formatThaiAuditDate(rawDate) {
   if (!rawDate) return "-";
@@ -66,6 +84,7 @@ function buildCompletedLog(r, forms, activeLocations) {
   const formVal = resolveFormTitle(formId, directForm, forms);
   const formVersion = r.surveyFormVersion || r.surveyForm?.version || "";
   const brandNames = getBrandsForLoc(r.locationId, r.location, activeLocations);
+  const unitCode = getCodeForLoc(r.locationId, r.location, activeLocations);
 
   return {
     id: `completed-${r.id}`,
@@ -73,6 +92,7 @@ function buildCompletedLog(r, forms, activeLocations) {
     type: 'completed',
     unitName: branchName,
     unitFullName: branchFullName,
+    unitCode: unitCode,
     brandNames: brandNames,
     region: r.locationRegion || r.location?.region || "-",
     date: dateFormatted,
@@ -340,6 +360,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         }
 
         const brandNames = getBrandsForLoc(d.locationId, d.location, activeLocations);
+        const unitCode = getCodeForLoc(d.locationId, d.location, activeLocations);
 
         logs.push({
           id: `draft-${d.id}`,
@@ -347,6 +368,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           type: 'draft',
           unitName: branchName,
           unitFullName: branchFullName,
+          unitCode: unitCode,
           brandNames: brandNames,
           region: d.locationRegion || d.location?.region || "-",
           date: dateFormatted,
@@ -421,6 +443,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         if (existingDraft) return; // already represented in activeDrafts
 
         const brandNames = getBrandsForLoc(s.locationId, s.location, activeLocations);
+        const unitCode = getCodeForLoc(s.locationId, s.location, activeLocations);
 
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
@@ -430,6 +453,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             type: 'draft',
             unitName: branchName,
             unitFullName: branchFullName,
+            unitCode: unitCode,
             brandNames: brandNames,
             region: s.locationRegion || s.location?.region || s.region || "-",
             date: dateFormatted,
@@ -469,6 +493,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           type: 'schedule',
           unitName: branchName,
           unitFullName: branchFullName,
+          unitCode: unitCode,
           brandNames: brandNames,
           region: s.locationRegion || s.location?.region || "-",
           date: dateFormatted, // scheduled date
@@ -566,6 +591,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         }
 
         return (
+          (l.unitCode && l.unitCode.toLowerCase().includes(q)) ||
           (l.unitName && l.unitName.toLowerCase().includes(q)) ||
           (l.unitFullName && l.unitFullName.toLowerCase().includes(q)) ||
           (l.brandNames && l.brandNames.toLowerCase().includes(q)) ||
@@ -917,9 +943,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       </div>
 
       {/* ── 🌟 2. SEARCH & ACTION CONTROLS (สไตล์เดียวกับหน้าจัดการฟอร์ม) ── */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+      <div className="flex items-center gap-2">
         {/* Search Bar */}
-        <div className="relative flex-1">
+        <div className="relative flex-1 min-w-0">
           <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
@@ -940,28 +966,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           )}
         </div>
 
-        {/* Filters and Actions */}
-        <div className="flex items-center gap-2">
-          {/* สาขา Dropdown Filter */}
-          <div className="relative flex-1 sm:flex-initial flex items-center">
-            <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0F6659] pointer-events-none" />
-            <select
-              value={filterCategory}
-              onChange={(e) => setFilterCategory(e.target.value)}
-              className="w-full sm:w-auto text-xs sm:text-sm font-semibold pl-8 pr-8 py-2.5 rounded-2xl bg-white border border-slate-200 shadow-2xs outline-none text-slate-700 hover:border-slate-300 focus:border-[#0F6659] transition-all cursor-pointer appearance-none"
-            >
-              <option value="all">ทุกสาขา</option>
-              <option value="passed">ผ่านเกณฑ์ (≥85%)</option>
-              <option value="improve">ต้องปรับปรุง (&lt;85%)</option>
-              <option value="bkk">เขตกรุงเทพฯ</option>
-              <option value="north">เขตภาคเหนือ</option>
-              <option value="east">เขตภาคตะวันออก</option>
-              <option value="northeast">เขตภาคอีสาน</option>
-              <option value="south">เขตภาคใต้</option>
-            </select>
-            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-          </div>
-
+        {/* Actions (มือถือแสดงเป็นไอคอน, sm ขึ้นไปแสดงข้อความ) */}
+        <div className="flex items-center gap-2 shrink-0">
           {/* Excel Export Button */}
           <button
             type="button"
@@ -989,10 +995,12 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                 handleTriggerAudit({ isNewAudit: true });
               }
             }}
-            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-2xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
+            className="flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2.5 bg-[#0F6659] hover:bg-emerald-800 text-white rounded-2xl text-xs sm:text-sm font-bold shadow-xs cursor-pointer active:scale-95 transition-all shrink-0"
+            title="ตรวจงานใหม่"
+            aria-label="ตรวจงานใหม่"
           >
             <Plus size={15} />
-            <span>ตรวจงานใหม่</span>
+            <span className="hidden sm:inline">ตรวจงานใหม่</span>
           </button>
         </div>
       </div>
@@ -1035,6 +1043,38 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             {label}
           </button>
         ))}
+      </div>
+
+      {/* 📱 แถบเรียงลำดับสำหรับมือถือ (หัวตารางถูกซ่อนบนมือถือ จึงต้องมีปุ่มเรียงแยก) — กดซ้ำเพื่อสลับทิศทาง */}
+      <div className="md:hidden flex items-center gap-1.5 overflow-x-auto custom-tab-scrollbar pb-0.5">
+        <span className="text-xs font-medium text-slate-400 shrink-0">เรียงตาม</span>
+        {[
+          { key: "date",   label: "วันที่",  first: "date-desc",   second: "date-asc",    texts: ["ใหม่→เก่า", "เก่า→ใหม่"] },
+          { key: "score",  label: "คะแนน",  first: "score-desc",  second: "score-asc",   texts: ["สูง→ต่ำ", "ต่ำ→สูง"] },
+          { key: "branch", label: "สาขา",   first: "branch-asc",  second: "branch-desc", texts: ["ก→ฮ", "ฮ→ก"] },
+        ].map(opt => {
+          const isFirst = sortBy === opt.first || (opt.key === "branch" && sortBy === "branch");
+          const isSecond = sortBy === opt.second;
+          const active = isFirst || isSecond;
+          return (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => setSortBy(isFirst ? opt.second : opt.first)}
+              className={`shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-all active:scale-95 ${
+                active
+                  ? "bg-[#0F6659]/10 border border-[#0F6659] text-[#0F6659]"
+                  : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <span>{opt.label}</span>
+              {active && <span>· {isFirst ? opt.texts[0] : opt.texts[1]}</span>}
+              {active
+                ? (isFirst ? <ArrowDown size={13} /> : <ArrowUp size={13} />)
+                : <ArrowUpDown size={12} className="text-slate-400" />}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── 🌟 4. AUDIT LIST / TABLE SECTION ── */}
@@ -1108,7 +1148,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               {/* บรรทัดที่ 2: ชื่อสาขา (ตัวหนา) + แบบฟอร์มการตรวจ & เขต */}
               <div className="space-y-0.5">
                 <h3 className="text-sm font-bold text-slate-900 leading-snug break-words group-hover:text-[#0F6659] transition-colors">
-                  {log.unitName}
+                  <BranchTitle code={log.unitCode} name={log.unitName} />
                 </h3>
                 {log.formName && (
                   <p className="text-xs text-slate-500 font-medium truncate">
@@ -1348,7 +1388,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
-                            {log.unitName}
+                            <BranchTitle code={log.unitCode} name={log.unitName} />
                           </div>
                           <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.region}>
                             {log.region}
