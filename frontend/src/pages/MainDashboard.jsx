@@ -528,11 +528,28 @@ export default function MainDashboard({ onLogout }) {
     return getRoleNavConfig(role, userNavConfig);
   }, [role, storedUser]);
 
-  const [screen, setScreen] = useState(() => nav[0]?.key || "dashboard");
+  // 🌟 ดึงข้อมูล Session การตรวจที่ค้างไว้จาก sessionStorage (สำหรับกรณีกดรีเฟรชหน้าจอ F5)
+  const savedAuditSession = (() => {
+    try {
+      const raw = sessionStorage.getItem("qsc_active_audit_session");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const [screen, setScreen] = useState(() => {
+    if (savedAuditSession?.screen === "audit") return "audit";
+    return nav[0]?.key || "dashboard";
+  });
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
-  const [preselectedPlan, setPreselectedPlan] = useState(null);
-  const [auditReturnScreen, setAuditReturnScreen] = useState("dashboard"); // 🌟 จำหน้าที่มาก่อนเข้า Live Audit ไว้ กด "ย้อนกลับ" แล้วกลับไปหน้าเดิม ไม่ใช่ dashboard ตายตัว
+  const [preselectedPlan, setPreselectedPlan] = useState(() => {
+    return savedAuditSession?.plan || null;
+  });
+  const [auditReturnScreen, setAuditReturnScreen] = useState(() => {
+    return savedAuditSession?.returnScreen || "dashboard";
+  });
   const [isLiveAuditActive, setIsLiveAuditActive] = useState(false);
   const [isMoreSubScreen, setIsMoreSubScreen] = useState(false);
   const [isAuditFromReportList, setIsAuditFromReportList] = useState(false);
@@ -615,12 +632,17 @@ export default function MainDashboard({ onLogout }) {
       return;
     }
 
+    // 🌟 หากผู้ใช้กดเปลี่ยนไปเมนูอื่นด้วยตนเอง ให้ล้าง session การตรวจค้างทิ้ง
+    if (key !== "audit") {
+      try {
+        sessionStorage.removeItem("qsc_active_audit_session");
+      } catch (e) {}
+    }
+
     if (key === "more") {
       setMoreResetKey(prev => prev + 1);
     }
     if (key === "audit") {
-      // ตอนนี้โค้ดส่วนนี้จะรันเฉพาะตอนกดมาจาก "แท็บอื่น" เท่านั้น
-      // (เพราะกรณีอยู่แท็บเดิมโดน return ไปแล้วด้านบน)
       setPreselectedPlan(null);
       setIsAuditFromReportList(false);
       setAuditReturnScreen("dashboard");
@@ -754,14 +776,16 @@ export default function MainDashboard({ onLogout }) {
               initialDraft={activeAuditDraft}
               currentUser={currentUser}
               onClearPlan={() => {
+                try { sessionStorage.removeItem("qsc_active_audit_session"); } catch (e) {}
                 setPreselectedPlan(null);
                 setIsAuditFromReportList(false);
-                setScreen(auditReturnScreen || "reports"); // 👈 บังคับกลับหน้ารายงานผลตรวจ
+                setScreen(auditReturnScreen || "reports");
               }}
               onBack={() => {
+                try { sessionStorage.removeItem("qsc_active_audit_session"); } catch (e) {}
                 setPreselectedPlan(null);
                 setIsAuditFromReportList(false);
-                setScreen(auditReturnScreen || "reports"); // 👈 บังคับกลับหน้ารายงานผลตรวจ (รูปที่ 4)
+                setScreen(auditReturnScreen || "reports");
               }}
               defaultAuditorName={currentUser.name || "-"}
               onActiveStateChange={(isActive) => setIsLiveAuditActive(prev => (prev === isActive ? prev : isActive))}
@@ -793,6 +817,7 @@ export default function MainDashboard({ onLogout }) {
                 });
               }}
               onCompleteAudit={() => {
+                try { sessionStorage.removeItem("qsc_active_audit_session"); } catch (e) {}
                 setIsAuditFromReportList(false);
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);

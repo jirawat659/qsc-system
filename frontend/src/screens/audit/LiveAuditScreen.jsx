@@ -1392,6 +1392,7 @@ export default function LiveAuditScreen({
   }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
+    if (preselectedPlan?.selectedForm) return preselectedPlan.selectedForm;
     // 🌟 ให้ความสำคัญกับ SurveyFormId จากฐานข้อมูลภายนอก / Plan ก่อนเสมอ ถ้าไม่มีค่อย fallback ไปใช้ formId ใน JSON Draft
     const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
       ? Number(preselectedPlan.surveyFormId)
@@ -1893,6 +1894,31 @@ export default function LiveAuditScreen({
       if (onActiveStateChangeRef.current) onActiveStateChangeRef.current(false);
     };
   }, [step]);
+
+  // 🌟 บันทึกสถานะหน้าตรวจงานลง sessionStorage ให้ตรงกับโครงสร้างที่ MainDashboard รอรับ
+  useEffect(() => {
+    if (step === "audit" && unit?.id && selectedForm?.id) {
+      try {
+        const localDraftKey = `qsc_draft_${unit.id}_${selectedForm.id}`;
+        const currentLocalDraft = localStorage.getItem(localDraftKey);
+
+        const sessionData = {
+          screen: "audit",
+          plan: {
+            isResume: true,
+            locationId: unit.id,
+            surveyFormId: selectedForm.id,
+            unit: unit,
+            selectedForm: selectedForm,
+            id: getEffectiveDraftId(),
+            auditScheduleId: effectiveSchedId,
+            draftPayloadJson: currentLocalDraft || null
+          }
+        };
+        sessionStorage.setItem("qsc_active_audit_session", JSON.stringify(sessionData));
+      } catch (e) {}
+    }
+  }, [step, unit, selectedForm, effectiveSchedId]);
 
   // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
   useEffect(() => {
@@ -2889,6 +2915,11 @@ export default function LiveAuditScreen({
         autoSaveTimerRef.current = null;
       }
 
+      // 🧹 ล้าง sessionStorage หน้าตรวจปัจจุบัน
+      try {
+        sessionStorage.removeItem("qsc_active_audit_session");
+      } catch (e) {}
+
       // 🧹 1. Clean localStorage thoroughly for this unit and schedule
       try {
         localStorage.removeItem('qsc_live_audit_draft');
@@ -2980,6 +3011,7 @@ export default function LiveAuditScreen({
 
       await api.delete(`/audit/draft?${params.toString()}`);
       try {
+        sessionStorage.removeItem("qsc_active_audit_session")
         localStorage.removeItem('qsc_live_audit_draft');
         if (targetLocId) {
           if (targetFormId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
