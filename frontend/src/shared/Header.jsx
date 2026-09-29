@@ -1,11 +1,22 @@
 import React from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Menu } from "lucide-react";
 import { TopBarContext } from "../context/TopBarContext";
 
-export default function Header({ title, onBack, subtitle, action, isAudit = false }) {
+export default function Header({ 
+  title, 
+  onBack, 
+  subtitle, 
+  action, 
+  isAudit = false,
+  leftActionType = "back",
+  sectionBadgeNumber = null,
+  onMenuClick = null
+}) {
   const { setSubHeader } = React.useContext(TopBarContext);
   const onBackRef = React.useRef(onBack);
   onBackRef.current = onBack;
+  const onMenuClickRef = React.useRef(onMenuClick);
+  onMenuClickRef.current = onMenuClick;
   const actionRef = React.useRef(action);
   actionRef.current = action;
   const titleRef = React.useRef(title);
@@ -23,7 +34,9 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         prev.title === title &&
         prev.subtitle === subtitle &&
         prev.isAudit === isAudit &&
-        prev.hasBack === hasBack
+        prev.hasBack === hasBack &&
+        prev.leftActionType === leftActionType &&
+        prev.sectionBadgeNumber === sectionBadgeNumber
       ) {
         return prev;
       }
@@ -34,18 +47,23 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         action: <ActionRenderer actionRef={actionRef} />,
         isAudit,
         hasBack,
+        leftActionType,
+        sectionBadgeNumber,
+        onMenuClick: onMenuClick ? () => {
+          if (onMenuClickRef.current) onMenuClickRef.current();
+        } : null,
         onBack: hasBack ? () => {
           if (onBackRef.current) onBackRef.current();
         } : null
       };
     });
-  }, [title, subtitle, hasBack, isAudit, setSubHeader]);
+  }, [title, subtitle, hasBack, isAudit, leftActionType, sectionBadgeNumber, onMenuClick, setSubHeader]);
 
   // 2. Clear subHeader ONLY when this Header component actually unmounts
   React.useEffect(() => {
     return () => {
       if (setSubHeader) {
-        setSubHeader(prev => (prev?.title === titleRef.current ? null : prev));
+        setSubHeader(null);
       }
     };
   }, [setSubHeader]);
@@ -58,17 +76,28 @@ export default function Header({ title, onBack, subtitle, action, isAudit = fals
         {onBack && (
           <button
             type="button"
-            onClick={onBack}
+            onClick={leftActionType === "menu" && onMenuClick ? onMenuClick : onBack}
             className="w-10 h-10 rounded-2xl bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-700 hover:text-[#0F6659] border border-slate-200 shadow-2xs flex items-center justify-center cursor-pointer transition-all active:scale-90 shrink-0 group"
-            title="ย้อนกลับ (Go Back)"
+            title={leftActionType === "menu" ? "เปิดหมวดหมู่" : "ย้อนกลับ (Go Back)"}
           >
-            <ChevronLeft size={22} className="group-hover:-translate-x-0.5 transition-transform text-[#0F6659]" />
+            {leftActionType === "menu" ? (
+              <Menu size={20} className="text-[#0F6659]" />
+            ) : (
+              <ChevronLeft size={22} className="group-hover:-translate-x-0.5 transition-transform text-[#0F6659]" />
+            )}
           </button>
         )}
         <div className="min-w-0">
-          <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight truncate">
-            {title}
-          </h1>
+          <div className="flex items-center gap-2">
+            {sectionBadgeNumber && (
+              <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-2xs">
+                {sectionBadgeNumber}
+              </span>
+            )}
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 leading-tight truncate">
+              {title}
+            </h1>
+          </div>
           {subtitle && (
             <p className="text-xs font-normal text-slate-500 mt-0.5 truncate">
               {subtitle}

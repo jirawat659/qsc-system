@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Store, Loader2 } from "lucide-react";
+import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Sliders, Store, Loader2, Table, Hash, Calendar, Clock, UserCheck, CircleDot, CheckSquare, ChevronDownSquare, Settings2, Calculator } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
 import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
+import FieldTypeSelectModal from "../../modals/FieldTypeSelectModal";
+import GridConfigModal, { CASH_AUDIT_PRESET } from "../../modals/GridConfigModal";
 import api from "../../config/api";
 import { DataContext } from "../../context/DataContext";
 import { CATEGORY_DISPLAY_MAP, getCategoryDisplay } from "../../config/constants";
@@ -67,6 +69,62 @@ export const DEFAULT_FORM_METADATA_CONFIG = [
   }
 ];
 
+export const getNonScoredFieldInfo = (type) => {
+  switch ((type || "").toLowerCase()) {
+    case "yesno":
+      return { label: "ผ่าน / ไม่ผ่าน (Yes / No)", icon: CheckCircle2, color: "emerald" };
+    case "scale":
+      return { label: "คะแนน 1-5 (Scale)", icon: Sliders, color: "teal" };
+    case "grid":
+      return { label: "ตารางข้อมูล (Grid)", icon: Table, color: "emerald" };
+    case "number":
+      return { label: "ตัวเลข (Number)", icon: Hash, color: "teal" };
+    case "select":
+      return { label: "รายการเลือก (Dropdown)", icon: ChevronDownSquare, color: "sky" };
+    case "radio":
+      return { label: "ตัวเลือกเดียว (Radio)", icon: CircleDot, color: "indigo" };
+    case "checkbox":
+      return { label: "หลายตัวเลือก (Checkbox)", icon: CheckSquare, color: "violet" };
+    case "date":
+      return { label: "วันที่ (Date)", icon: Calendar, color: "amber" };
+    case "time":
+      return { label: "เวลา (Time)", icon: Clock, color: "orange" };
+    case "auditor":
+      return { label: "ผู้ตรวจประเมิน (Auditor)", icon: UserCheck, color: "emerald" };
+    default:
+      return { label: "ข้อความ (Text)", icon: FileText, color: "slate" };
+  }
+};
+
+export const getQuestionPlaceholder = (type) => {
+  switch ((type || "").toLowerCase()) {
+    case "yesno":
+      return "ระบุข้อความคำถามสำหรับการตรวจประเมิน...";
+    case "scale":
+      return "ระบุข้อความคำถามสำหรับการให้คะแนน (1-5)...";
+    case "grid":
+      return "ระบุชื่อตารางหรือข้อคำถาม (เช่น ตรวจนับเงินสด)...";
+    case "number":
+      return "ระบุข้อความคำถามสำหรับตัวเลข (เช่น ระบุจำนวนพนักงาน)...";
+    case "select":
+      return "ระบุข้อความคำถามสำหรับรายการเลือก (Dropdown)...";
+    case "radio":
+      return "ระบุข้อความคำถามสำหรับตัวเลือกเดียว (Radio)...";
+    case "checkbox":
+      return "ระบุข้อความคำถามสำหรับหลายตัวเลือก (Checkbox)...";
+    case "date":
+      return "ระบุข้อความคำถามสำหรับวันที่...";
+    case "time":
+      return "ระบุข้อความคำถามสำหรับเวลา / กะงาน...";
+    case "auditor":
+      return "ระบุข้อความคำถามสำหรับผู้ตรวจประเมิน...";
+    case "text":
+      return "ระบุข้อความคำถามหรือรายละเอียด / หมายเหตุ...";
+    default:
+      return "ระบุข้อความคำถามสำหรับการตรวจประเมิน...";
+  }
+};
+
 export default function FormEditorScreen({ form, onBack, onSave, readOnly = false }) {
   const { brands: contextBrands, currentUser } = useContext(DataContext);
   const userRole = (currentUser?.role || currentUser?.roleCode || "").toUpperCase();
@@ -75,26 +133,38 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const isReadOnly = readOnly || !canManage;
 
   // 🌟 แปลง sections จากรูปแบบ API ให้เป็นรูปแบบ state ของ editor นี้ (ใช้ทั้งตอน init และตอนโหลดข้อมูลเต็มมาซิงค์ทีหลัง)
-  const mapApiSectionsToState = (apiSections) => (apiSections || []).map(s => ({
-    id: s.id,
-    title: s.title,
-    orderIndex: s.orderIndex,
-    weightPercent: s.weightPercent || 0,
-    items: (s.items || []).map(i => {
-      const cat = NORMALIZE_CATEGORY(i.categoryName || i.category || i.categoryCode);
-      return {
-        id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
-        text: i.questionText || i.text || i.title || "",
-        questionText: i.questionText || i.text || i.title || "",
-        type: ((i.questionType || i.type || "yesno").toLowerCase() === "scale") ? "scale" : "yesno",
-        fullScore: Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)),
-        critical: !!(i.isCritical !== undefined ? i.isCritical : i.critical),
-        category: cat,
-        categoryName: cat,
-        categoryCode: CATEGORY_CODE_MAP[cat] || "PD"
-      };
-    })
-  }));
+  const mapApiSectionsToState = (apiSections) => (apiSections || []).map(s => {
+    const secType = (s.sectionType || "AUDIT").toUpperCase();
+    const isInfoSec = secType === "INFO";
+    return {
+      id: s.id,
+      title: s.title,
+      sectionType: secType,
+      orderIndex: s.orderIndex,
+      weightPercent: s.weightPercent || 0,
+      items: (s.items || []).map(i => {
+        const cat = NORMALIZE_CATEGORY(i.categoryName || i.category || i.categoryCode);
+        const rawType = (i.questionType || i.type || "yesno").toLowerCase();
+        const canBeScored = rawType === "yesno" || rawType === "scale";
+        const hasScore = i.fullScore !== undefined && i.fullScore !== null && Number(i.fullScore) > 0;
+        const isScored = canBeScored && (i.isScored !== undefined ? Boolean(i.isScored) : (!isInfoSec && hasScore));
+        return {
+          id: i.id || ("q_" + Math.random().toString(36).substr(2, 9)),
+          text: i.questionText || i.text || i.title || "",
+          questionText: i.questionText || i.text || i.title || "",
+          type: rawType === "scale" ? "scale" : rawType === "yesno" ? "yesno" : rawType,
+          questionType: i.questionType || (rawType === "scale" ? "SCALE" : isScored ? "YESNO" : rawType.toUpperCase()),
+          fullScore: isScored ? Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)) : 0,
+          isScored: isScored,
+          critical: isScored ? !!(i.isCritical !== undefined ? i.isCritical : i.critical) : false,
+          category: isScored ? cat : (i.category || "รายละเอียด"),
+          categoryName: isScored ? cat : (i.categoryName || "รายละเอียด"),
+          categoryCode: isScored ? (CATEGORY_CODE_MAP[cat] || "PD") : "INFO",
+          fieldConfig: i.fieldConfig || i.fieldConfigJson ? (typeof i.fieldConfigJson === "string" ? JSON.parse(i.fieldConfigJson) : i.fieldConfig) : null
+        };
+      })
+    };
+  });
 
   const [formName, setFormName] = useState(form ? (form.name || form.title) : "แบบฟอร์มมาตรฐานใหม่");
   const [formType, setFormType] = useState(form ? (form.type || form.locationTypeName || "สาขาหน้าร้าน") : "สาขาหน้าร้าน");
@@ -160,24 +230,28 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               const mapped = mapApiSectionsToState(formData.sections);
               setSections(mapped);
 
+              const filterScoringCategories = (cats) => (cats || []).filter(c => c && c !== "รายละเอียด" && c !== "INFO");
+
               if (formData.categoryOrderJson) {
                 try {
                   const parsed = JSON.parse(formData.categoryOrderJson);
                   if (Array.isArray(parsed) && parsed.length > 0) {
-                    const catList = [...parsed];
+                    const catList = filterScoringCategories(parsed);
                     mapped.forEach(s => s.items.forEach(i => {
+                      if (i.isScored === false || Number(i.fullScore) === 0) return;
                       const cName = i.categoryName || i.category;
-                      if (cName && !catList.includes(cName)) catList.push(cName);
+                      if (cName && cName !== "รายละเอียด" && cName !== "INFO" && !catList.includes(cName)) catList.push(cName);
                     }));
-                    setCategories(catList);
+                    setCategories(catList.length > 0 ? catList : [...DEFAULT_CATEGORIES]);
                   } else {
                     const catList = [];
                     mapped.forEach(s => s.items.forEach(i => {
+                      if (i.isScored === false || Number(i.fullScore) === 0) return;
                       const cName = i.categoryName || i.category;
-                      if (cName && !catList.includes(cName)) catList.push(cName);
+                      if (cName && cName !== "รายละเอียด" && cName !== "INFO" && !catList.includes(cName)) catList.push(cName);
                     }));
                     DEFAULT_CATEGORIES.forEach(c => { if (!catList.includes(c)) catList.push(c); });
-                    setCategories(catList);
+                    setCategories(filterScoringCategories(catList));
                   }
                 } catch (e) {
                   setCategories([...DEFAULT_CATEGORIES]);
@@ -185,11 +259,12 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               } else {
                 const catList = [];
                 mapped.forEach(s => s.items.forEach(i => {
+                  if (i.isScored === false || Number(i.fullScore) === 0) return;
                   const cName = i.categoryName || i.category;
-                  if (cName && !catList.includes(cName)) catList.push(cName);
+                  if (cName && cName !== "รายละเอียด" && cName !== "INFO" && !catList.includes(cName)) catList.push(cName);
                 }));
                 DEFAULT_CATEGORIES.forEach(c => { if (!catList.includes(c)) catList.push(c); });
-                setCategories(catList);
+                setCategories(filterScoringCategories(catList));
               }
             }
 
@@ -225,7 +300,14 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       isMounted = false;
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [contextBrands, form?.id]);
+  }, [form?.id]);
+
+  // 🌟 Sync brands from context lazily without re-fetching or resetting form
+  useEffect(() => {
+    if (contextBrands && contextBrands.length > 0 && brands.length === 0) {
+      setBrands(contextBrands);
+    }
+  }, [contextBrands]);
   const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
@@ -267,28 +349,32 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   });
 
   const [categories, setCategories] = useState(() => {
+    const filterScoringCats = (cats) => (cats || []).filter(c => c && c !== "รายละเอียด" && c !== "INFO");
     if (form?.categoryOrderJson) {
       try {
         const parsed = JSON.parse(form.categoryOrderJson);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        const filtered = filterScoringCats(parsed);
+        if (filtered.length > 0) return filtered;
       } catch (e) {}
     }
     if (Array.isArray(form?.categories) && form.categories.length > 0) {
-      return form.categories;
+      const filtered = filterScoringCats(form.categories);
+      if (filtered.length > 0) return filtered;
     }
     const fromItems = [];
     if (form?.sections) {
       form.sections.forEach(s => {
         (s.items || []).forEach(i => {
+          if (i.isScored === false || Number(i.fullScore) === 0) return;
           const cName = i.categoryName || i.category;
-          if (cName && !fromItems.includes(cName)) fromItems.push(cName);
+          if (cName && cName !== "รายละเอียด" && cName !== "INFO" && !fromItems.includes(cName)) fromItems.push(cName);
         });
       });
     }
     DEFAULT_CATEGORIES.forEach(c => {
       if (!fromItems.includes(c)) fromItems.push(c);
     });
-    return fromItems;
+    return filterScoringCats(fromItems);
   });
   const [newCategoryInput, setNewCategoryInput] = useState("");
 
@@ -303,6 +389,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     return [
       {
         id: "sec_default",
+        sectionType: "AUDIT",
         title: "หมวดที่ 1",
         weightPercent: 0,
         items: [
@@ -313,6 +400,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             type: "yesno",
             questionType: "YESNO",
             fullScore: 10,
+            isScored: true,
             critical: false,
             category: DEFAULT_CATEGORIES[0],
             categoryName: DEFAULT_CATEGORIES[0],
@@ -333,6 +421,9 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'form' | 'section' | 'item' | 'metaField' | 'scoringCategory', secIdx?, itemId?, fieldId?, catName?, count?, label?, title?, text?, itemIdx?, idx? }
   const [warningModal, setWarningModal] = useState({ isOpen: false, title: '', message: '' });
   const toastTimerRef = useRef(null);
+
+  const [fieldTypeModalTarget, setFieldTypeModalTarget] = useState(null); // { secIdx, itemId? }
+  const [gridModalTarget, setGridModalTarget] = useState(null); // { secIdx, itemId, initialConfig, initialTitle }
 
   // Drag-to-reorder state and refs
   const itemRefs = useRef({});
@@ -399,6 +490,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           type: "yesno",
           questionType: "YESNO",
           fullScore: 10,
+          isScored: true,
           critical: false,
           category: defaultCat,
           categoryName: defaultCat,
@@ -436,33 +528,66 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     });
   };
 
-  // Add question to section and auto-scroll to it
-  const addItemToSection = (secIdx) => {
+  // Add question / item to section (Opens unified type selector modal)
+  const handleAddItemClick = (secIdx) => {
+    setFieldTypeModalTarget({ secIdx });
+  };
+
+  const addItemToSection = (secIdx, fieldType = "yesno") => {
+    const sec = sections[secIdx];
+    const type = fieldType || "yesno";
+    const isScored = type === "yesno" || type === "scale";
     const newId = "q_" + Date.now();
-    const secTitle = sections[secIdx]?.title || "";
+    const secTitle = sec?.title || "";
     const defaultCat = categories.find(c => secTitle.includes(c)) || categories[0] || DEFAULT_CATEGORIES[0];
     
-    setSections(prev => prev.map((sec, sIdx) => {
-      if (sIdx !== secIdx) return sec;
+    let fieldConfig = null;
+
+    if (type === "grid") {
+      fieldConfig = JSON.parse(JSON.stringify(CASH_AUDIT_PRESET));
+    } else if (type === "number") {
+      fieldConfig = { unit: "", placeholder: "0" };
+    } else if (type === "select" || type === "radio" || type === "checkbox") {
+      fieldConfig = { options: ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"] };
+    }
+
+    const placeholder = getQuestionPlaceholder(type);
+
+    setSections(prev => prev.map((secItem, sIdx) => {
+      if (sIdx !== secIdx) return secItem;
       return {
-        ...sec,
+        ...secItem,
         items: [
-          ...(sec.items || []),
+          ...(secItem.items || []),
           {
             id: newId,
             text: "",
             questionText: "",
-            type: "yesno",
-            questionType: "YESNO",
-            fullScore: 10,
+            placeholder: placeholder,
+            type: type,
+            questionType: type.toUpperCase(),
+            fullScore: isScored ? 10 : 0,
+            isScored: isScored,
             critical: false,
-            category: defaultCat,
-            categoryName: defaultCat,
-            categoryCode: CATEGORY_CODE_MAP[defaultCat] || "PD"
+            category: isScored ? defaultCat : "รายละเอียด",
+            categoryName: isScored ? defaultCat : "รายละเอียด",
+            categoryCode: isScored ? (CATEGORY_CODE_MAP[defaultCat] || "PD") : "INFO",
+            fieldConfig
           }
         ]
       };
     }));
+
+    if (type === "grid") {
+      setTimeout(() => {
+        setGridModalTarget({
+          secIdx,
+          itemId: newId,
+          initialConfig: fieldConfig,
+          initialTitle: ""
+        });
+      }, 100);
+    }
 
     // Auto-scroll smooth to newly added question
     setTimeout(() => {
@@ -471,6 +596,218 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         itemEl.scrollIntoView({ behavior: "smooth", block: "center" });
       }
     }, 80);
+  };
+
+  const handleSelectFieldType = (chosenType) => {
+    if (!fieldTypeModalTarget) return;
+    const { secIdx, itemId, isMeta, metaId } = fieldTypeModalTarget;
+
+    // A) If handling metadata field
+    if (isMeta) {
+      if (metaId) {
+        setMetadataConfig(prev => prev.map(m => {
+          if (m.id !== metaId) return m;
+          let fieldConfig = m.fieldConfig || {};
+          let options = m.options || [];
+          let unit = m.unit || "";
+          if (chosenType === "grid" && (!fieldConfig.columns || fieldConfig.columns.length === 0)) {
+            fieldConfig = JSON.parse(JSON.stringify(CASH_AUDIT_PRESET));
+          } else if ((chosenType === "select" || chosenType === "radio" || chosenType === "checkbox") && options.length === 0) {
+            options = ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"];
+          } else if (chosenType === "number" && !unit) {
+            unit = "คน";
+          }
+          return {
+            ...m,
+            type: chosenType,
+            unit,
+            options,
+            fieldConfig
+          };
+        }));
+
+        if (chosenType === "grid") {
+          const currentMeta = metadataConfig.find(m => m.id === metaId);
+          setTimeout(() => {
+            setGridModalTarget({
+              isMeta: true,
+              metaId,
+              initialConfig: currentMeta?.fieldConfig || CASH_AUDIT_PRESET,
+              initialTitle: currentMeta?.label || "ตารางข้อมูล"
+            });
+          }, 100);
+        }
+
+        setFieldTypeModalTarget(null);
+        return;
+      }
+
+      const newMetaId = "meta_" + Date.now().toString(36);
+      let defaultLabel = "";
+      let fieldConfig = null;
+      let unit = "";
+      let options = [];
+
+      if (chosenType === "grid") {
+        defaultLabel = "ตารางตรวจนับเงินสด";
+        fieldConfig = JSON.parse(JSON.stringify(CASH_AUDIT_PRESET));
+      } else if (chosenType === "number") {
+        defaultLabel = "จำนวน...";
+        unit = "คน";
+      } else if (chosenType === "select") {
+        defaultLabel = "เลือกรายการ (Dropdown)...";
+        options = ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"];
+      } else if (chosenType === "radio") {
+        defaultLabel = "เลือกหนึ่งตัวเลือก (Radio)...";
+        options = ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"];
+      } else if (chosenType === "checkbox") {
+        defaultLabel = "เลือกหลายรายการ (Checkbox)...";
+        options = ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"];
+      } else if (chosenType === "date") {
+        defaultLabel = "วันที่ตรวจ...";
+      } else if (chosenType === "time") {
+        defaultLabel = "เวลาตรวจ...";
+      } else if (chosenType === "auditor") {
+        defaultLabel = "ผู้ตรวจประเมิน";
+      } else {
+        defaultLabel = "รายละเอียด...";
+      }
+
+      const newMeta = {
+        id: newMetaId,
+        label: "",
+        placeholder: defaultLabel,
+        type: chosenType,
+        unit,
+        options,
+        fieldConfig,
+        required: false,
+        enabled: true,
+        isSystem: false
+      };
+
+      setMetadataConfig(prev => [...prev, newMeta]);
+      setFieldTypeModalTarget(null);
+
+      if (chosenType === "grid") {
+        setTimeout(() => {
+          setGridModalTarget({
+            isMeta: true,
+            metaId: newMetaId,
+            initialConfig: fieldConfig,
+            initialTitle: defaultLabel
+          });
+        }, 100);
+      }
+      return;
+    }
+
+    // B) If handling section item
+    if (itemId) {
+      // Switching type on existing item
+      const isNowScored = chosenType === "yesno" || chosenType === "scale";
+      setSections(prev => prev.map((sec, sIdx) => {
+        if (sIdx !== secIdx) return sec;
+        return {
+          ...sec,
+          items: (sec.items || []).map(it => {
+            if (it.id !== itemId) return it;
+            let fieldConfig = it.fieldConfig || {};
+            if (chosenType === "grid" && (!fieldConfig.columns || fieldConfig.columns.length === 0)) {
+              fieldConfig = JSON.parse(JSON.stringify(CASH_AUDIT_PRESET));
+            } else if ((chosenType === "select" || chosenType === "radio" || chosenType === "checkbox") && !fieldConfig.options) {
+              fieldConfig = { options: ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"] };
+            } else if (chosenType === "number" && !fieldConfig.unit) {
+              fieldConfig = { unit: "", placeholder: "0" };
+            }
+            return {
+              ...it,
+              type: chosenType,
+              questionType: chosenType.toUpperCase(),
+              isScored: isNowScored,
+              fullScore: isNowScored ? (it.fullScore && Number(it.fullScore) > 0 ? it.fullScore : 10) : 0,
+              critical: isNowScored ? it.critical : false,
+              fieldConfig
+            };
+          })
+        };
+      }));
+
+      if (chosenType === "grid") {
+        const currentItem = (sections[secIdx]?.items || []).find(it => it.id === itemId);
+        setTimeout(() => {
+          setGridModalTarget({
+            secIdx,
+            itemId,
+            initialConfig: currentItem?.fieldConfig || CASH_AUDIT_PRESET,
+            initialTitle: currentItem?.text || "ตารางข้อมูล"
+          });
+        }, 100);
+      }
+
+      setFieldTypeModalTarget(null);
+      return;
+    }
+
+    addItemToSection(secIdx, chosenType);
+    setFieldTypeModalTarget(null);
+  };
+
+  const handleSaveGridConfig = ({ title, fieldConfig }) => {
+    if (!gridModalTarget) return;
+    if (gridModalTarget.isMeta) {
+      setMetadataConfig(prev => prev.map(m => {
+        if (m.id !== gridModalTarget.metaId) return m;
+        return {
+          ...m,
+          label: title,
+          fieldConfig
+        };
+      }));
+      setGridModalTarget(null);
+      return;
+    }
+
+    const { secIdx, itemId } = gridModalTarget;
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(it => {
+          if (it.id !== itemId) return it;
+          return {
+            ...it,
+            text: title,
+            questionText: title,
+            fieldConfig
+          };
+        })
+      };
+    }));
+    setGridModalTarget(null);
+  };
+
+  const updateMetaFieldInline = (metaId, patch) => {
+    setMetadataConfig(prev => prev.map(m => m.id === metaId ? { ...m, ...patch } : m));
+  };
+
+  const updateItemFieldConfig = (secIdx, itemId, patch) => {
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(it => {
+          if (it.id !== itemId) return it;
+          return {
+            ...it,
+            fieldConfig: {
+              ...(it.fieldConfig || {}),
+              ...patch
+            }
+          };
+        })
+      };
+    }));
   };
 
   // Request remove question (Open popup confirm)
@@ -593,7 +930,8 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     const counts = {};
     categories.forEach(c => { counts[c] = 0; });
     sections.forEach(s => {
-      s.items.forEach(i => {
+      (s.items || []).forEach(i => {
+        if (i.isScored === false || Number(i.fullScore) === 0) return;
         const cat = i.category || i.categoryName || DEFAULT_CATEGORIES[0];
         counts[cat] = (counts[cat] || 0) + 1;
       });
@@ -722,33 +1060,77 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     }));
   };
 
-  // Update question score
+  // Update question score (supports numbers or '-' to disable scoring)
   const updateItemScore = (secIdx, itemId, newScore) => {
-    const val = newScore === "" ? "" : Number(newScore);
-    setSections(prev => prev.map((sec, sIdx) => {
-      if (sIdx !== secIdx) return sec;
-      return {
-        ...sec,
-        items: (sec.items || []).map(i => {
-          if (i.id === itemId) {
-            return {
-              ...i,
-              fullScore: val,
-              maxScore: val
-            };
-          }
-          return i;
-        })
-      };
-    }));
+    const strVal = String(newScore ?? "").trim();
+    if (strVal === "-" || strVal === "") {
+      setSections(prev => prev.map((sec, sIdx) => {
+        if (sIdx !== secIdx) return sec;
+        return {
+          ...sec,
+          items: (sec.items || []).map(i => {
+            if (i.id === itemId) {
+              return {
+                ...i,
+                fullScore: strVal,
+                isScored: false
+              };
+            }
+            return i;
+          })
+        };
+      }));
+      return;
+    }
+
+    const num = Number(strVal);
+    if (!isNaN(num)) {
+      setSections(prev => prev.map((sec, sIdx) => {
+        if (sIdx !== secIdx) return sec;
+        return {
+          ...sec,
+          items: (sec.items || []).map(i => {
+            if (i.id === itemId) {
+              return {
+                ...i,
+                fullScore: num,
+                maxScore: num,
+                isScored: num > 0
+              };
+            }
+            return i;
+          })
+        };
+      }));
+    }
   };
 
-  // On blur, if score is empty or NaN, fallback to 10
+  // On blur, handle '-' or empty
   const handleItemScoreBlur = (secIdx, itemId, currentVal) => {
-    if (currentVal === "" || isNaN(Number(currentVal))) {
+    const strVal = String(currentVal ?? "").trim();
+    if (strVal === "-" || strVal === "0") {
+      setSections(prev => prev.map((sec, sIdx) => {
+        if (sIdx !== secIdx) return sec;
+        return {
+          ...sec,
+          items: (sec.items || []).map(i => {
+            if (i.id === itemId) {
+              return {
+                ...i,
+                fullScore: 0,
+                maxScore: 0,
+                isScored: false
+              };
+            }
+            return i;
+          })
+        };
+      }));
+    } else if (strVal === "" || isNaN(Number(strVal))) {
       updateItemScore(secIdx, itemId, 10);
-    } else if (Number(currentVal) < 0) {
-      updateItemScore(secIdx, itemId, 0);
+    } else {
+      const num = Math.max(0, Number(strVal));
+      updateItemScore(secIdx, itemId, num);
     }
   };
 
@@ -875,7 +1257,13 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     window.addEventListener("pointerup", handlePointerUp);
   };
   const totalQuestions = useMemo(() => {
-    return sections.reduce((sum, s) => sum + s.items.length, 0);
+    return sections
+      .reduce((sum, s) => sum + (s.items || []).filter(i => (i.type === "yesno" || i.type === "scale") && i.isScored !== false && Number(i.fullScore) > 0).length, 0);
+  }, [sections]);
+
+  const totalInfoItems = useMemo(() => {
+    return sections
+      .reduce((sum, s) => sum + (s.items || []).filter(i => i.type !== "yesno" && i.type !== "scale" || i.isScored === false || Number(i.fullScore) === 0).length, 0);
   }, [sections]);
 
   // Metadata field helpers
@@ -1163,25 +1551,37 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       version: form?.version || "v1.0",
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
       categoryOrderJson: JSON.stringify(categories),
-      sections: sections.map((sec, sIdx) => ({
-        id: typeof sec.id === 'number' ? sec.id : undefined,
-        title: sec.title,
-        orderIndex: sIdx + 1,
-        weightPercent: 0,
-        items: (sec.items || []).map((item, iIdx) => {
-          const cat = NORMALIZE_CATEGORY(item.category || item.categoryName);
-          return {
-            id: typeof item.id === 'number' ? item.id : undefined,
-            questionText: item.text || item.questionText || "",
-            questionType: (item.type || item.questionType) === "scale" ? "SCALE" : "YESNO",
-            fullScore: Number(item.fullScore) || 10,
-            isCritical: !!(item.critical || item.isCritical),
-            categoryCode: CATEGORY_CODE_MAP[cat] || "PD",
-            categoryName: cat,
-            orderIndex: iIdx + 1
-          };
-        })
-      }))
+      sections: sections.map((sec, sIdx) => {
+        const hasScored = (sec.items || []).some(i => (i.type === "yesno" || i.type === "scale") && i.isScored !== false && Number(i.fullScore) > 0);
+        const hasNonScored = (sec.items || []).some(i => (i.type !== "yesno" && i.type !== "scale") || i.isScored === false || Number(i.fullScore) === 0);
+        const secType = (hasScored && hasNonScored) ? "MIXED" : (hasScored ? "AUDIT" : "INFO");
+        return {
+          id: typeof sec.id === 'number' ? sec.id : undefined,
+          title: sec.title,
+          sectionType: secType,
+          orderIndex: sIdx + 1,
+          weightPercent: 0,
+          items: (sec.items || []).map((item, iIdx) => {
+            const canBeScored = item.type === "yesno" || item.type === "scale";
+            const isScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
+            const cat = NORMALIZE_CATEGORY(item.category || item.categoryName);
+            return {
+              id: typeof item.id === 'number' ? item.id : undefined,
+              questionText: item.text || item.questionText || "",
+              questionType: isScored
+                ? ((item.type || item.questionType) === "scale" ? "SCALE" : "YESNO")
+                : (item.questionType || (item.type || "text").toUpperCase()),
+              fullScore: isScored ? (Number(item.fullScore) || 10) : 0,
+              isScored: isScored,
+              isCritical: isScored ? !!(item.critical || item.isCritical) : false,
+              categoryCode: isScored ? (CATEGORY_CODE_MAP[cat] || "PD") : "INFO",
+              categoryName: isScored ? cat : (item.categoryName || "รายละเอียด"),
+              orderIndex: iIdx + 1,
+              fieldConfigJson: item.fieldConfig ? JSON.stringify(item.fieldConfig) : (item.fieldConfigJson || null)
+            };
+          })
+        };
+      })
     };
 
     let backendId = form?.id;
@@ -1552,7 +1952,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           }`}
         >
           <CheckCircle2 size={16} />
-          <span>หมวดหมู่ คำถาม ({totalQuestions} ข้อ)</span>
+          <span>หมวดหมู่คำถาม ({totalQuestions} ข้อ{totalInfoItems > 0 ? ` + ${totalInfoItems} รายละเอียด` : ''})</span>
         </button>
       </div>
 
@@ -1647,7 +2047,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       </span>
                     </div>
 
-                    {/* Right: จำนวนข้อ + ข้อ + ลบ (X) */}
+                    {/* Right: จำนวนข้อ + ข้อ + ปุ่มลบ */}
                     <div className="flex items-center gap-2.5 shrink-0">
                       <div className="flex items-center gap-1">
                         <span className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono border ${
@@ -1660,6 +2060,30 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                         <span className="text-xs font-semibold text-slate-500">ข้อ</span>
                       </div>
 
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (categories.length <= 1) {
+                              setWarningModal({
+                                isOpen: true,
+                                title: "ไม่สามารถลบหมวดคะแนนได้",
+                                message: "แบบฟอร์มต้องมีหมวดคะแนนอย่างน้อย 1 หมวด"
+                              });
+                              return;
+                            }
+                            setDeleteTarget({
+                              type: "scoringCategory",
+                              catName: cat,
+                              count
+                            });
+                          }}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                          title={`ลบหมวดคะแนน "${cat}"`}
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1721,7 +2145,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             {/* Section Header Bar */}
             <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-3">
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                <span className="w-7 h-7 rounded-xl bg-emerald-100 text-[#0F6659] flex items-center justify-center text-xs font-black shrink-0">
+                <span className="w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black shrink-0 bg-emerald-100 text-[#0F6659]">
                   {secIdx + 1}
                 </span>
 
@@ -1750,6 +2174,28 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                     <Edit3 size={14} className="text-slate-300 group-hover:text-[#0F6659] shrink-0 transition-colors" />
                   </div>
                 )}
+
+                {/* Section Summary Badges */}
+                {(() => {
+                  const scoredCount = (sec.items || []).filter(i => (i.type === "yesno" || i.type === "scale") && i.isScored !== false && Number(i.fullScore) > 0).length;
+                  const nonScoredCount = (sec.items || []).length - scoredCount;
+                  return (
+                    <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-bold">
+                      {scoredCount > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80">
+                          <CheckCircle2 size={12} className="text-[#0F6659]" />
+                          คิดคะแนน {scoredCount} ข้อ
+                        </span>
+                      )}
+                      {nonScoredCount > 0 && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-100 text-slate-600 border border-slate-200/80">
+                          <Table size={12} className="text-slate-500" />
+                          ข้อมูล {nonScoredCount} รายการ
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-1.5 shrink-0">
@@ -1778,7 +2224,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 )}
 
                 <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-600">
-                  {sec.items.length} ข้อ
+                  {sec.items.length} รายการ
                 </span>
 
                 {!isReadOnly && (
@@ -1833,55 +2279,86 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                           </button>
                         )}
                         <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg shrink-0">
-                          ข้อ {itemIdx + 1}
+                          ข้อที่ {itemIdx + 1}
                         </span>
                       </div>
 
                       {/* Right: Score Input + Critical Toggle + Delete */}
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {/* Score Setting Input (Compact without 'แต้ม') */}
-                        <div className={`flex items-center gap-1 border rounded-xl px-2 py-1 shadow-2xs transition-colors shrink-0 ${
-                          isReadOnly ? "bg-slate-50 border-slate-200" : "bg-white border-slate-200 hover:border-[#0F6659] focus-within:border-[#0F6659]"
-                        }`}>
-                          <span className="text-[11px] font-semibold text-slate-500">คะแนน:</span>
-                          <input
-                            type="number"
-                            min="1"
-                            max="500"
-                            disabled={isReadOnly}
-                            value={item.fullScore !== undefined && item.fullScore !== null ? item.fullScore : 10}
-                            onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
-                            onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
-                            className={`w-8 text-xs font-bold text-center font-mono outline-none bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 ${
-                              isReadOnly ? "text-slate-700 cursor-default" : "text-[#0F6659] cursor-text"
-                            }`}
-                            title={isReadOnly ? "คะแนนเต็มของข้อนี้" : "กำหนดคะแนนเต็มของข้อนี้"}
-                          />
-                        </div>
+                        {(() => {
+                          const canBeScored = item.type === "yesno" || item.type === "scale";
+                          const isItemScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
 
-                        {/* Critical Toggle Button */}
-                        {isReadOnly ? (
-                          item.critical ? (
-                            <div className="px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 bg-rose-50 text-rose-600 border border-rose-300 shrink-0">
-                              <ShieldAlert size={14} className="text-rose-600" />
-                              <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>
-                            </div>
-                          ) : null
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => toggleItemCritical(secIdx, item.id)}
-                            className={`px-2 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs shrink-0 ${
-                              item.critical
-                                ? 'bg-rose-50 text-rose-600 border border-rose-300 ring-1 ring-rose-200'
-                                : 'bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                            }`}
-                            title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งเป็นข้อสำคัญ (ไม่ผ่านตกทันที)"}
-                          >
-                            <ShieldAlert size={14} className={item.critical ? "text-rose-600" : "text-slate-400"} />
-                            {item.critical && <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>}
-                          </button>
-                        )}
+                          if (!canBeScored) {
+                            return (
+                              <div
+                                className="flex items-center gap-1 border border-slate-200/70 rounded-xl px-2.5 py-1 bg-slate-100/80 shadow-2xs select-none"
+                                title="ฟิลด์ประเภทนี้ยังไม่มีระบบคิดคะแนน (คะแนนเป็น -)"
+                              >
+                                <span className="text-[11px] font-semibold text-slate-400">คะแนน:</span>
+                                <span className="w-6 text-xs font-black text-center font-mono text-slate-400 cursor-not-allowed">
+                                  -
+                                </span>
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <>
+                              <div
+                                className={`flex items-center gap-1 border rounded-xl px-2 py-1 shadow-2xs transition-colors shrink-0 ${
+                                  isReadOnly
+                                    ? "bg-slate-50 border-slate-200"
+                                    : isItemScored
+                                    ? "bg-white border-slate-200 hover:border-[#0F6659] focus-within:border-[#0F6659]"
+                                    : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                                }`}
+                              >
+                                <span className="text-[11px] font-semibold text-slate-500">คะแนน:</span>
+                                <input
+                                  type="text"
+                                  disabled={isReadOnly}
+                                  value={!isItemScored ? "-" : (item.fullScore ?? 10)}
+                                  onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
+                                  onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
+                                  className={`w-8 text-xs font-bold text-center font-mono outline-none bg-transparent p-0 ${
+                                    isReadOnly
+                                      ? "text-slate-700 cursor-default"
+                                      : !isItemScored
+                                      ? "text-slate-400 cursor-text"
+                                      : "text-[#0F6659] cursor-text"
+                                  }`}
+                                  title={isReadOnly ? "คะแนนของข้อนี้" : "กำหนดคะแนน (ใส่ตัวเลข หรือพิมพ์ - เพื่อไม่คิดคะแนน)"}
+                                />
+                              </div>
+
+                              {isItemScored && (
+                                isReadOnly ? (
+                                  item.critical ? (
+                                    <div className="px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 bg-rose-50 text-rose-600 border border-rose-300 shrink-0">
+                                      <ShieldAlert size={14} className="text-rose-600" />
+                                      <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>
+                                    </div>
+                                  ) : null
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleItemCritical(secIdx, item.id)}
+                                    className={`px-2 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs shrink-0 ${
+                                      item.critical
+                                        ? 'bg-rose-50 text-rose-600 border border-rose-300 ring-1 ring-rose-200'
+                                        : 'bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                                    }`}
+                                    title={item.critical ? "ยกเลิกความสำคัญ" : "ตั้งเป็นข้อสำคัญ (ไม่ผ่านตกทันที)"}
+                                  >
+                                    <ShieldAlert size={14} className={item.critical ? "text-rose-600" : "text-slate-400"} />
+                                    {item.critical && <span className="text-[11px] font-bold text-rose-600">สำคัญ</span>}
+                                  </button>
+                                )
+                              )}
+                            </>
+                          );
+                        })()}
 
                         {/* Delete Question Button */}
                         {!isReadOnly && (
@@ -1889,7 +2366,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                             type="button"
                             onClick={() => handleRequestRemoveItem(secIdx, item, itemIdx)}
                             className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors shrink-0"
-                            title="ลบคำถามข้อนี้"
+                            title="ลบรายการนี้"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -1921,7 +2398,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                                 setEditingId(null);
                               }
                             }}
-                            placeholder="ระบุข้อความคำถามสำหรับการตรวจประเมิน..."
+                            placeholder={item.placeholder || getQuestionPlaceholder(item.type || item.questionType)}
                             className="w-full text-xs sm:text-sm font-medium p-3 rounded-xl border border-[#0F6659] bg-white text-slate-800 placeholder:text-slate-400 placeholder:italic outline-none shadow-2xs resize-none leading-relaxed"
                           />
                         </div>
@@ -1936,98 +2413,240 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                               ? "text-slate-800 group-hover/text:text-[#0F6659] transition-colors"
                               : "text-slate-400 italic"
                           }`}>
-                            {item.text || item.questionText || "ระบุข้อความคำถามสำหรับการตรวจประเมิน..."}
+                            {item.text || item.questionText || item.placeholder || getQuestionPlaceholder(item.type || item.questionType)}
                           </p>
                           <Edit3 size={15} className="text-slate-300 group-hover/text:text-[#0F6659] shrink-0 mt-0.5 transition-colors" />
                         </div>
                       )}
                     </div>
 
+                    {/* Specific Config Preview for Non-Scored Items */}
+                    {item.type === "grid" && (
+                      <div className="p-3 rounded-2xl bg-emerald-50/40 border border-emerald-200/80 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            {item.fieldConfig?.columns?.some(c => c.autoSum) && (
+                              <span className="text-[11px] text-[#0F6659] font-bold flex items-center gap-1">
+                                <Calculator size={13} />
+                                <span>มีรวมยอดท้ายตาราง</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Mini preview snippet */}
+                        <div className="overflow-x-auto rounded-xl border border-emerald-200/60 bg-white">
+                          <table className="w-full text-xs text-left">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                                <th className="py-1.5 px-2.5 w-8 text-center font-mono">#</th>
+                                <th className="py-1.5 px-2.5">รายการ</th>
+                                {(item.fieldConfig?.columns || []).map((c, ci) => (
+                                  <th key={c.id || ci} className="py-1.5 px-2.5 whitespace-nowrap">
+                                    {c.label} {c.autoSum ? "∑" : ""}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 text-slate-700">
+                              {(item.fieldConfig?.rows || []).slice(0, 3).map((r, ri) => (
+                                <tr key={r.id || ri} className="hover:bg-slate-50/50">
+                                  <td className="py-1 px-2.5 text-center text-slate-400 font-mono">{ri + 1}</td>
+                                  <td className="py-1 px-2.5 font-medium">{r.label}</td>
+                                  {(item.fieldConfig?.columns || []).map((c, ci) => (
+                                    <td key={c.id || ci} className="py-1 px-2.5 text-slate-400 italic">
+                                      {c.type === "number" ? "0" : c.type === "radio" ? "🔘" : c.type === "checkbox" ? "☑️" : "—"}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                              {(item.fieldConfig?.rows?.length || 0) > 3 && (
+                                <tr>
+                                  <td colSpan={(item.fieldConfig?.columns?.length || 0) + 2} className="py-1 px-3 text-center text-[11px] text-slate-400 bg-slate-50/50 italic">
+                                    ... และอีก {(item.fieldConfig?.rows?.length || 0) - 3} แถว
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {/* Edit Button below table */}
+                        {!isReadOnly && (
+                          <div className="pt-0.5 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => setGridModalTarget({
+                                secIdx,
+                                itemId: item.id,
+                                initialConfig: item.fieldConfig || CASH_AUDIT_PRESET,
+                                initialTitle: item.text || "ตารางข้อมูล"
+                              })}
+                              className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-300 text-xs font-bold text-[#0F6659] flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-95"
+                            >
+                              <Settings2 size={13} />
+                              <span>แก้ไขโครงสร้าง</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Number Unit Config */}
+                    {item.type === "number" && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-xs font-bold text-slate-600">หน่วยนับ:</span>
+                        <input
+                          type="text"
+                          disabled={isReadOnly}
+                          value={item.fieldConfig?.unit || ""}
+                          onChange={(e) => updateItemFieldConfig(secIdx, item.id, { unit: e.target.value })}
+                          placeholder="เช่น บาท, ชิ้น, คน, องศา C..."
+                          className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-[#0F6659] w-40 shadow-2xs"
+                        />
+                      </div>
+                    )}
+
+                    {/* Options Config for Select, Radio, Checkbox */}
+                    {(item.type === "select" || item.type === "radio" || item.type === "checkbox") && (
+                      <div className="space-y-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                        <span className="text-xs font-bold text-slate-700 block">
+                          รายการตัวเลือก ({item.type === "select" ? "Dropdown" : item.type === "radio" ? "Radio" : "Checkbox"}):
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(item.fieldConfig?.options || []).map((opt, oIdx) => (
+                            <span key={oIdx} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-700 shadow-2xs">
+                              <span>{opt}</span>
+                              {!isReadOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextOpts = (item.fieldConfig?.options || []).filter((_, i) => i !== oIdx);
+                                    updateItemFieldConfig(secIdx, item.id, { options: nextOpts });
+                                  }}
+                                  className="text-slate-400 hover:text-rose-500 cursor-pointer"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                          {!isReadOnly && (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                placeholder="+ พิมพ์ตัวเลือก..."
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && e.target.value.trim()) {
+                                    e.preventDefault();
+                                    const nextOpts = [...(item.fieldConfig?.options || []), e.target.value.trim()];
+                                    updateItemFieldConfig(secIdx, item.id, { options: nextOpts });
+                                    e.target.value = "";
+                                  }
+                                }}
+                                className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-dashed border-slate-300 bg-white text-slate-700 focus:outline-none focus:border-[#0F6659] w-36 shadow-2xs"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Question Footer: Type Selector (Left) & Category Selector (Right) */}
                     <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
                       {/* Left: Answer Type */}
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-semibold text-slate-500">ประเภทคำตอบ:</span>
-                        {isReadOnly ? (
-                          <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white border border-slate-200 text-[#0F6659] shadow-2xs">
-                            {item.type === "scale" ? "คะแนน 1-5" : "ผ่าน / ไม่ผ่าน"}
-                          </span>
-                        ) : (
-                          <div className="flex rounded-xl p-0.5 bg-slate-100 text-xs font-semibold">
+                        {(() => {
+                          const info = getNonScoredFieldInfo(item.type);
+                          const Icon = info.icon;
+                          const isSpecialType = item.type !== "yesno" && item.type !== "scale";
+                          return (
                             <button
                               type="button"
-                              onClick={() => updateItemType(secIdx, item.id, "yesno")}
-                              className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                                item.type === "yesno" || item.type !== "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
+                              disabled={isReadOnly}
+                              onClick={() => setFieldTypeModalTarget({ secIdx, itemId: item.id })}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                                isSpecialType
+                                  ? "bg-emerald-50 text-[#0F6659] border-emerald-300 hover:bg-emerald-100"
+                                  : "bg-white text-slate-700 border-slate-200 hover:border-[#0F6659] hover:bg-slate-50"
                               }`}
+                              title="คลิกเพื่อเปลี่ยนประเภทคำตอบ / ข้อมูล"
                             >
-                              ผ่าน / ไม่ผ่าน
+                              <Icon size={14} className={isSpecialType ? "text-[#0F6659]" : "text-slate-500"} />
+                              <span>{info.label}</span>
+                              {!isReadOnly && <ChevronDown size={13} className="text-slate-400" />}
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => updateItemType(secIdx, item.id, "scale")}
-                              className={`px-3 py-1.5 rounded-lg cursor-pointer transition-all ${
-                                item.type === "scale" ? 'bg-white text-[#0F6659] shadow-2xs font-bold' : 'text-slate-600 hover:text-slate-900'
-                              }`}
-                            >
-                              คะแนน 1-5
-                            </button>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
 
-                      {/* Right: Category Selector (หมวดคะแนนของข้อนี้) */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-slate-500">หมวดคะแนน:</span>
-                        <div className="relative">
-                          <select
-                            disabled={isReadOnly}
-                            value={item.category || DEFAULT_CATEGORIES[0]}
-                            onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
-                            className={`text-xs sm:text-sm font-semibold pl-2.5 pr-6 py-1.5 min-h-[34px] sm:min-h-[36px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none shadow-2xs appearance-none ${
-                              isReadOnly ? "cursor-default" : "hover:border-[#0F6659] focus:border-[#0F6659] cursor-pointer"
-                            }`}
-                          >
-                            {categories.map((cat, cIdx) => (
-                              <option key={cIdx} value={cat}>{getCategoryDisplay(cat)}</option>
-                            ))}
-                          </select>
-                          {!isReadOnly && (
-                            <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          )}
-                        </div>
-                      </div>
+                      {/* Right: Category Selector (หมวดคะแนนของข้อนี้ - แสดงเฉพาะเมื่อคิดคะแนน) */}
+                      {(() => {
+                        const canBeScored = item.type === "yesno" || item.type === "scale";
+                        const isItemScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
+                        if (!isItemScored) return null;
+
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-500">หมวดคะแนน:</span>
+                            <div className="relative">
+                              <select
+                                disabled={isReadOnly}
+                                value={item.category || DEFAULT_CATEGORIES[0]}
+                                onChange={(e) => updateItemCategory(secIdx, item.id, e.target.value)}
+                                className={`text-xs sm:text-sm font-semibold pl-2.5 pr-6 py-1.5 min-h-[34px] sm:min-h-[36px] rounded-xl border border-slate-200 bg-white text-slate-800 outline-none shadow-2xs appearance-none ${
+                                  isReadOnly ? "cursor-default" : "hover:border-[#0F6659] focus:border-[#0F6659] cursor-pointer"
+                                }`}
+                              >
+                                {categories.map((cat, cIdx) => (
+                                  <option key={cIdx} value={cat}>{getCategoryDisplay(cat)}</option>
+                                ))}
+                              </select>
+                              {!isReadOnly && (
+                                <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Add Question Button */}
+            {/* Add Question / Item Button */}
             {!isReadOnly && (
               <button
                 type="button"
-                onClick={() => addItemToSection(secIdx)}
-                className="w-full py-3 rounded-2xl bg-slate-50 hover:bg-emerald-50/60 border border-dashed border-slate-300 hover:border-emerald-400 text-xs sm:text-sm font-extrabold text-slate-600 hover:text-[#0F6659] flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
+                onClick={() => handleAddItemClick(secIdx)}
+                className="w-full py-3 rounded-2xl border border-dashed text-xs sm:text-sm font-extrabold flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99] bg-slate-50 hover:bg-emerald-50/60 border-slate-300 hover:border-emerald-400 text-slate-600 hover:text-[#0F6659]"
               >
                 <Plus size={16} />
-                <span>เพิ่มข้อคำถามในหมวดหมู่นี้</span>
+                <span>เพิ่มข้อคำถาม</span>
               </button>
             )}
           </div>
         );
       })}
 
-        {/* 🌟 Add Section Button at the bottom (Clean & Minimal) */}
+        {/* 🌟 Single Add Section Button */}
         {!isReadOnly && (
-          <button
-            type="button"
-            onClick={addSection}
-            className="w-full py-3 rounded-2xl bg-white hover:bg-slate-50 border border-dashed border-slate-300 hover:border-[#0F6659] text-xs sm:text-sm font-bold text-slate-600 hover:text-[#0F6659] flex items-center justify-center gap-2 cursor-pointer shadow-2xs transition-all active:scale-[0.99]"
-          >
-            <Plus size={16} />
-            <span>เพิ่มหมวดหมู่ใหม่</span>
-          </button>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => addSection()}
+              className="w-full py-3.5 px-4 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-2.5 cursor-pointer shadow-sm hover:shadow-md transition-all active:scale-[0.99]"
+            >
+              <div className="w-6 h-6 rounded-lg bg-white/20 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                <Plus size={15} strokeWidth={2.5} />
+              </div>
+              <div className="text-left">
+                <div className="leading-tight font-extrabold text-white text-xs sm:text-sm">เพิ่มหมวดหมู่</div>
+              </div>
+            </button>
+          </div>
         )}
           </div>
         </div>
@@ -2052,7 +2671,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               {!isReadOnly && (
                 <button
                   type="button"
-                  onClick={openAddMetaField}
+                  onClick={() => setFieldTypeModalTarget({ isMeta: true })}
                   className="flex items-center gap-1.5 px-4 py-2.5 bg-[#0F6659] text-white rounded-2xl text-xs font-bold hover:bg-emerald-800 transition-all shadow-xs cursor-pointer active:scale-95 shrink-0"
                 >
                   <Plus size={15} />
@@ -2102,7 +2721,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                           : "border-slate-200 hover:border-emerald-300 bg-[#FAFAF8]"
                       }`}
                     >
-                      {/* 1. Field Header Bar: Drag Handle + Number Badge (เหมือนหมวดหมู่คำถาม) */}
+                      {/* 1. Header Bar: Drag Handle + Number Badge + Up/Down Arrows + Controls + Delete */}
                       <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/60">
                         {/* Left: Drag Handle & Number Badge & Up/Down Arrows */}
                         <div className="flex items-center gap-2 min-w-0">
@@ -2118,7 +2737,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                           )}
 
                           <span className="text-xs font-black text-slate-800 font-mono px-2.5 py-0.5 bg-slate-100 border border-slate-200/80 rounded-lg shrink-0">
-                            ข้อ {idx + 1}
+                            รายการที่ {idx + 1}
                           </span>
 
                           {!isReadOnly && (
@@ -2145,70 +2764,261 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                           )}
                         </div>
 
-                        {/* Right: Edit + Delete */}
-                        {!isReadOnly && (
-                          <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Right: Required Toggle & Delete Button */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {/* Required Toggle */}
+                          {!isReadOnly ? (
                             <button
                               type="button"
-                              onClick={() => openEditMetaField(field, idx)}
-                              className="p-1.5 text-slate-500 hover:text-[#0F6659] bg-white border border-slate-200 rounded-xl hover:border-emerald-400 cursor-pointer shadow-2xs transition-colors"
-                              title="แก้ไขฟิลด์นี้"
+                              onClick={() => updateMetaFieldInline(field.id, { required: !field.required })}
+                              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs shrink-0 ${
+                                field.required
+                                  ? 'bg-rose-50 text-rose-600 border border-rose-300 ring-1 ring-rose-200'
+                                  : 'bg-white border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                              }`}
+                              title={field.required ? "คลิกเพื่อยกเลิกบังคับกรอก" : "คลิกเพื่อตั้งเป็นบังคับกรอก"}
                             >
-                              <Edit3 size={15} />
+                              <span className="text-rose-500 font-bold">*</span>
+                              <span className="text-[11px] font-bold">{field.required ? "บังคับ" : "ไม่บังคับ"}</span>
                             </button>
+                          ) : field.required ? (
+                            <span className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
+                              * บังคับกรอก
+                            </span>
+                          ) : null}
 
+                          {/* Delete Button */}
+                          {!isReadOnly && (
                             <button
                               type="button"
                               onClick={() => handleRequestRemoveMetaField(field, idx)}
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 cursor-pointer shadow-2xs transition-colors"
-                              title="ลบฟิลด์นี้"
+                              className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 cursor-pointer transition-colors shrink-0"
+                              title="ลบรายการนี้"
                             >
-                              <Trash2 size={13} />
-                              <span>ลบ</span>
+                              <Trash2 size={16} />
                             </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 2. Full-Width Title / Label Input */}
+                      <div className="w-full min-w-0">
+                        {isReadOnly ? (
+                          <div className="w-full min-w-0 p-2.5 -mx-1 rounded-xl">
+                            <p className={`text-xs sm:text-sm font-medium leading-relaxed break-words [overflow-wrap:anywhere] ${
+                              field.label ? "text-slate-800" : "text-slate-400 italic"
+                            }`}>
+                              {field.label || "(ยังไม่ได้ระบุชื่อข้อมูล)"}
+                            </p>
+                          </div>
+                        ) : editingId === field.id ? (
+                          <div className="flex items-center gap-2 w-full min-w-0">
+                            <input
+                              autoFocus
+                              type="text"
+                              value={field.label || ""}
+                              onChange={(e) => updateMetaFieldInline(field.id, { label: e.target.value })}
+                              onBlur={() => setEditingId(null)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  setEditingId(null);
+                                }
+                              }}
+                              placeholder="ระบุชื่อข้อมูล..."
+                              className="w-full text-xs sm:text-sm font-medium px-3 py-2 rounded-xl border border-[#0F6659] bg-white text-slate-800 placeholder:text-slate-400 outline-none shadow-2xs"
+                            />
+                          </div>
+                        ) : (
+                          <div
+                            onClick={() => setEditingId(field.id)}
+                            className="w-full min-w-0 group/text cursor-pointer hover:bg-emerald-50/50 p-2.5 -mx-1 rounded-xl transition-all flex items-center justify-between gap-3"
+                            title="คลิกเพื่อแก้ไขชื่อข้อมูล"
+                          >
+                            <p className={`text-xs sm:text-sm font-medium leading-relaxed flex-1 min-w-0 break-words [overflow-wrap:anywhere] ${
+                              field.label
+                                ? "text-slate-800 group-hover/text:text-[#0F6659] transition-colors"
+                                : "text-slate-400 italic"
+                            }`}>
+                              {field.label || "ระบุชื่อข้อมูล..."}
+                            </p>
+                            <Edit3 size={15} className="text-slate-300 group-hover/text:text-[#0F6659] shrink-0 transition-colors" />
                           </div>
                         )}
                       </div>
 
-                      {/* 2. Field Content: Name & Badges */}
-                      <div className="pt-0.5 space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h4 className="text-sm font-bold text-slate-900">{field.label}</h4>
-                          {field.enabled === false ? (
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-slate-200 text-slate-600">
-                              ✕ ปิดใช้งาน (Disabled)
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                              ✓ เปิดใช้งาน (Enabled)
-                            </span>
-                          )}
-                          {field.required && field.enabled !== false && (
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-rose-100 text-rose-700">
-                              * บังคับกรอก
-                            </span>
+                      {/* 3. Specific Config: Grid, Number Unit, Options (Select/Radio/Checkbox) */}
+                      {field.type === "grid" && (
+                        <div className="p-3 rounded-2xl bg-emerald-50/40 border border-emerald-200/80 space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              {field.fieldConfig?.columns?.some(c => c.autoSum) && (
+                                <span className="text-[11px] text-[#0F6659] font-bold flex items-center gap-1">
+                                  <Calculator size={13} />
+                                  <span>มีรวมยอดท้ายตาราง</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Mini preview snippet */}
+                          <div className="overflow-x-auto rounded-xl border border-emerald-200/60 bg-white">
+                            <table className="w-full text-xs text-left">
+                              <thead>
+                                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                                  <th className="py-1.5 px-2.5 w-8 text-center font-mono">#</th>
+                                  <th className="py-1.5 px-2.5">รายการ</th>
+                                  {(field.fieldConfig?.columns || []).map((c, ci) => (
+                                    <th key={c.id || ci} className="py-1.5 px-2.5 whitespace-nowrap">
+                                      {c.label} {c.autoSum ? "∑" : ""}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 text-slate-700">
+                                {(field.fieldConfig?.rows || []).slice(0, 3).map((r, ri) => (
+                                  <tr key={r.id || ri} className="hover:bg-slate-50/50">
+                                    <td className="py-1 px-2.5 text-center text-slate-400 font-mono">{ri + 1}</td>
+                                    <td className="py-1 px-2.5 font-medium">{r.label}</td>
+                                    {(field.fieldConfig?.columns || []).map((c, ci) => (
+                                      <td key={c.id || ci} className="py-1 px-2.5 text-slate-400 italic">
+                                        {c.type === "number" ? "0" : c.type === "radio" ? "🔘" : c.type === "checkbox" ? "☑️" : "—"}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                                {(field.fieldConfig?.rows?.length || 0) > 3 && (
+                                  <tr>
+                                    <td colSpan={(field.fieldConfig?.columns?.length || 0) + 2} className="py-1 px-3 text-center text-[11px] text-slate-400 bg-slate-50/50 italic">
+                                      ... และอีก {(field.fieldConfig?.rows?.length || 0) - 3} แถว
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Edit Button below table */}
+                          {!isReadOnly && (
+                            <div className="pt-0.5 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setGridModalTarget({
+                                  isMeta: true,
+                                  metaId: field.id,
+                                  initialConfig: field.fieldConfig || CASH_AUDIT_PRESET,
+                                  initialTitle: field.label || "ตารางข้อมูล"
+                                })}
+                                className="w-full sm:w-auto px-3.5 py-1.5 rounded-xl bg-white hover:bg-emerald-50 border border-emerald-300 text-xs font-bold text-[#0F6659] flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-95"
+                              >
+                                <Settings2 size={13} />
+                                <span>แก้ไขโครงสร้างตาราง (แถว/คอลัมน์)</span>
+                              </button>
+                            </div>
                           )}
                         </div>
+                      )}
 
-                        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                          <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-semibold text-slate-700 shadow-2xs">
-                            ประเภท: {getFieldTypeLabel(field.type)}
+                      {field.type === "number" && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-xs font-bold text-slate-600">หน่วยนับ:</span>
+                          <input
+                            type="text"
+                            disabled={isReadOnly}
+                            value={field.unit || ""}
+                            onChange={(e) => updateMetaFieldInline(field.id, { unit: e.target.value })}
+                            placeholder="เช่น บาท, ชิ้น, คน, องศา C..."
+                            className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-800 focus:outline-none focus:border-[#0F6659] w-40 shadow-2xs"
+                          />
+                        </div>
+                      )}
+
+                      {(field.type === "select" || field.type === "radio" || field.type === "checkbox") && (
+                        <div className="space-y-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                          <span className="text-xs font-bold text-slate-700 block">
+                            รายการตัวเลือก ({field.type === "select" ? "Dropdown" : field.type === "radio" ? "Radio" : "Checkbox"}):
                           </span>
-                          {field.type === "number" && field.unit && (
-                            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold">
-                              หน่วย: {field.unit}
-                            </span>
-                          )}
-                          {field.type === "select" && Array.isArray(field.options) && field.options.length > 0 && (
-                            <span className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 font-medium truncate max-w-xs">
-                              ตัวเลือก ({field.options.length}): {field.options.join(", ")}
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {(field.options || []).map((opt, oIdx) => (
+                              <span key={oIdx} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-xs font-medium text-slate-700 shadow-2xs">
+                                <span>{opt}</span>
+                                {!isReadOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextOpts = (field.options || []).filter((_, i) => i !== oIdx);
+                                      updateMetaFieldInline(field.id, { options: nextOpts });
+                                    }}
+                                    className="text-slate-400 hover:text-rose-500 cursor-pointer"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                )}
+                              </span>
+                            ))}
+                            {!isReadOnly && (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="text"
+                                  placeholder="+ พิมพ์ตัวเลือก..."
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && e.target.value.trim()) {
+                                      e.preventDefault();
+                                      const nextOpts = [...(field.options || []), e.target.value.trim()];
+                                      updateMetaFieldInline(field.id, { options: nextOpts });
+                                      e.target.value = "";
+                                    }
+                                  }}
+                                  className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-dashed border-slate-300 bg-white text-slate-700 focus:outline-none focus:border-[#0F6659] w-36 shadow-2xs"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 4. Footer: Type Selector (Left) & Info Tag (Right) */}
+                      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-500">ประเภทข้อมูล:</span>
+                          {(() => {
+                            const info = getNonScoredFieldInfo(field.type);
+                            const Icon = info.icon;
+                            return (
+                              <button
+                                type="button"
+                                disabled={isReadOnly}
+                                onClick={() => setFieldTypeModalTarget({ isMeta: true, metaId: field.id })}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-2xs cursor-pointer ${
+                                  field.type === "grid"
+                                    ? "bg-emerald-50 text-[#0F6659] border-emerald-300 hover:bg-emerald-100"
+                                    : "bg-white text-slate-700 border-slate-200 hover:border-[#0F6659] hover:bg-slate-50"
+                                }`}
+                                title="คลิกเพื่อเปลี่ยนประเภทข้อมูล"
+                              >
+                                <Icon size={14} className={field.type === "grid" ? "text-[#0F6659]" : "text-slate-500"} />
+                                <span>{info.label}</span>
+                                {!isReadOnly && <ChevronDown size={13} className="text-slate-400" />}
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
                   );
                 })
+              )}
+
+              {/* Bottom Add Field Button */}
+              {!isReadOnly && metadataConfig.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFieldTypeModalTarget({ isMeta: true })}
+                  className="w-full py-3 rounded-2xl border border-dashed border-slate-300 hover:border-slate-400 bg-slate-50 hover:bg-slate-100/80 text-xs sm:text-sm font-extrabold text-slate-600 hover:text-slate-800 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-[0.99]"
+                >
+                  <Plus size={16} />
+                  <span>เพิ่มฟิลด์ข้อมูลการตรวจ</span>
+                </button>
               )}
             </div>
           </div>
@@ -2669,7 +3479,25 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         </ModalWrapper>
       )}
 
-      {/* 🌟 8. TOP FLOATING TOAST (Dynamic Fresh Mint for success / Soft Rose for warning & error) */}
+      {/* 🌟 7. FIELD TYPE SELECT MODAL (Non-scored Type 1) */}
+      <FieldTypeSelectModal
+        isOpen={Boolean(fieldTypeModalTarget)}
+        onClose={() => setFieldTypeModalTarget(null)}
+        onSelectType={handleSelectFieldType}
+      />
+
+      {/* 🌟 8. GRID CONFIG MODAL (Grid Builder) */}
+      {gridModalTarget && (
+        <GridConfigModal
+          isOpen={true}
+          onClose={() => setGridModalTarget(null)}
+          initialConfig={gridModalTarget.initialConfig}
+          initialTitle={gridModalTarget.initialTitle}
+          onSave={handleSaveGridConfig}
+        />
+      )}
+
+      {/* 🌟 9. TOP FLOATING TOAST (Dynamic Fresh Mint for success / Soft Rose for warning & error) */}
       {toastMessage && typeof document !== "undefined" && createPortal(
         <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none flex items-center gap-3 px-5 py-3 rounded-2xl backdrop-blur-md shadow-xl text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200 ${
           toastMessage.isError

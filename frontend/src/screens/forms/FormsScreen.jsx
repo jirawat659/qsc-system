@@ -41,13 +41,9 @@ export default function FormsScreen({ isDesktop, onBack, role }) {
     }
     setLoadingFormId(f.id);
     try {
-      let fullForm = null;
-      if (getFormDetail) {
-        fullForm = await getFormDetail(f.id);
-      } else {
-        const res = await api.get(`/form/${f.id}`);
-        fullForm = res.data;
-      }
+      // 🌟 ดึงข้อมูลฟอร์มชุดเต็มล่าสุดจาก API เสมอ เพื่อให้การตั้งค่าล่าสุด (เช่น HasCashAudit) อัปเดตทันที
+      const res = await api.get(`/form/${f.id}`);
+      const fullForm = res.data;
       if (fullForm && Array.isArray(fullForm.sections)) {
         setEditing({
           ...f,

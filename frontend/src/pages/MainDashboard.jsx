@@ -40,18 +40,20 @@ function HeaderTitleContent({ subHeader }) {
   if (subHeader?.sectionBadgeNumber) {
     return (
       <div
-        className="flex items-center gap-2 min-w-0 cursor-pointer group"
+        className="flex items-center justify-between gap-2 min-w-0 w-full cursor-pointer group"
         onClick={subHeader.onMenuClick}
         title="แตะเพื่อเลือกหมวดการตรวจ"
       >
-        <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-emerald-700 transition-colors shadow-2xs">
-          {subHeader.sectionBadgeNumber}
-        </span>
-        <span className="text-sm font-black text-slate-900 truncate leading-tight min-w-0 group-hover:text-[#0F6659] transition-colors">
-          {subHeader.title}
-        </span>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="w-6 h-6 rounded-lg bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 group-hover:bg-emerald-700 transition-colors shadow-2xs">
+            {subHeader.sectionBadgeNumber}
+          </span>
+          <span className="text-sm font-black text-slate-900 truncate leading-tight min-w-0 group-hover:text-[#0F6659] transition-colors">
+            {subHeader.title}
+          </span>
+        </div>
         {subHeader?.subtitle && (
-          <span className="text-[10px] font-bold text-[#0F6659] bg-white px-2.5 py-1 rounded-lg border border-[#CCE3DC] shadow-2xs shrink-0">
+          <span className="text-[10px] font-bold text-[#0F6659] bg-white px-2.5 py-1 rounded-lg border border-[#CCE3DC] shadow-2xs shrink-0 ml-auto">
             {subHeader.subtitle}
           </span>
         )}
@@ -102,14 +104,14 @@ function PushingHeaderTitle({ subHeader }) {
   }, [titleKey]);
 
   return (
-    <div className="relative h-9 overflow-hidden">
+    <div className="relative h-9 overflow-hidden w-full">
       {previous && (
-        <div className="absolute inset-0 flex items-center animate-push-up-out">
+        <div className="absolute inset-0 flex items-center w-full animate-push-up-out">
           <HeaderTitleContent subHeader={previous.subHeader} />
         </div>
       )}
       <div
-        className={`${previous ? "absolute inset-0" : "relative h-full"} flex items-center ${
+        className={`${previous ? "absolute inset-0" : "relative h-full"} flex items-center w-full ${
           previous ? "animate-push-up-in" : ""
         }`}
       >
@@ -121,6 +123,8 @@ function PushingHeaderTitle({ subHeader }) {
 
 // 🌟 แถบ TopBar ย่อยสำหรับหน้ารายละเอียด และหน้าตรวจประเมิน (Live Audit)
 function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
+  const isCategoryMode = Boolean(subHeader?.sectionBadgeNumber);
+
   return (
     <div className="flex items-center justify-between gap-2 min-w-0 w-full">
       <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -129,7 +133,7 @@ function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
             type="button"
             onClick={subHeader.leftActionType === "menu" ? subHeader.onMenuClick : subHeader.onBack}
             className={`w-9 h-9 rounded-full flex items-center justify-center cursor-pointer shadow-2xs active:scale-90 transition-all border shrink-0 group ${
-              subHeader?.sectionBadgeNumber
+              isCategoryMode
                 ? "bg-white/95 text-[#0F6659] border-[#CCE3DC] hover:bg-emerald-50"
                 : "bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-800 border-slate-200"
             }`}
@@ -151,20 +155,24 @@ function TopBarHeader({ subHeader, currentUser, setShowProfileModal }) {
         </div>
       </div>
 
-
-      <div className="flex items-center gap-2 shrink-0">
-        {subHeader?.action}
-        <button
-          type="button"
-          onClick={() => setShowProfileModal(true)}
-          className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
-          title="ดูโปรไฟล์และบัญชีผู้ใช้"
-        >
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
-            {currentUser?.avatar || "ผ"}
-          </div>
-        </button>
-      </div>
+      {/* 🌟 แสดง action (ปุ่มแก้ไข) และปุ่มโปรไฟล์ เฉพาะตอนที่ไม่ได้อยู่ในหน้ารายการข้อหมวดหมู่ */}
+      {!isCategoryMode && (
+        <div className="flex items-center gap-2 shrink-0 animate-in fade-in duration-150">
+          {subHeader?.action}
+          {currentUser && setShowProfileModal && (
+            <button
+              type="button"
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center p-1 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 shadow-2xs cursor-pointer active:scale-95 transition-all shrink-0"
+              title="ดูโปรไฟล์และบัญชีผู้ใช้"
+            >
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shadow-2xs text-white bg-[#0F6659]">
+                {currentUser?.avatar || "ผ"}
+              </div>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -520,11 +528,28 @@ export default function MainDashboard({ onLogout }) {
     return getRoleNavConfig(role, userNavConfig);
   }, [role, storedUser]);
 
-  const [screen, setScreen] = useState(() => nav[0]?.key || "dashboard");
+  // 🌟 ดึงข้อมูล Session การตรวจที่ค้างไว้จาก sessionStorage (สำหรับกรณีกดรีเฟรชหน้าจอ F5)
+  const savedAuditSession = (() => {
+    try {
+      const raw = sessionStorage.getItem("qsc_active_audit_session");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const [screen, setScreen] = useState(() => {
+    if (savedAuditSession?.screen === "audit") return "audit";
+    return nav[0]?.key || "dashboard";
+  });
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
-  const [preselectedPlan, setPreselectedPlan] = useState(null);
-  const [auditReturnScreen, setAuditReturnScreen] = useState("dashboard"); // 🌟 จำหน้าที่มาก่อนเข้า Live Audit ไว้ กด "ย้อนกลับ" แล้วกลับไปหน้าเดิม ไม่ใช่ dashboard ตายตัว
+  const [preselectedPlan, setPreselectedPlan] = useState(() => {
+    return savedAuditSession?.plan || null;
+  });
+  const [auditReturnScreen, setAuditReturnScreen] = useState(() => {
+    return savedAuditSession?.returnScreen || "dashboard";
+  });
   const [isLiveAuditActive, setIsLiveAuditActive] = useState(false);
   const [isMoreSubScreen, setIsMoreSubScreen] = useState(false);
   const [isAuditFromReportList, setIsAuditFromReportList] = useState(false);
@@ -607,12 +632,17 @@ export default function MainDashboard({ onLogout }) {
       return;
     }
 
+    // 🌟 หากผู้ใช้กดเปลี่ยนไปเมนูอื่นด้วยตนเอง ให้ล้าง session การตรวจค้างทิ้ง
+    if (key !== "audit") {
+      try {
+        sessionStorage.removeItem("qsc_active_audit_session");
+      } catch (e) {}
+    }
+
     if (key === "more") {
       setMoreResetKey(prev => prev + 1);
     }
     if (key === "audit") {
-      // ตอนนี้โค้ดส่วนนี้จะรันเฉพาะตอนกดมาจาก "แท็บอื่น" เท่านั้น
-      // (เพราะกรณีอยู่แท็บเดิมโดน return ไปแล้วด้านบน)
       setPreselectedPlan(null);
       setIsAuditFromReportList(false);
       setAuditReturnScreen("dashboard");
@@ -632,7 +662,9 @@ export default function MainDashboard({ onLogout }) {
     setAuditHeaderOffset(0);
   }, [screen]);
 
-  const isLiveAuditScreen = screen === "audit" || Boolean(subHeader?.isAudit);
+  // 🌟 แถบส่วนหัวจะยุบเฉพาะตอนอยู่ในขั้นตอนตรวจข้อคำถามจริง (step === "audit" / isLiveAuditActive) เท่านั้น
+  // หากอยู่ในหน้าเลือกสาขา (select-unit) หรือเลือกฟอร์ม (select-form) จะไม่ยุบหรือเลื่อนลบ -58px
+  const isLiveAuditScreen = (screen === "audit" && isLiveAuditActive) || Boolean(subHeader?.isAudit);
 
   // 🌟 Dynamic Scroll Listener: แถบหลักจะไม่ยุบจนกว่าจุดมาร์คของหมวดแรก (Section 1) จะเลื่อนขึ้นมาชน
   useEffect(() => {
@@ -744,14 +776,16 @@ export default function MainDashboard({ onLogout }) {
               initialDraft={activeAuditDraft}
               currentUser={currentUser}
               onClearPlan={() => {
+                try { sessionStorage.removeItem("qsc_active_audit_session"); } catch (e) {}
                 setPreselectedPlan(null);
                 setIsAuditFromReportList(false);
-                setScreen(auditReturnScreen || "reports"); // 👈 บังคับกลับหน้ารายงานผลตรวจ
+                setScreen(auditReturnScreen || "reports");
               }}
               onBack={() => {
+                try { sessionStorage.removeItem("qsc_active_audit_session"); } catch (e) {}
                 setPreselectedPlan(null);
                 setIsAuditFromReportList(false);
-                setScreen(auditReturnScreen || "reports"); // 👈 บังคับกลับหน้ารายงานผลตรวจ (รูปที่ 4)
+                setScreen(auditReturnScreen || "reports");
               }}
               defaultAuditorName={currentUser.name || "-"}
               onActiveStateChange={(isActive) => setIsLiveAuditActive(prev => (prev === isActive ? prev : isActive))}
@@ -783,6 +817,7 @@ export default function MainDashboard({ onLogout }) {
                 });
               }}
               onCompleteAudit={() => {
+                try { sessionStorage.removeItem("qsc_active_audit_session"); } catch (e) {}
                 setIsAuditFromReportList(false);
                 setActiveAuditDraft(null);
                 setPreselectedPlan(null);
@@ -1038,7 +1073,7 @@ export default function MainDashboard({ onLogout }) {
                   }
                 : undefined
             }
-            className={`flex lg:hidden flex-col shrink-0 sticky top-0 z-30 px-3.5 pt-3.5 pb-3 border-b ${
+            className={`flex lg:hidden flex-col shrink-0 sticky top-0 z-40 px-3.5 pt-3.5 pb-3 border-b ${
               (isScrolled || subHeader)
                 ? "bg-white/90 backdrop-blur-md border-slate-200/60 shadow-xs"
                 : "bg-transparent border-transparent shadow-none"

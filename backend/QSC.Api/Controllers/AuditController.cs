@@ -601,6 +601,41 @@ namespace QSC.Api.Controllers
                     ? savedMax
                     : item.FullScore;
 
+                string qType = (item.QuestionType ?? "YESNO").Trim().ToUpper();
+                bool isNonScored = fullScore == 0 ||
+                    qType == "GRID" || qType == "NUMBER" || qType == "SELECT" ||
+                    qType == "RADIO" || qType == "CHECKBOX" || qType == "DATE" ||
+                    qType == "TIME" || qType == "AUDITOR" || qType == "TEXT" ||
+                    item.CategoryCode == "INFO";
+
+                if (isNonScored)
+                {
+                    // 🌟 ข้อที่ไม่คิดคะแนน (Non-scored/Info items):
+                    // ไม่นับรวมใน totalScore, ไม่เพิ่ม maxScore, ไม่ถือว่าตก (isPassed = true เสมอ),
+                    // ไม่ trigger critical defect, และไม่สร้างใบงาน CAP อัตโนมัติ
+                    string? infoAnswer = respDto.Notes;
+                    if (string.IsNullOrWhiteSpace(infoAnswer))
+                    {
+                        infoAnswer = respDto.RawAnswer ?? respDto.AnswerValue;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(respDto.RawAnswer) && respDto.RawAnswer != respDto.Notes && !infoAnswer.Contains(respDto.RawAnswer))
+                    {
+                        infoAnswer = $"{respDto.RawAnswer}\n[หมายเหตุ]: {respDto.Notes}";
+                    }
+
+                    processedResponses.Add(new ComputedItemResponse
+                    {
+                        SurveyItemId = respDto.SurveyItemId,
+                        ScoreGiven = 0.0,
+                        MaxScore = 0.0,
+                        IsPassed = true,
+                        IsNa = false,
+                        Notes = infoAnswer,
+                        ImageUrls = respDto.ImageUrls ?? new List<string>()
+                    });
+                    continue;
+                }
+
                 string raw = (respDto.RawAnswer ?? respDto.AnswerValue ?? (respDto.IsNa ? "na" : (respDto.IsPassed ? "yes" : "no"))).Trim().ToLower();
                 bool isNa = respDto.IsNa || raw == "na" || raw == "skip" || raw == "ข้าม";
                 double scoreGiven = 0.0;
@@ -615,12 +650,28 @@ namespace QSC.Api.Controllers
                 else if (item.QuestionType?.ToLower() == "scale")
                 {
                     double scaleVal = 0.0;
-                    if (double.TryParse(raw, out double parsedVal)) scaleVal = parsedVal;
-                    else if (respDto.ScaleScore.HasValue) scaleVal = respDto.ScaleScore.Value;
-                    else if (fullScore > 0) scaleVal = (respDto.ScoreGiven / fullScore) * 5.0;
-                    else scaleVal = 3.0;
+                    if (double.TryParse(raw, out double parsedVal))
+                    {
+                        scaleVal = parsedVal;
+                    }
+                    else if (respDto.ScaleScore.HasValue)
+                    {
+                        scaleVal = respDto.ScaleScore.Value;
+                    }
+                    else if (fullScore > 0 && respDto.ScoreGiven > 0)
+                    {
+                        scaleVal = (respDto.ScoreGiven / fullScore) * 5.0;
+                    }
+                    else
+                    {
+                        throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) ได้รับค่าคำตอบที่ไม่ถูกต้อง: '{(string.IsNullOrWhiteSpace(raw) ? "(ว่าง)" : raw)}' กรุณาระบุคะแนนระหว่าง 1 ถึง 5");
+                    }
 
-                    scaleVal = Math.Clamp(scaleVal, 1.0, 5.0);
+                    if (scaleVal < 1.0 || scaleVal > 5.0)
+                    {
+                        throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) คะแนนต้องอยู่ระหว่าง 1 ถึง 5 (ค่าที่ส่งมา: {scaleVal})");
+                    }
+
                     scoreGiven = Math.Round((scaleVal / 5.0) * fullScore, 2);
                     isPassed = scaleVal >= 3.0;
 
@@ -706,7 +757,16 @@ namespace QSC.Api.Controllers
 
             if (form == null || !form.IsActive) return BadRequest(new { message = "ไม่พบแบบฟอร์มการตรวจหรือแบบฟอร์มถูกปิดการใช้งาน" });
 
-            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses);
+            (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
+            try
+            {
+                scoredResult = ComputeScoring(form, dto.Responses);
+            }
+            catch (ArgumentException argEx)
+            {
+                return BadRequest(new { message = argEx.Message });
+            }
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = scoredResult;
 
             double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
@@ -1143,7 +1203,7 @@ namespace QSC.Api.Controllers
                 query = query.Where(r => r.AuditDate < endDate.Value);
             }
 
-            query = query.OrderByDescending(r => r.AuditDate);
+            query = query.OrderByDescending(r => r.AuditDate).ThenByDescending(r => r.Id);
 
             // 🚀 Pagination support: If page or pageSize is specified, apply pagination
             int totalCount = 0;
@@ -1473,7 +1533,16 @@ namespace QSC.Api.Controllers
                 .Where(r => r.MaxScore.HasValue)
                 .GroupBy(r => r.SurveyItemId)
                 .ToDictionary(g => g.Key, g => g.First().MaxScore!.Value);
-            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = ComputeScoring(form, dto.Responses, savedMaxByItem);
+            (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
+            try
+            {
+                scoredResult = ComputeScoring(form, dto.Responses, savedMaxByItem);
+            }
+            catch (ArgumentException argEx)
+            {
+                return BadRequest(new { message = argEx.Message });
+            }
+            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = scoredResult;
             double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
             bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
 

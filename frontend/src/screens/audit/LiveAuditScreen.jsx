@@ -15,6 +15,7 @@ import Breadcrumbs from "../../shared/Breadcrumbs";
 import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
+import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
@@ -110,19 +111,24 @@ const QuestionCard = React.memo(function QuestionCard({
   onCommentChange,
   onPhotoUpload,
   onPhotoDelete,
-  onToggleComment
+  onToggleComment,
+  onViewPhoto,
+  auditorOptions
 }) {
+  const isInfoSec = sec?.sectionType === "INFO";
+  const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+  const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
   const isNa = answer === "na";
-  const isFailed = !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
+  const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
   const rawP = photosForQuestion;
   const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
   const hasPhoto = questionPhotos.length > 0;
-  const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
   const isScale = qType === "scale" || qType === "rating";
   const isCommentRequired = isFailed;
   const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
-  const scoreGiven = isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0));
-  const isAnswered = answer !== undefined && answer !== "";
+  const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0)));
+  const isAnswered = answer !== undefined && answer !== "" && answer !== null;
 
   return (
     <div
@@ -138,16 +144,33 @@ const QuestionCard = React.memo(function QuestionCard({
     >
       <div className="mb-3">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">ข้อ {q.orderIndex || idx + 1}</span>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-            {q.categoryName || q.category || "ทั่วไป"}
+          <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
+            {isNonScored ? `รายการที่ ${q.orderIndex || idx + 1}` : `ข้อ ${q.orderIndex || idx + 1}`}
           </span>
-          {q.isCritical && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
+          {isNonScored ? (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F6659] border border-emerald-200">
+              ข้อมูลไม่คิดคะแนน
+            </span>
+          ) : (
+            <>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                {q.categoryName || q.category || "ทั่วไป"}
+              </span>
+              {q.isCritical && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
+              )}
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+                คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
+              </span>
+            </>
           )}
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
-            คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
-          </span>
+
+          {q.required && isNonScored && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-50 text-rose-600 border border-rose-200">
+              * บังคับกรอก
+            </span>
+          )}
+
           {isHighlighted && (
             <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
           )}
@@ -198,7 +221,13 @@ const QuestionCard = React.memo(function QuestionCard({
         <div className="flex items-center gap-2 overflow-x-auto py-1 mb-3 custom-tab-scrollbar">
           {questionPhotos.map((imgUrl, imgIdx) => (
             <div key={imgIdx} className="relative shrink-0 rounded-xl overflow-hidden border border-slate-200 shadow-2xs group">
-              <img src={imgUrl} alt={`Evidence ${imgIdx + 1}`} className="h-20 w-28 object-cover" />
+              <img
+                src={imgUrl}
+                alt={`Evidence ${imgIdx + 1}`}
+                onClick={() => onViewPhoto && onViewPhoto(imgUrl)}
+                className="h-20 w-28 object-cover cursor-pointer hover:opacity-90 active:scale-95 transition-all"
+                title="คลิกเพื่อดูรูปภาพขนาดเต็ม"
+              />
               <button
                 type="button"
                 onClick={() => onPhotoDelete(q.id, imgIdx)}
@@ -236,7 +265,19 @@ const QuestionCard = React.memo(function QuestionCard({
         </div>
       )}
 
-      {!isScale && (
+      {/* Answer Controls: Non-scored component vs YesNo vs Scale */}
+      {isNonScored ? (
+        <div className="pt-1">
+          <DynamicFieldRenderer
+            type={qType}
+            fieldConfig={q.fieldConfig || { options: q.options, unit: q.unit }}
+            value={answer}
+            onChange={(val) => onAnswerSelect(q.id, val)}
+            placeholder={q.placeholder || "ระบุข้อมูล..."}
+            auditorOptions={auditorOptions}
+          />
+        </div>
+      ) : !isScale ? (
         <div className="grid grid-cols-3 gap-2">
           <button type="button" onClick={() => onAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "yes" || answer === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
             <CheckCircle2 size={18} /><span>ผ่าน</span>
@@ -248,9 +289,7 @@ const QuestionCard = React.memo(function QuestionCard({
             <Minus size={18} /><span>ข้าม</span>
           </button>
         </div>
-      )}
-
-      {isScale && (
+      ) : (
         <div className="flex gap-1.5 items-center">
           {[5, 4, 3, 2, 1].map((n) => (
             <button key={n} type="button" onClick={() => onAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answer === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
@@ -717,8 +756,7 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
         <div className="space-y-2 overflow-y-auto px-5 py-3 flex-1">
           {categoryItems.map((item, itemIndex) => {
             const isCurrent = (item.id === "details" && activeTab === 1) ||
-                              (item.id === "summary" && activeTab === 3) ||
-                              (item.id === "submit" && activeTab === 3) ||
+                              ((item.id === "summary" || item.id === "submit") && activeTab === 3) ||
                               (activeTab === 2 && item.index === activeSectionIdx);
             return (
               <button
@@ -740,15 +778,14 @@ function CategoryNavigationDrawer({ onClose, categoryItems, activeTab, activeSec
                 <div className="min-w-0 flex-1">
                   <span className="block truncate text-xs sm:text-sm font-bold text-slate-800">{item.label}</span>
                   {item.id === "details" && <span className="block text-[11px] text-slate-400">ข้อมูลสาขาและรายละเอียดการตรวจ</span>}
-                  {item.id === "summary" && <span className="block text-[11px] text-slate-400">สรุปผลการตรวจและข้อเสนอแนะภาพรวม</span>}
-                  {item.id === "submit" && <span className="block text-[11px] text-slate-400">ลงลายมือชื่อดิจิทัลและส่งผลตรวจ</span>}
+                  {(item.id === "summary" || item.id === "submit") && <span className="block text-[11px] text-slate-400">สรุปผลการตรวจและลงลายมือชื่อ</span>}
                 </div>
                 {item.count && (
                   <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100/60 px-2 py-0.5 rounded-lg shrink-0">
-                    {item.count === "พิมพ์แล้ว" ? "พิมพ์แล้ว" : `${item.count} ตอบแล้ว`}
+                    {item.count.startsWith("฿") || item.count === "พิมพ์แล้ว" || item.count.includes("แล้ว") ? item.count : `${item.count} ตอบแล้ว`}
                   </span>
                 )}
-                {itemIndex > 0 && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
+                {itemIndex > 0 && item.id !== "summary" && item.id !== "submit" && <ChevronRight size={14} className="text-slate-300 shrink-0" />}
               </button>
             );
           })}
@@ -1355,6 +1392,7 @@ export default function LiveAuditScreen({
   }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
+    if (preselectedPlan?.selectedForm) return preselectedPlan.selectedForm;
     // 🌟 ให้ความสำคัญกับ SurveyFormId จากฐานข้อมูลภายนอก / Plan ก่อนเสมอ ถ้าไม่มีค่อย fallback ไปใช้ formId ใน JSON Draft
     const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
       ? Number(preselectedPlan.surveyFormId)
@@ -1642,6 +1680,20 @@ export default function LiveAuditScreen({
   // 🌟 หมวดคำถามที่กำลังเลื่อนผ่านอยู่ ณ ขณะนี้ (ตั้งต้นเป็น null เพื่อไม่ให้โผล่ก่อนเลื่อน)
   const [activeSectionIndex, setActiveSectionIndex] = useState(null);
   const activeSectionIdx = activeSectionIndex ?? 0;
+  const [previewImageUrl, setPreviewImageUrl] = useState(null);
+
+  useEffect(() => {
+    if (!previewImageUrl) return;
+    lockBodyScroll();
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setPreviewImageUrl(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      unlockBodyScroll();
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [previewImageUrl]);
 
   useEffect(() => {
     if (!isCategoryDrawerOpen) return;
@@ -1829,7 +1881,7 @@ export default function LiveAuditScreen({
         }
       }
       setStep("audit");
-      setActiveTab(2);
+      setActiveTab(1);
     }
   }, [parsedDraftPayload, isResumeDraft, unit, selectedForm, formList]);
 
@@ -1842,6 +1894,31 @@ export default function LiveAuditScreen({
       if (onActiveStateChangeRef.current) onActiveStateChangeRef.current(false);
     };
   }, [step]);
+
+  // 🌟 บันทึกสถานะหน้าตรวจงานลง sessionStorage ให้ตรงกับโครงสร้างที่ MainDashboard รอรับ
+  useEffect(() => {
+    if (step === "audit" && unit?.id && selectedForm?.id) {
+      try {
+        const localDraftKey = `qsc_draft_${unit.id}_${selectedForm.id}`;
+        const currentLocalDraft = localStorage.getItem(localDraftKey);
+
+        const sessionData = {
+          screen: "audit",
+          plan: {
+            isResume: true,
+            locationId: unit.id,
+            surveyFormId: selectedForm.id,
+            unit: unit,
+            selectedForm: selectedForm,
+            id: getEffectiveDraftId(),
+            auditScheduleId: effectiveSchedId,
+            draftPayloadJson: currentLocalDraft || null
+          }
+        };
+        sessionStorage.setItem("qsc_active_audit_session", JSON.stringify(sessionData));
+      } catch (e) {}
+    }
+  }, [step, unit, selectedForm, effectiveSchedId]);
 
   // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
   useEffect(() => {
@@ -1959,7 +2036,7 @@ export default function LiveAuditScreen({
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [step, activeTab]);
+  }, [step]);
 
   const autoSaveTimerRef = useRef(null);
   const isSavingRef = useRef(false);
@@ -2345,7 +2422,8 @@ export default function LiveAuditScreen({
 
     setAnswers(prev => {
       const next = { ...prev };
-      if (next[questionId] === val) {
+      const isToggleType = val === "yes" || val === "no" || val === "na";
+      if (isToggleType && next[questionId] === val) {
         delete next[questionId];
       } else {
         next[questionId] = val;
@@ -2370,7 +2448,12 @@ export default function LiveAuditScreen({
     const failedQuestions = [];
 
     currentSections.forEach(sec => {
+      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach(q => {
+        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        if (isNonScored) return; // 🌟 ข้ามไม่คิดคะแนน
+
         const ans = answers[q.id];
 
         if (ans === "na") {
@@ -2380,8 +2463,6 @@ export default function LiveAuditScreen({
 
         const fullScore = (q.fullScore || 10);
         maxScore += fullScore;
-
-        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
 
         if (qType === "scale" || qType === "rating") {
           const num = Number(ans) || 0;
@@ -2411,7 +2492,12 @@ export default function LiveAuditScreen({
     const catMap = new Map();
 
     currentSections.forEach((sec) => {
+      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((q) => {
+        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        if (isNonScored) return; // 🌟 ข้ามหมวดไม่คิดคะแนน
+
         const catName = getQuestionCategory(q, sec);
         if (!catMap.has(catName)) {
           catMap.set(catName, {
@@ -2439,7 +2525,6 @@ export default function LiveAuditScreen({
         const fullScore = q.fullScore || 10;
         catData.maxScore += fullScore;
 
-        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
         if (qType === "scale" || qType === "rating") {
           const num = Number(ans) || 0;
           catData.earnedScore += (num / 5) * fullScore;
@@ -2489,7 +2574,14 @@ export default function LiveAuditScreen({
   const checkUnansweredQuestions = () => {
     const unanswered = [];
     currentSections.forEach((sec, sIdx) => {
+      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((item, qIdx) => {
+        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
+        // ถ้าเป็นข้อไม่คิดคะแนน และไม่ได้ตั้งเป็น required ให้ข้ามการตรวจได้
+        if (isNonScored && !item.required) return;
+
         const ans = answers[item.id];
         const isAnswered = ans !== undefined && ans !== null && ans !== "";
         if (!isAnswered) {
@@ -2724,15 +2816,22 @@ export default function LiveAuditScreen({
 
       const responses = [];
       currentSections.forEach(sec => {
+        const isInfoSec = sec.sectionType === "INFO";
         (sec.items || []).forEach(q => {
           const ans = answers[q.id];
           const isNa = (ans === "na");
           const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+          const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
           let isPassed = false;
           let scoreGiven = 0;
-          let rawAnswer = String(ans !== undefined ? ans : "yes");
+          let rawAnswer = "";
 
-          if (isNa) {
+          if (isNonScored) {
+            isPassed = true;
+            scoreGiven = 0;
+            rawAnswer = typeof ans === "object" ? JSON.stringify(ans) : (ans !== undefined && ans !== null ? String(ans) : "");
+          } else if (isNa) {
             isPassed = true;
             scoreGiven = 0;
             rawAnswer = "na";
@@ -2760,7 +2859,7 @@ export default function LiveAuditScreen({
             scaleScore: qType === "scale" ? (typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : 0)) : null,
             scoreGiven,
             isPassed,
-            isNa,
+            isNa: isNonScored ? false : isNa,
             notes: comments[q.id] || "",
             imageUrls: itemPhotos
           });
@@ -2815,6 +2914,11 @@ export default function LiveAuditScreen({
         clearTimeout(autoSaveTimerRef.current);
         autoSaveTimerRef.current = null;
       }
+
+      // 🧹 ล้าง sessionStorage หน้าตรวจปัจจุบัน
+      try {
+        sessionStorage.removeItem("qsc_active_audit_session");
+      } catch (e) {}
 
       // 🧹 1. Clean localStorage thoroughly for this unit and schedule
       try {
@@ -2907,6 +3011,7 @@ export default function LiveAuditScreen({
 
       await api.delete(`/audit/draft?${params.toString()}`);
       try {
+        sessionStorage.removeItem("qsc_active_audit_session")
         localStorage.removeItem('qsc_live_audit_draft');
         if (targetLocId) {
           if (targetFormId) localStorage.removeItem(`qsc_draft_${targetLocId}_${targetFormId}`);
@@ -3334,8 +3439,12 @@ export default function LiveAuditScreen({
         count: `${sec.items?.filter(item => answers[item.id] !== undefined && answers[item.id] !== "").length || 0}/${sec.items?.length || 0}`,
         index,
       })),
-      { id: "summary", label: "สรุป", icon: <FileText size={16} />, count: extraNote?.trim() ? "พิมพ์แล้ว" : null },
-      { id: "submit", label: "ลงชื่อและส่งผล", icon: <PenTool size={16} />, count: null },
+      { 
+        id: "summary", 
+        label: "สรุป&ลงชื่อ", 
+        icon: <PenTool size={16} />, 
+        count: (auditorSignature && auditeeSignature) ? "ลงชื่อแล้ว" : (extraNote?.trim() ? "พิมพ์แล้ว" : null) 
+      },
     ];
 
     const jumpToCategory = (item) => {
@@ -3345,7 +3454,7 @@ export default function LiveAuditScreen({
         window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
-      if (item.id === "summary") {
+      if (item.id === "summary" || item.id === "submit") {
         setActiveTab(3);
         setTimeout(() => {
           const el = document.getElementById("audit-section-summary");
@@ -3360,11 +3469,6 @@ export default function LiveAuditScreen({
             window.scrollTo({ top: 0, behavior: "smooth" });
           }
         }, 150);
-        return;
-      }
-      if (item.id === "submit") {
-        setActiveTab(3);
-        window.scrollTo({ top: 0, behavior: "smooth" });
         return;
       }
       // ไม่ให้เด้งขึ้นมาบนสุด
@@ -3554,7 +3658,7 @@ export default function LiveAuditScreen({
             {[
               { id: 1, label: "ข้อมูลการตรวจ", icon: <ClipboardList size={14} /> },
               { id: 2, label: "รายการตรวจ", icon: <CheckCheck size={14} /> },
-              { id: 3, label: "สรุป & ลงชื่อ", icon: <PenTool size={14} /> }
+              { id: 3, label: "สรุป&ลงชื่อ", icon: <PenTool size={14} /> }
             ].map(tab => (
               <button
                 key={tab.id}
@@ -3577,6 +3681,31 @@ export default function LiveAuditScreen({
           {activeTab === 1 && (
             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-2xs space-y-4 animate-in fade-in duration-200">
               {activeMetadataFields.map((field) => {
+                const currentVal = metadataValues[field.id];
+
+                if (field.type === "grid" || field.type === "radio" || field.type === "checkbox" || field.type === "select") {
+                  return (
+                    <div key={field.id} className="space-y-1.5">
+                      <label className="text-xs font-extrabold text-slate-700 block">
+                        {field.label} {field.required && <span className="text-rose-500">*</span>}
+                      </label>
+                      <DynamicFieldRenderer
+                        type={field.type}
+                        fieldConfig={{
+                          ...(field.fieldConfig || {}),
+                          options: field.options || field.fieldConfig?.options || [],
+                        }}
+                        value={currentVal}
+                        onChange={(newVal) => {
+                          const next = { ...metadataValues, [field.id]: newVal };
+                          setMetadataValues(next);
+                          performSaveDraft({ metadataValues: next });
+                        }}
+                      />
+                    </div>
+                  );
+                }
+
                 if (field.id === "auditor" || field.type === "auditor") {
                   return (
                     <div key={field.id}>
@@ -3670,8 +3799,6 @@ export default function LiveAuditScreen({
                     </div>
                   );
                 }
-
-                const currentVal = metadataValues[field.id];
 
                 if (field.type === "number") {
                   return (
@@ -4029,6 +4156,8 @@ export default function LiveAuditScreen({
                         onPhotoUpload={handlePhotoUpload}
                         onPhotoDelete={handlePhotoDelete}
                         onToggleComment={handleToggleComment}
+                        onViewPhoto={setPreviewImageUrl}
+                        auditorOptions={auditorOptions}
                       />
                     ))}
                   </div>
@@ -4037,7 +4166,7 @@ export default function LiveAuditScreen({
 
               <div className="pt-4">
                 <button type="button" onClick={() => setActiveTab(3)} className="w-full py-4 rounded-2xl text-sm font-extrabold bg-[#0F6659] text-white shadow-md active:scale-95 flex items-center justify-center gap-2">
-                  ไปที่สรุปและการลงชื่อ <ChevronRight size={16} />
+                  ไปที่สรุปและลงชื่อ <ChevronRight size={16} />
                 </button>
               </div>
               {hasUserAnswers && (
@@ -4261,6 +4390,37 @@ export default function LiveAuditScreen({
           >
             <ChevronUp size={20} strokeWidth={2.8} />
           </button>,
+          document.body
+        )}
+
+        {/* 🌟 Simple Fullscreen Image Preview Modal */}
+        {previewImageUrl && typeof document !== "undefined" && createPortal(
+          <div
+            className="fixed inset-0 z-[99999] bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 pt-14 pb-6 animate-in fade-in duration-200 select-none cursor-pointer"
+            onClick={() => setPreviewImageUrl(null)}
+          >
+            {/* Image Box - constrained size so it never overflows and button stays visible */}
+            <div
+              className="relative inline-block max-w-[85vw] max-h-[68vh] sm:max-h-[76vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button at top-right of image (original style) */}
+              <button
+                type="button"
+                onClick={() => setPreviewImageUrl(null)}
+                className="absolute -top-10 right-0 w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/25 hover:bg-white/40 active:bg-white/60 text-white flex items-center justify-center text-sm sm:text-base font-bold cursor-pointer transition-all shadow-lg border border-white/20 active:scale-95"
+                title="ปิด (Esc)"
+              >
+                ✕
+              </button>
+
+              <img
+                src={previewImageUrl}
+                alt="Preview"
+                className="max-w-[85vw] max-h-[68vh] sm:max-h-[76vh] object-contain rounded-xl sm:rounded-2xl shadow-2xl block cursor-default border border-white/10"
+              />
+            </div>
+          </div>,
           document.body
         )}
       </div>

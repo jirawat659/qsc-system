@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, FileText, Calendar, User, FileSpreadsheet, Sparkles } from "lucide-react";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, User, FileSpreadsheet, Sparkles } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -20,6 +20,22 @@ import CapDetailScreen from "../cap/CapDetailScreen";
 import AuditEditLogsModal from "../../modals/AuditEditLogsModal";
 import EditAuditRecordModal from "../../modals/EditAuditRecordModal";
 import AiAuditDefectModal from "../../modals/AiAuditDefectModal";
+import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
+
+const NON_SCORED_NOTE_MARKER = "\n[หมายเหตุ]: ";
+
+// backend เก็บคำตอบข้อไม่คิดคะแนนไว้ใน Notes: "คำตอบ" หรือ "คำตอบ\n[หมายเหตุ]: คอมเมนต์"
+const splitNonScoredNotes = (notes, qType) => {
+  const text = (notes || "").toString();
+  const idx = text.indexOf(NON_SCORED_NOTE_MARKER);
+  let answer = idx >= 0 ? text.slice(0, idx) : text;
+  const comment = idx >= 0 ? text.slice(idx + NON_SCORED_NOTE_MARKER.length).trim() : "";
+  const t = String(qType || "").toLowerCase();
+  if ((t === "grid" || t === "checkbox") && answer.trim()) {
+    try { answer = JSON.parse(answer); } catch {}
+  }
+  return { answer, comment: comment || null };
+};
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
@@ -61,9 +77,249 @@ export const getQuestionCategory = (q, sec) => {
   return "Product";
 };
 
+// 🌟 สรุปสถิติคะแนน/การผ่านของหมวดหมู่
+export const getSectionStats = (sec) => {
+  const isInfo = sec?.sectionType === "INFO" || (sec?.questions && sec.questions.length > 0 && sec.questions.every(q => q.isScored === false));
+  const scoredQuestions = (sec?.questions || []).filter(q => q.isScored !== false && !["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType));
+  const totalQ = scoredQuestions.length;
+  const passedQ = scoredQuestions.filter(q => {
+    if (q.isNa) return true;
+    if (q.isPassed !== undefined) return q.isPassed;
+    if (q.type === "yesno") return q.answer === true;
+    if (q.type === "scale") return q.scaleScore ? q.scaleScore >= 3 : (Number(q.answer) >= 3);
+    return true;
+  }).length;
+  const secPassed = totalQ > 0 ? passedQ === totalQ : true;
+  return { totalQ, passedQ, secPassed, isInfo, allCount: sec?.questions?.length || 0 };
+};
+
+// 🌟 Drawer เลือกกระโดดไปยังหมวดหมู่ในหน้ารายละเอียดผลตรวจ (Quick Navigation Drawer)
+function HistoryCategoryNavigationDrawer({ onClose, categoryItems, activeSectionIdx, onSelectCategory }) {
+  const [mounted, setMounted] = useState(false);
+  const [dragY, setDragY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  const startYRef = useRef(0);
+  const currentYRef = useRef(0);
+  const startTimeRef = useRef(0);
+  const isDraggingRef = useRef(false);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const triggerClose = useCallback(() => {
+    if (isClosing) return;
+    setIsClosing(true);
+    setTimeout(() => {
+      onClose();
+    }, 220);
+  }, [isClosing, onClose]);
+
+  // Touch handlers for Drag Handle & Header Bar (ปัดขึ้นเพื่อปิด)
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    startYRef.current = touch.clientY;
+    currentYRef.current = touch.clientY;
+    startTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isDraggingRef.current) return;
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - startYRef.current;
+    if (deltaY < 0) {
+      currentYRef.current = touch.clientY;
+      setDragY(deltaY);
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isDraggingRef.current) return;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+
+    const deltaY = currentYRef.current - startYRef.current;
+    const elapsed = Math.max(1, Date.now() - startTimeRef.current);
+    const velocity = deltaY / elapsed;
+
+    if (deltaY <= -55 || (deltaY < -18 && velocity <= -0.25)) {
+      triggerClose();
+    } else {
+      setDragY(0);
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    startYRef.current = e.clientY;
+    currentYRef.current = e.clientY;
+    startTimeRef.current = Date.now();
+    isDraggingRef.current = true;
+    setIsDragging(true);
+
+    const onMouseMove = (moveEvent) => {
+      const deltaY = moveEvent.clientY - startYRef.current;
+      if (deltaY < 0) {
+        currentYRef.current = moveEvent.clientY;
+        setDragY(deltaY);
+      } else {
+        setDragY(0);
+      }
+    };
+
+    const onMouseUp = (upEvent) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      isDraggingRef.current = false;
+      setIsDragging(false);
+
+      const deltaY = upEvent.clientY - startYRef.current;
+      const elapsed = Math.max(1, Date.now() - startTimeRef.current);
+      const velocity = deltaY / elapsed;
+
+      if (deltaY <= -55 || (deltaY < -18 && velocity <= -0.25)) {
+        triggerClose();
+      } else {
+        setDragY(0);
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const currentTranslateY = isClosing
+    ? '-100%'
+    : !mounted
+      ? '-100%'
+      : dragY < 0
+        ? `${dragY}px`
+        : '0px';
+
+  const backdropAlpha = isClosing || !mounted
+    ? 0
+    : dragY < 0
+      ? Math.max(0.05, 0.6 * (1 - Math.abs(dragY) / 280))
+      : 0.6;
+
+  return (
+    <div
+      className="fixed inset-0 z-[99999] flex flex-col justify-start backdrop-blur-xs select-none"
+      style={{
+        backgroundColor: `rgba(0, 0, 0, ${backdropAlpha})`,
+        transition: isDragging ? 'none' : 'background-color 0.22s ease-out',
+      }}
+    >
+      <div className="fixed inset-0" onClick={triggerClose} />
+
+      <div
+        className="relative z-10 w-full max-w-lg mx-auto bg-white rounded-b-[28px] sm:rounded-b-3xl shadow-[0_20px_50px_rgba(0,0,0,0.22)] max-h-[80vh] flex flex-col overflow-hidden"
+        style={{
+          transform: `translateY(${currentTranslateY})`,
+          transition: isDragging ? 'none' : 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
+        {/* Header Bar */}
+        <div
+          className="px-5 pt-4 pb-2.5 flex items-center justify-between border-b border-slate-100 shrink-0 cursor-grab active:cursor-grabbing touch-none select-none bg-white"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+        >
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-[#0F6659]">QUICK NAVIGATION</p>
+            <h2 className="text-base font-black text-slate-800">ไปยังหมวดหมู่ที่ต้องการ</h2>
+          </div>
+          <button
+            type="button"
+            onTouchStart={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={triggerClose}
+            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-500 flex items-center justify-center cursor-pointer transition-colors"
+            title="ปิดเมนู"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Category List */}
+        <div className="space-y-2 overflow-y-auto px-5 py-3 flex-1">
+          {categoryItems.map((item) => {
+            const isCurrent = item.index === activeSectionIdx;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  if (Math.abs(dragY) > 8) return;
+                  onSelectCategory(item);
+                }}
+                className={`w-full p-3 rounded-2xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                  isCurrent
+                    ? "bg-emerald-50/70 border-emerald-300 ring-1 ring-emerald-400/30"
+                    : "bg-slate-50/80 border-slate-200 hover:bg-slate-100/80"
+                }`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-bold transition-all shadow-2xs ${
+                    isCurrent
+                      ? "bg-[#0F6659] text-white"
+                      : "bg-white text-slate-700 border border-slate-200"
+                  }`}
+                >
+                  <span className="text-[11px] font-black">{item.index + 1}</span>
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs sm:text-sm font-bold truncate ${isCurrent ? "text-[#0F6659]" : "text-slate-800"}`}>
+                    {item.label}
+                  </p>
+                </div>
+
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-xl shrink-0 border shadow-2xs ${
+                    item.isPassed
+                      ? isCurrent ? "bg-[#0F6659] text-white border-transparent" : "bg-emerald-50 text-[#0F6659] border-emerald-200"
+                      : "bg-amber-50 text-amber-900 border-amber-200"
+                  }`}
+                >
+                  {item.count}
+                </span>
+
+                <ChevronRight size={16} className={isCurrent ? "text-[#0F6659]" : "text-slate-400"} />
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Drag handle pill at bottom */}
+        <div
+          className="py-2 flex items-center justify-center cursor-grab active:cursor-grabbing border-t border-slate-100 bg-slate-50/60 touch-none"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          onMouseDown={handleMouseDown}
+        >
+          <div className="w-12 h-1 rounded-full bg-slate-300" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const { locations: allLocations, forms = [], getFormDetail, currentUser, refreshData } = React.useContext(DataContext);
-  const [activeTab, setActiveTab] = useState("responses"); // 'responses' | 'overview' | 'photos' | 'sign'
+  const [activeTab, setActiveTab] = useState("overview"); // 'responses' | 'overview' | 'photos' | 'sign'
   const [disputeSubmitted, setDisputeSubmitted] = useState(record.status === "Disputed");
   const [previewPhoto, setPreviewPhoto] = useState(null);
   const [capSubmissions, setCapSubmissions] = useState({});
@@ -75,6 +331,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
   // 🌟 Local Record State for Immediate UI Updates on Edit
   const [currentRecord, setCurrentRecord] = useState(record);
+  const [isCategoryScoresExpanded, setIsCategoryScoresExpanded] = useState(true);
+  const [isAuditDetailsExpanded, setIsAuditDetailsExpanded] = useState(true);
+  const [activeSectionIndex, setActiveSectionIndex] = useState(null);
+  const [isCategoryDrawerOpen, setIsCategoryDrawerOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
 
   const loadCapTasksForRecord = async () => {
     const recId = currentRecord?.id || record?.id;
@@ -256,6 +517,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const passingScore = currentRecord.passingScore || currentRecord.surveyForm?.passingScore || 85;
   const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
   const actualInspectDateStr = currentRecord.startedAt ? new Date(currentRecord.startedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : dateStr;
+  const createdDateStr = currentRecord.createdAt ? new Date(currentRecord.createdAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
   const auditorName = currentRecord.auditor || currentRecord.auditorName || currentRecord.primaryAuditor?.fullName || "-";
   const formTitle = currentRecord.form || currentRecord.formName || currentRecord.surveyFormTitle || currentRecord.surveyForm?.title || "-";
   const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= passingScore && !currentRecord.hasCriticalDefect);
@@ -336,6 +598,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             id: field.id,
             label: field.label || field.id.replace(/_/g, ' '),
             value: displayVal,
+            rawValue: val,
+            type: field.type || "text",
+            fieldConfig: field.fieldConfig,
             unit: field.unit ? ` ${field.unit}` : ""
           });
         }
@@ -412,9 +677,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
             const qText = item.questionText || item.text || res.questionText || `ข้อตรวจที่ ${runningNum}`;
             const qType = (res.questionType || item.questionType || item.type || "YESNO").toLowerCase();
-            const fullSc = res.fullScore !== undefined ? res.fullScore : (item.fullScore || 10);
-            const isCrit = res.isCritical !== undefined ? res.isCritical : (item.isCritical || item.critical || false);
-            const isNa = !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
+            const isNonScored = (sec.sectionType === "INFO") || item.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+            const fullSc = isNonScored ? 0 : (res.fullScore !== undefined ? res.fullScore : (item.fullScore || 10));
+            const isCrit = !isNonScored && (res.isCritical !== undefined ? res.isCritical : (item.isCritical || item.critical || false));
+            const isNa = !isNonScored && !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
 
             const calculatedScaleScore = res.scaleScore !== undefined && res.scaleScore !== null
               ? Number(res.scaleScore)
@@ -424,15 +690,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                       ? Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullSc) * 5)))
                       : null));
 
-            const isPass = isNa
+            const isPass = isNonScored
               ? true
-              : (res.isPassed !== undefined
-                  ? Boolean(res.isPassed)
-                  : (qType === "scale"
-                      ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
-                      : (res.scoreGiven > 0)));
+              : (isNa
+                  ? true
+                  : (res.isPassed !== undefined
+                      ? Boolean(res.isPassed)
+                      : (qType === "scale"
+                          ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
+                          : (res.scoreGiven > 0))));
 
-            const calculatedScore = isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0));
+            const calculatedScore = isNonScored ? 0 : (isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0)));
+
+            const nonScored = isNonScored ? splitNonScoredNotes(res.notes, qType) : null;
 
             secQuestions.push({
               num: runningNum++,
@@ -441,9 +711,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               surveyItemId: res.surveyItemId || item.id || null,
               text: qText,
               type: qType,
+              questionType: qType,
+              isScored: !isNonScored,
+              fieldConfig: item.fieldConfig || res.fieldConfig || res.surveyItem?.fieldConfig,
+              rawAnswer: isNonScored ? nonScored.answer : (res.rawAnswer || res.answerValue || ""),
               answer: qType === "scale"
                 ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
-                : isPass,
+                : isNonScored ? (res.rawAnswer || res.answerValue || "") : isPass,
               scoreGiven: calculatedScore,
               scaleScore: calculatedScaleScore,
               fullScore: fullSc,
@@ -463,6 +737,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             resultSections.push({
               title: sec.title || `หมวดที่ ${sIdx + 1}`,
               orderIndex: sec.orderIndex !== undefined ? sec.orderIndex : sIdx + 1,
+              sectionType: sec.sectionType || (sec.items?.every(i => i.isScored === false) ? "INFO" : "AUDIT"),
               questions: secQuestions
             });
           }
@@ -481,9 +756,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         const secName = res.sectionTitle || res.surveyItem?.surveySection?.title || `หมวดที่ 1: การประเมินมาตรฐาน`;
         const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
         const qType = (res.questionType || res.surveyItem?.questionType || "YESNO").toLowerCase();
-        const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
-        const fullSc = res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10);
-        const isNa = !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
+        const isNonScored = res.isScored === false || res.surveyItem?.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isCrit = !isNonScored && (res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false));
+        const fullSc = isNonScored ? 0 : (res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
+        const isNa = !isNonScored && !!(res.isNa || res.rawAnswer === "na" || res.answerValue === "na");
 
         const calculatedScaleScore = res.scaleScore !== undefined && res.scaleScore !== null
           ? Number(res.scaleScore)
@@ -493,23 +769,28 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                   ? Math.max(1, Math.min(5, Math.round((Number(res.scoreGiven) / fullSc) * 5)))
                   : null));
 
-        const isPass = isNa
+        const isPass = isNonScored
           ? true
-          : (res.isPassed !== undefined
-              ? Boolean(res.isPassed)
-              : (qType === "scale"
-                  ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
-                  : (res.scoreGiven > 0)));
+          : (isNa
+              ? true
+              : (res.isPassed !== undefined
+                  ? Boolean(res.isPassed)
+                  : (qType === "scale"
+                      ? (calculatedScaleScore !== null ? calculatedScaleScore >= 3 : (res.scoreGiven !== undefined ? res.scoreGiven >= (fullSc * 0.6) : true))
+                      : (res.scoreGiven > 0))));
 
-        const calculatedScore = isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0));
+        const calculatedScore = isNonScored ? 0 : (isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0)));
 
         if (!sectionsMap.has(secName)) {
           sectionsMap.set(secName, {
             title: secName,
             orderIndex: res.sectionOrderIndex !== undefined ? res.sectionOrderIndex : sectionsMap.size + 1,
+            sectionType: res.sectionType || "AUDIT",
             questions: []
           });
         }
+
+        const nonScored = isNonScored ? splitNonScoredNotes(res.notes, qType) : null;
 
         sectionsMap.get(secName).questions.push({
           num: runningNum++,
@@ -518,9 +799,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           surveyItemId: res.surveyItemId || null,
           text: qText,
           type: qType,
+          questionType: qType,
+          isScored: !isNonScored,
+          fieldConfig: res.fieldConfig || res.surveyItem?.fieldConfig,
+          rawAnswer: isNonScored ? nonScored.answer : (res.rawAnswer || res.answerValue || ""),
           answer: qType === "scale"
             ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
-            : isPass,
+            : isNonScored ? (res.rawAnswer || res.answerValue || "") : isPass,
           scoreGiven: calculatedScore,
           scaleScore: calculatedScaleScore,
           fullScore: fullSc,
@@ -549,6 +834,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     formBreakdown.forEach(sec => {
       (sec.questions || []).forEach(q => {
+        if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) {
+          return;
+        }
         const catName = getQuestionCategory(q, sec);
         if (!catMap.has(catName)) {
           catMap.set(catName, {
@@ -612,6 +900,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     const list = [];
     formBreakdown.forEach(sec => {
       sec.questions.forEach(q => {
+        if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) return;
         if (q.isNa) return;
 
         const full = Number(q.fullScore) || 10;
@@ -708,7 +997,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return list;
   }, [recordCaps, capSubmissions]);
 
-  // Header action buttons memoized cleanly
+  // Header action buttons (แสดงปุ่มแก้ไขผลตรวจเมื่อมีสิทธิ์)
   const headerAction = useMemo(() => (
     <div className="flex items-center gap-2">
       {canEditAudit && (
@@ -723,7 +1012,119 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         </button>
       )}
     </div>
-  ), [editLogsCount, canEditAudit]);
+  ), [canEditAudit]);
+
+  // 🌟 ติดตามการ Scroll เพื่อแสดงปุ่มเลื่อนขึ้นบนสุด และติดตามหมวดหมู่คำถาม (เฉพาะแท็บผลตรวจ)
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollY = window.scrollY || document.documentElement.scrollTop || (document.querySelector('main')?.scrollTop || 0);
+      setIsScrolled(scrollY > 120);
+
+      if (activeTab === "responses" && formBreakdown.length > 0 && scrollY > 60) {
+        let current = null;
+        for (let i = 0; i < formBreakdown.length; i++) {
+          const sectionEl = document.getElementById(`history-section-${i}`);
+          const headerEl = document.getElementById(`history-section-header-${i}`);
+          
+          if (sectionEl) {
+            const rect = sectionEl.getBoundingClientRect();
+            // เมื่อขอบบนของหมวดเลื่อนขึ้นมาถึง/ใกล้ขอบบน (top <= 100px) และขอบล่างยังไม่พ้นจอ (bottom > 50px)
+            if (rect.top <= 100 && rect.bottom > 50) {
+              current = i;
+              break;
+            }
+          } else if (headerEl) {
+            const rect = headerEl.getBoundingClientRect();
+            if (rect.top <= 100 && rect.bottom > 0) {
+              current = i;
+              break;
+            }
+          }
+        }
+        setActiveSectionIndex(current);
+      } else {
+        setActiveSectionIndex(null);
+      }
+    };
+
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    document.addEventListener("scroll", handleScroll, { passive: true });
+    const mainEl = document.querySelector('main');
+    if (mainEl) mainEl.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+      document.removeEventListener("scroll", handleScroll);
+      if (mainEl) mainEl.removeEventListener("scroll", handleScroll);
+    };
+  }, [activeTab, formBreakdown]);
+
+  // 🌟 ป้องกัน Background Scroll ขณะ Drawer เปิด
+  useEffect(() => {
+    if (!isCategoryDrawerOpen) return;
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") setIsCategoryDrawerOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalStyle;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isCategoryDrawerOpen]);
+
+  // 🌟 รายการหมวดหมู่สำหรับ Quick Navigation Drawer
+  const categoryItems = useMemo(() => {
+    return formBreakdown.map((sec, index) => {
+      const { totalQ, passedQ, secPassed, isInfo, allCount } = getSectionStats(sec);
+      return {
+        id: `history-section-${index}`,
+        index,
+        label: sec.title || `หมวดที่ ${index + 1}`,
+        count: isInfo ? `${allCount} รายการ (ข้อมูลทั่วไป)` : `ผ่าน (${passedQ}/${totalQ})`,
+        isPassed: isInfo ? true : secPassed
+      };
+    });
+  }, [formBreakdown]);
+
+  const jumpToCategory = (item) => {
+    setIsCategoryDrawerOpen(false);
+    setActiveSectionIndex(item.index);
+    setTimeout(() => {
+      const el = document.getElementById(`history-section-${item.index}`);
+      if (el) {
+        const topOffset = 70;
+        const elPosition = el.getBoundingClientRect().top;
+        const currentScroll = window.scrollY || document.documentElement.scrollTop || document.querySelector('main')?.scrollTop || 0;
+        const targetTop = elPosition + currentScroll - topOffset;
+        window.scrollTo({ top: targetTop, behavior: "smooth" });
+        document.querySelector('main')?.scrollTo({ top: targetTop, behavior: "smooth" });
+      }
+    }, 120);
+  };
+
+  // 🌟 ข้อมูล Header ปรับเปลี่ยนแบบ Dynamic เมื่อเลื่อนดูหมวดหมู่คำถาม (เฉพาะแท็บผลตรวจ)
+  const activeSection = (activeTab === "responses" && activeSectionIndex !== null)
+    ? formBreakdown[activeSectionIndex]
+    : null;
+
+  const activeSectionStats = useMemo(() => {
+    if (!activeSection) return null;
+    return getSectionStats(activeSection);
+  }, [activeSection]);
+
+  const currentHeaderTitle = activeSection
+    ? (activeSection.title || `หมวดที่ ${activeSectionIndex + 1}`)
+    : "ผลการตรวจ";
+
+  const currentHeaderSubtitle = activeSection
+    ? `ผ่าน (${activeSectionStats?.passedQ || 0}/${activeSectionStats?.totalQ || 0})`
+    : "รายละเอียดผลการตรวจ";
+
+  const currentHeaderBadge = activeSection ? activeSectionIndex + 1 : null;
+  const currentLeftActionType = (activeTab === "responses" && activeSectionIndex !== null) ? "menu" : "back";
 
   // 🌟 Full-Screen CapDetailScreen Integration
   if (selectedCapTask) {
@@ -747,8 +1148,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   return (
     <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
       <Header 
-        title="ผลการตรวจ"
-        subtitle="รายละเอียดผลการตรวจ"
+        title={currentHeaderTitle}
+        subtitle={currentHeaderSubtitle}
+        sectionBadgeNumber={currentHeaderBadge}
+        leftActionType={currentLeftActionType}
+        onMenuClick={() => setIsCategoryDrawerOpen(true)}
         onBack={onBack}
         action={headerAction}
       />
@@ -869,11 +1273,16 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <Calendar size={16} />
             </div>
-            <div className="min-w-0">
-              <div className="text-[11px] text-slate-400 font-semibold">วันที่ตรวจ</div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] text-slate-400 font-semibold">วันที่ลงตรวจ</div>
               <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words">
                 {isBackdated ? `${actualInspectDateStr} (${startedTimeStr} - ${submittedTimeStr})` : dateStr}
               </div>
+              {createdDateStr && (
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5" title="วันเวลาที่บันทึกข้อมูลเข้าระบบจริง">
+                  บันทึกเข้าระบบ: {createdDateStr} น.
+                </div>
+              )}
             </div>
           </div>
 
@@ -928,7 +1337,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           { key: "overview", label: "คะแนน", icon: BarChart3 },
           { key: "responses", label: "ผลตรวจ", icon: ClipboardCheck },
           { key: "photos", label: "รูปภาพ", icon: Camera },
-          { key: "sign", label: "ลายเซ็น", icon: PenTool },
+          { key: "sign", label: "สรุป&ลงชื่อ", icon: PenTool },
           { key: "location", label: "ตำแหน่ง", icon: MapPin },
         ].map((tab) => {
           const Icon = tab.icon;
@@ -966,56 +1375,68 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             </div>
           ) : (
             formBreakdown.map((sec, secIdx) => {
-            const totalQ = sec.questions.length;
-            const passedQ = sec.questions.filter(q => {
-              if (q.isNa) return true;
-              if (q.isPassed !== undefined) return q.isPassed;
-              if (q.type === "yesno") return q.answer === true;
-              if (q.type === "scale") return q.scaleScore ? q.scaleScore >= 3 : (Number(q.answer) >= 3);
-              return true;
-            }).length;
-            const secPassed = passedQ === totalQ;
+            const { totalQ, passedQ, secPassed, isInfo, allCount } = getSectionStats(sec);
 
             return (
               <div 
                 key={secIdx} 
+                id={`history-section-${secIdx}`}
                 className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-2xs"
               >
                 {/* CATEGORY HEADER */}
-                <div className="px-4 sm:px-5 py-3 bg-[#F4F9F6] border-b border-emerald-100 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-7 h-7 rounded-full bg-emerald-100 text-[#0F6659] font-black text-xs flex items-center justify-center shrink-0">
+                <div 
+                  id={`history-section-header-${secIdx}`}
+                  onClick={() => {
+                    setActiveSectionIndex(secIdx);
+                    setIsCategoryDrawerOpen(true);
+                  }}
+                  className="px-4 sm:px-5 py-3 bg-[#F4F9F6] hover:bg-emerald-50/70 border-b border-emerald-100 flex items-center justify-between gap-3 cursor-pointer group transition-colors select-none"
+                  title="แตะเพื่อเลือกหมวดการตรวจ"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className="w-7 h-7 rounded-full bg-emerald-100 text-[#0F6659] font-black text-xs flex items-center justify-center shrink-0 group-hover:bg-[#0F6659] group-hover:text-white transition-colors shadow-2xs">
                       {secIdx + 1}
                     </span>
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 truncate group-hover:text-[#0F6659] transition-colors">
                       {sec.title}
                     </h3>
                   </div>
 
                   {/* Section Status Badge */}
-                  <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
-                    secPassed 
-                      ? "bg-emerald-50 text-[#0F6659] border-emerald-200" 
-                      : "bg-amber-50 text-amber-900 border-amber-200"
-                  }`}>
-                    {secPassed ? `ผ่านครบ (${passedQ}/${totalQ})` : `ตก ${totalQ - passedQ} ข้อ`}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isInfo ? (
+                      <span className="text-xs font-bold px-3 py-1 rounded-full border bg-slate-50 text-slate-700 border-slate-200">
+                        {allCount} รายการ (ข้อมูลทั่วไป)
+                      </span>
+                    ) : (
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                        secPassed 
+                          ? "bg-emerald-50 text-[#0F6659] border-emerald-200" 
+                          : "bg-amber-50 text-amber-900 border-amber-200"
+                      }`}>
+                        ผ่าน ({passedQ}/{totalQ})
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* QUESTIONS CONTAINER */}
                 <div className="p-3.5 sm:p-5 space-y-3">
                   {sec.questions.map((q) => {
+                    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType);
                     const full = Number(q.fullScore) || 10;
                     const currentSc = q.scoreGiven !== undefined ? Number(q.scoreGiven) : (typeof q.answer === 'number' ? q.answer : (q.answer === true ? full : 0));
-                    const isPass = q.isNa
+                    const isPass = isNonScored
                       ? true
-                      : q.isPassed !== undefined
-                      ? q.isPassed
-                      : q.type === "yesno" 
-                      ? q.answer === true 
-                      : q.type === "scale" 
-                        ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
-                        : true;
+                      : (q.isNa
+                          ? true
+                          : q.isPassed !== undefined
+                          ? q.isPassed
+                          : q.type === "yesno" 
+                          ? q.answer === true 
+                          : q.type === "scale" 
+                            ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
+                            : true);
 
                     return (
                       <div 
@@ -1034,9 +1455,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap mt-1">
                                 <span className="inline-block text-[10.5px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                                  {getCategoryDisplay(getQuestionCategory(q, sec))}
+                                  {isNonScored ? "ข้อมูลทั่วไป" : getCategoryDisplay(getQuestionCategory(q, sec))}
                                 </span>
-                                {q.isCritical && (
+                                {!isNonScored && q.isCritical && (
                                   <span className="inline-block text-[10.5px] font-extrabold px-2 py-0.5 rounded-md bg-red-100 text-red-700 border border-red-200">
                                     ⚠️ สำคัญ
                                   </span>
@@ -1045,22 +1466,36 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                             </div>
                           </div>
 
-                          {/* 🌟 มุมขวาบนของข้อ: แสดงเป็นคะแนนเสมอ */}
+                          {/* 🌟 มุมขวาบนของข้อ: แสดงเป็นคะแนน หรือ ข้อมูลไม่คิดคะแนน */}
                           <div className="shrink-0">
-                            <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-bold px-3 py-1 rounded-full border shadow-2xs ${
-                              q.isNa
-                                ? "bg-slate-100 text-slate-500 border-slate-200"
-                                : isPass
-                                ? "bg-emerald-50 text-[#0F6659] border-emerald-200"
-                                : "bg-red-50 text-red-700 border-red-300"
-                             } font-mono`}>
-                              <span>{q.scoreGiven !== undefined ? q.scoreGiven : (isPass ? full : 0)} / {full}</span>
-                            </span>
+                            {isNonScored ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] sm:text-xs font-bold px-2.5 py-1 rounded-full border bg-slate-100 text-slate-600 border-slate-200">
+                                ข้อมูลไม่คิดคะแนน
+                              </span>
+                            ) : (
+                              <span className={`inline-flex items-center gap-1 text-xs sm:text-sm font-bold px-3 py-1 rounded-full border shadow-2xs ${
+                                q.isNa
+                                  ? "bg-slate-100 text-slate-500 border-slate-200"
+                                  : isPass
+                                  ? "bg-emerald-50 text-[#0F6659] border-emerald-200"
+                                  : "bg-red-50 text-red-700 border-red-300"
+                               } font-mono`}>
+                                <span>{q.scoreGiven !== undefined ? q.scoreGiven : (isPass ? full : 0)} / {full}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        {/* 🌟 แสดงรูปแบบปุ่มเหมือนตอนตรวจหน้าร้าน (Live Audit) แต่เป็นโทนสีเทาสุขุมแบบ Disabled (กดแก้ไขไม่ได้) */}
-                        {q.type === "scale" ? (
+                        {/* 🌟 แสดงรูปแบบคำตอบ: หากเป็นข้อไม่คิดคะแนน ให้เรนเดอร์ DynamicFieldRenderer (readOnly) */}
+                        {isNonScored ? (
+                          <div className="pt-1 pointer-events-none select-none">
+                            <DynamicFieldRenderer
+                              type={q.type || q.questionType}
+                              fieldConfig={q.fieldConfig}
+                              value={q.rawAnswer || q.answer}
+                            />
+                          </div>
+                        ) : q.type === "scale" ? (
                           <div className="pt-1 space-y-1.5 pointer-events-none select-none cursor-default">
                             <div className="flex gap-1.5 items-center w-full">
                               {[5, 4, 3, 2, 1].map((n) => {
@@ -1154,7 +1589,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                 <Camera size={15} className="text-[#0F6659]" />
                                 <span>รูปภาพหลักฐาน ({q.images.length} รูป)</span>
                               </div>
-                              <span className="text-[11px] font-bold text-slate-400">คลิกที่รูปเพื่อเปิดดู</span>
                             </div>
                             <div className="flex gap-2.5 overflow-x-auto pb-1">
                               {q.images.map((img, imgIdx) => {
@@ -1293,7 +1727,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                   {previewPhoto.qText || "รูปภาพหลักฐานการตรวจ"}
                 </h3>
                 <p className="text-[11px] text-slate-500 font-medium">
-                  {previewPhoto.secTitle ? `${previewPhoto.secTitle} • ` : ""}บันทึกเมื่อ: {previewPhoto.uploadedAt || dateStr} • {locationTitle}
+                  {previewPhoto.secTitle ? `${previewPhoto.secTitle} • ` : ""}บันทึกเมื่อ: {previewPhoto.uploadedAt || dateStr}
                 </p>
               </div>
             </div>
@@ -1320,7 +1754,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                 <span className={`text-xs font-bold px-2.5 py-1 rounded-lg text-white ${
                   previewPhoto.isPass ? 'bg-emerald-600' : 'bg-red-600'
                 }`}>
-                  {previewPhoto.isPass ? '✓ สภาพเรียบร้อย (Standard)' : '⚠️ พบข้อบกพร่อง (Defect)'}
+                  {previewPhoto.isPass ? '✓ เรียบร้อย' : '⚠️ ปรับปรุง'}
                 </span>
               </div>
               {previewPhoto.note && (
@@ -1346,46 +1780,111 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       {/* TAB 2: OVERVIEW SCORES & CAP ISSUES */}
       {activeTab === "overview" && (
         <div className="space-y-4 animate-in fade-in duration-200">
-          <Section title="คะแนนแยกตามหมวดหมู่">
-            <div className="rounded-2xl overflow-hidden shadow-2xs" style={cardStyle}>
-              {categoryScores.map((s, i) => {
-                const isPassing = s.percent >= (currentRecord?.passingScore || 85);
-                return (
-                  <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-bold text-slate-800">{getCategoryDisplay(s.title)}</span>
-                      <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({parseFloat(Number(s.percent).toFixed(2))}%)</span>
+          <Section
+            title={
+              <div
+                className="flex items-center gap-1.5 cursor-pointer select-none"
+                onClick={() => setIsCategoryScoresExpanded(prev => !prev)}
+              >
+                <span>คะแนนแยกตามหมวดหมู่</span>
+              </div>
+            }
+            action={
+              <button
+                type="button"
+                onClick={() => setIsCategoryScoresExpanded(prev => !prev)}
+                className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-xl transition-all cursor-pointer"
+                title={isCategoryScoresExpanded ? "ซ่อนคะแนนแยกตามหมวดหมู่" : "แสดงคะแนนแยกตามหมวดหมู่"}
+              >
+                <span>{isCategoryScoresExpanded ? "ซ่อน" : "แสดง"}</span>
+                <ChevronDown
+                  size={13}
+                  className={`transition-transform duration-200 ${isCategoryScoresExpanded ? "rotate-180" : ""}`}
+                />
+              </button>
+            }
+          >
+            {isCategoryScoresExpanded && (
+              <div className="rounded-2xl overflow-hidden shadow-2xs animate-in fade-in duration-200" style={cardStyle}>
+                {categoryScores.map((s, i) => {
+                  const isPassing = s.percent >= (currentRecord?.passingScore || 85);
+                  return (
+                    <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-xs font-bold text-slate-800">{getCategoryDisplay(s.title)}</span>
+                        <span className="text-xs font-bold" style={{ color: c.muted, fontFamily: mono }}>{s.score}/{s.max} ({parseFloat(Number(s.percent).toFixed(2))}%)</span>
+                      </div>
+                      <div className="h-2 rounded-full overflow-hidden bg-slate-100">
+                        <div
+                          className="h-full rounded-full transition-all duration-500 ease-out"
+                          style={{
+                            width: `${s.max > 0 ? Math.min(100, Math.max(0, (s.score / s.max) * 100)) : 0}%`,
+                            background: isPassing ? c.accent : s.percent >= 70 ? c.warn : c.risk
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="h-2 rounded-full overflow-hidden bg-slate-100">
-                      <div
-                        className="h-full rounded-full transition-all duration-500 ease-out"
-                        style={{
-                          width: `${s.max > 0 ? Math.min(100, Math.max(0, (s.score / s.max) * 100)) : 0}%`,
-                          background: isPassing ? c.accent : s.percent >= 70 ? c.warn : c.risk
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </Section>
 
           {/* ข้อมูลและตัวแปรเฉพาะรอบการตรวจ (Custom Audit Details) */}
           {allDisplayMetadataFields.length > 0 && (
-            <Section title="ข้อมูลและตัวแปรเฉพาะรอบการตรวจ (Audit Details)">
-              <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {allDisplayMetadataFields.map((item) => (
-                    <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                      <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
-                      <div className="text-sm font-extrabold text-slate-800 mt-0.5">
-                        {item.value}{item.unit}
-                      </div>
-                    </div>
-                  ))}
+            <Section
+              title={
+                <div
+                  className="flex items-center gap-1.5 cursor-pointer select-none"
+                  onClick={() => setIsAuditDetailsExpanded(prev => !prev)}
+                >
+                  <span>ข้อมูลรอบการตรวจ (Audit Details)</span>
                 </div>
-              </div>
+              }
+              action={
+                <button
+                  type="button"
+                  onClick={() => setIsAuditDetailsExpanded(prev => !prev)}
+                  className="flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-xl transition-all cursor-pointer"
+                  title={isAuditDetailsExpanded ? "ซ่อนข้อมูลรอบการตรวจ" : "แสดงข้อมูลรอบการตรวจ"}
+                >
+                  <span>{isAuditDetailsExpanded ? "ซ่อน" : "แสดง"}</span>
+                  <ChevronDown
+                    size={13}
+                    className={`transition-transform duration-200 ${isAuditDetailsExpanded ? "rotate-180" : ""}`}
+                  />
+                </button>
+              }
+            >
+              {isAuditDetailsExpanded && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3 animate-in fade-in duration-200">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {allDisplayMetadataFields.map((item) => {
+                      if (item.type === "grid") {
+                        return (
+                          <div key={item.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 col-span-1 sm:col-span-2 md:col-span-3 space-y-2">
+                            <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                            <DynamicFieldRenderer
+                              type="grid"
+                              fieldConfig={item.fieldConfig}
+                              value={item.rawValue}
+                              readOnly={true}
+                            />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
+                          <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                          <div className="text-sm font-extrabold text-slate-800 mt-0.5">
+                            {item.value}{item.unit}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </Section>
           )}
 
@@ -1431,7 +1930,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           {/* Album 1: On-site Inspection Photos */}
           <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
             <div className="flex items-start sm:items-center justify-between gap-2.5 sm:gap-3">
-              <span className="text-xs sm:text-sm font-bold text-slate-900">📷 อัลบั้มรูปตรวจหน้างาน (Inspection Photos)</span>
+              <span className="text-xs sm:text-sm font-bold text-slate-900">📷 อัลบั้มรูปตรวจหน้างาน</span>
               <div className="flex flex-col sm:flex-row items-end sm:items-center shrink-0 gap-1 sm:gap-2 text-right">
                 <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">บันทึกโดยผู้ตรวจ</span>
                 <span className={`text-[11px] sm:text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${allInspectionPhotos.length > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
@@ -1457,7 +1956,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                       <div className={`absolute top-2 left-2 px-2.5 py-0.5 rounded-lg text-white text-[10px] font-extrabold shadow-sm ${
                         p.isPass ? 'bg-emerald-600' : 'bg-red-600'
                       }`}>
-                        {p.isPass ? 'Standard (สภาพเรียบร้อย)' : 'Defect (ข้อบกพร่อง)'}
+                        {p.isPass ? 'เรียบร้อย' : 'ปรับปรุง'}
                       </div>
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-xs font-bold transition-opacity gap-1.5">
                         <Maximize2 size={16} />
@@ -1493,7 +1992,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           {/* Album 2: CAP Corrective Action Evidence Photos */}
           <div className="p-4 rounded-3xl bg-white border border-slate-200 shadow-2xs space-y-3">
             <div className="flex items-start sm:items-center justify-between gap-2.5 sm:gap-3">
-              <span className="text-xs sm:text-sm font-bold text-slate-900">🛠️ อัลบั้มรูปหลักฐานการแก้ไข (CAP After-Photos)</span>
+              <span className="text-xs sm:text-sm font-bold text-slate-900">🛠️ อัลบั้มรูปหลักฐานการแก้ไข</span>
               <div className="flex flex-col sm:flex-row items-end sm:items-center shrink-0 gap-1 sm:gap-2 text-right">
                 <span className="text-[11px] sm:text-xs text-slate-400 font-medium whitespace-nowrap">ส่งมอบโดยสาขา</span>
                 <span className="text-[11px] sm:text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap bg-emerald-100 text-emerald-800">
@@ -1639,7 +2138,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
                   <div className="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
-                    <span className={`w-2.5 h-2.5 rounded-full ${startLat && startLng ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'} inline-block`} />
                     <span>1. จุดเริ่มตรวจ (Start Inspection)</span>
                     {(!startLat || !startLng) && (
                       <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800">
@@ -1647,10 +2145,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                       </span>
                     )}
                   </div>
-                  <div className="text-[11.5px] text-slate-500 font-medium">
-                    เวลาเริ่ม: <span className="font-bold text-slate-700">{startedTimeStr}</span>
+                  <div className="text-[11.5px] text-slate-500 font-medium space-y-0.5">
+                    <div>เวลาเริ่ม: <span className="font-bold text-slate-700">{startedTimeStr}</span></div>
                     {startLat && startLng && (
-                      <> · พิกัด: <span className="font-bold text-slate-700 font-mono">{`${Number(startLat).toFixed(6)}, ${Number(startLng).toFixed(6)}`}</span></>
+                      <div>พิกัด: <span className="font-bold text-slate-700 font-mono">{`${Number(startLat).toFixed(6)}, ${Number(startLng).toFixed(6)}`}</span></div>
                     )}
                   </div>
                 </div>
@@ -1695,7 +2193,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="space-y-1">
                   <div className="text-xs font-black text-slate-800 flex items-center gap-1.5 flex-wrap">
-                    <span className={`w-2.5 h-2.5 rounded-full ${endLat && endLng ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'} inline-block`} />
                     <span>2. จุดส่งผลตรวจ (Submit Inspection)</span>
                     {(!endLat || !endLng) && (
                       <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800">
@@ -1703,10 +2200,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                       </span>
                     )}
                   </div>
-                  <div className="text-[11.5px] text-slate-500 font-medium">
-                    เวลาส่งผล: <span className="font-bold text-slate-700">{submittedTimeStr}</span>
+                  <div className="text-[11.5px] text-slate-500 font-medium space-y-0.5">
+                    <div>เวลาส่งผล: <span className="font-bold text-slate-700">{submittedTimeStr}</span></div>
                     {endLat && endLng && (
-                      <> · พิกัด: <span className="font-bold text-slate-700 font-mono">{`${Number(endLat).toFixed(6)}, ${Number(endLng).toFixed(6)}`}</span></>
+                      <div>พิกัด: <span className="font-bold text-slate-700 font-mono">{`${Number(endLat).toFixed(6)}, ${Number(endLng).toFixed(6)}`}</span></div>
                     )}
                   </div>
                 </div>
@@ -1770,6 +2267,39 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           auditRecordId={currentRecord?.id}
           onClose={() => setShowAiDefectModal(false)}
         />
+      )}
+
+      {/* 🌟 Category Navigation Drawer (เลือกเลื่อนดูหมวดหมู่) */}
+      {isCategoryDrawerOpen && typeof document !== "undefined" && createPortal(
+        <HistoryCategoryNavigationDrawer
+          onClose={() => setIsCategoryDrawerOpen(false)}
+          categoryItems={categoryItems}
+          activeSectionIdx={activeSectionIndex}
+          onSelectCategory={jumpToCategory}
+        />,
+        document.body
+      )}
+
+      {/* 🌟 Floating Scroll-to-Top Button (ปุ่มเลื่อนขึ้นบนสุดเหมือนตอนตรวจ) */}
+      {typeof document !== "undefined" && createPortal(
+        <button
+          type="button"
+          onClick={() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            const mainEl = document.querySelector('main');
+            if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          aria-label="เลื่อนขึ้นบนสุดของหน้า"
+          title="เลื่อนขึ้นบนสุดของหน้า"
+          className={`fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-40 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] active:bg-[#093e36] text-white shadow-lg shadow-[#0F6659]/30 border border-emerald-600/30 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 ${
+            isScrolled
+              ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
+              : "opacity-0 translate-y-3 scale-75 pointer-events-none"
+          }`}
+        >
+          <ChevronUp size={20} strokeWidth={2.8} />
+        </button>,
+        document.body
       )}
     </div>
   );

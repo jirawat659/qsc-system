@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -131,6 +132,8 @@ namespace QSC.Api.Controllers
                 var bNames = f.FormBrands.Where(fb => fb.Brand != null).Select(fb => fb.Brand!.Name).ToList();
                 if (bNames.Count == 0 && !string.IsNullOrEmpty(f.Brand?.Name)) bNames.Add(f.Brand.Name);
 
+                var (cleanMetaJson, secTypes, itConfigs) = UnpackFormMetadata(f.MetadataConfigJson);
+
                 return new
                 {
                     id = f.Id,
@@ -147,7 +150,7 @@ namespace QSC.Api.Controllers
                     version = f.Version,
                     isLatest = f.IsLatest,
                     isActive = f.IsActive,
-                    metadataConfigJson = f.MetadataConfigJson,
+                    metadataConfigJson = cleanMetaJson,
                     categoryOrderJson = f.CategoryOrderJson,
                     createdAt = f.CreatedAt,
                     usedCount = auditCounts.GetValueOrDefault(f.Id, 0),
@@ -162,33 +165,52 @@ namespace QSC.Api.Controllers
                     sectionCount = isSummary ? itemStats.GetValueOrDefault(f.Id).SectionCount : f.Sections.Count(s => s.IsActive),
                     itemCount = isSummary ? itemStats.GetValueOrDefault(f.Id).ItemCount : f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Count(i => i.IsActive),
                     totalScore = isSummary ? itemStats.GetValueOrDefault(f.Id).TotalScore : f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Where(i => i.IsActive).Sum(i => (int?)i.FullScore) ?? 0,
-                    sections = isSummary ? null : f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
-                    {
-                        id = s.Id,
-                        title = s.Title,
-                        orderIndex = s.OrderIndex,
-                        weightPercent = s.WeightPercent,
-                        items = s.Items.OrderBy(i => i.OrderIndex).Select(i => new
+                    sections = isSummary ? null : f.Sections.OrderBy(s => s.OrderIndex).Select(s => {
+                        string secKey = s.OrderIndex.ToString();
+                        string secType = secTypes.TryGetValue(secKey, out var st) ? st : (s.Items.Any(i => i.CategoryCode == "INFO" || (i.FullScore == 0 && i.QuestionType != "YESNO" && i.QuestionType != "SCALE")) ? "INFO" : "AUDIT");
+                        return new
                         {
-                            id = i.Id,
-                            questionText = i.QuestionText,
-                            questionType = i.QuestionType,
-                            fullScore = i.FullScore,
-                            isCritical = i.IsCritical,
-                            categoryCode = i.CategoryCode ?? "GEN",
-                            categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
-                            {
-                                "CLN" => "ความสะอาด",
-                                "DOC" => "เอกสาร",
-                                "OPS" => "กระบวนการทำงาน",
-                                "QLT" => "คุณภาพสินค้า",
-                                "SVC" => "การบริการ",
-                                "REG" => "ความถูกระเบียบ",
-                                "SAF" => "ความปลอดภัย",
-                                _ => "ความสะอาด"
-                            }),
-                            orderIndex = i.OrderIndex
-                        }).ToList()
+                            id = s.Id,
+                            title = s.Title,
+                            sectionType = secType,
+                            orderIndex = s.OrderIndex,
+                            weightPercent = s.WeightPercent,
+                            items = s.Items.OrderBy(i => i.OrderIndex).Select(i => {
+                                string itemKey = $"{secKey}_{i.OrderIndex}";
+                                string? fcJson = itConfigs.TryGetValue(itemKey, out var fc) ? fc : null;
+                                object? parsedFc = null;
+                                if (!string.IsNullOrEmpty(fcJson))
+                                {
+                                    try { parsedFc = JsonSerializer.Deserialize<object>(fcJson); } catch {}
+                                }
+                                bool isScored = secType != "INFO" && i.CategoryCode != "INFO" && i.FullScore > 0;
+                                return new
+                                {
+                                    id = i.Id,
+                                    questionText = i.QuestionText,
+                                    questionType = i.QuestionType,
+                                    fullScore = i.FullScore,
+                                    isScored = isScored,
+                                    isCritical = i.IsCritical,
+                                    categoryCode = i.CategoryCode ?? (isScored ? "GEN" : "INFO"),
+                                    categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
+                                    {
+                                        "CLN" => "ความสะอาด",
+                                        "DOC" => "เอกสาร",
+                                        "OPS" => "กระบวนการทำงาน",
+                                        "QLT" => "คุณภาพสินค้า",
+                                        "SVC" => "การบริการ",
+                                        "REG" => "ความถูกระเบียบ",
+                                        "SAF" => "ความปลอดภัย",
+                                        "INFO" => "รายละเอียด",
+                                        _ => (isScored ? "ความสะอาด" : "รายละเอียด")
+                                    }),
+                                    orderIndex = i.OrderIndex,
+                                    fieldConfig = parsedFc,
+                                    fieldConfigJson = fcJson
+                                };
+                            }).ToList()
+                        };
                     }).ToList()
                 };
             });
@@ -229,6 +251,8 @@ namespace QSC.Api.Controllers
             var bNames = f.FormBrands.Where(fb => fb.Brand != null).Select(fb => fb.Brand!.Name).ToList();
             if (bNames.Count == 0 && !string.IsNullOrEmpty(f.Brand?.Name)) bNames.Add(f.Brand.Name);
 
+            var (cleanMetaJson, secTypes, itConfigs) = UnpackFormMetadata(f.MetadataConfigJson);
+
             return Ok(new
             {
                 id = f.Id,
@@ -245,7 +269,7 @@ namespace QSC.Api.Controllers
                 version = f.Version,
                 isLatest = f.IsLatest,
                 isActive = f.IsActive,
-                metadataConfigJson = f.MetadataConfigJson,
+                metadataConfigJson = cleanMetaJson,
                 categoryOrderJson = f.CategoryOrderJson,
                 createdAt = f.CreatedAt,
                 usedCount = auditCount,
@@ -256,33 +280,52 @@ namespace QSC.Api.Controllers
                 sectionCount = f.Sections.Count(s => s.IsActive),
                 itemCount = f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Count(i => i.IsActive),
                 totalScore = f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Where(i => i.IsActive).Sum(i => (int?)i.FullScore) ?? 0,
-                sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => new
-                {
-                    id = s.Id,
-                    title = s.Title,
-                    orderIndex = s.OrderIndex,
-                    weightPercent = s.WeightPercent,
-                    items = s.Items.OrderBy(i => i.OrderIndex).Select(i => new
+                sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => {
+                    string secKey = s.OrderIndex.ToString();
+                    string secType = secTypes.TryGetValue(secKey, out var st) ? st : (s.Items.Any(i => i.CategoryCode == "INFO" || (i.FullScore == 0 && i.QuestionType != "YESNO" && i.QuestionType != "SCALE")) ? "INFO" : "AUDIT");
+                    return new
                     {
-                        id = i.Id,
-                        questionText = i.QuestionText,
-                        questionType = i.QuestionType,
-                        fullScore = i.FullScore,
-                        isCritical = i.IsCritical,
-                        categoryCode = i.CategoryCode ?? "GEN",
-                        categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
-                        {
-                            "CLN" => "ความสะอาด",
-                            "DOC" => "เอกสาร",
-                            "OPS" => "กระบวนการทำงาน",
-                            "QLT" => "คุณภาพสินค้า",
-                            "SVC" => "การบริการ",
-                            "REG" => "ความถูกระเบียบ",
-                            "SAF" => "ความปลอดภัย",
-                            _ => "ความสะอาด"
-                        }),
-                        orderIndex = i.OrderIndex
-                    }).ToList()
+                        id = s.Id,
+                        title = s.Title,
+                        sectionType = secType,
+                        orderIndex = s.OrderIndex,
+                        weightPercent = s.WeightPercent,
+                        items = s.Items.OrderBy(i => i.OrderIndex).Select(i => {
+                            string itemKey = $"{secKey}_{i.OrderIndex}";
+                            string? fcJson = itConfigs.TryGetValue(itemKey, out var fc) ? fc : null;
+                            object? parsedFc = null;
+                            if (!string.IsNullOrEmpty(fcJson))
+                            {
+                                try { parsedFc = JsonSerializer.Deserialize<object>(fcJson); } catch {}
+                            }
+                            bool isScored = secType != "INFO" && i.CategoryCode != "INFO" && i.FullScore > 0;
+                            return new
+                            {
+                                id = i.Id,
+                                questionText = i.QuestionText,
+                                questionType = i.QuestionType,
+                                fullScore = i.FullScore,
+                                isScored = isScored,
+                                isCritical = i.IsCritical,
+                                categoryCode = i.CategoryCode ?? (isScored ? "GEN" : "INFO"),
+                                categoryName = !string.IsNullOrEmpty(i.CategoryName) ? i.CategoryName : (i.CategoryCode switch
+                                {
+                                    "CLN" => "ความสะอาด",
+                                    "DOC" => "เอกสาร",
+                                    "OPS" => "กระบวนการทำงาน",
+                                    "QLT" => "คุณภาพสินค้า",
+                                    "SVC" => "การบริการ",
+                                    "REG" => "ความถูกระเบียบ",
+                                    "SAF" => "ความปลอดภัย",
+                                    "INFO" => "รายละเอียด",
+                                    _ => (isScored ? "ความสะอาด" : "รายละเอียด")
+                                }),
+                                orderIndex = i.OrderIndex,
+                                fieldConfig = parsedFc,
+                                fieldConfigJson = fcJson
+                            };
+                        }).ToList()
+                    };
                 }).ToList()
             });
         }
@@ -307,6 +350,7 @@ namespace QSC.Api.Controllers
         {
             public int? Id { get; set; }
             public string Title { get; set; } = string.Empty;
+            public string? SectionType { get; set; } = "AUDIT"; // "AUDIT" or "INFO"
             public int OrderIndex { get; set; }
             public double WeightPercent { get; set; }
             public List<ItemDto> Items { get; set; } = new();
@@ -322,6 +366,109 @@ namespace QSC.Api.Controllers
             public string? CategoryCode { get; set; }
             public string? CategoryName { get; set; }
             public int OrderIndex { get; set; }
+            public bool? IsScored { get; set; }
+            public string? FieldConfigJson { get; set; }
+            public object? FieldConfig { get; set; }
+        }
+
+        // 🌟 Helper สำหรับจัดเก็บโครงสร้างหมวดหมู่ (SectionType) และการตั้งค่าฟิลด์ไดนามิก (FieldConfig)
+        // โดยเก็บเป็น Envelope ใน MetadataConfigJson อย่างปลอดภัย 100% โดยไม่ต้องเปลี่ยนแปลงสกีมาฐานข้อมูล
+        private static string PackFormMetadata(string? rawMetadataJson, List<SectionDto>? sections)
+        {
+            var sectionTypes = new Dictionary<string, string>();
+            var itemConfigs = new Dictionary<string, string>();
+
+            if (sections != null)
+            {
+                int sIdx = 1;
+                foreach (var sec in sections)
+                {
+                    string secKey = sec.OrderIndex > 0 ? sec.OrderIndex.ToString() : (sIdx++).ToString();
+                    if (!string.IsNullOrWhiteSpace(sec.SectionType))
+                    {
+                        sectionTypes[secKey] = sec.SectionType.Trim().ToUpper();
+                    }
+
+                    int iIdx = 1;
+                    foreach (var item in sec.Items)
+                    {
+                        string itKey = $"{secKey}_{(item.OrderIndex > 0 ? item.OrderIndex : iIdx++)}";
+                        string? fc = item.FieldConfigJson;
+                        if (string.IsNullOrWhiteSpace(fc) && item.FieldConfig != null)
+                        {
+                            try { fc = JsonSerializer.Serialize(item.FieldConfig); } catch { }
+                        }
+                        if (!string.IsNullOrWhiteSpace(fc))
+                        {
+                            itemConfigs[itKey] = fc;
+                        }
+                    }
+                }
+            }
+
+            if (sectionTypes.Count == 0 && itemConfigs.Count == 0)
+            {
+                return rawMetadataJson ?? string.Empty;
+            }
+
+            var envelope = new
+            {
+                envelopeVersion = 1,
+                metadataJson = rawMetadataJson ?? string.Empty,
+                sectionTypes,
+                itemConfigs
+            };
+
+            return JsonSerializer.Serialize(envelope);
+        }
+
+        private static (string? cleanMetadataJson, Dictionary<string, string> sectionTypes, Dictionary<string, string> itemConfigs) UnpackFormMetadata(string? packedJson)
+        {
+            var sectionTypes = new Dictionary<string, string>();
+            var itemConfigs = new Dictionary<string, string>();
+
+            if (string.IsNullOrWhiteSpace(packedJson))
+            {
+                return (packedJson, sectionTypes, itemConfigs);
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(packedJson);
+                var root = doc.RootElement;
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("envelopeVersion", out _))
+                {
+                    string? meta = null;
+                    if (root.TryGetProperty("metadataJson", out var metaProp))
+                    {
+                        meta = metaProp.GetString();
+                    }
+
+                    if (root.TryGetProperty("sectionTypes", out var secProp) && secProp.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in secProp.EnumerateObject())
+                        {
+                            sectionTypes[prop.Name] = prop.Value.GetString() ?? "AUDIT";
+                        }
+                    }
+
+                    if (root.TryGetProperty("itemConfigs", out var itemProp) && itemProp.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in itemProp.EnumerateObject())
+                        {
+                            itemConfigs[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                        }
+                    }
+
+                    return (meta, sectionTypes, itemConfigs);
+                }
+            }
+            catch
+            {
+                // Fallback สำหรับ JSON array ดั้งเดิม
+            }
+
+            return (packedJson, sectionTypes, itemConfigs);
         }
 
         [Authorize(Roles = "ADMIN,STANDARD")]
@@ -365,7 +512,7 @@ namespace QSC.Api.Controllers
                     PassingScore = dto.PassingScore,
                     TargetingMode = dto.TargetingMode,
                     Version = dto.Version,
-                    MetadataConfigJson = dto.MetadataConfigJson,
+                    MetadataConfigJson = PackFormMetadata(dto.MetadataConfigJson, dto.Sections),
                     CategoryOrderJson = dto.CategoryOrderJson,
                     IsLatest = true,
                     IsActive = true,
@@ -431,6 +578,7 @@ namespace QSC.Api.Controllers
                                 "Service" or "การบริการ" => "Service",
                                 "Cleanliness" or "ความสะอาด" => "Cleanliness",
                                 "Documents" or "เอกสาร" => "Documents",
+                                "INFO" or "รายละเอียด" or "ข้อมูลทั่วไป" => "รายละเอียด",
                                 _ => catName
                             };
                         }
@@ -444,6 +592,7 @@ namespace QSC.Api.Controllers
                                 "Service" => "S",
                                 "Cleanliness" => "C",
                                 "Documents" => "DM",
+                                "รายละเอียด" => "INFO",
                                 _ => "PD"
                             };
                         }
@@ -456,6 +605,7 @@ namespace QSC.Api.Controllers
                                 "S" or "SVC" => "S",
                                 "C" or "CLN" => "C",
                                 "DM" or "DOC" => "DM",
+                                "INFO" => "INFO",
                                 _ => catCode
                             };
                         }
@@ -469,6 +619,7 @@ namespace QSC.Api.Controllers
                                 "S" => "Service",
                                 "C" => "Cleanliness",
                                 "DM" => "Documents",
+                                "INFO" => "รายละเอียด",
                                 _ => "Product"
                             };
                         }
@@ -561,7 +712,7 @@ namespace QSC.Api.Controllers
                     form.PassingScore = dto.PassingScore;
                     form.TargetingMode = dto.TargetingMode;
                     form.Version = dto.Version;
-                    form.MetadataConfigJson = dto.MetadataConfigJson;
+                    form.MetadataConfigJson = PackFormMetadata(dto.MetadataConfigJson, dto.Sections);
                     form.CategoryOrderJson = dto.CategoryOrderJson;
 
                     // Sync Brands (SurveyFormBrands)
@@ -625,6 +776,7 @@ namespace QSC.Api.Controllers
                                     "Service" or "การบริการ" => "Service",
                                     "Cleanliness" or "ความสะอาด" => "Cleanliness",
                                     "Documents" or "เอกสาร" => "Documents",
+                                    "INFO" or "รายละเอียด" or "ข้อมูลทั่วไป" => "รายละเอียด",
                                     _ => catName
                                 };
                             }
@@ -638,6 +790,7 @@ namespace QSC.Api.Controllers
                                     "Service" => "S",
                                     "Cleanliness" => "C",
                                     "Documents" => "DM",
+                                    "รายละเอียด" => "INFO",
                                     _ => "PD"
                                 };
                             }
@@ -650,6 +803,7 @@ namespace QSC.Api.Controllers
                                     "S" or "SVC" => "S",
                                     "C" or "CLN" => "C",
                                     "DM" or "DOC" => "DM",
+                                    "INFO" => "INFO",
                                     _ => catCode
                                 };
                             }
@@ -663,6 +817,7 @@ namespace QSC.Api.Controllers
                                     "S" => "Service",
                                     "C" => "Cleanliness",
                                     "DM" => "Documents",
+                                    "INFO" => "รายละเอียด",
                                     _ => "Product"
                                 };
                             }
@@ -721,7 +876,7 @@ namespace QSC.Api.Controllers
                         PassingScore = dto.PassingScore,
                         TargetingMode = dto.TargetingMode,
                         Version = nextVersion,
-                        MetadataConfigJson = dto.MetadataConfigJson,
+                        MetadataConfigJson = PackFormMetadata(dto.MetadataConfigJson, dto.Sections),
                         CategoryOrderJson = dto.CategoryOrderJson,
                         IsLatest = true,
                         IsActive = true,
@@ -783,6 +938,7 @@ namespace QSC.Api.Controllers
                                     "Service" or "การบริการ" => "Service",
                                     "Cleanliness" or "ความสะอาด" => "Cleanliness",
                                     "Documents" or "เอกสาร" => "Documents",
+                                    "INFO" or "รายละเอียด" or "ข้อมูลทั่วไป" => "รายละเอียด",
                                     _ => catName
                                 };
                             }
@@ -796,6 +952,7 @@ namespace QSC.Api.Controllers
                                     "Service" => "S",
                                     "Cleanliness" => "C",
                                     "Documents" => "DM",
+                                    "รายละเอียด" => "INFO",
                                     _ => "PD"
                                 };
                             }
@@ -808,6 +965,7 @@ namespace QSC.Api.Controllers
                                     "S" or "SVC" => "S",
                                     "C" or "CLN" => "C",
                                     "DM" or "DOC" => "DM",
+                                    "INFO" => "INFO",
                                     _ => catCode
                                 };
                             }
@@ -821,6 +979,7 @@ namespace QSC.Api.Controllers
                                     "S" => "Service",
                                     "C" => "Cleanliness",
                                     "DM" => "Documents",
+                                    "INFO" => "รายละเอียด",
                                     _ => "Product"
                                 };
                             }

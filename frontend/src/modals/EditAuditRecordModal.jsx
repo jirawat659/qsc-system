@@ -11,6 +11,7 @@ import { compressImageFile, validateImageFile } from "../utils/imageCompressor";
 import { mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
+import DynamicFieldRenderer from "../shared/DynamicFieldRenderer";
 
 // ✍️ Digital Signature Pad Modal (High-DPI Touch & Mouse)
 function SignaturePadModal({ title, initialSignatureUrl, onDone, onCancel }) {
@@ -291,6 +292,122 @@ export const getAuditorNameFromRecord = (rec) => {
          "";
 };
 
+// 🌟 หมวดหมู่ข้อตรวจ Drawer พร้อมแอนิเมชั่นเลื่อนเข้า-ออก (Slide-in / Slide-out Animation)
+function EditSectionNavigationDrawer({ isOpen, onClose, groupedSections, onSelectSection }) {
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [animOpen, setAnimOpen] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      const raf = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setAnimOpen(true));
+      });
+      return () => cancelAnimationFrame(raf);
+    } else {
+      setAnimOpen(false);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+      }, 260);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  if (!shouldRender) return null;
+
+  return typeof document !== "undefined" ? createPortal(
+    <div className={`fixed inset-0 z-[100001] select-none transition-all ${
+      animOpen ? "pointer-events-auto" : "pointer-events-none"
+    }`}>
+      {/* Backdrop with Fade In / Out */}
+      <div
+        onClick={onClose}
+        className={`fixed inset-0 bg-slate-900/40 backdrop-blur-2xs transition-opacity duration-250 ease-in-out ${
+          animOpen ? "opacity-100" : "opacity-0"
+        }`}
+      />
+
+      {/* Drawer Panel with Slide In / Out from Left */}
+      <div
+        className={`fixed top-0 left-0 bottom-0 w-72 sm:w-80 max-w-[85vw] bg-white shadow-2xl flex flex-col z-[100002] transition-transform duration-250 ease-out transform ${
+          animOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {/* Header */}
+        <div className="p-4 px-5 border-b border-slate-100 bg-slate-50/90 flex items-center justify-between shrink-0">
+          <div>
+            <div className="font-bold text-sm text-slate-800">หมวดหมู่ข้อตรวจ</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">เลือกหมวดที่ต้องการ</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-all cursor-pointer"
+            title="ปิดเมนู"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Categories List in user requested order */}
+        <div className="overflow-y-auto flex-1 divide-y divide-slate-100 custom-tab-scrollbar">
+          {[
+            { id: 'sec-reason', label: 'เหตุผลการแก้ไข', icon: '📝' },
+            { id: 'sec-time-gps', label: 'เวลาตรวจ & พิกัด GPS', icon: '⏱️' },
+            { id: 'sec-meta', label: 'รายละเอียดการตรวจ', icon: '📋' },
+            { id: 'sec-signatures', label: 'ลายเซ็นดิจิทัล', icon: '✍️' },
+            { id: 'sec-summary-notes', label: 'สรุปผลการตรวจ', icon: '📄' },
+            { id: 'sec-checklist', label: 'รายการตรวจ', icon: '🔍', count: `${groupedSections.reduce((acc, s) => acc + s.items.length, 0)} ข้อ` },
+            ...groupedSections.map((sec, idx) => ({
+              id: sec.id,
+              label: sec.title?.toLowerCase().startsWith("หมวด") ? sec.title : `หมวดที่ ${idx + 1}: ${sec.title}`,
+              icon: `${idx + 1}`,
+              count: `${sec.items.length} ข้อ`,
+              isSection: true,
+              isSubItem: true,
+            }))
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                onClose();
+                onSelectSection(item.id);
+              }}
+              className={`w-full flex items-center gap-3 px-5 py-3 border-none bg-transparent hover:bg-emerald-50/60 active:bg-emerald-100/60 transition-colors text-left cursor-pointer group ${
+                item.isSubItem ? "pl-8 bg-slate-50/40" : ""
+              }`}
+            >
+              {item.isSection ? (
+                <span className="w-5 h-5 rounded-lg bg-slate-100 text-slate-700 font-mono text-xs font-bold flex items-center justify-center shrink-0">
+                  {item.icon}
+                </span>
+              ) : (
+                <span className="text-lg flex items-center justify-center shrink-0 w-6 h-6 select-none">
+                  {item.icon}
+                </span>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className={`text-xs font-semibold truncate ${
+                  item.isSubItem ? "text-slate-600 group-hover:text-slate-900" : "text-slate-800 group-hover:text-slate-950"
+                }`}>
+                  {item.label}
+                </div>
+                {item.count && (
+                  <div className="text-[10.5px] text-slate-400 group-hover:text-emerald-700 font-medium mt-0.5">
+                    {item.count}
+                  </div>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  ) : null;
+}
+
 export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSuccess }) {
   const { forms = [], getFormDetail } = useContext(DataContext) || {};
   const [currentRecord, setCurrentRecord] = useState(record);
@@ -467,7 +584,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       let runningNum = 1;
 
       matchedForm.sections.forEach((sec, secIdx) => {
-        (sec.items || []).forEach((item) => {
+        (sec.items || []).forEach((item, itemIdx) => {
           let res = resList.find(r => 
             (r.surveyItemId && Number(r.surveyItemId) === Number(item.id)) ||
             (r.surveyItem?.id && Number(r.surveyItem.id) === Number(item.id)) ||
@@ -484,16 +601,28 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           const qType = (res.questionType || res.surveyItem?.questionType || item.questionType || item.type || "yesno").toLowerCase();
           const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || item.fullScore || 10));
           const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || item.isCritical || item.critical || false);
+          const isNonScored = (sec.sectionType === "INFO") || item.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
+          // 🌟 สกัดหรือคำนวณเลขข้อที่แท้จริง (เช่น "1.1", "1.2", "2.1")
+          const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
+          const singleMatch = qText.match(/^(?:ข้อ\s*)(\d+)(?:\s|$|[:.-])/i);
+          const computedNo = textMatch ? textMatch[1] : (singleMatch ? singleMatch[1] : (item.orderIndex || `${secIdx + 1}.${itemIdx + 1}`));
 
           itemsList.push({
             runningNum: runningNum++,
+            secIdx: secIdx,
+            itemIdx: itemIdx,
+            questionNo: computedNo,
             surveyItemId: itemId,
             questionText: qText,
             questionType: qType,
-            fullScore: fullScore,
-            isCritical: isCrit,
+            fullScore: isNonScored ? 0 : fullScore,
+            isCritical: isNonScored ? false : isCrit,
+            isScored: !isNonScored,
+            fieldConfig: item.fieldConfig || res.fieldConfig || res.surveyItem?.fieldConfig,
             sectionId: sec.id || `sec_${secIdx}`,
             sectionTitle: sec.title || `หมวดที่ ${secIdx + 1}`,
+            sectionType: sec.sectionType || "AUDIT",
             originalRes: res
           });
         });
@@ -508,15 +637,23 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       const qType = (res.questionType || res.surveyItem?.questionType || "yesno").toLowerCase();
       const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
       const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
+      const isNonScored = res.isScored === false || res.surveyItem?.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
       const secTitle = res.surveyItem?.surveySection?.title || "รายการตรวจประเมิน";
+
+      const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
+      const singleMatch = qText.match(/^(?:ข้อ\s*)(\d+)(?:\s|$|[:.-])/i);
+      const computedNo = textMatch ? textMatch[1] : (singleMatch ? singleMatch[1] : String(idx + 1));
 
       return {
         runningNum: idx + 1,
+        questionNo: computedNo,
         surveyItemId: itemId,
         questionText: qText,
         questionType: qType,
-        fullScore: fullScore,
-        isCritical: isCrit,
+        fullScore: isNonScored ? 0 : fullScore,
+        isCritical: isNonScored ? false : isCrit,
+        isScored: !isNonScored,
+        fieldConfig: res.fieldConfig || res.surveyItem?.fieldConfig,
         sectionId: `sec_0`,
         sectionTitle: secTitle,
         originalRes: res
@@ -533,6 +670,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           id: `sec-cat-${secIdx}`,
           title: sec.title || `หมวดที่ ${secIdx + 1}`,
           description: sec.description || "",
+          sectionType: sec.sectionType || (sec.items?.every(i => i.isScored === false) ? "INFO" : "AUDIT"),
           items: items.length > 0 ? items : []
         };
       }).filter(s => s.items.length > 0);
@@ -556,6 +694,29 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const res = q.originalRes || {};
     const qType = (q.questionType || "yesno").toLowerCase();
     const fullScore = Number(q.fullScore || 10);
+    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
+    if (isNonScored) {
+      let parsedImages = [];
+      if (Array.isArray(res.images)) {
+        parsedImages = res.images.map(img => img.imageUrl || img).filter(Boolean);
+      } else if (Array.isArray(res.imageUrls)) {
+        parsedImages = [...res.imageUrls].filter(Boolean);
+      }
+      return {
+        surveyItemId: q.surveyItemId,
+        isNa: false,
+        isPassed: true,
+        scoreGiven: 0,
+        fullScore: 0,
+        type: qType,
+        scaleScore: null,
+        rawAnswer: res.rawAnswer || res.answerValue || "",
+        answerValue: res.answerValue || res.rawAnswer || "",
+        notes: res.notes || "",
+        imageUrls: parsedImages
+      };
+    }
 
     const isNa = res.isNa === true || res.isNa === 1 || res.isNa === "true" || res.rawAnswer === "na" || res.answerValue === "na";
 
@@ -887,6 +1048,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return false;
   };
 
+  const isAnswerEdited = (itemId) => {
+    const orig = initialAnswers[itemId];
+    const curr = answersState[itemId];
+    if (!orig || !curr) return false;
+    return (orig.rawAnswer || orig.answerValue || "") !== (curr.rawAnswer || curr.answerValue || "");
+  };
+
   const isPhotosEdited = (itemId) => {
     const orig = initialAnswers[itemId];
     const curr = answersState[itemId];
@@ -904,7 +1072,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return (orig.notes || "").trim() !== (curr.notes || "").trim();
   };
 
-  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId);
+  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isAnswerEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId);
 
   const liveScoring = useMemo(() => {
     let earned = 0;
@@ -912,6 +1080,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     let hasCritFail = false;
 
     checklistQuestions.forEach((q) => {
+      const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+      if (isNonScored) return;
+
       const state = answersState[q.surveyItemId];
       if (!state) return;
       const full = state.fullScore || 10;
@@ -947,6 +1118,24 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
   const originalScore = typeof currentRecord.score === "number" ? currentRecord.score : typeof currentRecord.percentageScore === "number" ? currentRecord.percentageScore : 0;
   const auditDurationText = getAuditDurationText(startedAt, submittedAt);
+
+  const handleSetCustomValue = (itemId, val) => {
+    setAnswersState((prev) => {
+      const current = prev[itemId] || { fullScore: 0, notes: "", imageUrls: [] };
+      const strVal = typeof val === "object" ? JSON.stringify(val) : String(val ?? "");
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          rawAnswer: strVal,
+          answerValue: strVal,
+          scoreGiven: 0,
+          isPassed: true,
+          isNa: false
+        }
+      };
+    });
+  };
 
   const handleToggleYesNo = (itemId, choice) => {
     setAnswersState((prev) => {
@@ -1077,6 +1266,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
     const invalidEditedItems = checklistQuestions.filter((q) => {
       const itemId = q.surveyItemId;
+      if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType)) return false;
       if (!isScoreEdited(itemId)) return false;
       const note = answersState[itemId]?.notes?.trim();
       return !note;
@@ -1106,12 +1296,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     try {
       const payloadResponses = checklistQuestions.map((q) => {
         const s = answersState[q.surveyItemId] || parseResponseAnswer(q);
+        const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
         return {
           surveyItemId: Number(q.surveyItemId) || q.originalRes?.surveyItemId || 0,
-          scoreGiven: s.scoreGiven,
-          isPassed: s.isPassed,
-          isNa: s.isNa,
-          rawAnswer: s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no")),
+          scoreGiven: isNonScored ? 0 : s.scoreGiven,
+          isPassed: isNonScored ? true : s.isPassed,
+          isNa: isNonScored ? false : s.isNa,
+          rawAnswer: isNonScored
+            ? (s.rawAnswer || s.answerValue || (typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value ?? "")))
+            : (s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no"))),
           notes: s.notes || null,
           imageUrls: s.imageUrls || []
         };
@@ -1218,70 +1411,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           </div>
         </div>
 
-        {/* Section Navigation Drawer */}
-        {sectionDrawerOpen && (
-          <>
-            <div
-              onClick={() => setSectionDrawerOpen(false)}
-              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50 }}
-            />
-            <div style={{
-              position: 'fixed', top: 0, left: 0, bottom: 0, width: 280,
-              background: 'white', zIndex: 51, overflowY: 'auto',
-              boxShadow: '4px 0 20px rgba(0,0,0,0.15)',
-            }}>
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
-                <div style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>หมวดหมู่ข้อตรวจ</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>เลือกหมวดเพื่อข้ามไปยังส่วนนั้น</div>
-              </div>
-              {[
-                { id: 'sec-reason-time', label: 'เหตุผล & เวลาตรวจ', icon: '📝' },
-                { id: 'sec-meta', label: 'รายละเอียดการตรวจ', icon: '📋' },
-                { id: 'sec-gps', label: 'พิกัด GPS', icon: '📍' },
-                { id: 'sec-signatures', label: 'ลายเซ็นดิจิทัล', icon: '✍️' },
-                ...groupedSections.map((sec, idx) => ({
-                  id: sec.id,
-                  label: sec.title,
-                  icon: `${idx + 1}`,
-                  count: `${sec.items.length} ข้อ`,
-                  isSection: true,
-                }))
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => scrollToSection(item.id)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    width: '100%', padding: '12px 20px', border: 'none',
-                    background: 'transparent', cursor: 'pointer', textAlign: 'left',
-                    borderBottom: '1px solid #f1f5f9',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f0fdf4'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                >
-                  <span style={{
-                    width: 28, height: 28, borderRadius: '50%',
-                    background: item.isSection ? '#e5e7eb' : '#f0fdf4',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 12, fontWeight: 700, color: item.isSection ? '#374151' : '#0F6659',
-                    border: '1px solid #d1d5db', flexShrink: 0,
-                  }}>
-                    {item.icon}
-                  </span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 12, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.label}
-                    </div>
-                    {item.count && (
-                      <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{item.count}</div>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+        {/* Section Navigation Drawer พร้อมแอนิเมชั่นเลื่อนเข้า-ออก */}
+        <EditSectionNavigationDrawer
+          isOpen={sectionDrawerOpen}
+          onClose={() => setSectionDrawerOpen(false)}
+          groupedSections={groupedSections}
+          onSelectSection={scrollToSection}
+        />
 
         {/* Form Body */}
         <form
@@ -1295,8 +1431,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
           )}
 
-          {/* 🌟 1. เหตุผลการแก้ไข & เวลาเริ่ม-สิ้นสุดตรวจ */}
-          <div id="sec-reason-time" className="space-y-3">
+          {/* 🌟 1. เหตุผลการแก้ไข (จำเป็น) */}
+          <div id="sec-reason" className="space-y-3">
             {/* Mandatory Reason Box */}
             <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2 shadow-2xs">
               <label className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
@@ -1308,11 +1444,14 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 rows={2}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="ระบุเหตุผลในการแก้ไข เช่น ปรับคะแนนข้อความสะอาดตู้เย็นเนื่องจากตรวจสอบภาพถ่ายเพิ่มเติม..."
+                placeholder="ระบุเหตุผลในการแก้ไข..."
                 className="w-full text-xs p-3 rounded-xl bg-white border border-amber-300 focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder-slate-400 transition-all font-sans"
               />
             </div>
+          </div>
 
+          {/* 🌟 2. เวลาตรวจ & พิกัด GPS */}
+          <div id="sec-time-gps" className="space-y-3.5">
             {/* ⏱️ ปรับเวลาเริ่มตรวจ และสิ้นสุดตรวจ */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
               <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
@@ -1355,15 +1494,159 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 </div>
               </div>
             </div>
+
+            {/* 📍 ตำแหน่งและพิกัดที่ตั้ง (GPS Coordinates: เริ่มตรวจ & หลังตรวจ) */}
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
+              <div className="flex items-center gap-1.5 border-b border-slate-200/60 pb-2">
+                <MapPin size={14} className="text-[#0F6659]" />
+                <span className="text-xs font-extrabold text-slate-800">ตำแหน่งพิกัดที่ตั้ง (GPS)</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* พิกัดตอนเริ่มตรวจ */}
+                <div className="p-3.5 rounded-xl bg-white border border-slate-200/80 space-y-2.5 shadow-2xs">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-[#0F6659]"></span>
+                      <span>พิกัดเริ่มตรวจ</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={handleFetchStartGps}
+                      disabled={isFetchingStartGps}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50 border ${
+                        gpsSuccess.start
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                          : "bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border-emerald-200"
+                      }`}
+                    >
+                      {isFetchingStartGps ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : gpsSuccess.start ? (
+                        <Check size={11} className="text-white" />
+                      ) : (
+                        <Navigation size={11} />
+                      )}
+                      <span>{gpsSuccess.start ? "ใช้พิกัดปัจจุบัน" : "พิกัดปัจจุบัน"}</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500">ละติจูด (Latitude)</label>
+                      <input
+                        type="text"
+                        value={startLatitude}
+                        onChange={(e) => setStartLatitude(e.target.value)}
+                        placeholder="เช่น 13.756331"
+                        className="w-full text-xs p-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500">ลองจิจูด (Longitude)</label>
+                      <input
+                        type="text"
+                        value={startLongitude}
+                        onChange={(e) => setStartLongitude(e.target.value)}
+                        placeholder="เช่น 100.501762"
+                        className="w-full text-xs p-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  {startLatitude && startLongitude && (
+                    <div className="pt-0.5 text-right">
+                      <a
+                        href={`https://www.google.com/maps?q=${startLatitude},${startLongitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#0F6659] hover:underline font-bold text-[11px] inline-flex items-center gap-1"
+                      >
+                        <span>เปิดใน Google Maps</span>
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* พิกัดตอนหลังตรวจ / สิ้นสุดการตรวจ */}
+                <div className="p-3.5 rounded-xl bg-white border border-slate-200/80 space-y-2.5 shadow-2xs">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                      <span>พิกัดหลังตรวจ</span>
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={handleFetchEndGps}
+                      disabled={isFetchingEndGps}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50 border ${
+                        gpsSuccess.end
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
+                          : "bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border-emerald-200"
+                      }`}
+                    >
+                      {isFetchingEndGps ? (
+                        <Loader2 size={11} className="animate-spin" />
+                      ) : gpsSuccess.end ? (
+                        <Check size={11} className="text-white" />
+                      ) : (
+                        <Navigation size={11} />
+                      )}
+                      <span>{gpsSuccess.end ? "ใช้พิกัดปัจจุบัน" : "พิกัดปัจจุบัน"}</span>
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500">ละติจูด (Latitude)</label>
+                      <input
+                        type="text"
+                        value={endLatitude}
+                        onChange={(e) => setEndLatitude(e.target.value)}
+                        placeholder="เช่น 13.756331"
+                        className="w-full text-xs p-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500">ลองจิจูด (Longitude)</label>
+                      <input
+                        type="text"
+                        value={endLongitude}
+                        onChange={(e) => setEndLongitude(e.target.value)}
+                        placeholder="เช่น 100.501762"
+                        className="w-full text-xs p-2 rounded-lg bg-slate-50 border border-slate-200 focus:bg-white focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  {endLatitude && endLongitude && (
+                    <div className="pt-0.5 text-right">
+                      <a
+                        href={`https://www.google.com/maps?q=${endLatitude},${endLongitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[#0F6659] hover:underline font-bold text-[11px] inline-flex items-center gap-1"
+                      >
+                        <span>เปิดใน Google Maps</span>
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* 🌟 2. ข้อมูลและรายละเอียดการตรวจ (Audit Details / Metadata) */}
+          {/* 🌟 3. ข้อมูลและรายละเอียดการตรวจ (Audit Details / Metadata) */}
           {activeMetadataFields && activeMetadataFields.length > 0 && (
             <div id="sec-meta" className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
               <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
                 <span className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
                   <FileText size={14} className="text-[#0F6659]" />
-                  <span>ข้อมูลและรายละเอียดการตรวจ (Audit Details)</span>
+                  <span>รายละเอียดการตรวจ (Audit Details)</span>
                 </span>
               </div>
 
@@ -1385,6 +1668,24 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   }
 
                   const isTemp = field.unit?.includes('°') || field.label?.includes('อุณหภูมิ');
+
+                  if (field.type === 'grid' || field.type === 'radio' || field.type === 'checkbox') {
+                    return (
+                      <div key={field.id} className="col-span-full space-y-1">
+                        <label className="text-[10.5px] font-bold text-slate-600 flex items-center gap-1">
+                          <FileText size={12} className="text-[#0F6659]" />
+                          <span>{field.label}</span>
+                          {field.required && <span className="text-rose-500">*</span>}
+                        </label>
+                        <DynamicFieldRenderer
+                          type={field.type}
+                          fieldConfig={field.fieldConfig || { options: field.options }}
+                          value={val}
+                          onChange={(newVal) => handleMetaValueChange(field.id, newVal)}
+                        />
+                      </div>
+                    );
+                  }
 
                   if (field.id === 'auditor' || field.type === 'auditor') {
                     return (
@@ -1534,156 +1835,12 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
           )}
 
-          {/* 🌟 3. ตำแหน่งและพิกัดที่ตั้ง (GPS Coordinates: เริ่มตรวจ & หลังตรวจ) */}
-          <div id="sec-gps" className="space-y-3">
-            <div className="flex items-center gap-1.5 border-b border-slate-100 pb-2">
-              <MapPin size={14} className="text-[#0F6659]" />
-              <span className="text-xs font-extrabold text-slate-800">ตำแหน่งพิกัดที่ตั้ง (GPS)</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {/* พิกัดตอนเริ่มตรวจ */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-[#0F6659]"></span>
-                    <span>พิกัดเริ่มตรวจ</span>
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={handleFetchStartGps}
-                    disabled={isFetchingStartGps}
-                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50 border ${
-                      gpsSuccess.start
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
-                        : "bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border-emerald-200"
-                    }`}
-                  >
-                    {isFetchingStartGps ? (
-                      <Loader2 size={11} className="animate-spin" />
-                    ) : gpsSuccess.start ? (
-                      <Check size={11} className="text-white" />
-                    ) : (
-                      <Navigation size={11} />
-                    )}
-                    <span>{gpsSuccess.start ? "ดึงพิกัดแล้ว!" : "พิกัดปัจจุบัน"}</span>
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500">ละติจูด (Latitude)</label>
-                    <input
-                      type="text"
-                      value={startLatitude}
-                      onChange={(e) => setStartLatitude(e.target.value)}
-                      placeholder="เช่น 13.756331"
-                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500">ลองจิจูด (Longitude)</label>
-                    <input
-                      type="text"
-                      value={startLongitude}
-                      onChange={(e) => setStartLongitude(e.target.value)}
-                      placeholder="เช่น 100.501762"
-                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
-                    />
-                  </div>
-                </div>
-
-                {startLatitude && startLongitude && (
-                  <div className="pt-0.5 text-right">
-                    <a
-                      href={`https://www.google.com/maps?q=${startLatitude},${startLongitude}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#0F6659] hover:underline font-bold text-[11px] inline-flex items-center gap-1"
-                    >
-                      <span>เปิดใน Google Maps</span>
-                      <ExternalLink size={10} />
-                    </a>
-                  </div>
-                )}
-              </div>
-
-              {/* พิกัดตอนหลังตรวจ / สิ้นสุดการตรวจ */}
-              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
-                <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
-                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                    <span>พิกัดหลังตรวจ</span>
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={handleFetchEndGps}
-                    disabled={isFetchingEndGps}
-                    className={`px-2.5 py-1 rounded-xl text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95 disabled:opacity-50 border ${
-                      gpsSuccess.end
-                        ? "bg-emerald-600 text-white border-emerald-600 shadow-2xs"
-                        : "bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border-emerald-200"
-                    }`}
-                  >
-                    {isFetchingEndGps ? (
-                      <Loader2 size={11} className="animate-spin" />
-                    ) : gpsSuccess.end ? (
-                      <Check size={11} className="text-white" />
-                    ) : (
-                      <Navigation size={11} />
-                    )}
-                    <span>{gpsSuccess.end ? "ดึงพิกัดแล้ว!" : "พิกัดปัจจุบัน"}</span>
-                  </button>
-                </div>
-
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500">ละติจูด (Latitude)</label>
-                    <input
-                      type="text"
-                      value={endLatitude}
-                      onChange={(e) => setEndLatitude(e.target.value)}
-                      placeholder="เช่น 13.756331"
-                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500">ลองจิจูด (Longitude)</label>
-                    <input
-                      type="text"
-                      value={endLongitude}
-                      onChange={(e) => setEndLongitude(e.target.value)}
-                      placeholder="เช่น 100.501762"
-                      className="w-full text-xs p-2 rounded-lg bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-mono font-bold text-slate-800"
-                    />
-                  </div>
-                </div>
-
-                {endLatitude && endLongitude && (
-                  <div className="pt-0.5 text-right">
-                    <a
-                      href={`https://www.google.com/maps?q=${endLatitude},${endLongitude}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[#0F6659] hover:underline font-bold text-[11px] inline-flex items-center gap-1"
-                    >
-                      <span>เปิดใน Google Maps</span>
-                      <ExternalLink size={10} />
-                    </a>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
           {/* 🌟 4. การแก้ไขลายเซ็นดิจิทัล (Digital Signatures) */}
           <div id="sec-signatures" className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-4 shadow-2xs">
             <div className="border-b border-slate-200/60 pb-2">
               <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
                 <PenTool size={14} className="text-[#0F6659]" />
-                <span>ลายเซ็นรับรองผลการตรวจ (Digital Signatures)</span>
+                <span>ลายเซ็นดิจิทัล (Digital Signatures)</span>
               </label>
             </div>
 
@@ -1760,25 +1917,47 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
             </div>
           </div>
 
-          {/* 🌟 5. รายการคำตอบข้อตรวจประเมิน แยกตามหมวด */}
-          <div className="space-y-4 pt-1">
+          {/* 🌟 5. สรุปผลการตรวจ (Audit Summary / General Notes) */}
+          <div id="sec-summary-notes" className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+              <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
+                <FileText size={14} className="text-[#0F6659]" />
+                <span>สรุปผลการตรวจ (Audit Summary)</span>
+              </label>
+            </div>
+
+            <div className="space-y-1.5">
+              <textarea
+                rows={3}
+                value={generalNotes}
+                onChange={(e) => setGeneralNotes(e.target.value)}
+                placeholder="พิมพ์สรุปผลการตรวจประเมิน..."
+                className="w-full text-xs p-3 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-2 focus:ring-[#0F6659] text-slate-800 placeholder-slate-400 transition-all font-sans leading-relaxed"
+              />
+            </div>
+          </div>
+
+          {/* 🌟 6. รายการตรวจรายข้อ แยกตามหมวด */}
+          <div id="sec-checklist" className="space-y-4 pt-1">
             <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between border-b border-slate-100 pb-2">
               <span className="flex items-center gap-1.5">
                 <CheckSquare size={14} className="text-[#0F6659]" />
-                <span>รายการคำตอบข้อตรวจประเมิน</span>
+                <span>รายการตรวจประเมิน</span>
               </span>
             </div>
 
             {groupedSections.map((sec, secIdx) => (
               <div key={sec.id || secIdx} id={sec.id} ref={el => sectionRefs.current[sec.id] = el} className="space-y-3">
                 {/* Header หมวด */}
-                <div className="px-3.5 py-2 rounded-xl bg-slate-100/80 border border-slate-200 flex items-center justify-between">
-                  <h4 className="text-xs font-extrabold text-slate-800 flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[#0F6659]" />
+                <div className="px-3.5 py-2.5 rounded-2xl bg-[#F4F9F6] border border-emerald-100 flex items-center justify-between shadow-2xs">
+                  <h4 className="text-xs sm:text-sm font-extrabold text-[#0F6659] flex items-center gap-2.5">
+                    <span className="w-6 h-6 rounded-full bg-[#0F6659] text-white flex items-center justify-center text-xs font-black shrink-0 shadow-2xs">
+                      {secIdx + 1}
+                    </span>
                     <span>{sec.title}</span>
                   </h4>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-slate-600 border border-slate-200">
-                    {sec.items.length} ข้อ
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white text-[#0F6659] border border-emerald-200/80 shadow-2xs">
+                    {sec.sectionType === "INFO" ? `${sec.items.length} รายการ (ข้อมูลทั่วไป)` : `${sec.items.length} ข้อ`}
                   </span>
                 </div>
 
@@ -1788,11 +1967,25 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                     const itemId = q.surveyItemId;
                     const state = answersState[itemId] || parseResponseAnswer(q);
                     const qText = q.questionText;
-                    const isCrit = q.isCritical;
+                    const qNo = q.questionNo || `${secIdx + 1}.${qIdx + 1}`;
+                    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+                    const isCrit = !isNonScored && q.isCritical;
                     const isScoreChanged = isScoreEdited(itemId);
                     const isEdited = isQuestionEdited(itemId);
                     const isNoteMissing = isScoreChanged && (!state.notes || !state.notes.trim());
                     const shouldShowNote = isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim());
+
+                    // แสดงข้อความคำถาม โดยตัด prefix เลขข้อที่ซ้ำออกเฉพาะกรณีที่มีข้อความคำถามจริงต่อท้าย
+                    const displayQText = (() => {
+                      if (!qText) return "";
+                      const trimmed = qText.trim();
+                      const prefixRegex = new RegExp(`^(?:ข้อ\\s*)?${String(qNo).replace('.', '\\.')}\\s*[:.-]?\\s*`, 'i');
+                      const stripped = trimmed.replace(prefixRegex, '').trim();
+                      if (stripped.length > 0 && /[\u0E00-\u0E7Fa-zA-Z0-9]/.test(stripped)) {
+                        return stripped;
+                      }
+                      return trimmed;
+                    })();
 
                     return (
                       <div 
@@ -1808,14 +2001,18 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                         {/* แถวบน: เลขข้อ / ปุ่มคอมเมนต์ / ปุ่มกล้อง */}
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex items-center gap-2">
-                            <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 font-mono text-xs font-bold border border-slate-200/60 shadow-2xs">
-                              #{q.runningNum || qIdx + 1}
+                            <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-800 font-mono text-xs font-bold border border-slate-200/60 shadow-2xs">
+                              ข้อ {qNo}
                             </span>
-                            {isCrit && (
+                            {isNonScored ? (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
+                                ข้อมูลไม่คิดคะแนน
+                              </span>
+                            ) : isCrit ? (
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-rose-50 text-rose-600 border border-rose-200">
                                 Critical
                               </span>
-                            )}
+                            ) : null}
                           </div>
 
                           <div className="flex items-center gap-1.5">
@@ -1873,7 +2070,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
                         {/* คำถาม */}
                         <div className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed break-words [overflow-wrap:anywhere]">
-                          {qText}
+                          {displayQText}
                         </div>
 
                         {/* แกลเลอรีรูปถ่าย */}
@@ -1923,7 +2120,15 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
                         {/* ตัวเลือกแก้ไขคำตอบ */}
                         <div>
-                          {state.type === "scale" ? (
+                          {isNonScored ? (
+                            <DynamicFieldRenderer
+                              type={q.questionType}
+                              fieldConfig={q.fieldConfig}
+                              value={state.rawAnswer ?? state.answerValue}
+                              onChange={(newVal) => handleSetCustomValue(itemId, newVal)}
+                              auditorOptions={auditorSuggestions}
+                            />
+                          ) : state.type === "scale" ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                               {[5, 4, 3, 2, 1].map((num) => (
                                 <button
