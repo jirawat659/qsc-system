@@ -45,7 +45,7 @@ export const DEFAULT_FORM_METADATA_CONFIG = [
     id: "auditor",
     label: "ผู้ตรวจประเมิน (Auditor)",
     type: "auditor",
-    required: true,
+    required: false,
     enabled: true,
     isSystem: true
   },
@@ -308,7 +308,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       setBrands(contextBrands);
     }
   }, [contextBrands]);
-  const [activeEditorTab, setActiveEditorTab] = useState("metadata"); // 'metadata' | 'checklist'
+  const [activeEditorTab, setActiveEditorTab] = useState("checklist"); // 'checklist' | 'metadata'
   const [metadataConfig, setMetadataConfig] = useState(() => {
     if (form?.metadataConfig && Array.isArray(form.metadataConfig) && form.metadataConfig.length > 0) {
       return form.metadataConfig;

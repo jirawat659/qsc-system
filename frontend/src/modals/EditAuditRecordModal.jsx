@@ -279,16 +279,12 @@ export const matchAuditTypeOption = (raw, options = []) => {
   return fallback || raw || "";
 };
 
-// 👤 Helper ดึงชื่อผู้ตรวจจาก record ที่ครอบคลุมทุก navigation property และ metadata
+// 👤 Helper ดึงชื่อผู้ตรวจจาก record บัญชีผู้ตรวจหลัก (Primary Auditor)
 export const getAuditorNameFromRecord = (rec) => {
   if (!rec) return "";
   return rec.primaryAuditor?.fullName ||
          rec.primaryAuditor?.name ||
          rec.auditorName ||
-         rec.auditor ||
-         rec.metadataValues?.auditor ||
-         rec.metadataValues?.auditor_name ||
-         rec.metadataValues?.auditorName ||
          "";
 };
 
@@ -428,7 +424,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   // Signatures
   const [auditorSignature, setAuditorSignature] = useState(null);
   const [auditeeSignature, setAuditeeSignature] = useState(null);
-  const [auditorNameText, setAuditorNameText] = useState("");
   const [auditeeNameText, setAuditeeNameText] = useState("");
   const [activeSignModal, setActiveSignModal] = useState(null); // 'auditor' | 'auditee' | null
 
@@ -443,6 +438,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
 
   const [sectionDrawerOpen, setSectionDrawerOpen] = useState(false);
   const sectionRefs = useRef({});
+  const initializedRecordIdRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -498,35 +494,77 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     });
   }, [usersList]);
 
-  // Load form metadataConfig if available
-  useEffect(() => {
-    if (currentRecord?.surveyForm?.metadataConfig || currentRecord?.surveyForm?.metadataConfigJson) return;
-    const matched = forms.find(f => f.id === currentRecord?.surveyFormId);
-    if (matched?.metadataConfig || matched?.metadataConfigJson) return;
+  const [fullForm, setFullForm] = useState(null);
+  const [isLoadingFullForm, setIsLoadingFullForm] = useState(false);
 
-    if (currentRecord?.surveyFormId) {
-      api.get(`/form/${currentRecord.surveyFormId}`)
-        .then(res => {
-          if (res.data?.metadataConfig) {
-            setFetchedFormConfig(res.data.metadataConfig);
-          } else if (res.data?.metadataConfigJson) {
-            try {
-              setFetchedFormConfig(JSON.parse(res.data.metadataConfigJson));
-            } catch (e) {}
-          }
-        })
-        .catch(() => {});
+  // 🌟 Load complete form definition (sections, items, metadataConfig) directly from API for this audit
+  useEffect(() => {
+    if (!isOpen) return;
+    const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
+    if (!targetId) return;
+
+    let isMounted = true;
+    setIsLoadingFullForm(true);
+    api.get(`/form/${targetId}`)
+      .then(res => {
+        if (!isMounted || !res.data) return;
+        setFullForm(res.data);
+        if (res.data.metadataConfig && Array.isArray(res.data.metadataConfig) && res.data.metadataConfig.length > 0) {
+          setFetchedFormConfig(res.data.metadataConfig);
+        } else if (res.data.metadataConfigJson) {
+          try {
+            const parsed = JSON.parse(res.data.metadataConfigJson);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setFetchedFormConfig(parsed);
+            } else if (parsed?.metadataJson) {
+              const inner = typeof parsed.metadataJson === "string" ? JSON.parse(parsed.metadataJson) : parsed.metadataJson;
+              if (Array.isArray(inner) && inner.length > 0) setFetchedFormConfig(inner);
+            }
+          } catch (e) {}
+        }
+      })
+      .catch(err => {
+        console.warn("Could not load full form definition for edit modal:", err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingFullForm(false);
+      });
+
+    return () => { isMounted = false; };
+  }, [isOpen, currentRecord?.surveyFormId, currentRecord?.formId]);
+
+  // Match form schema จาก context หรือจาก API ชุดเต็ม
+  const matchedForm = useMemo(() => {
+    const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
+    if (!targetId) return null;
+    return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
+  }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
+
+  // 🌟 effectiveForm: ฟอร์มเต็มที่มี sections ครบถ้วน
+  const effectiveForm = useMemo(() => {
+    if (fullForm && Array.isArray(fullForm.sections) && fullForm.sections.length > 0) {
+      return fullForm;
     }
-  }, [currentRecord?.surveyFormId, currentRecord?.surveyForm, forms]);
+    if (matchedForm && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+      return matchedForm;
+    }
+    return fullForm || matchedForm || null;
+  }, [fullForm, matchedForm]);
 
   const activeMetadataFields = useMemo(() => {
     let fields = null;
-    const direct = currentRecord?.surveyForm?.metadataConfig;
-    if (Array.isArray(direct) && direct.length > 0) fields = direct;
-    else if (currentRecord?.surveyForm?.metadataConfigJson) {
+    const direct = effectiveForm?.metadataConfig || currentRecord?.surveyForm?.metadataConfig;
+    if (Array.isArray(direct) && direct.length > 0) {
+      fields = direct;
+    } else if (effectiveForm?.metadataConfigJson || currentRecord?.surveyForm?.metadataConfigJson) {
       try {
-        const parsed = JSON.parse(currentRecord.surveyForm.metadataConfigJson);
+        const rawJson = effectiveForm?.metadataConfigJson || currentRecord?.surveyForm?.metadataConfigJson;
+        const parsed = JSON.parse(rawJson);
         if (Array.isArray(parsed) && parsed.length > 0) fields = parsed;
+        else if (parsed?.metadataJson) {
+          const inner = typeof parsed.metadataJson === "string" ? JSON.parse(parsed.metadataJson) : parsed.metadataJson;
+          if (Array.isArray(inner) && inner.length > 0) fields = inner;
+        }
       } catch (e) {}
     } else {
       const fromContext = forms.find(f => Number(f.id) === Number(currentRecord?.surveyFormId));
@@ -552,38 +590,30 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
 
     return fields.filter(f => f && f.enabled !== false);
-  }, [currentRecord, forms, fetchedFormConfig]);
+  }, [currentRecord, effectiveForm, forms, fetchedFormConfig]);
 
   const [metadataValues, setMetadataValues] = useState({});
 
-  // Match form schema (เฉพาะ ID ตรงกันเท่านั้น ห้ามใช้ชื่อฟอร์มเทียบข้ามเวอร์ชัน)
-  const matchedForm = useMemo(() => {
-    const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
-    if (!targetId) return null;
-    return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
-  }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
-
-  // 🌟 forms จาก context เป็นแบบ summary (ไม่มี sections) — โหลดเต็มตาม surveyFormId ของรอบตรวจจริง
+  // 🌟 forms จาก context เป็นแบบ summary — ซิงค์เข้า context ผ่าน getFormDetail ด้วย
   useEffect(() => {
     const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
     if (!targetId || !getFormDetail) return;
-    if (matchedForm && Array.isArray(matchedForm.sections)) return; // hydrate แล้ว
+    if (matchedForm && Array.isArray(matchedForm.sections)) return;
     getFormDetail(targetId);
   }, [currentRecord?.surveyFormId, currentRecord?.formId, matchedForm, getFormDetail]);
 
-  // Build checklist questions
+  // Build checklist questions — แสดงครบทุกข้อ 100% ตามโครงสร้างแบบฟอร์ม
   const checklistQuestions = useMemo(() => {
     if (!currentRecord) return [];
 
     const resList = currentRecord.responses || [];
-    const targetFormId = currentRecord?.surveyFormId || currentRecord?.formId;
-    const isExactFormMatched = matchedForm && targetFormId && Number(matchedForm.id) === Number(targetFormId);
+    const hasFormSections = effectiveForm?.sections && Array.isArray(effectiveForm.sections) && effectiveForm.sections.length > 0;
 
-    if (isExactFormMatched && matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
+    if (hasFormSections) {
       const itemsList = [];
       let runningNum = 1;
 
-      matchedForm.sections.forEach((sec, secIdx) => {
+      effectiveForm.sections.forEach((sec, secIdx) => {
         (sec.items || []).forEach((item, itemIdx) => {
           let res = resList.find(r => 
             (r.surveyItemId && Number(r.surveyItemId) === Number(item.id)) ||
@@ -659,21 +689,25 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         originalRes: res
       };
     });
-  }, [currentRecord, matchedForm]);
+  }, [currentRecord, effectiveForm]);
 
   // Group questions by section/category
   const groupedSections = useMemo(() => {
-    if (matchedForm?.sections && Array.isArray(matchedForm.sections) && matchedForm.sections.length > 0) {
-      return matchedForm.sections.map((sec, secIdx) => {
-        const items = checklistQuestions.filter(q => q.sectionTitle === sec.title || q.sectionId === sec.id);
+    if (effectiveForm?.sections && Array.isArray(effectiveForm.sections) && effectiveForm.sections.length > 0) {
+      return effectiveForm.sections.map((sec, secIdx) => {
+        const items = checklistQuestions.filter(q => 
+          (q.sectionId && sec.id && String(q.sectionId) === String(sec.id)) ||
+          q.secIdx === secIdx ||
+          q.sectionTitle === sec.title
+        );
         return {
           id: `sec-cat-${secIdx}`,
           title: sec.title || `หมวดที่ ${secIdx + 1}`,
           description: sec.description || "",
           sectionType: sec.sectionType || (sec.items?.every(i => i.isScored === false) ? "INFO" : "AUDIT"),
-          items: items.length > 0 ? items : []
+          items: items
         };
-      }).filter(s => s.items.length > 0);
+      });
     }
 
     const map = {};
@@ -688,7 +722,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       title: cat,
       items: map[cat]
     }));
-  }, [matchedForm, checklistQuestions]);
+  }, [effectiveForm, checklistQuestions]);
 
   const parseResponseAnswer = (q) => {
     const res = q.originalRes || {};
@@ -703,6 +737,20 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       } else if (Array.isArray(res.imageUrls)) {
         parsedImages = [...res.imageUrls].filter(Boolean);
       }
+
+      let rawAns = res.answerValue ?? res.rawAnswer ?? "";
+      let noteVal = (res.notes || "").toString().trim();
+
+      // แยกคำตอบและหมายเหตุออกจากกัน ถ้าติด legacy [หมายเหตุ]:
+      if (noteVal.includes("\n[หมายเหตุ]: ")) {
+        const parts = noteVal.split("\n[หมายเหตุ]: ");
+        if (!rawAns) rawAns = parts[0].trim();
+        noteVal = (parts[1] || "").trim();
+      } else if (noteVal === String(rawAns).trim() || noteVal.startsWith('{"r_') || (noteVal.startsWith('{') && noteVal.endsWith('}'))) {
+        // ถ้า notes เก็บค่าเดียวกับ rawAns หรือเป็น raw JSON table ให้ถือว่าไม่มีคอมเม้น
+        noteVal = "";
+      }
+
       return {
         surveyItemId: q.surveyItemId,
         isNa: false,
@@ -711,9 +759,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         fullScore: 0,
         type: qType,
         scaleScore: null,
-        rawAnswer: res.rawAnswer || res.answerValue || "",
-        answerValue: res.answerValue || res.rawAnswer || "",
-        notes: res.notes || "",
+        rawAnswer: rawAns,
+        answerValue: rawAns,
+        notes: noteVal,
         imageUrls: parsedImages
       };
     }
@@ -764,6 +812,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       parsedImages = [...res.imageUrls].filter(Boolean);
     }
 
+    let noteVal = (res.notes || "").toString().trim();
+    if (noteVal === res.rawAnswer || noteVal === res.answerValue || noteVal.startsWith('{"r_')) {
+      noteVal = "";
+    }
+
     return {
       surveyItemId: q.surveyItemId,
       isNa,
@@ -772,7 +825,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       fullScore,
       type: qType,
       scaleScore,
-      notes: res.notes || "",
+      notes: noteVal,
       imageUrls: parsedImages
     };
   };
@@ -789,9 +842,16 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const [initialAnswers, setInitialAnswers] = useState(buildInitialState);
   const [expandedNotes, setExpandedNotes] = useState({});
 
-  // Initialize/Sync all state on open
+  // Initialize/Sync state ONCE per modal open (prevents wiping user edits on background API reloads)
   useEffect(() => {
-    if (!isOpen || !currentRecord) return;
+    if (!isOpen) {
+      initializedRecordIdRef.current = null;
+      return;
+    }
+    if (!currentRecord?.id) return;
+    if (initializedRecordIdRef.current === currentRecord.id) return;
+    initializedRecordIdRef.current = currentRecord.id;
+
     const initialMap = {};
     checklistQuestions.forEach(q => {
       initialMap[q.surveyItemId] = parseResponseAnswer(q);
@@ -812,8 +872,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     // Signatures & Names
     setAuditorSignature(currentRecord?.auditorSignatureUrl || null);
     setAuditeeSignature(currentRecord?.auditeeSignatureUrl || null);
-    const resolvedAuditor = getAuditorNameFromRecord(currentRecord);
-    setAuditorNameText(resolvedAuditor);
     setAuditeeNameText(currentRecord?.auditeeUser?.fullName || currentRecord?.auditeeNameText || currentRecord?.auditeeName || "ผู้จัดการสาขา");
 
     // GPS เริ่มตรวจ (Start GPS) & หลังตรวจ (End GPS)
@@ -822,7 +880,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setEndLatitude(currentRecord?.endLatitude !== undefined && currentRecord?.endLatitude !== null ? String(currentRecord.endLatitude) : "");
     setEndLongitude(currentRecord?.endLongitude !== undefined && currentRecord?.endLongitude !== null ? String(currentRecord.endLongitude) : "");
 
-    // Metadata
+    // Metadata: อ่านจากค่าที่เก็บใน JSON จริงตามสเปก (ไม่นำชื่อบัญชีมาเขียนทับ)
     let initialMeta = {};
     if (currentRecord.metadataValues && typeof currentRecord.metadataValues === "object") {
       initialMeta = { ...currentRecord.metadataValues };
@@ -833,13 +891,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       } catch (e) {}
     }
 
-    // 👤 ดึงชื่อผู้ตรวจเก่าใส่ metadata
-    if (resolvedAuditor) {
-      if (!initialMeta.auditor) initialMeta.auditor = resolvedAuditor;
-      if (!initialMeta.auditor_name) initialMeta.auditor_name = resolvedAuditor;
-    }
-
-    // 🏷️ ปรับประเภทการตรวจให้ตรงกับตัวเลือก dropdown ในฟอร์มจริงเสมอ
+    // 🏷️ ปรับประเภทการตรวจให้ตรงกับตัวเลือก dropdown ในฟอร์มจริง
     const auditTypeField = activeMetadataFields.find(f => f.id === "audit_type" || f.id === "auditType");
     const auditTypeOpts = auditTypeField?.options || ["ตามกำหนดการ (Announced)", "นอกกำหนดการ (Spot)", "ตรวจแบบไม่เปิดเผยตัว (Undercover)"];
     const rawAuditType = initialMeta.audit_type || currentRecord.auditType || "announced";
@@ -861,16 +913,41 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setIsUploadingPhoto({});
     setPreviewModalPhoto(null);
     setError(null);
-  }, [isOpen, currentRecord?.id, currentRecord, checklistQuestions, activeMetadataFields]);
+  }, [isOpen, currentRecord?.id]);
 
-  // 🔄 ดึงข้อมูลเดิมจากผลตรวจกลับมาทั้งหมด (Metadata, Auditor, Audit Type, Staff Count, GPS, Times)
+  // 🌟 เมื่อแบบฟอร์มเต็มโหลดเสร็จและ checklistQuestions ขยายตัว ให้ผสานข้อใหม่เข้า answersState โดยไม่ล้างค่าที่ผู้ใช้พิมพ์ไว้
+  useEffect(() => {
+    if (!isOpen || !checklistQuestions || checklistQuestions.length === 0) return;
+    setAnswersState(prev => {
+      let hasChanges = false;
+      const next = { ...prev };
+      checklistQuestions.forEach(q => {
+        if (!next[q.surveyItemId]) {
+          next[q.surveyItemId] = parseResponseAnswer(q);
+          hasChanges = true;
+        }
+      });
+      return hasChanges ? next : prev;
+    });
+    setInitialAnswers(prev => {
+      let hasChanges = false;
+      const next = { ...prev };
+      checklistQuestions.forEach(q => {
+        if (!next[q.surveyItemId]) {
+          next[q.surveyItemId] = parseResponseAnswer(q);
+          hasChanges = true;
+        }
+      });
+      return hasChanges ? next : prev;
+    });
+  }, [isOpen, checklistQuestions]);
+
+  // 🔄 ดึงข้อมูลเดิมจากผลตรวจกลับมาทั้งหมด (Metadata, Audit Type, Staff Count, GPS, Times)
   const handleResetToOriginalMetadata = () => {
     if (!currentRecord) return;
     const rawNotes = currentRecord.notes || "";
     setGeneralNotes(rawNotes.includes("????") ? "" : rawNotes);
 
-    const resolvedAuditor = getAuditorNameFromRecord(currentRecord);
-    setAuditorNameText(resolvedAuditor);
     setAuditeeNameText(currentRecord?.auditeeUser?.fullName || currentRecord?.auditeeNameText || currentRecord?.auditeeName || "ผู้จัดการสาขา");
 
     let meta = {};
@@ -881,11 +958,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         const parsed = JSON.parse(currentRecord.metadataValuesJson);
         if (parsed && typeof parsed === "object") meta = { ...parsed };
       } catch (e) {}
-    }
-
-    if (resolvedAuditor) {
-      meta.auditor = resolvedAuditor;
-      meta.auditor_name = resolvedAuditor;
     }
 
     const auditTypeField = activeMetadataFields.find(f => f.id === "audit_type" || f.id === "auditType");
@@ -1023,9 +1095,6 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     }
     if (fieldId === "general_notes" || fieldId === "notes") {
       setGeneralNotes(val);
-    }
-    if (fieldId === "auditor" || fieldId === "auditor_name" || fieldId === "auditorName") {
-      setAuditorNameText(val);
     }
   };
 
@@ -1297,37 +1366,68 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       const payloadResponses = checklistQuestions.map((q) => {
         const s = answersState[q.surveyItemId] || parseResponseAnswer(q);
         const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+        const rawAns = isNonScored
+          ? (s.rawAnswer || s.answerValue || (typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value ?? "")))
+          : (s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no")));
         return {
           surveyItemId: Number(q.surveyItemId) || q.originalRes?.surveyItemId || 0,
           scoreGiven: isNonScored ? 0 : s.scoreGiven,
           isPassed: isNonScored ? true : s.isPassed,
           isNa: isNonScored ? false : s.isNa,
-          rawAnswer: isNonScored
-            ? (s.rawAnswer || s.answerValue || (typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value ?? "")))
-            : (s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no"))),
-          notes: s.notes || null,
+          rawAnswer: rawAns,
+          answerValue: rawAns,
+          notes: s.notes && s.notes.trim() ? s.notes.trim() : null,
           imageUrls: s.imageUrls || []
         };
       });
 
-      const resolvedAuditor = metadataValues.auditor || metadataValues.auditor_name || auditorNameText || getAuditorNameFromRecord(currentRecord);
+      const finalStaffCount = Number(metadataValues.staff_count !== undefined ? metadataValues.staff_count : staffCount) || 0;
+      const finalAuditType = (() => {
+        const raw = String(metadataValues.audit_type || currentRecord.auditType || "announced").toLowerCase();
+        if (raw.includes("spot") || raw.includes("unannounced") || raw.includes("นอกกำหนดการ") || raw.includes("สุ่มตรวจ")) return "spot";
+        if (raw.includes("undercover") || raw.includes("ปลอมตัว") || raw.includes("ไม่เปิดเผยตัว")) return "undercover";
+        return "announced";
+      })();
+
+      const structuredFields = (activeMetadataFields || []).map((field, idx) => {
+        let val = metadataValues[field.id];
+        if (field.id === "staff_count") {
+          val = finalStaffCount;
+        } else if (field.id === "audit_type") {
+          val = metadataValues.audit_type || (
+            finalAuditType === "spot" ? "นอกกำหนดการ" :
+            finalAuditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ"
+          );
+        } else if (field.id === "auditor" || field.type === "auditor") {
+          val = val !== undefined && val !== null ? val : (metadataValues.auditor || "");
+        }
+        return {
+          order: idx + 1,
+          id: field.id,
+          label: field.label || field.placeholder || field.id,
+          value: val !== undefined && val !== null ? val : "",
+          type: field.type || "text",
+          fieldConfig: field.fieldConfig || (field.options || field.columns || field.rows ? { options: field.options, columns: field.columns, rows: field.rows } : null),
+          unit: field.unit || (field.id === "staff_count" ? "คน" : "")
+        };
+      });
+
       const finalMetadata = {
+        _fields: structuredFields,
         ...metadataValues,
-        ...(resolvedAuditor ? { auditor: resolvedAuditor, auditor_name: resolvedAuditor } : {}),
-        staff_count: Number(metadataValues.staff_count ?? staffCount) || 0
+        staff_count: finalStaffCount,
+        audit_type: metadataValues.audit_type || (
+          finalAuditType === "spot" ? "นอกกำหนดการ" :
+          finalAuditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ"
+        )
       };
 
       const payload = {
         reason: reason.trim(),
         auditeeUserId: currentRecord.auditeeUserId || null,
         auditeeNameText: auditeeNameText.trim() || null,
-        staffCount: Number(finalMetadata.staff_count) || 0,
-        auditType: (() => {
-          const raw = String(metadataValues.audit_type || currentRecord.auditType || "announced").toLowerCase();
-          if (raw.includes("spot") || raw.includes("unannounced") || raw.includes("นอกกำหนดการ") || raw.includes("สุ่มตรวจ")) return "spot";
-          if (raw.includes("undercover") || raw.includes("ปลอมตัว") || raw.includes("ไม่เปิดเผยตัว")) return "undercover";
-          return "announced";
-        })(),
+        staffCount: finalStaffCount,
+        auditType: finalAuditType,
         notes: generalNotes || null,
         startedAt: startedAt ? new Date(startedAt).toISOString() : null,
         submittedAt: submittedAt ? new Date(submittedAt).toISOString() : null,
@@ -1659,7 +1759,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                     } else if (field.id === 'audit_type' || field.id === 'auditType') {
                       val = matchAuditTypeOption(currentRecord?.auditType || "announced", field.options);
                     } else if (field.id === 'auditor' || field.id === 'auditor_name' || field.id === 'auditorName' || field.type === 'auditor') {
-                      val = getAuditorNameFromRecord(currentRecord) || auditorNameText || "";
+                      val = metadataValues[field.id] || metadataValues.auditor || "";
                     } else if (field.id === 'general_notes' || field.id === 'notes') {
                       val = generalNotes || currentRecord?.notes || "";
                     } else {
@@ -1701,9 +1801,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                             list="auditor-suggestions-list"
                             value={val}
                             onChange={(e) => {
-                              const nextVal = e.target.value;
-                              handleMetaValueChange(field.id, nextVal);
-                              setAuditorNameText(nextVal);
+                              handleMetaValueChange(field.id, e.target.value);
                             }}
                             placeholder={field.placeholder || `ระบุ${field.label}`}
                             className="w-full text-xs p-2.5 rounded-xl bg-white border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#0F6659] font-bold text-slate-800 shadow-2xs"
@@ -1885,7 +1983,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                     <PenTool size={13} className="text-[#0F6659]" />
-                    <span>2. ผู้ตรวจประเมิน ({auditorNameText || currentRecord?.primaryAuditor?.fullName || "ผู้ตรวจประเมิน"})</span>
+                    <span>2. ผู้ตรวจประเมิน ({currentRecord?.primaryAuditor?.fullName || currentRecord?.auditorName || "ผู้ตรวจประเมิน"})</span>
                   </span>
                   {auditorSignature && (
                     <button

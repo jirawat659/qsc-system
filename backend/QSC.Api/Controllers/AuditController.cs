@@ -562,6 +562,7 @@ namespace QSC.Api.Controllers
             public double MaxScore { get; set; } // คะแนนเต็มที่ใช้คิดข้อนี้ → AuditResponse.MaxScore
             public bool IsPassed { get; set; }
             public bool IsNa { get; set; }
+            public string? AnswerValue { get; set; }
             public string? Notes { get; set; }
             public List<string> ImageUrls { get; set; } = new();
         }
@@ -613,14 +614,24 @@ namespace QSC.Api.Controllers
                     // 🌟 ข้อที่ไม่คิดคะแนน (Non-scored/Info items):
                     // ไม่นับรวมใน totalScore, ไม่เพิ่ม maxScore, ไม่ถือว่าตก (isPassed = true เสมอ),
                     // ไม่ trigger critical defect, และไม่สร้างใบงาน CAP อัตโนมัติ
-                    string? infoAnswer = respDto.Notes;
-                    if (string.IsNullOrWhiteSpace(infoAnswer))
+                    string? rawAns = respDto.RawAnswer ?? respDto.AnswerValue;
+                    string? userComment = string.IsNullOrWhiteSpace(respDto.Notes) ? null : respDto.Notes.Trim();
+
+                    // แยกคำตอบและหมายเหตุ/คอมเม้นออกจากกันให้เป็นระบบ
+                    if (!string.IsNullOrWhiteSpace(userComment) && userComment.Contains("\n[หมายเหตุ]: "))
                     {
-                        infoAnswer = respDto.RawAnswer ?? respDto.AnswerValue;
+                        var parts = userComment.Split(new[] { "\n[หมายเหตุ]: " }, 2, StringSplitOptions.None);
+                        if (string.IsNullOrWhiteSpace(rawAns)) rawAns = parts[0].Trim();
+                        userComment = string.IsNullOrWhiteSpace(parts[1]) ? null : parts[1].Trim();
                     }
-                    else if (!string.IsNullOrWhiteSpace(respDto.RawAnswer) && respDto.RawAnswer != respDto.Notes && !infoAnswer.Contains(respDto.RawAnswer))
+                    else if (!string.IsNullOrWhiteSpace(userComment) && !string.IsNullOrWhiteSpace(rawAns) && userComment == rawAns)
                     {
-                        infoAnswer = $"{respDto.RawAnswer}\n[หมายเหตุ]: {respDto.Notes}";
+                        userComment = null;
+                    }
+                    else if (string.IsNullOrWhiteSpace(rawAns) && !string.IsNullOrWhiteSpace(userComment))
+                    {
+                        rawAns = userComment;
+                        userComment = null;
                     }
 
                     processedResponses.Add(new ComputedItemResponse
@@ -630,7 +641,8 @@ namespace QSC.Api.Controllers
                         MaxScore = 0.0,
                         IsPassed = true,
                         IsNa = false,
-                        Notes = infoAnswer,
+                        AnswerValue = rawAns,
+                        Notes = userComment,
                         ImageUrls = respDto.ImageUrls ?? new List<string>()
                     });
                     continue;
@@ -716,6 +728,13 @@ namespace QSC.Api.Controllers
                     }
                 }
 
+                string? scoredAnswer = respDto.RawAnswer ?? respDto.AnswerValue ?? (isNa ? "na" : (isPassed ? "yes" : "no"));
+                string? scoredComment = string.IsNullOrWhiteSpace(respDto.Notes) ? null : respDto.Notes.Trim();
+                if (!string.IsNullOrWhiteSpace(scoredComment) && scoredComment == scoredAnswer)
+                {
+                    scoredComment = null;
+                }
+
                 processedResponses.Add(new ComputedItemResponse
                 {
                     SurveyItemId = respDto.SurveyItemId,
@@ -725,7 +744,8 @@ namespace QSC.Api.Controllers
                     MaxScore = fullScore,
                     IsPassed = isPassed,
                     IsNa = isNa,
-                    Notes = respDto.Notes,
+                    AnswerValue = scoredAnswer,
+                    Notes = scoredComment,
                     ImageUrls = respDto.ImageUrls ?? new List<string>()
                 });
             }
@@ -944,6 +964,7 @@ namespace QSC.Api.Controllers
                         MaxScore = computedResp.MaxScore,
                         IsPassed = computedResp.IsPassed,
                         IsNa = computedResp.IsNa,
+                        AnswerValue = computedResp.AnswerValue,
                         Notes = computedResp.Notes,
                         CategoryName = catName,
                         CategoryCode = item?.CategoryCode
@@ -1298,6 +1319,8 @@ namespace QSC.Api.Controllers
                             isPassed = res.IsPassed,
                             isNa = res.IsNa,
                             isCritical = res.SurveyItem?.IsCritical ?? false,
+                            answerValue = res.AnswerValue,
+                            rawAnswer = res.AnswerValue,
                             notes = res.Notes
                         }).ToList()
                     : null
@@ -1421,6 +1444,8 @@ namespace QSC.Api.Controllers
                         scoreGiven = res.ScoreGiven,
                         isPassed = res.IsPassed,
                         isNa = res.IsNa,
+                        answerValue = res.AnswerValue,
+                        rawAnswer = res.AnswerValue,
                         notes = res.Notes,
                         categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
                         // หมวด ณ วันตรวจของคำตอบ — frontend (getQuestionCategory) อ่าน categoryCode ก่อน
@@ -1558,6 +1583,7 @@ namespace QSC.Api.Controllers
                     r.IsPassed,
                     r.ScoreGiven,
                     r.IsNa,
+                    AnswerValue = r.AnswerValue ?? "",
                     Notes = r.Notes ?? "",
                     ImageUrls = r.Images.Select(img => img.ImageUrl).ToList()
                 };
@@ -1569,13 +1595,16 @@ namespace QSC.Api.Controllers
             {
                 var prev = previousResponsesList.FirstOrDefault(p => p.SurveyItemId == computedResp.SurveyItemId);
                 var currentNotes = computedResp.Notes ?? "";
+                var currentAnswer = computedResp.AnswerValue ?? "";
+                var prevAnswer = prev?.AnswerValue ?? "";
                 var currentImages = computedResp.ImageUrls ?? new List<string>();
 
                 bool isScoreDiff = prev == null || prev.IsPassed != computedResp.IsPassed || prev.ScoreGiven != computedResp.ScoreGiven || prev.IsNa != computedResp.IsNa;
                 bool isNoteDiff = prev == null ? !string.IsNullOrWhiteSpace(currentNotes) : prev.Notes.Trim() != currentNotes.Trim();
+                bool isAnswerDiff = prev == null ? !string.IsNullOrWhiteSpace(currentAnswer) : prevAnswer.Trim() != currentAnswer.Trim();
                 bool isImageDiff = prev == null ? currentImages.Any() : (prev.ImageUrls.Count != currentImages.Count || prev.ImageUrls.Except(currentImages).Any());
 
-                if (isScoreDiff || isNoteDiff || isImageDiff)
+                if (isScoreDiff || isNoteDiff || isImageDiff || isAnswerDiff)
                 {
                     allItems.TryGetValue(computedResp.SurveyItemId, out var itemMeta);
                     changedItems.Add(new
@@ -1588,6 +1617,7 @@ namespace QSC.Api.Controllers
                             isPassed = prev.IsPassed,
                             scoreGiven = prev.ScoreGiven,
                             isNa = prev.IsNa,
+                            answerValue = prev.AnswerValue,
                             notes = prev.Notes,
                             imageUrls = prev.ImageUrls
                         } : null,
@@ -1596,6 +1626,7 @@ namespace QSC.Api.Controllers
                             isPassed = computedResp.IsPassed,
                             scoreGiven = computedResp.ScoreGiven,
                             isNa = computedResp.IsNa,
+                            answerValue = currentAnswer,
                             notes = currentNotes,
                             imageUrls = currentImages
                         }
@@ -1613,6 +1644,7 @@ namespace QSC.Api.Controllers
                 hasCriticalDefect = record.HasCriticalDefect,
                 auditType = record.AuditType,
                 notes = record.Notes,
+                metadataValuesJson = record.MetadataValuesJson,
                 startedAt = record.StartedAt,
                 submittedAt = record.SubmittedAt,
                 startLatitude = record.StartLatitude,
@@ -1630,6 +1662,7 @@ namespace QSC.Api.Controllers
                 hasCriticalDefect,
                 auditType = dto.AuditType,
                 notes = dto.Notes,
+                metadataValuesJson = dto.MetadataValuesJson ?? record.MetadataValuesJson,
                 startedAt = dto.StartedAt,
                 submittedAt = dto.SubmittedAt,
                 startLatitude = dto.StartLatitude,
@@ -1654,7 +1687,7 @@ namespace QSC.Api.Controllers
                 if (dto.AuditeeNameText != null) record.AuditeeNameText = dto.AuditeeNameText;
                 record.AuditType = NormalizeAuditType(dto.AuditType);
                 record.Notes = dto.Notes;
-                record.MetadataValuesJson = dto.MetadataValuesJson;
+                if (dto.MetadataValuesJson != null) record.MetadataValuesJson = dto.MetadataValuesJson;
 
                 // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
                 if (dto.StartedAt.HasValue)
@@ -1770,6 +1803,7 @@ namespace QSC.Api.Controllers
                         response.MaxScore = computedResp.MaxScore;
                         response.IsPassed = computedResp.IsPassed;
                         response.IsNa = computedResp.IsNa;
+                        response.AnswerValue = computedResp.AnswerValue;
                         response.Notes = computedResp.Notes;
                         // เก็บหมวด ณ วันตรวจของคำตอบเดิมไว้ ไม่เขียนทับจากตัวคำถาม — งานประวัติ ระบบเดิม
                         // เคยย้ายข้อเดิมไปหมวดอื่นตามยุค หมวดของ SurveyItem จึงถูกแค่ยุคล่าสุด
@@ -1823,6 +1857,7 @@ namespace QSC.Api.Controllers
                             MaxScore = computedResp.MaxScore,
                             IsPassed = computedResp.IsPassed,
                             IsNa = computedResp.IsNa,
+                            AnswerValue = computedResp.AnswerValue,
                             Notes = computedResp.Notes,
                             CategoryName = catName,
                             CategoryCode = itemMeta?.CategoryCode
