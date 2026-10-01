@@ -6,6 +6,7 @@ import { c, mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import ModalWrapper from "../shared/ModalWrapper";
 import api from "../config/api";
+import { parseServerDate } from "../utils/formatters";
 
 const THAI_MONTHS_FULL = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -30,16 +31,16 @@ const BRAND_ABBR_MAP = {
 
 function formatThaiDateShort(dateStr) {
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return "-";
+  const d = parseServerDate(dateStr);
+  if (!d || isNaN(d.getTime())) return "-";
   return `${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${(d.getFullYear() + 543) % 100}`;
 }
 
 function extractTime(dateStr, timeStr) {
   if (timeStr) return timeStr;
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+  const d = parseServerDate(dateStr);
+  return !d || isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
 function getCategoryScores(record) {

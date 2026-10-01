@@ -5,6 +5,7 @@ using QSC.Api.Data;
 using QSC.Api.Models;
 
 using QSC.Api.Helpers;
+using System.Text.Json.Serialization;
 
 namespace QSC.Api.Controllers
 {
@@ -24,6 +25,7 @@ namespace QSC.Api.Controllers
         {
             public int LocationId { get; set; }
             public int SurveyFormId { get; set; }
+            [JsonConverter(typeof(LocalDateTimeConverter))]
             public DateTime ScheduledDate { get; set; }
             public string? Time { get; set; }
             public string AuditType { get; set; } = "announced";
@@ -137,7 +139,7 @@ namespace QSC.Api.Controllers
 
             var schedules = await query.ToListAsync();
 
-            // 🛡️ Auto-heal: Ensure schedules that have an actual AuditRecord linked (via AuditScheduleId) are marked as completed
+            // 🛡️ Ensure schedules that have an actual AuditRecord linked (via AuditScheduleId) reflect as completed
             var scheduleIds = schedules.Select(s => s.Id).ToList();
             var auditedScheduleIds = await _context.AuditRecords
                 .Where(r => r.AuditScheduleId.HasValue && scheduleIds.Contains(r.AuditScheduleId.Value))
@@ -145,34 +147,7 @@ namespace QSC.Api.Controllers
                 .Distinct()
                 .ToListAsync();
 
-            var uncompletedAuditedSchedules = schedules
-                .Where(s => s.Status != "completed" && auditedScheduleIds.Contains(s.Id))
-                .ToList();
-
-            if (uncompletedAuditedSchedules.Any())
-            {
-                var healedScheduleIds = uncompletedAuditedSchedules.Select(s => s.Id).ToList();
-                foreach (var s in uncompletedAuditedSchedules)
-                {
-                    s.Status = "completed";
-                }
-
-                try
-                {
-                    var dbSchedules = await _context.AuditSchedules
-                        .Where(s => healedScheduleIds.Contains(s.Id) && s.Status != "completed")
-                        .ToListAsync();
-                    foreach (var dbs in dbSchedules)
-                    {
-                        dbs.Status = "completed";
-                    }
-                    await _context.SaveChangesAsync();
-                }
-                catch
-                {
-                    // Ignore background sync exceptions
-                }
-            }
+            var auditedSet = auditedScheduleIds.ToHashSet();
 
             var result = schedules.Select(s => new
             {
@@ -184,10 +159,10 @@ namespace QSC.Api.Controllers
                 region = s.Location?.Region,
                 surveyFormId = s.SurveyFormId,
                 surveyFormTitle = s.SurveyForm?.Title,
-                scheduledDate = s.ScheduledDate,
+                scheduledDate = s.ScheduledDate.ToString("yyyy-MM-ddTHH:mm:ss"),
                 time = s.Time,
                 auditType = s.AuditType,
-                status = s.Status,
+                status = auditedSet.Contains(s.Id) ? "completed" : s.Status,
                 notes = s.Notes,
                 createdBy = s.CreatedBy,
                 createdAt = s.CreatedAt,

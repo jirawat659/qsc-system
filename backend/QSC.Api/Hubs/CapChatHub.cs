@@ -33,6 +33,37 @@ namespace QSC.Api.Hubs
             return UploadHelper.SaveBase64IfPresentAsync(_env, input, subfolder, prefix, maxSizeBytes);
         }
 
+        public override async Task OnConnectedAsync()
+        {
+            try
+            {
+                var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(Context.User ?? new ClaimsPrincipal(), _context);
+                var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(Context.User ?? new ClaimsPrincipal(), _context);
+
+                if (allowedLocationIds == null && allowedBrandIds == null)
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, "audit_all");
+                }
+                else
+                {
+                    var q = _context.Locations.AsNoTracking().Where(l => l.IsActive);
+                    if (allowedLocationIds != null) q = q.Where(l => allowedLocationIds.Contains(l.Id));
+                    if (allowedBrandIds != null) q = q.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+
+                    var locIds = await q.Select(l => l.Id).ToListAsync();
+                    foreach (var id in locIds)
+                    {
+                        await Groups.AddToGroupAsync(Context.ConnectionId, $"loc_{id}");
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback gracefully
+            }
+            await base.OnConnectedAsync();
+        }
+
         public async Task JoinCapRoom(int capTaskId)
         {
             if (capTaskId <= 0) return;

@@ -243,8 +243,9 @@ namespace QSC.Api.Services
             DateTime startUtc, endUtc;
             if (targetMonth.HasValue)
             {
-                startUtc = new DateTime(targetMonth.Value.Year, targetMonth.Value.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-                endUtc = startUtc.AddMonths(1).AddTicks(-1);
+                var startBkk = new DateTime(targetMonth.Value.Year, targetMonth.Value.Month, 1, 0, 0, 0, DateTimeKind.Unspecified);
+                startUtc = TimezoneHelper.ToUtcFromBangkok(startBkk);
+                endUtc = TimezoneHelper.ToUtcFromBangkok(startBkk.AddMonths(1)).AddTicks(-1);
             }
             else
             {

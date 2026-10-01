@@ -148,6 +148,8 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+        options.JsonSerializerOptions.Converters.Add(new QSC.Api.Helpers.UtcDateTimeConverter());
+        options.JsonSerializerOptions.Converters.Add(new QSC.Api.Helpers.UtcNullableDateTimeConverter());
     });
 
 builder.Services.AddOpenApi();

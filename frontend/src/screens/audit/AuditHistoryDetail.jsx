@@ -8,6 +8,7 @@ import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAN
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
+import { formatThaiDate, formatThaiTime, parseServerDate } from "../../utils/formatters";
 import api, { getFullImageUrl } from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
@@ -610,10 +611,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const score = typeof currentRecord.percentageScore === "number" 
     ? currentRecord.percentageScore 
     : (typeof currentRecord.score === "number" ? currentRecord.score : 0);
-  const passingScore = currentRecord.passingScore || currentRecord.surveyForm?.passingScore || 85;
-  const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
-  const actualInspectDateStr = currentRecord.startedAt ? new Date(currentRecord.startedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : dateStr;
-  const createdDateStr = currentRecord.createdAt ? new Date(currentRecord.createdAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+  const passingScore = currentRecord.surveyForm?.passingScore ?? currentRecord.passingScore ?? 85;
+  const dateStr = currentRecord.date || (currentRecord.auditDate ? formatThaiDate(currentRecord.auditDate) : "-");
+  const actualInspectDateStr = currentRecord.startedAt ? formatThaiDate(currentRecord.startedAt) : dateStr;
+  const createdDateStr = currentRecord.createdAt ? (formatThaiDate(currentRecord.createdAt) + ' ' + formatThaiTime(currentRecord.createdAt)) : null;
   const auditorName = currentRecord.auditor || currentRecord.auditorName || currentRecord.primaryAuditor?.fullName || "-";
   const formTitle = currentRecord.form || currentRecord.formName || currentRecord.surveyFormTitle || currentRecord.surveyForm?.title || "-";
   const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= passingScore && !currentRecord.hasCriticalDefect);
@@ -2086,7 +2087,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             {isCategoryScoresExpanded && (
               <div className="rounded-2xl overflow-hidden shadow-2xs animate-in fade-in duration-200" style={cardStyle}>
                 {categoryScores.map((s, i) => {
-                  const isPassing = s.percent >= (currentRecord?.passingScore || 85);
+                  const isPassing = s.percent >= passingScore;
                   return (
                     <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
                       <div className="flex items-center justify-between mb-1.5">

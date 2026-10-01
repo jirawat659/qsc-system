@@ -116,17 +116,22 @@ namespace QSC.Api.Controllers
             var allDrafts = await query.OrderByDescending(d => d.UpdatedAt).ToListAsync();
 
             // 🛡️ Auto-clean and exclude drafts whose schedule is already completed or audited
-            var completedOrAuditedScheduleIds = await _context.AuditSchedules
-                .Where(s => s.Status == "completed")
-                .Select(s => s.Id)
-                .ToListAsync();
+            var schedIds = allDrafts.Where(d => d.AuditScheduleId.HasValue).Select(d => d.AuditScheduleId!.Value).Distinct().ToList();
+            HashSet<int> excludeScheduleIds = new();
+            if (schedIds.Any())
+            {
+                var completedScheduleIds = await _context.AuditSchedules
+                    .Where(s => schedIds.Contains(s.Id) && s.Status == "completed")
+                    .Select(s => s.Id)
+                    .ToListAsync();
 
-            var auditRecordScheduleIds = await _context.AuditRecords
-                .Where(r => r.AuditScheduleId.HasValue)
-                .Select(r => r.AuditScheduleId!.Value)
-                .ToListAsync();
+                var auditRecordScheduleIds = await _context.AuditRecords
+                    .Where(r => r.AuditScheduleId.HasValue && schedIds.Contains(r.AuditScheduleId.Value))
+                    .Select(r => r.AuditScheduleId!.Value)
+                    .ToListAsync();
 
-            var excludeScheduleIds = completedOrAuditedScheduleIds.Union(auditRecordScheduleIds).ToHashSet();
+                excludeScheduleIds = completedScheduleIds.Union(auditRecordScheduleIds).ToHashSet();
+            }
 
             var staleDrafts = allDrafts.Where(d => d.AuditScheduleId.HasValue && excludeScheduleIds.Contains(d.AuditScheduleId.Value)).ToList();
             if (staleDrafts.Any())
@@ -277,18 +282,20 @@ namespace QSC.Api.Controllers
                 }
 
                 const int maxRetries = 3;
+                bool saved = false;
                 for (int attempt = 1; attempt <= maxRetries; attempt++)
                 {
                     try
                     {
                         await _context.SaveChangesAsync();
+                        saved = true;
                         break;
                     }
                     catch (DbUpdateConcurrencyException ex)
                     {
                         if (attempt >= maxRetries)
                         {
-                            _logger.LogWarning(ex, "Concurrency conflict saving draft {DraftId} after {Retries} retries - latest state preserved in DB", draft?.Id, maxRetries);
+                            _logger.LogWarning(ex, "Concurrency conflict saving draft {DraftId} after {Retries} retries", draft?.Id, maxRetries);
                             break;
                         }
 
@@ -305,16 +312,17 @@ namespace QSC.Api.Controllers
                     }
                 }
 
+                if (!saved)
+                {
+                    return Conflict(new { message = "บันทึกแบบร่างไม่สำเร็จเนื่องจากมีการแก้ไขพร้อมกัน กรุณาลองใหม่อีกครั้ง" });
+                }
+
                 return Ok(draft);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error saving audit draft: {Message} Inner: {Inner}", ex.Message, ex.InnerException?.Message);
-                return StatusCode(500, new { 
-                    message = "เกิดข้อผิดพลาดในการบันทึกแบบร่าง กรุณาลองใหม่อีกครั้ง",
-                    error = ex.Message,
-                    details = ex.InnerException?.Message
-                });
+                _logger.LogError(ex, "Error saving audit draft");
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการบันทึกแบบร่าง กรุณาลองใหม่อีกครั้ง" });
             }
         }
 
@@ -402,17 +410,6 @@ namespace QSC.Api.Controllers
                 if (directSchedule != null && directSchedule.Status == "in_progress")
                 {
                     directSchedule.Status = "pending";
-                }
-            }
-            else if (locationId.HasValue && locationId.Value > 0)
-            {
-                var locSchedule = await _context.AuditSchedules
-                    .Where(s => s.LocationId == locationId.Value && s.Status == "in_progress")
-                    .OrderByDescending(s => s.ScheduledDate)
-                    .FirstOrDefaultAsync();
-                if (locSchedule != null)
-                {
-                    locSchedule.Status = "pending";
                 }
             }
 
@@ -577,6 +574,16 @@ namespace QSC.Api.Controllers
             return input.Trim().Length > 20 ? input.Trim().Substring(0, 20) : input.Trim();
         }
 
+        private const int MaxLiveAuditAgeDays = 3;
+
+        private static readonly HashSet<string> NonScoredTypes = new(StringComparer.OrdinalIgnoreCase)
+        { "GRID", "NUMBER", "SELECT", "RADIO", "CHECKBOX", "DATE", "TIME", "AUDITOR", "TEXT" };
+
+        private static bool IsScoredItem(SurveyItem item, double fullScore) =>
+            fullScore > 0
+            && !string.Equals(item.CategoryCode, "INFO", StringComparison.OrdinalIgnoreCase)
+            && !NonScoredTypes.Contains((item.QuestionType ?? "YESNO").Trim());
+
         // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
         //
         // maxScoreByItem: คะแนนเต็มของข้อที่บันทึกไว้แล้ว (AuditResponse.MaxScore) ใช้ตอนแก้ไขงานเดิม
@@ -585,9 +592,34 @@ namespace QSC.Api.Controllers
         // คะแนนรวม/ผ่าน-ไม่ผ่าน ก็เพี้ยนทันที ข้อที่ไม่มีใน dictionary (งานใหม่ หรือข้อที่เพิ่งเพิ่ม)
         // ใช้ SurveyItem.FullScore ตามเดิม
         private (double TotalScore, double MaxScore, bool HasCriticalDefect, List<ComputedItemResponse> Responses, Dictionary<int, SurveyItem> AllItems) ComputeScoring(
-            SurveyForm form, List<ResponseSubmitDto> responses, IReadOnlyDictionary<int, double>? maxScoreByItem = null)
+            SurveyForm form, List<ResponseSubmitDto> responses, IReadOnlyDictionary<int, double>? maxScoreByItem = null, bool requireComplete = false)
         {
             var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
+
+            var seen = new HashSet<int>();
+            foreach (var r in responses)
+            {
+                if (!allItems.ContainsKey(r.SurveyItemId))
+                    throw new ArgumentException($"พบข้อคำถามที่ไม่อยู่ในแบบฟอร์มนี้ (id {r.SurveyItemId})");
+                if (!seen.Add(r.SurveyItemId))
+                    throw new ArgumentException($"พบคำตอบซ้ำของข้อคำถาม (id {r.SurveyItemId})");
+            }
+
+            if (requireComplete)
+            {
+                var activeScoredItems = form.Sections
+                    .Where(s => s.IsActive)
+                    .SelectMany(s => s.Items)
+                    .Where(i => i.IsActive && IsScoredItem(i, i.FullScore) && !seen.Contains(i.Id))
+                    .Select(i => i.QuestionText)
+                    .Take(5)
+                    .ToList();
+
+                if (activeScoredItems.Count > 0)
+                {
+                    throw new ArgumentException("ยังไม่มีคำตอบของข้อ: " + string.Join(", ", activeScoredItems));
+                }
+            }
 
             double totalScore = 0.0;
             double maxScore = 0.0;
@@ -602,12 +634,7 @@ namespace QSC.Api.Controllers
                     ? savedMax
                     : item.FullScore;
 
-                string qType = (item.QuestionType ?? "YESNO").Trim().ToUpper();
-                bool isNonScored = fullScore == 0 ||
-                    qType == "GRID" || qType == "NUMBER" || qType == "SELECT" ||
-                    qType == "RADIO" || qType == "CHECKBOX" || qType == "DATE" ||
-                    qType == "TIME" || qType == "AUDITOR" || qType == "TEXT" ||
-                    item.CategoryCode == "INFO";
+                bool isNonScored = !IsScoredItem(item, fullScore);
 
                 if (isNonScored)
                 {
@@ -780,7 +807,7 @@ namespace QSC.Api.Controllers
             (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
             try
             {
-                scoredResult = ComputeScoring(form, dto.Responses);
+                scoredResult = ComputeScoring(form, dto.Responses, null, requireComplete: true);
             }
             catch (ArgumentException argEx)
             {
@@ -858,11 +885,38 @@ namespace QSC.Api.Controllers
             // 🛡️ Check if this schedule has already been audited
             if (validScheduleId.HasValue)
             {
-                if (await _context.AuditRecords.AnyAsync(r => r.AuditScheduleId == validScheduleId.Value))
+                var existingRecordId = await _context.AuditRecords
+                    .Where(r => r.AuditScheduleId == validScheduleId.Value)
+                    .Select(r => (int?)r.Id)
+                    .FirstOrDefaultAsync();
+
+                if (existingRecordId.HasValue)
                 {
-                    // If schedule was already audited, unlink to prevent constraint failure while allowing audit submission to succeed
-                    validScheduleId = null;
+                    return Conflict(new { message = "ตารางงานนี้ถูกบันทึกผลตรวจไปแล้ว", auditRecordId = existingRecordId.Value });
                 }
+            }
+
+            // 🛡️ Date Validation & Normalization
+            var nowUtc = DateTime.UtcNow;
+            static DateTime ToUtc(DateTime d) =>
+                d.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : d.ToUniversalTime();
+
+            var startedAtUtc = ToUtc(dto.StartedAt ?? dto.AuditDate ?? nowUtc);
+            var submittedAtUtc = ToUtc(dto.SubmittedAt ?? nowUtc);
+
+            if (startedAtUtc > nowUtc.AddMinutes(10))
+                return BadRequest(new { message = "วันที่/เวลาที่เริ่มตรวจต้องไม่อยู่ในอนาคต" });
+            if (!dto.IsBackdated && startedAtUtc < nowUtc.AddDays(-MaxLiveAuditAgeDays))
+                return BadRequest(new { message = "วันที่ตรวจย้อนหลังเกินกำหนด กรุณาใช้โหมดบันทึกย้อนหลัง" });
+            if (submittedAtUtc > nowUtc.AddMinutes(10)) submittedAtUtc = nowUtc;
+            if (submittedAtUtc < startedAtUtc) submittedAtUtc = startedAtUtc;
+
+            // 🛡️ Prevent duplicate audit submission for same location, form, auditor, and start time
+            if (await _context.AuditRecords.AnyAsync(r =>
+                    r.LocationId == dto.LocationId && r.SurveyFormId == dto.SurveyFormId &&
+                    r.PrimaryAuditorId == primaryAuditorId && r.StartedAt == startedAtUtc))
+            {
+                return Conflict(new { message = "รายการนี้ถูกบันทึกไปแล้ว" });
             }
 
             // 🛡️ Ensure valid LocationId (สิทธิ์ถูกตรวจแล้วด้านบน ห้าม fallback ไปสถานที่อื่น)
@@ -914,10 +968,7 @@ namespace QSC.Api.Controllers
                 var auditeeSigUrl = await UploadHelper.SaveSignaturePhotoAsync(
                     _env, _config, dto.AuditeeSignatureUrl, validScheduleId, location.Code, "auditee", 2 * 1024 * 1024);
 
-                // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ
-                var effectiveStartedAt = dto.StartedAt ?? dto.AuditDate ?? DateTime.UtcNow;
-                var effectiveSubmittedAt = dto.SubmittedAt ?? DateTime.UtcNow;
-
+                // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ (UTC)
                 // Create AuditRecord
                 var record = new AuditRecord
                 {
@@ -927,7 +978,7 @@ namespace QSC.Api.Controllers
                     AuditeeUserId = validAuditeeUserId,
                     AuditeeNameText = dto.AuditeeNameText,
                     AuditScheduleId = validScheduleId,
-                    AuditDate = effectiveStartedAt,
+                    AuditDate = startedAtUtc,
                     TotalScore = totalScore,
                     MaxScore = maxScore,
                     PercentageScore = percentageScore,
@@ -938,14 +989,14 @@ namespace QSC.Api.Controllers
                     MetadataValuesJson = dto.MetadataValuesJson,
                     AuditorSignatureUrl = string.IsNullOrWhiteSpace(auditorSigUrl) ? null : auditorSigUrl,
                     AuditeeSignatureUrl = string.IsNullOrWhiteSpace(auditeeSigUrl) ? null : auditeeSigUrl,
-                    SignedAt = dto.SignedAt ?? DateTime.UtcNow,
+                    SignedAt = dto.SignedAt.HasValue ? ToUtc(dto.SignedAt.Value) : nowUtc,
                     StartLatitude = dto.StartLatitude,
                     StartLongitude = dto.StartLongitude,
                     EndLatitude = dto.EndLatitude,
                     EndLongitude = dto.EndLongitude,
                     IsBackdated = dto.IsBackdated,
-                    StartedAt = effectiveStartedAt,
-                    SubmittedAt = effectiveSubmittedAt
+                    StartedAt = startedAtUtc,
+                    SubmittedAt = submittedAtUtc
                 };
 
                 // Save Responses & Images + Auto-create CAP Tasks for failed items
@@ -1031,7 +1082,7 @@ namespace QSC.Api.Controllers
                     }
                 }
 
-                // Delete ALL matching Draft(s) comprehensively to prevent lingering drafts
+                // Delete matching Draft(s) narrowly
                 var draftsToDelete = new List<AuditDraft>();
 
                 if (dto.DraftId.HasValue && dto.DraftId.Value > 0)
@@ -1047,13 +1098,16 @@ namespace QSC.Api.Controllers
                         .ToListAsync();
                     draftsToDelete.AddRange(schedDrafts);
                 }
-
-                var relatedDrafts = await _context.AuditDrafts
-                    .Where(d => d.LocationId == dto.LocationId &&
-                                d.SurveyFormId == dto.SurveyFormId &&
-                                (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
-                    .ToListAsync();
-                draftsToDelete.AddRange(relatedDrafts);
+                else
+                {
+                    var relatedDrafts = await _context.AuditDrafts
+                        .Where(d => d.AuditScheduleId == null &&
+                                    d.LocationId == dto.LocationId &&
+                                    d.SurveyFormId == dto.SurveyFormId &&
+                                    (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
+                        .ToListAsync();
+                    draftsToDelete.AddRange(relatedDrafts);
+                }
 
                 var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
                 if (uniqueDrafts.Any())
@@ -1070,7 +1124,7 @@ namespace QSC.Api.Controllers
                 // 📡 Broadcast real-time event to clients: new audit completed!
                 try
                 {
-                    await _hubContext.Clients.All.SendAsync("AuditCreated", new
+                    await _hubContext.Clients.Groups("audit_all", $"loc_{record.LocationId}").SendAsync("AuditCreated", new
                     {
                         auditRecordId = record.Id,
                         locationId = record.LocationId,
@@ -1095,6 +1149,11 @@ namespace QSC.Api.Controllers
                     capTasksCreated = capTasksToCreate.Count,
                     message = "บันทึกและคำนวณผลการตรวจสำเร็จเรียบร้อยแล้ว"
                 });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await transaction.RollbackAsync();
+                return Conflict(new { message = "ข้อมูลถูกแก้ไขโดยผู้อื่นไปแล้ว กรุณาโหลดใหม่แล้วทำรายการอีกครั้ง" });
             }
             catch (InvalidImageUploadException ex)
             {
@@ -1402,6 +1461,7 @@ namespace QSC.Api.Controllers
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
+                passingScore = r.SurveyForm?.PassingScore,
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
@@ -1558,10 +1618,29 @@ namespace QSC.Api.Controllers
                 .Where(r => r.MaxScore.HasValue)
                 .GroupBy(r => r.SurveyItemId)
                 .ToDictionary(g => g.Key, g => g.First().MaxScore!.Value);
+
+            var submittedIds = dto.Responses.Select(r => r.SurveyItemId).ToHashSet();
+            var mergedResponses = dto.Responses.ToList();
+            foreach (var ex in record.Responses.Where(r => !submittedIds.Contains(r.SurveyItemId)))
+            {
+                var raw = ex.AnswerValue ?? (ex.IsNa ? "na" : (ex.IsPassed ? "yes" : (ex.ScoreGiven > 0 ? ex.ScoreGiven.ToString() : "no")));
+                mergedResponses.Add(new ResponseSubmitDto
+                {
+                    SurveyItemId = ex.SurveyItemId,
+                    RawAnswer = raw,
+                    AnswerValue = raw,
+                    IsNa = ex.IsNa,
+                    IsPassed = ex.IsPassed,
+                    ScoreGiven = ex.ScoreGiven,
+                    Notes = ex.Notes,
+                    ImageUrls = ex.Images.Select(i => i.ImageUrl).ToList()
+                });
+            }
+
             (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
             try
             {
-                scoredResult = ComputeScoring(form, dto.Responses, savedMaxByItem);
+                scoredResult = ComputeScoring(form, mergedResponses, savedMaxByItem);
             }
             catch (ArgumentException argEx)
             {
@@ -1661,10 +1740,10 @@ namespace QSC.Api.Controllers
                 isPassed = isOverallPassed,
                 hasCriticalDefect,
                 auditType = dto.AuditType,
-                notes = dto.Notes,
+                notes = dto.Notes ?? record.Notes,
                 metadataValuesJson = dto.MetadataValuesJson ?? record.MetadataValuesJson,
-                startedAt = dto.StartedAt,
-                submittedAt = dto.SubmittedAt,
+                startedAt = dto.StartedAt ?? record.StartedAt,
+                submittedAt = dto.SubmittedAt ?? record.SubmittedAt,
                 startLatitude = dto.StartLatitude,
                 startLongitude = dto.StartLongitude,
                 endLatitude = dto.EndLatitude,
@@ -1686,7 +1765,7 @@ namespace QSC.Api.Controllers
                 record.AuditeeUserId = validAuditeeUserId;
                 if (dto.AuditeeNameText != null) record.AuditeeNameText = dto.AuditeeNameText;
                 record.AuditType = NormalizeAuditType(dto.AuditType);
-                record.Notes = dto.Notes;
+                if (dto.Notes != null) record.Notes = dto.Notes;
                 if (dto.MetadataValuesJson != null) record.MetadataValuesJson = dto.MetadataValuesJson;
 
                 // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
@@ -1695,8 +1774,11 @@ namespace QSC.Api.Controllers
                     record.StartedAt = dto.StartedAt.Value;
                     record.AuditDate = dto.StartedAt.Value;
                 }
+                else if (dto.AuditDate.HasValue)
+                {
+                    record.AuditDate = dto.AuditDate.Value;
+                }
                 if (dto.SubmittedAt.HasValue) record.SubmittedAt = dto.SubmittedAt.Value;
-                if (dto.AuditDate.HasValue) record.AuditDate = dto.AuditDate.Value;
 
                 // ลายเซ็น (จำกัดขนาดไม่เกิน 2MB)
                 if (!string.IsNullOrWhiteSpace(dto.AuditorSignatureUrl))
@@ -1963,8 +2045,8 @@ namespace QSC.Api.Controllers
                     }
                 }
 
-                // 🧹 5. ลบ AuditResponse ที่ไม่มีในแบบฟอร์มแล้ว (ถ้ามี)
-                var orphanedResponses = record.Responses.Where(r => !processedItemIds.Contains(r.SurveyItemId)).ToList();
+                // 🧹 5. ลบ AuditResponse ที่ไม่มีในแบบฟอร์มแล้วจริงๆ (ถ้ามี)
+                var orphanedResponses = record.Responses.Where(r => !allItems.ContainsKey(r.SurveyItemId)).ToList();
                 foreach (var orphan in orphanedResponses)
                 {
                     if (linkedCapsBySurveyItem.TryGetValue(orphan.SurveyItemId, out var orphanCaps))
@@ -2026,6 +2108,11 @@ namespace QSC.Api.Controllers
                     hasCriticalDefect,
                     message = "แก้ไขบันทึกการตรวจสำเร็จ บันทึกเหตุผลไว้ในประวัติแล้ว"
                 });
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await transaction.RollbackAsync();
+                return Conflict(new { message = "ข้อมูลถูกแก้ไขโดยผู้อื่นไปแล้ว กรุณาโหลดใหม่แล้วแก้ไขอีกครั้ง" });
             }
             catch (InvalidImageUploadException ex)
             {
@@ -2125,6 +2212,15 @@ namespace QSC.Api.Controllers
 
                 var logs = await _context.AuditRecordEditLogs.Where(l => l.AuditRecordId == id).ToListAsync();
                 _context.AuditRecordEditLogs.RemoveRange(logs);
+
+                if (record.AuditScheduleId.HasValue)
+                {
+                    var sched = await _context.AuditSchedules.FindAsync(record.AuditScheduleId.Value);
+                    if (sched != null && sched.Status == "completed")
+                    {
+                        sched.Status = "pending";
+                    }
+                }
 
                 _context.AuditRecords.Remove(record);
                 await _context.SaveChangesAsync();

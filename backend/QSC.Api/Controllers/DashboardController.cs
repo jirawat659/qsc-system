@@ -213,15 +213,24 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null) locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
             if (allowedBrandIds != null) locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-            var regionalScores = await locQuery
+            var regionalRaw = await locQuery
                 .GroupBy(l => l.Region)
                 .Select(g => new
                 {
                     region = g.Key,
-                    avgScore = Math.Round(g.Average(l => l.LastScore), 2),
-                    totalBranches = g.Count()
+                    avg = g.Where(l => l.LastAuditDate != null).Average(l => (double?)l.LastScore),
+                    totalBranches = g.Count(),
+                    auditedBranches = g.Count(l => l.LastAuditDate != null)
                 })
                 .ToListAsync();
+
+            var regionalScores = regionalRaw.Select(x => new
+            {
+                x.region,
+                avgScore = x.avg.HasValue ? Math.Round(x.avg.Value, 2) : (double?)null,
+                x.totalBranches,
+                x.auditedBranches
+            }).ToList();
 
             return Ok(new
             {

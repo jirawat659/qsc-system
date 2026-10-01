@@ -12,6 +12,7 @@ import { mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 import DynamicFieldRenderer from "../shared/DynamicFieldRenderer";
+import { parseServerDate } from "../utils/formatters";
 
 // ✍️ Digital Signature Pad Modal (High-DPI Touch & Mouse)
 function SignaturePadModal({ title, initialSignatureUrl, onDone, onCancel }) {
@@ -205,8 +206,8 @@ function SignaturePadModal({ title, initialSignatureUrl, onDone, onCancel }) {
 const toDatetimeLocal = (isoDateStr) => {
   if (!isoDateStr) return "";
   try {
-    const d = new Date(isoDateStr);
-    if (isNaN(d.getTime())) return "";
+    const d = parseServerDate(isoDateStr);
+    if (!d || isNaN(d.getTime())) return "";
     const pad = (n) => String(n).padStart(2, "0");
     const year = d.getFullYear();
     const month = pad(d.getMonth() + 1);
@@ -222,8 +223,9 @@ const toDatetimeLocal = (isoDateStr) => {
 const getAuditDurationText = (startStr, endStr) => {
   if (!startStr || !endStr) return null;
   try {
-    const s = new Date(startStr);
-    const e = new Date(endStr);
+    const s = parseServerDate(startStr);
+    const e = parseServerDate(endStr);
+    if (!s || !e) return null;
     const diffMs = e.getTime() - s.getTime();
     if (isNaN(diffMs) || diffMs < 0) return null;
     const diffMins = Math.floor(diffMs / (1000 * 60));

@@ -17,16 +17,26 @@ export const THAI_MONTH_INDEX_MAP = {
   "ต.ค.": 9, "ต.ค": 9, "พ.ย.": 10, "พ.ย": 10, "ธ.ค.": 11, "ธ.ค": 11
 };
 
+export const parseServerDate = (v) => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  if (typeof v === 'number') return new Date(v);
+  let s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) s += 'Z';
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+};
+
 export const formatThaiDate = (dateVal, options = { year: 'numeric', month: 'short', day: 'numeric' }) => {
   if (!dateVal) return '-';
-  const d = typeof dateVal === 'string' || typeof dateVal === 'number' ? new Date(dateVal) : dateVal;
-  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString('th-TH', options);
+  const d = parseServerDate(dateVal);
+  return !d || isNaN(d.getTime()) ? '-' : d.toLocaleDateString('th-TH', options);
 };
 
 export const formatThaiTime = (dateVal) => {
   if (!dateVal) return '-';
-  const d = typeof dateVal === 'string' || typeof dateVal === 'number' ? new Date(dateVal) : dateVal;
-  return isNaN(d.getTime()) ? '-' : d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
+  const d = parseServerDate(dateVal);
+  return !d || isNaN(d.getTime()) ? '-' : d.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) + ' น.';
 };
 
 export const parseAuditTimestamp = (dateVal, fallbackId = 0) => {
