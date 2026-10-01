@@ -124,7 +124,9 @@ const QuestionCard = React.memo(function QuestionCard({
   const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (isScale && Number(answer) < 3 && answer !== undefined && answer !== ""));
   const rawP = photosForQuestion;
   const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
-  const isCommentOpen = Boolean(openCommentOverride || (commentValue && commentValue.trim().length > 0));
+  const hasPhoto = questionPhotos.length > 0;
+  const isCommentRequired = isFailed;
+  const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
   const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0)));
   const isAnswered = answer !== undefined && answer !== "" && answer !== null;
 
@@ -2438,6 +2440,30 @@ export default function LiveAuditScreen({
   const handleAnswerSelect = useCallback((questionId, val) => {
     setHighlightedQuestionId(prevHighlighted => (prevHighlighted === questionId ? null : prevHighlighted));
 
+    // 🌟 ตรวจสอบว่าคำถามเป็นข้อที่คิดคะแนนหรือไม่ (ถ้าเป็นข้อคิดคะแนนแล้วไม่ผ่าน ให้เด้งเปิดช่องคอมเมนต์ทันที)
+    let isScoredItem = false;
+    let isScale = false;
+    for (const sec of (selectedForm?.sections || [])) {
+      const item = (sec.items || []).find(i => i.id === questionId);
+      if (item) {
+        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+        const isNonScored = sec.sectionType === "INFO" || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        if (!isNonScored) {
+          isScoredItem = true;
+          if (qType === "scale" || qType === "rating") isScale = true;
+        }
+        break;
+      }
+    }
+
+    if (isScoredItem) {
+      const isFailing = (isScale && typeof val === "number" && val < 3) ||
+                        (!isScale && (val === "no" || val === false));
+      if (isFailing) {
+        setOpenComments(prev => ({ ...prev, [questionId]: true }));
+      }
+    }
+
     setAnswers(prev => {
       const next = { ...prev };
       const isToggleType = val === "yes" || val === "no" || val === "na";
@@ -2448,7 +2474,7 @@ export default function LiveAuditScreen({
       }
       return next;
     });
-  }, []);
+  }, [selectedForm]);
 
   const handleCommentChange = useCallback((questionId, val) => {
     setComments(prev => ({ ...prev, [questionId]: val }));
@@ -2732,6 +2758,56 @@ export default function LiveAuditScreen({
       setActiveTab(2);
       alert(`⚠️ กรุณาตอบคำถามให้ครบทุกข้อ (ยังเหลืออีก ${missing.length} ข้อที่ยังไม่ได้ตอบ ในหมวด: "${firstMissing.sectionTitle}")`);
       triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
+      return false;
+    }
+
+    // 🌟 ตรวจสอบข้อคิดคะแนนที่ตกเกณฑ์ (Yes/No = ไม่ผ่าน หรือ Scale 1-5 ที่คะแนน < 3) บังคับต้องระบุข้อคิดเห็น
+    const missingComments = [];
+    currentSections.forEach((sec, sIdx) => {
+      const isInfoSec = sec.sectionType === "INFO";
+      (sec.items || []).forEach((item, qIdx) => {
+        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
+        // 🌟 ข้อที่ไม่คิดคะแนน หรือจำนวนตัวเลข ไม่ต้องนำมาเชื่อมกับเงื่อนไขตกเกณฑ์ (< 3) เด็ดขาด
+        if (isNonScored) return;
+
+        const ans = answers[item.id];
+        const isNa = ans === "na";
+        const isScale = qType === "scale" || qType === "rating";
+        const isFailed = !isNa && (
+          ans === "no" || 
+          ans === false || 
+          (isScale && typeof ans === "number" && ans < 3) || 
+          (isScale && !isNaN(Number(ans)) && ans !== "" && ans !== undefined && Number(ans) < 3)
+        );
+
+        if (isFailed) {
+          const comment = comments[item.id]?.trim();
+          if (!comment) {
+            missingComments.push({
+              sectionIdx: sIdx,
+              sectionTitle: sec.title || `หมวดที่ ${sIdx + 1}`,
+              questionId: item.id,
+              questionNumber: item.orderIndex || qIdx + 1,
+              questionText: item.questionText || item.text || `ข้อที่ ${qIdx + 1}`
+            });
+          }
+        }
+      });
+    });
+
+    if (missingComments.length > 0) {
+      const first = missingComments[0];
+      skipScrollToTopRef.current = true;
+      setActiveTab(2);
+      setOpenComments(prev => {
+        const next = { ...prev };
+        missingComments.forEach(m => { next[m.questionId] = true; });
+        return next;
+      });
+      alert(`⚠️ กรุณาระบุข้อคิดเห็น/เหตุผลสำหรับข้อที่ไม่ผ่านหรือคะแนนต่ำกว่า 3 (ยังขาดอีก ${missingComments.length} ข้อ ในหมวด: "${first.sectionTitle}")`);
+      triggerHighlightQuestion(first.questionId, first.sectionIdx);
       return false;
     }
 
