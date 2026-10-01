@@ -147,7 +147,16 @@ export default function DashboardScreen({ role, isDesktop }) {
   const isBranchManager = userRole === "AUDITEE" || userRole === "BRANCH_MANAGER" || currentUser?.branchScope === "SPECIFIC";
   
   const [periodFilter, setPeriodFilter] = useState("month");
-  const [aiInsightsData, setAiInsightsData] = useState(null);
+  const [aiInsightsData, setAiInsightsData] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(DASHBOARD_AI_CACHE_KEY) || localStorage.getItem(DASHBOARD_AI_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.highlight) return parsed;
+      }
+    } catch (e) {}
+    return null;
+  });
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [justUpdated, setJustUpdated] = useState(false);
   const [aiCooldown, setAiCooldown] = useState(0);
@@ -156,25 +165,6 @@ export default function DashboardScreen({ role, isDesktop }) {
   const effectiveBrandId = selectedBrandId || (brands?.length === 1 ? brands[0].id : null);
   const activeBrand = (brands || []).find(b => b.id === effectiveBrandId);
   const brandDisplayName = activeBrand?.name || (effectiveBrandId ? "แบรนด์ที่เลือก" : "ทุกแบรนด์");
-
-  const dashboardCacheKey = useMemo(
-    () => `qsc_ai_dashboard_cache_${currentUser?.id || 'default'}_${effectiveBrandId || 'all'}_${periodFilter || 'month'}`,
-    [currentUser?.id, effectiveBrandId, periodFilter]
-  );
-  const dashboardCooldownKey = useMemo(
-    () => `qsc_ai_cooldown_dashboard_${currentUser?.id || 'default'}_${effectiveBrandId || 'all'}`,
-    [currentUser?.id, effectiveBrandId]
-  );
-
-  const getRemainingDashboardCooldown = () => {
-    try {
-      const expiry = parseInt(sessionStorage.getItem(dashboardCooldownKey) || "0", 10);
-      const remaining = Math.ceil((expiry - Date.now()) / 1000);
-      return remaining > 0 ? remaining : 0;
-    } catch {
-      return 0;
-    }
-  };
 
   // ⏳ Keep countdown alive based on real wall-clock time even when navigating away & back
   useEffect(() => {
@@ -193,21 +183,21 @@ export default function DashboardScreen({ role, isDesktop }) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [dashboardCooldownKey]);
+  }, []);
 
   const setCooldownSeconds = (seconds) => {
     try {
       const expiry = Date.now() + seconds * 1000;
-      sessionStorage.setItem(dashboardCooldownKey, expiry.toString());
+      sessionStorage.setItem(DASHBOARD_COOLDOWN_KEY, expiry.toString());
     } catch (e) {}
     setAiCooldown(seconds);
   };
 
   const fetchAiDashboardInsights = async (isManual = false) => {
-    // 🌟 ถ้าเป็นการเปิดหน้าจอ และมี Cache อยู่แล้วในเซสชันนี้ -> ดึงจาก Cache ทันที ไม่ยิง API ซ้ำ
+    // 🌟 ถ้าเป็นการเปิดหน้าจอ และมี Cache อยู่แล้ว -> ดึงจาก Cache ทันที ไม่ยิง API ซ้ำ
     if (!isManual) {
       try {
-        const cached = sessionStorage.getItem(dashboardCacheKey);
+        const cached = sessionStorage.getItem(DASHBOARD_AI_CACHE_KEY) || localStorage.getItem(DASHBOARD_AI_CACHE_KEY);
         if (cached) {
           const parsed = JSON.parse(cached);
           if (parsed && parsed.highlight) {
@@ -231,7 +221,8 @@ export default function DashboardScreen({ role, isDesktop }) {
       });
       if (res.data) {
         try {
-          sessionStorage.setItem(dashboardCacheKey, JSON.stringify(res.data));
+          sessionStorage.setItem(DASHBOARD_AI_CACHE_KEY, JSON.stringify(res.data));
+          localStorage.setItem(DASHBOARD_AI_CACHE_KEY, JSON.stringify(res.data));
         } catch (e) {}
         setAiInsightsData(res.data);
         if (isManual) {
@@ -252,9 +243,10 @@ export default function DashboardScreen({ role, isDesktop }) {
     }
   };
 
+  // 🌟 โหลด AI Insights เฉพาะตอน Mount ครั้งแรก (ถ้ายังไม่มี Cache) — ไม่โหลดซ้ำตอนสลับช่วงเวลาหรือแบรนด์
   useEffect(() => {
     fetchAiDashboardInsights(false);
-  }, [dashboardCacheKey]);
+  }, []);
 
   // รับผลรวม KPI สรุปจาก Database (พร้อม Stale-While-Revalidate In-Memory Cache)
   const cacheKey = `${periodFilter}_${effectiveBrandId || 'all'}`;
