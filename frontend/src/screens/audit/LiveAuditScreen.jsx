@@ -120,13 +120,11 @@ const QuestionCard = React.memo(function QuestionCard({
   const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
 
   const isNa = answer === "na";
-  const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
+  const isScale = qType === "scale" || qType === "rating";
+  const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (isScale && Number(answer) < 3 && answer !== undefined && answer !== ""));
   const rawP = photosForQuestion;
   const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
-  const hasPhoto = questionPhotos.length > 0;
-  const isScale = qType === "scale" || qType === "rating";
-  const isCommentRequired = isFailed;
-  const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
+  const isCommentOpen = Boolean(openCommentOverride || (commentValue && commentValue.trim().length > 0));
   const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0)));
   const isAnswered = answer !== undefined && answer !== "" && answer !== null;
 
@@ -172,7 +170,9 @@ const QuestionCard = React.memo(function QuestionCard({
           )}
 
           {isHighlighted && (
-            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">
+              {isCommentRequired && !commentValue?.trim() ? "กรุณาระบุข้อคิดเห็น!" : "กรุณาตอบข้อนี้!"}
+            </span>
           )}
 
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
@@ -2438,12 +2438,6 @@ export default function LiveAuditScreen({
   const handleAnswerSelect = useCallback((questionId, val) => {
     setHighlightedQuestionId(prevHighlighted => (prevHighlighted === questionId ? null : prevHighlighted));
 
-    const isFailing = val === "no" || val === false || (typeof val === "number" && val < 3);
-
-    if (isFailing) {
-      setOpenComments(prev => ({ ...prev, [questionId]: true }));
-    }
-
     setAnswers(prev => {
       const next = { ...prev };
       const isToggleType = val === "yes" || val === "no" || val === "na";
@@ -2603,8 +2597,9 @@ export default function LiveAuditScreen({
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
         const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
 
-        // ถ้าเป็นข้อไม่คิดคะแนน และไม่ได้ตั้งเป็น required ให้ข้ามการตรวจได้
-        if (isNonScored && !item.required) return;
+        // 🌟 ถ้าเป็นข้อไม่คิดคะแนน: ตรวจเฉพาะข้อที่มีการกดตั้งค่าว่า "ต้องกรอก / บังคับกรอก" (required) เท่านั้น!
+        const isItemRequired = Boolean(item.required || item.fieldConfig?.required);
+        if (isNonScored && !isItemRequired) return;
 
         const ans = answers[item.id];
         const isAnswered = ans !== undefined && ans !== null && ans !== "";
@@ -2737,47 +2732,6 @@ export default function LiveAuditScreen({
       setActiveTab(2);
       alert(`⚠️ กรุณาตอบคำถามให้ครบทุกข้อ (ยังเหลืออีก ${missing.length} ข้อที่ยังไม่ได้ตอบ ในหมวด: "${firstMissing.sectionTitle}")`);
       triggerHighlightQuestion(firstMissing.questionId, firstMissing.sectionIdx);
-      return false;
-    }
-
-    const missingComments = [];
-    currentSections.forEach((sec, sIdx) => {
-      (sec.items || []).forEach((item, qIdx) => {
-        const ans = answers[item.id];
-        const isNa = ans === "na";
-        const isFailed = !isNa && (
-          ans === "no" || 
-          ans === false || 
-          (typeof ans === "number" && ans < 3) || 
-          (!isNaN(Number(ans)) && ans !== "" && ans !== undefined && Number(ans) < 3)
-        );
-
-        if (isFailed) {
-          const comment = comments[item.id]?.trim();
-          if (!comment) {
-            missingComments.push({
-              sectionIdx: sIdx,
-              sectionTitle: sec.title || `หมวดที่ ${sIdx + 1}`,
-              questionId: item.id,
-              questionNumber: item.orderIndex || qIdx + 1,
-              questionText: item.questionText || item.text || `ข้อที่ ${qIdx + 1}`
-            });
-          }
-        }
-      });
-    });
-
-    if (missingComments.length > 0) {
-      const first = missingComments[0];
-      skipScrollToTopRef.current = true;
-      setActiveTab(2);
-      setOpenComments(prev => {
-        const next = { ...prev };
-        missingComments.forEach(m => { next[m.questionId] = true; });
-        return next;
-      });
-      alert(`⚠️ กรุณาระบุข้อคิดเห็น/เหตุผลสำหรับข้อที่ไม่ผ่านหรือคะแนนต่ำกว่า 3 (ยังขาดอีก ${missingComments.length} ข้อ ในหมวด: "${first.sectionTitle}")`);
-      triggerHighlightQuestion(first.questionId, first.sectionIdx);
       return false;
     }
 
