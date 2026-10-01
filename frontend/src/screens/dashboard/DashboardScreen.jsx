@@ -203,12 +203,57 @@ export default function DashboardScreen({ role, isDesktop }) {
     setAiCooldown(seconds);
   };
 
-  const fetchAiDashboardInsights = async () => {
-    // ปิดการเรียก AI - ใช้ข้อมูลสถิติจริงจาก Database โดยตรง
+  const fetchAiDashboardInsights = async (isManual = false) => {
+    // 🌟 ถ้าเป็นการเปิดหน้าจอ และมี Cache อยู่แล้วในเซสชันนี้ -> ดึงจาก Cache ทันที ไม่ยิง API ซ้ำ
+    if (!isManual) {
+      try {
+        const cached = sessionStorage.getItem(dashboardCacheKey);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.highlight) {
+            setAiInsightsData(parsed);
+            return;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (isAiLoading || (isManual && getRemainingDashboardCooldown() > 0)) return;
+    setIsAiLoading(true);
+    try {
+      const params = {};
+      if (periodFilter) params.period = periodFilter;
+      if (effectiveBrandId) params.brandId = effectiveBrandId;
+
+      const res = await api.get('/ai/dashboard-insights', { 
+        params,
+        timeout: AI_REQUEST_TIMEOUT_MS 
+      });
+      if (res.data) {
+        try {
+          sessionStorage.setItem(dashboardCacheKey, JSON.stringify(res.data));
+        } catch (e) {}
+        setAiInsightsData(res.data);
+        if (isManual) {
+          setCooldownSeconds(15);
+          setJustUpdated(true);
+          setTimeout(() => setJustUpdated(false), 3500);
+        }
+      }
+    } catch (err) {
+      if (err?.response?.status === 429) {
+        console.warn('AI Rate Limit reached, using smart analytics engine fallback.');
+        if (isManual) setCooldownSeconds(30);
+      } else {
+        console.warn('AI dashboard insights unavailable, using smart analytics fallback:', err?.message || err);
+      }
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   useEffect(() => {
-    // ปิดการเรียก AI อัตโนมัติ
+    fetchAiDashboardInsights(false);
   }, [dashboardCacheKey]);
 
   // รับผลรวม KPI สรุปจาก Database (พร้อม Stale-While-Revalidate In-Memory Cache)
@@ -317,6 +362,21 @@ export default function DashboardScreen({ role, isDesktop }) {
   const [showExportModal, setShowExportModal] = useState(false);
   const [showMonthlyModal, setShowMonthlyModal] = useState(false);
   const [trendsData, setTrendsData] = useState([]);
+
+  // 🌟 ประมวลผลหมวดหมู่คะแนน: ยุบรวมชื่อซ้ำ (เช่น ไทย/อังกฤษ) และกรองหมวดที่ไม่คิดคะแนนออก
+  const processedCategoryScores = useMemo(() => {
+    if (!Array.isArray(categoryScores) || categoryScores.length === 0) return [];
+    const map = new Map();
+    categoryScores.forEach(cat => {
+      const raw = String(cat.name || "").trim();
+      if (!raw || raw.includes("รายละเอียด") || raw.toLowerCase() === "info") return;
+      const display = getCategoryDisplay(raw);
+      if (!map.has(display)) {
+        map.set(display, { ...cat, displayName: display });
+      }
+    });
+    return Array.from(map.values());
+  }, [categoryScores]);
 
   useEffect(() => {
     let isMounted = true;
@@ -632,13 +692,13 @@ export default function DashboardScreen({ role, isDesktop }) {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-xs sm:shadow-sm p-4 sm:p-5 min-w-0">
           <div className="flex items-center justify-between mb-3 sm:mb-4">
             <h3 className="text-sm font-bold text-slate-700">คะแนนรายหมวดหมู่</h3>
-            <span className="text-xs font-semibold text-slate-400">Target: {categoryScores[0]?.target || 85}%</span>
+            <span className="text-xs font-semibold text-slate-400">Target: {processedCategoryScores[0]?.target || 85}%</span>
           </div>
           <div className="space-y-3.5 sm:space-y-4">
-            {categoryScores.map((cat, i) => (
+            {processedCategoryScores.map((cat, i) => (
               <div key={i}>
                 <div className="flex justify-between items-center mb-1.5">
-                  <span className="text-xs font-semibold text-slate-700">{getCategoryDisplay(cat.name)}</span>
+                  <span className="text-xs font-semibold text-slate-700">{cat.displayName || getCategoryDisplay(cat.name)}</span>
                   <span className="text-xs font-bold font-mono text-slate-900">{parseFloat(Number(cat.score).toFixed(2))}%</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden flex relative">
@@ -725,25 +785,81 @@ export default function DashboardScreen({ role, isDesktop }) {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <BarChart3 size={16} className="text-[#0F6659]" /> สรุปข้อมูลภาพรวม
+              <Sparkles size={16} className="text-[#0F6659]" /> AI Insights
             </h3>
+            {justUpdated && (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200 animate-in fade-in flex items-center gap-1 shadow-2xs">
+                <CheckCircle2 size={12} className="text-emerald-600" /> อัปเดตข้อมูลแล้ว
+              </span>
+            )}
           </div>
+          <button
+            type="button"
+            onClick={() => fetchAiDashboardInsights(true)}
+            disabled={isAiLoading || aiCooldown > 0}
+            className={`px-3 py-1.5 rounded-2xl border text-xs font-bold shadow-2xs transition-all flex items-center gap-2 ${
+              isAiLoading || aiCooldown > 0
+                ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
+                : 'bg-[#0F6659] hover:bg-emerald-800 text-white border-[#0F6659] cursor-pointer active:scale-95'
+            }`}
+          >
+            <Sparkles size={14} className={isAiLoading ? "animate-spin text-white" : aiCooldown > 0 ? "text-slate-400" : "text-emerald-200"} />
+            <span>{isAiLoading ? "กำลังวิเคราะห์..." : aiCooldown > 0 ? `รอ ${aiCooldown} วิ` : "วิเคราะห์ด้วย AI"}</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {aiInsightsList.map((ins) => (
-            <div
-              key={ins.type}
-              className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 transition-all duration-300 ${ins.bgClass}`}
-            >
+        {isAiLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-2xl p-4 shadow-sm border border-emerald-200/80 bg-emerald-50/40 animate-pulse flex flex-col gap-2.5">
               <div className="flex items-center gap-2">
-                <span className="text-lg">{ins.icon}</span>
-                <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
+                <div className="w-6 h-6 rounded-full bg-emerald-200/90 shrink-0" />
+                <div className="h-3.5 w-28 rounded-md bg-emerald-200/90" />
               </div>
-              <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
+              <div className="space-y-1.5 pt-1">
+                <div className="h-3 w-full rounded bg-emerald-200/50" />
+                <div className="h-3 w-4/5 rounded bg-emerald-200/40" />
+                <div className="h-3 w-2/3 rounded bg-emerald-200/30" />
+              </div>
             </div>
-          ))}
-        </div>
+            <div className="rounded-2xl p-4 shadow-sm border border-amber-200/80 bg-amber-50/40 animate-pulse flex flex-col gap-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-amber-200/90 shrink-0" />
+                <div className="h-3.5 w-28 rounded-md bg-amber-200/90" />
+              </div>
+              <div className="space-y-1.5 pt-1">
+                <div className="h-3 w-full rounded bg-amber-200/50" />
+                <div className="h-3 w-4/5 rounded bg-amber-200/40" />
+                <div className="h-3 w-2/3 rounded bg-amber-200/30" />
+              </div>
+            </div>
+            <div className="rounded-2xl p-4 shadow-sm border border-sky-200/80 bg-sky-50/40 animate-pulse flex flex-col gap-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-sky-200/90 shrink-0" />
+                <div className="h-3.5 w-28 rounded-md bg-sky-200/90" />
+              </div>
+              <div className="space-y-1.5 pt-1">
+                <div className="h-3 w-full rounded bg-sky-200/50" />
+                <div className="h-3 w-4/5 rounded bg-sky-200/40" />
+                <div className="h-3 w-2/3 rounded bg-sky-200/30" />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {aiInsightsList.map((ins) => (
+              <div
+                key={ins.type}
+                className={`rounded-2xl p-4 shadow-sm border flex flex-col gap-2 transition-all duration-300 ${ins.bgClass}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">{ins.icon}</span>
+                  <span className={`text-xs font-bold ${ins.iconClass}`}>{ins.title}</span>
+                </div>
+                <p className="text-xs font-medium leading-relaxed text-slate-700">{ins.text}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {showExportModal && <ExcelExportModal onClose={() => setShowExportModal(false)} />}
