@@ -92,7 +92,8 @@ namespace QSC.Api.Controllers
                 int grpId = draft.SurveyForm.FormGroupId ?? draft.SurveyForm.Id;
                 var latestForm = await _context.SurveyForms
                     .AsNoTracking()
-                    .Where(f => f.IsActive && f.IsLatest && ((f.FormGroupId != null && f.FormGroupId == grpId) || f.Id == grpId || (f.Title != null && draft.SurveyForm.Title != null && f.Title == draft.SurveyForm.Title)))
+                    .Where(f => f.IsActive && f.IsLatest && (f.FormGroupId ?? f.Id) == grpId)
+                    .OrderByDescending(f => f.CreatedAt)
                     .FirstOrDefaultAsync();
 
                 if (latestForm != null && latestForm.Id != draft.SurveyFormId)
@@ -606,8 +607,17 @@ namespace QSC.Api.Controllers
 
             var (effectiveMapping, typeChangedItemIds) = BuildEffectiveMapping(oldForm, latestForm);
 
-            // Re-map DraftPayloadJson
-            string newPayloadJson = RemapDraftPayload(draft.DraftPayloadJson, latestForm.Id, effectiveMapping, typeChangedItemIds, out int totalAnswered);
+            // Re-map DraftPayloadJson safely
+            string newPayloadJson;
+            int totalAnswered;
+            try
+            {
+                newPayloadJson = RemapDraftPayload(draft.DraftPayloadJson, latestForm.Id, effectiveMapping, typeChangedItemIds, out totalAnswered);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
 
             draft.SurveyFormId = latestForm.Id;
             draft.DraftPayloadJson = newPayloadJson;
@@ -652,39 +662,39 @@ namespace QSC.Api.Controllers
             var oldItemsMap = oldForm?.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id, i => i) ?? new Dictionary<int, SurveyItem>();
             var newItemsMap = latestForm.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id, i => i);
 
-            // 1. From recorded lineage
-            if (lineageMapping != null && lineageMapping.Count > 0)
+            bool hasLineage = lineageMapping != null && lineageMapping.Count > 0;
+
+            // 1. From recorded lineage (Strict 1:1 DNA mapping)
+            if (hasLineage)
             {
-                foreach (var kvp in lineageMapping)
+                foreach (var kvp in lineageMapping!)
                 {
                     if (int.TryParse(kvp.Key, out var oldId) && newItemsMap.ContainsKey(kvp.Value))
                     {
                         effectiveMapping[oldId] = kvp.Value;
                     }
                 }
+                // Note: items not in lineageMapping were deleted or newly added.
+                // We do NOT fall back to OrderIndex or text guessing, ensuring zero mis-mapping.
             }
-
-            // 2. Fallback for unmapped items: match by Section title + Item QuestionText / OrderIndex
-            if (oldForm != null)
+            else if (oldForm != null)
             {
+                // 2. Fallback ONLY for legacy forms without lineage: match by Section title + exact QuestionText
+                // NEVER match by OrderIndex (eliminates risk of deleted items falsely mapping to new unrelated items)
                 foreach (var oldSec in oldForm.Sections.OrderBy(s => s.OrderIndex))
                 {
-                    var matchingNewSec = latestForm.Sections.FirstOrDefault(s => s.Title == oldSec.Title)
-                                         ?? latestForm.Sections.FirstOrDefault(s => s.OrderIndex == oldSec.OrderIndex);
+                    var matchingNewSec = latestForm.Sections.FirstOrDefault(s => s.Title == oldSec.Title);
                     if (matchingNewSec == null) continue;
 
                     foreach (var oldIt in oldSec.Items.OrderBy(i => i.OrderIndex))
                     {
                         if (effectiveMapping.ContainsKey(oldIt.Id)) continue;
 
-                        // Match by exact text first
-                        var matchingNewIt = matchingNewSec.Items.FirstOrDefault(i => i.QuestionText == oldIt.QuestionText && !effectiveMapping.Values.Contains(i.Id));
-
-                        // If not, match by order index
-                        if (matchingNewIt == null)
-                        {
-                            matchingNewIt = matchingNewSec.Items.FirstOrDefault(i => i.OrderIndex == oldIt.OrderIndex && !effectiveMapping.Values.Contains(i.Id));
-                        }
+                        // Match by exact text ONLY
+                        var matchingNewIt = matchingNewSec.Items.FirstOrDefault(i => 
+                            !string.IsNullOrWhiteSpace(i.QuestionText) && 
+                            i.QuestionText.Trim() == oldIt.QuestionText?.Trim() && 
+                            !effectiveMapping.Values.Contains(i.Id));
 
                         if (matchingNewIt != null)
                         {
@@ -781,9 +791,9 @@ namespace QSC.Api.Controllers
 
                 return node.ToJsonString();
             }
-            catch
+            catch (Exception ex)
             {
-                return $"{{\"formId\":{newFormId},\"answers\":{{}},\"photos\":{{}},\"comments\":{{}}}}";
+                throw new InvalidOperationException("อ่านข้อมูลแบบร่างเดิมไม่ได้ จึงยังไม่ได้ย้ายฟอร์ม", ex);
             }
         }
 

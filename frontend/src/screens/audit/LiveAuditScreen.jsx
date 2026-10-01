@@ -16,6 +16,7 @@ import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
+import SwipeToast from "../../shared/SwipeToast";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
@@ -2011,14 +2012,11 @@ export default function LiveAuditScreen({
       }
     }
 
-    // 2. Check if selectedForm is not latest (matches by formGroupId OR by same Title)
+    // 2. Check if selectedForm is not latest (matches strictly by formGroupId or root Id)
     if (selectedForm.isLatest === false || selectedForm.isLatest === 0) {
-      const grpId = selectedForm.formGroupId || selectedForm.id;
+      const grpId = selectedForm.formGroupId ?? selectedForm.id;
       const latest = (forms || []).find(f => 
-        (
-          (f.formGroupId && (f.formGroupId === grpId || f.id === grpId)) ||
-          (f.title && selectedForm.title && f.title.trim() === selectedForm.title.trim())
-        ) &&
+        (f.formGroupId ?? f.id) === grpId &&
         (f.isLatest === true || f.isLatest === 1) &&
         Number(f.id) !== Number(selectedForm.id)
       );
@@ -2033,33 +2031,58 @@ export default function LiveAuditScreen({
     return null;
   }, [selectedForm, step, matchedDraftRecord, forms]);
 
+  // 🔔 SwipeToast แจ้งเตือนเมื่อตรวจพบฟอร์มเวอร์ชันใหม่
+  const [showNewFormToast, setShowNewFormToast] = useState(false);
+
+  useEffect(() => {
+    if (newerFormVersion && step === "audit") {
+      setShowNewFormToast(true);
+    } else {
+      setShowNewFormToast(false);
+    }
+  }, [newerFormVersion?.latestVersion, newerFormVersion?.latestFormId, step]);
+
   const handleMigrateDraft = async () => {
+    const versionText = newerFormVersion?.latestVersion ? ` (${newerFormVersion.latestVersion})` : "";
+    const ok = window.confirm(
+      `การเปลี่ยนเวอร์ชันฟอร์มใหม่ อาจจะทำให้ข้อมูลคำตอบบางข้อหายได้`
+    );
+    if (!ok) return;
+
+    // 1. 🛡️ Flush pending save first before migration starts!
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    await performSaveDraft();
+    for (let i = 0; i < 20 && (isSavingRef.current || hasPendingSaveRef.current); i++) {
+      await new Promise(r => setTimeout(r, 150));
+    }
+
     const currentEffDraftId = getEffectiveDraftId();
     if (!currentEffDraftId) {
       alert("ไม่พบแบบร่างในระบบ กรุณาลองใหม่อีกครั้ง");
       return;
     }
 
-    const versionText = newerFormVersion?.latestVersion ? ` (${newerFormVersion.latestVersion})` : "";
-    const ok = window.confirm(
-      `พบแบบฟอร์มเวอร์ชันใหม่${versionText}\nคำตอบของข้อเดิมจะถูกย้ายมายังข้อใหม่อัตโนมัติ`
-    );
-    if (!ok) return;
-
     isMigratingDraftRef.current = true;
     setIsMigratingDraft(true);
-
-    // 1. 🛡️ Pause/Stop auto-save timer immediately
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-      autoSaveTimerRef.current = null;
-    }
 
     try {
       // 2. Call backend migration API
       const res = await api.post(`/audit/draft/${currentEffDraftId}/migrate`);
-      const newFormId = res.data?.newFormId || newerFormVersion?.latestFormId;
-      const newVersion = res.data?.newVersion || newerFormVersion?.latestVersion;
+
+      if (res.data?.alreadyLatest) {
+        if (refreshData) await refreshData();
+        alert("ฟอร์มนี้เป็นเวอร์ชันล่าสุดแล้ว");
+        return;
+      }
+
+      const newFormId = res.data?.newFormId;
+      if (!newFormId) {
+        throw new Error("ไม่พบฟอร์มเวอร์ชันใหม่ จึงยังไม่ได้ย้ายแบบร่าง");
+      }
+      const newVersion = res.data?.newVersion || "ล่าสุด";
 
       // 3. Fetch the full new form details from API
       const formRes = await api.get(`/form/${newFormId}`);
@@ -2083,11 +2106,16 @@ export default function LiveAuditScreen({
         }
       }
 
-      // 6. Clean old storage keys and save new draft key
+      // 6. Clean old storage keys and save new draft key (with safe backup copy)
       try {
         const oldFId = res.data?.oldFormId || selectedForm?.id;
         if (unit?.id && oldFId) {
-          localStorage.removeItem(`qsc_draft_${unit.id}_${oldFId}`);
+          const oldKey = `qsc_draft_${unit.id}_${oldFId}`;
+          const prevDraft = localStorage.getItem(oldKey);
+          if (prevDraft) {
+            localStorage.setItem(`qsc_draft_backup_${currentEffDraftId}`, prevDraft);
+          }
+          localStorage.removeItem(oldKey);
         }
         if (unit?.id && newFormId && res.data?.draftPayloadJson) {
           const payloadStr = typeof res.data.draftPayloadJson === "string"
@@ -2111,7 +2139,7 @@ export default function LiveAuditScreen({
       alert(`✅ ย้ายคำตอบไปยังฟอร์มเวอร์ชันใหม่ (${newVersion}) สำเร็จแล้ว!`);
     } catch (err) {
       console.error("Failed to migrate draft:", err);
-      alert(err.response?.data?.message || "เกิดข้อผิดพลาดในการย้ายแบบร่าง กรุณาลองใหม่อีกครั้ง");
+      alert(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการย้ายแบบร่าง กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsMigratingDraft(false);
       setTimeout(() => {
@@ -2164,7 +2192,7 @@ export default function LiveAuditScreen({
             type="button"
             onClick={handleMigrateDraft}
             disabled={isMigratingDraft}
-            className="flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xs active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
             title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
           >
             {isMigratingDraft ? (
@@ -2175,7 +2203,7 @@ export default function LiveAuditScreen({
             ) : (
               <>
                 <RefreshCw size={13} />
-                <span>ย้ายฟอร์มใหม่ ({newerFormVersion.latestVersion})</span>
+                <span>ฟอร์มใหม่</span>
               </>
             )}
           </button>
@@ -2455,6 +2483,11 @@ export default function LiveAuditScreen({
     } catch (err) {
       if (currentSeq === saveSeqRef.current) {
         setSyncStatus("error");
+      }
+      if (err.response?.status === 409) {
+        // 409 Conflict: draft was updated/migrated from another device or session
+        console.warn("Draft version conflict (409):", err.response?.data?.message);
+        if (refreshData) refreshData();
       }
     } finally {
       isSavingRef.current = false;
@@ -3849,7 +3882,7 @@ export default function LiveAuditScreen({
                       type="button"
                       onClick={handleMigrateDraft}
                       disabled={isMigratingDraft}
-                      className="hidden lg:inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-xs active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50 ml-1.5"
+                      className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50 ml-1.5"
                       title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
                     >
                       {isMigratingDraft ? (
@@ -3860,7 +3893,7 @@ export default function LiveAuditScreen({
                       ) : (
                         <>
                           <RefreshCw size={12} />
-                          <span>ย้ายฟอร์มใหม่ ({newerFormVersion.latestVersion})</span>
+                          <span>ฟอร์มใหม่</span>
                         </>
                       )}
                     </button>
@@ -4760,6 +4793,28 @@ export default function LiveAuditScreen({
               />
             </div>
           </div>,
+          document.body
+        )}
+
+        {/* 🌟 Modern Swipeable Notification Toast for Outdated Drafts */}
+        {newerFormVersion && showNewFormToast && typeof document !== "undefined" && createPortal(
+          <SwipeToast
+            open={showNewFormToast}
+            onClose={() => setShowNewFormToast(false)}
+            position="top"
+            title={`พบแบบฟอร์มเวอร์ชันใหม่`}
+            description="หากย้ายแบบฟอร์ม ข้อมูลคำตอบบางข้ออาจเปลี่ยนแปลงได้"
+            icon={<RefreshCw size={18} className="text-emerald-300 shrink-0" />}
+            background="#0F6659"
+            color="#ffffff"
+            fuseColor="#34d399"
+            width={400}
+            radius={16}
+            duration={7000}
+            fuse="bottom"
+            pauseOnHover={true}
+            closeButton={true}
+          />,
           document.body
         )}
       </div>
