@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
@@ -80,7 +82,27 @@ namespace QSC.Api.Controllers
                 query = query.Where(d => d.AuditScheduleId == null);
             }
 
-            var draft = await query.OrderByDescending(d => d.UpdatedAt).FirstOrDefaultAsync();
+            var draft = await query
+                .Include(d => d.SurveyForm)
+                .OrderByDescending(d => d.UpdatedAt)
+                .FirstOrDefaultAsync();
+
+            if (draft != null && draft.SurveyForm != null)
+            {
+                int grpId = draft.SurveyForm.FormGroupId ?? draft.SurveyForm.Id;
+                var latestForm = await _context.SurveyForms
+                    .AsNoTracking()
+                    .Where(f => f.IsActive && f.IsLatest && (f.FormGroupId ?? f.Id) == grpId)
+                    .OrderByDescending(f => f.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                if (latestForm != null && latestForm.Id != draft.SurveyFormId)
+                {
+                    draft.IsFormOutdated = true;
+                    draft.LatestFormId = latestForm.Id;
+                    draft.LatestFormVersion = latestForm.Version;
+                }
+            }
 
             return Ok(draft);
         }
@@ -139,6 +161,35 @@ namespace QSC.Api.Controllers
                 _context.AuditDrafts.RemoveRange(staleDrafts);
                 await _context.SaveChangesAsync();
                 allDrafts = allDrafts.Except(staleDrafts).ToList();
+            }
+
+            // 🌟 Check for outdated form versions across active drafts
+            var formGroupIds = allDrafts
+                .Where(d => d.SurveyForm != null)
+                .Select(d => d.SurveyForm!.FormGroupId ?? d.SurveyForm!.Id)
+                .Distinct()
+                .ToList();
+
+            if (formGroupIds.Any())
+            {
+                var latestForms = await _context.SurveyForms
+                    .AsNoTracking()
+                    .Where(f => f.IsActive && f.IsLatest && formGroupIds.Contains(f.FormGroupId ?? f.Id))
+                    .ToDictionaryAsync(f => f.FormGroupId ?? f.Id, f => f);
+
+                foreach (var d in allDrafts)
+                {
+                    if (d.SurveyForm != null)
+                    {
+                        int grpId = d.SurveyForm.FormGroupId ?? d.SurveyForm.Id;
+                        if (latestForms.TryGetValue(grpId, out var latestForm) && latestForm.Id != d.SurveyFormId)
+                        {
+                            d.IsFormOutdated = true;
+                            d.LatestFormId = latestForm.Id;
+                            d.LatestFormVersion = latestForm.Version;
+                        }
+                    }
+                }
             }
 
             return Ok(allDrafts);
@@ -263,6 +314,26 @@ namespace QSC.Api.Controllers
                 }
                 else
                 {
+                    // 🛡️ GUARD: If the draft in database has already been migrated to a newer form version
+                    // than the one the client is trying to save, reject this save with 409 Conflict!
+                    if (draft.SurveyFormId != effectiveFormId)
+                    {
+                        var dbForm = await _context.SurveyForms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == draft.SurveyFormId);
+                        var reqForm = await _context.SurveyForms.AsNoTracking().FirstOrDefaultAsync(f => f.Id == effectiveFormId);
+                        if (dbForm != null && reqForm != null && (dbForm.FormGroupId ?? dbForm.Id) == (reqForm.FormGroupId ?? reqForm.Id))
+                        {
+                            if (dbForm.CreatedAt > reqForm.CreatedAt || (dbForm.IsLatest && !reqForm.IsLatest))
+                            {
+                                return Conflict(new
+                                {
+                                    message = "แบบร่างนี้ถูกย้ายไปใช้ฟอร์มเวอร์ชันใหม่แล้ว กรุณารีเฟรชหน้าตรวจเพื่อโหลดฟอร์มล่าสุด",
+                                    latestFormId = dbForm.Id,
+                                    latestVersion = dbForm.Version
+                                });
+                            }
+                        }
+                    }
+
                     draft.SurveyFormId = effectiveFormId;
                     draft.AuditScheduleId = effectiveScheduleId ?? draft.AuditScheduleId;
                     draft.DraftPayloadJson = dto.DraftPayloadJson ?? "{}";
@@ -415,6 +486,315 @@ namespace QSC.Api.Controllers
 
             await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        // ==========================================
+        // 1.1 DRAFT MIGRATION (VERSION LINEAGE)
+        // ==========================================
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
+        [HttpGet("draft/{id}/migrate-preview")]
+        public async Task<IActionResult> GetDraftMigratePreview(int id)
+        {
+            var (currentUserId, role, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
+            var draft = await _context.AuditDrafts
+                .Include(d => d.SurveyForm)
+                .FirstOrDefaultAsync(d => d.Id == id);
+
+            if (draft == null) return NotFound(new { message = "ไม่พบแบบร่างการตรวจ" });
+            if (role != "ADMIN" && draft.AuditorId != currentUserId) return Forbid();
+            if (draft.SurveyForm == null) return BadRequest(new { message = "ไม่พบข้อมูลแบบฟอร์มเดิมของแบบร่าง" });
+
+            int formGroupId = draft.SurveyForm.FormGroupId ?? draft.SurveyForm.Id;
+            var latestForm = await _context.SurveyForms
+                .Include(f => f.Sections.Where(s => s.IsActive))
+                    .ThenInclude(s => s.Items.Where(i => i.IsActive))
+                .FirstOrDefaultAsync(f => (f.FormGroupId ?? f.Id) == formGroupId && f.IsLatest && f.IsActive);
+
+            if (latestForm == null || latestForm.Id == draft.SurveyFormId)
+            {
+                return Ok(new
+                {
+                    alreadyLatest = true,
+                    message = "แบบร่างนี้ใช้ฟอร์มเวอร์ชันล่าสุดอยู่แล้ว",
+                    currentFormId = draft.SurveyFormId,
+                    currentVersion = draft.SurveyForm.Version
+                });
+            }
+
+            var oldForm = await _context.SurveyForms
+                .Include(f => f.Sections.Where(s => s.IsActive))
+                    .ThenInclude(s => s.Items.Where(i => i.IsActive))
+                .FirstOrDefaultAsync(f => f.Id == draft.SurveyFormId);
+
+            var oldItems = oldForm?.Sections.SelectMany(s => s.Items).ToList() ?? new List<SurveyItem>();
+            var newItems = latestForm.Sections.SelectMany(s => s.Items).ToList();
+
+            var (effectiveMapping, typeChangedItemIds) = BuildEffectiveMapping(oldForm, latestForm);
+
+            int answeredMappedCount = 0;
+            try
+            {
+                using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(draft.DraftPayloadJson) ? "{}" : draft.DraftPayloadJson);
+                if (doc.RootElement.TryGetProperty("answers", out var answersProp) && answersProp.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in answersProp.EnumerateObject())
+                    {
+                        if (int.TryParse(prop.Name, out var oldId) && effectiveMapping.ContainsKey(oldId))
+                        {
+                            answeredMappedCount++;
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            int newQuestionsCount = newItems.Count(ni => !effectiveMapping.Values.Contains(ni.Id));
+
+            return Ok(new
+            {
+                alreadyLatest = false,
+                draftId = draft.Id,
+                oldFormId = draft.SurveyFormId,
+                oldVersion = draft.SurveyForm.Version,
+                newFormId = latestForm.Id,
+                newVersion = latestForm.Version,
+                totalOldQuestions = oldItems.Count,
+                totalNewQuestions = newItems.Count,
+                mappedQuestionsCount = effectiveMapping.Count,
+                answeredMappedCount,
+                typeChangedCount = typeChangedItemIds.Count,
+                newQuestionsCount,
+                droppedQuestionsCount = Math.Max(0, oldItems.Count - effectiveMapping.Count)
+            });
+        }
+
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
+        [HttpPost("draft/{id}/migrate")]
+        public async Task<IActionResult> MigrateDraft(int id)
+        {
+            var (currentUserId, role, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
+            var draft = await _context.AuditDrafts
+                .Include(d => d.SurveyForm)
+                .FirstOrDefaultAsync(d => d.Id == id);
+
+            if (draft == null) return NotFound(new { message = "ไม่พบแบบร่างการตรวจ" });
+            if (role != "ADMIN" && draft.AuditorId != currentUserId) return Forbid();
+            if (draft.SurveyForm == null) return BadRequest(new { message = "ไม่พบข้อมูลแบบฟอร์มเดิมของแบบร่าง" });
+
+            int formGroupId = draft.SurveyForm.FormGroupId ?? draft.SurveyForm.Id;
+            var latestForm = await _context.SurveyForms
+                .Include(f => f.Sections.Where(s => s.IsActive))
+                    .ThenInclude(s => s.Items.Where(i => i.IsActive))
+                .FirstOrDefaultAsync(f => (f.FormGroupId ?? f.Id) == formGroupId && f.IsLatest && f.IsActive);
+
+            if (latestForm == null || latestForm.Id == draft.SurveyFormId)
+            {
+                return Ok(new
+                {
+                    alreadyLatest = true,
+                    message = "แบบร่างนี้ใช้ฟอร์มเวอร์ชันล่าสุดอยู่แล้ว",
+                    formId = draft.SurveyFormId,
+                    version = draft.SurveyForm.Version
+                });
+            }
+
+            var oldForm = await _context.SurveyForms
+                .Include(f => f.Sections.Where(s => s.IsActive))
+                    .ThenInclude(s => s.Items.Where(i => i.IsActive))
+                .FirstOrDefaultAsync(f => f.Id == draft.SurveyFormId);
+
+            var (effectiveMapping, typeChangedItemIds) = BuildEffectiveMapping(oldForm, latestForm);
+
+            // Re-map DraftPayloadJson safely
+            string newPayloadJson;
+            int totalAnswered;
+            try
+            {
+                newPayloadJson = RemapDraftPayload(draft.DraftPayloadJson, latestForm.Id, effectiveMapping, typeChangedItemIds, out totalAnswered);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
+            draft.SurveyFormId = latestForm.Id;
+            draft.DraftPayloadJson = newPayloadJson;
+            draft.TotalQuestions = latestForm.Sections.SelectMany(s => s.Items).Count();
+            draft.TotalAnswered = totalAnswered;
+            draft.UpdatedAt = DateTime.UtcNow;
+
+            // Sync AuditSchedule if attached
+            if (draft.AuditScheduleId.HasValue && draft.AuditScheduleId.Value > 0)
+            {
+                var sched = await _context.AuditSchedules.FindAsync(draft.AuditScheduleId.Value);
+                if (sched != null)
+                {
+                    sched.SurveyFormId = latestForm.Id;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = $"ย้ายแบบร่างไปยังฟอร์มเวอร์ชันใหม่ ({latestForm.Version}) สำเร็จ",
+                draftId = draft.Id,
+                oldFormId = oldForm?.Id,
+                newFormId = latestForm.Id,
+                newVersion = latestForm.Version,
+                draftPayloadJson = newPayloadJson,
+                totalAnswered,
+                totalQuestions = draft.TotalQuestions
+            });
+        }
+
+        private static (Dictionary<int, int> effectiveMapping, HashSet<int> typeChangedItemIds) BuildEffectiveMapping(
+            SurveyForm? oldForm, 
+            SurveyForm latestForm)
+        {
+            var effectiveMapping = new Dictionary<int, int>();
+            var typeChangedItemIds = new HashSet<int>();
+
+            var (_, _, _, lineageMapping) = FormController.UnpackFormMetadataWithLineage(latestForm.MetadataConfigJson);
+
+            var oldItemsMap = oldForm?.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id, i => i) ?? new Dictionary<int, SurveyItem>();
+            var newItemsMap = latestForm.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id, i => i);
+
+            bool hasLineage = lineageMapping != null && lineageMapping.Count > 0;
+
+            // 1. From recorded lineage (Strict 1:1 DNA mapping)
+            if (hasLineage)
+            {
+                foreach (var kvp in lineageMapping!)
+                {
+                    if (int.TryParse(kvp.Key, out var oldId) && newItemsMap.ContainsKey(kvp.Value))
+                    {
+                        effectiveMapping[oldId] = kvp.Value;
+                    }
+                }
+                // Note: items not in lineageMapping were deleted or newly added.
+                // We do NOT fall back to OrderIndex or text guessing, ensuring zero mis-mapping.
+            }
+            else if (oldForm != null)
+            {
+                // 2. Fallback ONLY for legacy forms without lineage: match by Section title + exact QuestionText
+                // NEVER match by OrderIndex (eliminates risk of deleted items falsely mapping to new unrelated items)
+                foreach (var oldSec in oldForm.Sections.OrderBy(s => s.OrderIndex))
+                {
+                    var matchingNewSec = latestForm.Sections.FirstOrDefault(s => s.Title == oldSec.Title);
+                    if (matchingNewSec == null) continue;
+
+                    foreach (var oldIt in oldSec.Items.OrderBy(i => i.OrderIndex))
+                    {
+                        if (effectiveMapping.ContainsKey(oldIt.Id)) continue;
+
+                        // Match by exact text ONLY
+                        var matchingNewIt = matchingNewSec.Items.FirstOrDefault(i => 
+                            !string.IsNullOrWhiteSpace(i.QuestionText) && 
+                            i.QuestionText.Trim() == oldIt.QuestionText?.Trim() && 
+                            !effectiveMapping.Values.Contains(i.Id));
+
+                        if (matchingNewIt != null)
+                        {
+                            effectiveMapping[oldIt.Id] = matchingNewIt.Id;
+                        }
+                    }
+                }
+            }
+
+            // Identify type changes
+            foreach (var (oldId, newId) in effectiveMapping)
+            {
+                if (oldItemsMap.TryGetValue(oldId, out var oIt) && newItemsMap.TryGetValue(newId, out var nIt))
+                {
+                    if (!string.Equals(oIt.QuestionType, nIt.QuestionType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        typeChangedItemIds.Add(newId);
+                    }
+                }
+            }
+
+            return (effectiveMapping, typeChangedItemIds);
+        }
+
+        private static string RemapDraftPayload(
+            string? rawPayloadJson, 
+            int newFormId, 
+            Dictionary<int, int> effectiveMapping, 
+            HashSet<int> typeChangedItemIds,
+            out int totalAnsweredCount)
+        {
+            totalAnsweredCount = 0;
+            if (string.IsNullOrWhiteSpace(rawPayloadJson))
+            {
+                return $"{{\"formId\":{newFormId},\"answers\":{{}},\"photos\":{{}},\"comments\":{{}}}}";
+            }
+
+            try
+            {
+                var node = JsonNode.Parse(rawPayloadJson)?.AsObject();
+                if (node == null)
+                {
+                    return $"{{\"formId\":{newFormId},\"answers\":{{}},\"photos\":{{}},\"comments\":{{}}}}";
+                }
+
+                node["formId"] = newFormId;
+
+                // Re-map answers
+                var newAnswers = new JsonObject();
+                if (node.TryGetPropertyValue("answers", out var answersNode) && answersNode is JsonObject answersObj)
+                {
+                    foreach (var kvp in answersObj)
+                    {
+                        if (int.TryParse(kvp.Key, out var oldId) && effectiveMapping.TryGetValue(oldId, out var newId))
+                        {
+                            // If type changed: clear answer value (per user preference: ล้างเฉพาะคำตอบ)
+                            if (!typeChangedItemIds.Contains(newId))
+                            {
+                                newAnswers[newId.ToString()] = kvp.Value?.DeepClone();
+                                if (kvp.Value != null) totalAnsweredCount++;
+                            }
+                        }
+                    }
+                }
+                node["answers"] = newAnswers;
+
+                // Re-map photos (keep photos even if type changed)
+                var newPhotos = new JsonObject();
+                if (node.TryGetPropertyValue("photos", out var photosNode) && photosNode is JsonObject photosObj)
+                {
+                    foreach (var kvp in photosObj)
+                    {
+                        if (int.TryParse(kvp.Key, out var oldId) && effectiveMapping.TryGetValue(oldId, out var newId))
+                        {
+                            newPhotos[newId.ToString()] = kvp.Value?.DeepClone();
+                        }
+                    }
+                }
+                node["photos"] = newPhotos;
+
+                // Re-map comments (keep comments even if type changed)
+                var newComments = new JsonObject();
+                if (node.TryGetPropertyValue("comments", out var commentsNode) && commentsNode is JsonObject commentsObj)
+                {
+                    foreach (var kvp in commentsObj)
+                    {
+                        if (int.TryParse(kvp.Key, out var oldId) && effectiveMapping.TryGetValue(oldId, out var newId))
+                        {
+                            newComments[newId.ToString()] = kvp.Value?.DeepClone();
+                        }
+                    }
+                }
+                node["comments"] = newComments;
+
+                return node.ToJsonString();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("อ่านข้อมูลแบบร่างเดิมไม่ได้ จึงยังไม่ได้ย้ายฟอร์ม", ex);
+            }
         }
 
         // ==========================================

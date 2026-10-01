@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, ChevronRight, ChevronDown, CheckCircle2, Plus, Trash2, X, Search, Filter, AlertTriangle, Info, Eye, Edit3, Loader2 } from "lucide-react";
+import { List, ClipboardCheck, Store, ChevronRight, ChevronDown, CheckCircle2, Plus, Trash2, X, Search, Filter, AlertTriangle, Info, Eye, Edit3, Loader2, Copy } from "lucide-react";
 import { Bar } from "recharts";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -25,6 +25,7 @@ export default function FormsScreen({ isDesktop, onBack, role }) {
   const [localBrandFilter, setLocalBrandFilter] = useState("all");
   const [editing, setEditing] = useState(undefined);
   const [loadingFormId, setLoadingFormId] = useState(null);
+  const [duplicatingId, setDuplicatingId] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("all");
   const [locationTypes, setLocationTypes] = useState([]);
@@ -86,6 +87,25 @@ export default function FormsScreen({ isDesktop, onBack, role }) {
       setDeleteError(err.response?.data?.message || err.message || "ไม่สามารถลบแบบฟอร์มได้ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleDuplicateForm = async (f) => {
+    if (!f || duplicatingId) return;
+    const formTitle = f.name || f.title;
+    const ok = window.confirm(`ต้องการทำซ้ำแบบฟอร์ม "${formTitle}" ใช่หรือไม่?\nระบบจะสร้างเป็นฟอร์มใหม่ชื่อ "${formTitle} (สำเนา)"`);
+    if (!ok) return;
+
+    setDuplicatingId(f.id);
+    try {
+      const res = await api.post(`/form/${f.id}/duplicate`);
+      showSuccessToast(res.data?.message || `ทำซ้ำแบบฟอร์มสำเร็จ: ${formTitle} (สำเนา)`);
+      if (refreshData) await refreshData();
+    } catch (err) {
+      console.error("Error duplicating form:", err);
+      alert(err.response?.data?.message || "เกิดข้อผิดพลาดในการทำซ้ำแบบฟอร์ม กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setDuplicatingId(null);
     }
   };
 
@@ -389,17 +409,36 @@ export default function FormsScreen({ isDesktop, onBack, role }) {
               </button>
 
               {canManageForms && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteModalForm(f);
-                  }}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 cursor-pointer shadow-2xs active:scale-90 transition-all"
-                  title="ลบแบบฟอร์มนี้"
-                >
-                  <Trash2 size={15} />
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDuplicateForm(f);
+                    }}
+                    disabled={duplicatingId === f.id}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200 cursor-pointer shadow-2xs active:scale-90 transition-all disabled:opacity-50"
+                    title="ทำซ้ำแบบฟอร์มนี้ (สำเนา)"
+                  >
+                    {duplicatingId === f.id ? (
+                      <Loader2 size={15} className="animate-spin text-emerald-600" />
+                    ) : (
+                      <Copy size={15} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteModalForm(f);
+                    }}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 cursor-pointer shadow-2xs active:scale-90 transition-all"
+                    title="ลบแบบฟอร์มนี้"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </>
               )}
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -16,6 +16,7 @@ import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
+import SwipeToast from "../../shared/SwipeToast";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
@@ -1050,16 +1051,28 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
     };
   }
 
-  // 🛡️ ตรวจสอบว่าแบบร่างตรงกับแบบฟอร์มนี้หรือไม่ ถ้าเป็นฟอร์มคนละอัน ห้ามนำคำตอบมาจับคู่ข้ามฟอร์มเด็ดขาด
+  // 🛡️ ตรวจสอบว่าแบบร่างตรงกับแบบฟอร์มนี้หรือไม่ ถ้าเป็นคนละแบบฟอร์ม (คนละ FormGroupId หรือคนละ Title)
+  // ห้ามนำคำตอบมาจับคู่ข้ามฟอร์มเด็ดขาด แต่ถ้าเป็นคนละเวอร์ชันของแบบฟอร์มเดียวกัน ให้ทำการจับคู่คำตอบให้ได้
   const draftFormId = draftPayload.formId || draftPayload.surveyFormId;
   if (draftFormId && Number(draftFormId) !== Number(form.id)) {
-    console.warn(`[Draft] Form mismatch: draft was created for form ID ${draftFormId}, but current form is ID ${form.id}. Skipping answer remapping.`);
-    return {
-      answers: {},
-      photos: {},
-      comments: {},
-      oldToNewIdMap: {}
-    };
+    const isSameGroup = form.formGroupId && (
+      draftPayload.formGroupId === form.formGroupId ||
+      Number(draftPayload.formId) === Number(form.formGroupId) ||
+      Number(draftPayload.surveyFormId) === Number(form.formGroupId)
+    );
+    const isSameTitle = Boolean(
+      (form.title && draftPayload.title && form.title.trim() === draftPayload.title.trim()) ||
+      (form.title && draftPayload.formTitle && form.title.trim() === draftPayload.formTitle.trim())
+    );
+    if (!isSameGroup && !isSameTitle) {
+      console.warn(`[Draft] Form mismatch: draft was created for form ID ${draftFormId}, but current form is ID ${form.id}. Skipping answer remapping.`);
+      return {
+        answers: {},
+        photos: {},
+        comments: {},
+        oldToNewIdMap: {}
+      };
+    }
   }
 
   const currentItemsFlat = [];
@@ -1084,9 +1097,20 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
   const oldToNewIdMap = {};
   const unmatchedDraftKeys = [];
 
+  // 🌟 กลยุทธ์ 0: ใช้ itemLineageMapping จาก MetadataConfigJson ถ้ามี
+  let lineageMapping = form.itemLineageMapping || form.metadataConfig?.itemLineageMapping;
+  if (!lineageMapping && form.metadataConfigJson) {
+    try {
+      const parsedMeta = typeof form.metadataConfigJson === 'string' ? JSON.parse(form.metadataConfigJson) : form.metadataConfigJson;
+      lineageMapping = parsedMeta?.itemLineageMapping;
+    } catch (e) {}
+  }
+
   for (const k of allDraftKeys) {
     if (currentItemIds.has(String(k))) {
       oldToNewIdMap[String(k)] = String(k);
+    } else if (lineageMapping && lineageMapping[String(k)] && currentItemIds.has(String(lineageMapping[String(k)]))) {
+      oldToNewIdMap[String(k)] = String(lineageMapping[String(k)]);
     } else {
       unmatchedDraftKeys.push(String(k));
     }
@@ -1237,7 +1261,10 @@ export default function LiveAuditScreen({
       const matchLoc = (targetLocationId && Number(dLocId) === Number(targetLocationId)) ||
         (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === pUnitName)) ||
         (pUnitName && (dLocName === pUnitName || (d.locationFullName && d.locationFullName.includes(pUnitName))));
-      const matchForm = !targetFormId || Number(d.surveyFormId) === Number(targetFormId) || Number(d.formId) === Number(targetFormId);
+      const matchForm = !targetFormId ||
+        Number(d.surveyFormId) === Number(targetFormId) ||
+        Number(d.formId) === Number(targetFormId) ||
+        (d.latestFormId && Number(d.latestFormId) === Number(targetFormId));
       return matchLoc && matchForm;
     });
 
@@ -1273,9 +1300,25 @@ export default function LiveAuditScreen({
 
   const isResumeDraft = Boolean(
     !preselectedPlan?.isNewAudit &&
-    preselectedPlan?.isResume &&
+    (preselectedPlan?.isResume || Boolean(matchedDraftRecord)) &&
     parsedDraftPayload
   );
+
+  const effectiveDraftFormId = useMemo(() => {
+    if (matchedDraftRecord?.surveyFormId != null && !isNaN(Number(matchedDraftRecord.surveyFormId))) {
+      return Number(matchedDraftRecord.surveyFormId);
+    }
+    if (parsedDraftPayload?.formId != null && !isNaN(Number(parsedDraftPayload.formId))) {
+      return Number(parsedDraftPayload.formId);
+    }
+    if (preselectedPlan?.isResume && preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId))) {
+      return Number(preselectedPlan.surveyFormId);
+    }
+    if (targetFormId != null && !isNaN(Number(targetFormId))) {
+      return Number(targetFormId);
+    }
+    return null;
+  }, [matchedDraftRecord?.surveyFormId, parsedDraftPayload?.formId, preselectedPlan?.isResume, preselectedPlan?.surveyFormId, targetFormId]);
 
   const isFromAssignedPlan = Boolean(
     preselectedPlan &&
@@ -1382,25 +1425,24 @@ export default function LiveAuditScreen({
 
   const applicableForms = useMemo(() => {
     const activeLatestForms = formList.filter(f => 
-      ((f.isLatest !== false && f.isLatest !== 0) || Number(f.id) === Number(preselectedPlan?.surveyFormId) || Number(f.id) === Number(targetFormId)) &&
+      ((f.isLatest !== false && f.isLatest !== 0) ||
+       Number(f.id) === Number(preselectedPlan?.surveyFormId) ||
+       Number(f.id) === Number(targetFormId) ||
+       Number(f.id) === Number(effectiveDraftFormId)) &&
       f.isActive !== false && f.isActive !== 0
     );
     if (!unit) return activeLatestForms;
     return activeLatestForms.filter(f => 
+      (effectiveDraftFormId && Number(f.id) === Number(effectiveDraftFormId)) ||
       (preselectedPlan?.surveyFormId && Number(f.id) === Number(preselectedPlan.surveyFormId)) ||
       (targetFormId && Number(f.id) === Number(targetFormId)) ||
       isFormApplicableToLocation(f, unit)
     );
-  }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId]);
+  }, [formList, unit, preselectedPlan?.surveyFormId, targetFormId, effectiveDraftFormId]);
 
   const [selectedForm, setSelectedForm] = useState(() => {
     if (preselectedPlan?.selectedForm) return preselectedPlan.selectedForm;
-    // 🌟 ให้ความสำคัญกับ SurveyFormId จากฐานข้อมูลภายนอก / Plan ก่อนเสมอ ถ้าไม่มีค่อย fallback ไปใช้ formId ใน JSON Draft
-    const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
-      ? Number(preselectedPlan.surveyFormId)
-      : (targetFormId != null && !isNaN(Number(targetFormId))
-          ? Number(targetFormId)
-          : (isResumeDraft && parsedDraftPayload?.formId ? Number(parsedDraftPayload.formId) : null));
+    const targetFId = effectiveDraftFormId;
     if (targetFId) {
       const found = formList.find(f => Number(f.id) === Number(targetFId));
       if (found) return found;
@@ -1432,25 +1474,26 @@ export default function LiveAuditScreen({
 
   // 🌟 Sync selectedForm from formList once forms finish loading asynchronously
   useEffect(() => {
-    if (!formList || formList.length === 0) return;
-    // 🌟 ยึดตัวนอก (preselectedPlan.surveyFormId / targetFormId) ก่อนตัวใน JSON Draft เสมอ
-    const targetFId = (preselectedPlan?.surveyFormId != null && !isNaN(Number(preselectedPlan.surveyFormId)))
-      ? Number(preselectedPlan.surveyFormId)
-      : (targetFormId != null && !isNaN(Number(targetFormId))
-          ? Number(targetFormId)
-          : (isResumeDraft && parsedDraftPayload?.formId ? Number(parsedDraftPayload.formId) : null));
+    const targetFId = effectiveDraftFormId;
     if (targetFId) {
       const found = formList.find(f => Number(f.id) === Number(targetFId));
       if (found && (!selectedForm || Number(selectedForm.id) !== Number(found.id))) {
         setSelectedForm(found);
+      } else if (!found && getFormDetail && (!selectedForm || Number(selectedForm.id) !== Number(targetFId))) {
+        // 🌟 ดึงข้อมูลฟอร์มเวอร์ชันเดิมของแบบร่างโดยตรงผ่าน API แม้จะเป็นเวอร์ชันเก่าที่ไม่ติดใน summary list
+        getFormDetail(targetFId).then(full => {
+          if (full && Array.isArray(full.sections)) {
+            setSelectedForm(full);
+          }
+        });
       }
-    } else if (!selectedForm && unit) {
+    } else if (!selectedForm && unit && formList && formList.length > 0) {
       const matched = formList.filter(f => isFormApplicableToLocation(f, unit));
       if (matched.length === 1) {
         setSelectedForm(matched[0]);
       }
     }
-  }, [formList, targetFormId, preselectedPlan?.surveyFormId, isResumeDraft, parsedDraftPayload?.formId, unit]);
+  }, [formList, effectiveDraftFormId, unit, getFormDetail]);
 
   const currentSections = selectedForm?.sections || [];
   const passingScore = selectedForm?.passingScore || 85;
@@ -1688,6 +1731,7 @@ export default function LiveAuditScreen({
   if (!auditStartedAtRef.current && auditStartedAt) {
     auditStartedAtRef.current = auditStartedAt;
   }
+  const performSaveDraftRef = useRef(null);
   const saveSeqRef = useRef(0);
   const realStartGpsRef = useRef(realStartGps);
   useEffect(() => {
@@ -1830,8 +1874,9 @@ export default function LiveAuditScreen({
   }, []);
 
   const hasHydratedDraftRef = useRef(false);
+  const hydratedFormIdRef = useRef(null);
   useEffect(() => {
-    if (parsedDraftPayload && !hasHydratedDraftRef.current && isResumeDraft) {
+    if (parsedDraftPayload && isResumeDraft) {
       const currentForm = selectedForm || formList.find(f => f.id === parsedDraftPayload.formId);
 
       // 🌟 forms จาก context เป็น summary ก่อน (ไม่มี sections) ให้รอ hydrate เต็มก่อน
@@ -1841,7 +1886,12 @@ export default function LiveAuditScreen({
         return;
       }
 
+      if (hasHydratedDraftRef.current && hydratedFormIdRef.current === currentForm?.id) {
+        return;
+      }
+
       hasHydratedDraftRef.current = true;
+      hydratedFormIdRef.current = currentForm?.id || null;
 
       const { answers: remappedAnswers, photos: remappedPhotos, comments: remappedComments, oldToNewIdMap } =
         remapDraftItemsToCurrentForm(parsedDraftPayload, currentForm);
@@ -1946,6 +1996,158 @@ export default function LiveAuditScreen({
     }
   }, [step, unit, selectedForm, effectiveSchedId]);
 
+  const isMigratingDraftRef = useRef(false);
+  const [isMigratingDraft, setIsMigratingDraft] = useState(false);
+
+  const newerFormVersion = useMemo(() => {
+    if (!selectedForm || step !== "audit") return null;
+
+    // 1. Check if matchedDraftRecord has isFormOutdated
+    if (matchedDraftRecord?.isFormOutdated && matchedDraftRecord?.latestFormId) {
+      if (Number(selectedForm.id) !== Number(matchedDraftRecord.latestFormId)) {
+        return {
+          latestFormId: matchedDraftRecord.latestFormId,
+          latestVersion: matchedDraftRecord.latestFormVersion || "ล่าสุด"
+        };
+      }
+    }
+
+    // 2. Check if selectedForm is not latest (matches strictly by formGroupId or root Id)
+    if (selectedForm.isLatest === false || selectedForm.isLatest === 0) {
+      const grpId = selectedForm.formGroupId ?? selectedForm.id;
+      const latest = (forms || []).find(f => 
+        (f.formGroupId ?? f.id) === grpId &&
+        (f.isLatest === true || f.isLatest === 1) &&
+        Number(f.id) !== Number(selectedForm.id)
+      );
+      if (latest) {
+        return {
+          latestFormId: latest.id,
+          latestVersion: latest.version || "ล่าสุด"
+        };
+      }
+    }
+
+    return null;
+  }, [selectedForm, step, matchedDraftRecord, forms]);
+
+  // 🔔 SwipeToast แจ้งเตือนเมื่อตรวจพบฟอร์มเวอร์ชันใหม่
+  const [showNewFormToast, setShowNewFormToast] = useState(false);
+
+  useEffect(() => {
+    if (newerFormVersion && step === "audit") {
+      setShowNewFormToast(true);
+    } else {
+      setShowNewFormToast(false);
+    }
+  }, [newerFormVersion?.latestVersion, newerFormVersion?.latestFormId, step]);
+
+  const handleMigrateDraft = async () => {
+    const versionText = newerFormVersion?.latestVersion ? ` (${newerFormVersion.latestVersion})` : "";
+    const ok = window.confirm(
+      `การเปลี่ยนเวอร์ชันฟอร์มใหม่ อาจจะทำให้ข้อมูลคำตอบบางข้อหายได้`
+    );
+    if (!ok) return;
+
+    // 1. 🛡️ Flush pending save first before migration starts!
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    await performSaveDraft();
+    for (let i = 0; i < 20 && (isSavingRef.current || hasPendingSaveRef.current); i++) {
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    const currentEffDraftId = getEffectiveDraftId();
+    if (!currentEffDraftId) {
+      alert("ไม่พบแบบร่างในระบบ กรุณาลองใหม่อีกครั้ง");
+      return;
+    }
+
+    isMigratingDraftRef.current = true;
+    setIsMigratingDraft(true);
+
+    try {
+      // 2. Call backend migration API
+      const res = await api.post(`/audit/draft/${currentEffDraftId}/migrate`);
+
+      if (res.data?.alreadyLatest) {
+        if (refreshData) await refreshData();
+        alert("ฟอร์มนี้เป็นเวอร์ชันล่าสุดแล้ว");
+        return;
+      }
+
+      const newFormId = res.data?.newFormId;
+      if (!newFormId) {
+        throw new Error("ไม่พบฟอร์มเวอร์ชันใหม่ จึงยังไม่ได้ย้ายแบบร่าง");
+      }
+      const newVersion = res.data?.newVersion || "ล่าสุด";
+
+      // 3. Fetch the full new form details from API
+      const formRes = await api.get(`/form/${newFormId}`);
+      const fullNewForm = formRes.data;
+
+      // 4. Update selectedForm to the new form and update hydrated ref to prevent stale re-hydration
+      hydratedFormIdRef.current = newFormId;
+      hasHydratedDraftRef.current = true;
+      setSelectedForm(fullNewForm);
+
+      // 5. Apply re-mapped answers directly from migration response
+      const rawPayload = res.data?.draftPayloadJson;
+      if (rawPayload) {
+        try {
+          const parsed = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
+          if (parsed.answers) setAnswers(parsed.answers);
+          if (parsed.photos) setPhotos(parsed.photos);
+          if (parsed.comments) setComments(parsed.comments);
+        } catch (e) {
+          console.warn("Parse migrated draftPayloadJson failed:", e);
+        }
+      }
+
+      // 6. Clean old storage keys and save new draft key (with safe backup copy)
+      try {
+        const oldFId = res.data?.oldFormId || selectedForm?.id;
+        if (unit?.id && oldFId) {
+          const oldKey = `qsc_draft_${unit.id}_${oldFId}`;
+          const prevDraft = localStorage.getItem(oldKey);
+          if (prevDraft) {
+            localStorage.setItem(`qsc_draft_backup_${currentEffDraftId}`, prevDraft);
+          }
+          localStorage.removeItem(oldKey);
+        }
+        if (unit?.id && newFormId && res.data?.draftPayloadJson) {
+          const payloadStr = typeof res.data.draftPayloadJson === "string"
+            ? res.data.draftPayloadJson
+            : JSON.stringify(res.data.draftPayloadJson);
+          localStorage.setItem(`qsc_draft_${unit.id}_${newFormId}`, payloadStr);
+        }
+        const activeSession = sessionStorage.getItem("qsc_active_audit_session");
+        if (activeSession) {
+          const sessionData = JSON.parse(activeSession);
+          if (sessionData?.plan) {
+            sessionData.plan.surveyFormId = newFormId;
+            sessionStorage.setItem("qsc_active_audit_session", JSON.stringify(sessionData));
+          }
+        }
+      } catch (e) {}
+
+      // 7. Refresh global data context once
+      if (refreshData) await refreshData();
+
+      alert(`✅ ย้ายคำตอบไปยังฟอร์มเวอร์ชันใหม่ (${newVersion}) สำเร็จแล้ว!`);
+    } catch (err) {
+      console.error("Failed to migrate draft:", err);
+      alert(err.response?.data?.message || err.message || "เกิดข้อผิดพลาดในการย้ายแบบร่าง กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsMigratingDraft(false);
+      setTimeout(() => {
+        isMigratingDraftRef.current = false;
+      }, 800);
+    }
+  };
+
   // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
   useEffect(() => {
     if (!setSubHeader) return;
@@ -1969,7 +2171,9 @@ export default function LiveAuditScreen({
         prev.isAudit === isAuditingQuestions &&
         prev.hasBack === true &&
         prev.leftActionType === currentActionType &&
-        prev.sectionBadgeNumber === sectionBadgeNumber
+        prev.sectionBadgeNumber === sectionBadgeNumber &&
+        prev.actionMigrating === isMigratingDraft &&
+        prev.newerVersionKey === (newerFormVersion?.latestVersion || null)
       ) {
         return prev;
       }
@@ -1981,6 +2185,29 @@ export default function LiveAuditScreen({
         isAudit: isAuditingQuestions,
         leftActionType: currentActionType,
         sectionBadgeNumber,
+        actionMigrating: isMigratingDraft,
+        newerVersionKey: newerFormVersion?.latestVersion || null,
+        action: newerFormVersion ? (
+          <button
+            type="button"
+            onClick={handleMigrateDraft}
+            disabled={isMigratingDraft}
+            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+            title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
+          >
+            {isMigratingDraft ? (
+              <>
+                <Loader2 size={13} className="animate-spin" />
+                <span className="hidden sm:inline">กำลังย้าย...</span>
+              </>
+            ) : (
+              <>
+                <RefreshCw size={13} />
+                <span>ฟอร์มใหม่</span>
+              </>
+            )}
+          </button>
+        ) : null,
         onMenuClick: () => setIsCategoryDrawerOpen(true),
         onBack: () => {
           if (step === "select-form") {
@@ -2006,7 +2233,7 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft]);
 
   // ล้าง subHeader เมื่อ Component ถูก Unmount
   useEffect(() => {
@@ -2093,6 +2320,12 @@ export default function LiveAuditScreen({
 
     // 🛡️ ป้องกันไม่ให้บันทึกทับก่อนที่ข้อมูลร่างเดิมจะถูก hydrate เข้าสู่ state
     if (isResumeDraft && !hasHydratedDraftRef.current) {
+      setSyncStatus("idle");
+      return;
+    }
+
+    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับขณะกำลังกดย้ายฟอร์มใหม่
+    if (isMigratingDraft || isMigratingDraftRef.current) {
       setSyncStatus("idle");
       return;
     }
@@ -2251,6 +2484,11 @@ export default function LiveAuditScreen({
       if (currentSeq === saveSeqRef.current) {
         setSyncStatus("error");
       }
+      if (err.response?.status === 409) {
+        // 409 Conflict: draft was updated/migrated from another device or session
+        console.warn("Draft version conflict (409):", err.response?.data?.message);
+        if (refreshData) refreshData();
+      }
     } finally {
       isSavingRef.current = false;
       // 🌟 If changes arrived while the previous HTTP save was in-flight, save them immediately now
@@ -2271,6 +2509,11 @@ export default function LiveAuditScreen({
 
     // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับร่างเดิมก่อน hydrate เสร็จสมบูรณ์
     if (isResumeDraft && !hasHydratedDraftRef.current) {
+      return;
+    }
+
+    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับขณะกำลังกดย้ายฟอร์มใหม่
+    if (isMigratingDraft || isMigratingDraftRef.current) {
       return;
     }
 
@@ -2309,10 +2552,11 @@ export default function LiveAuditScreen({
     auditorSignature,
     auditeeSignName,
     step,
-    currentUser
+    currentUser,
+    isMigratingDraft
   ]);
 
-  const performSaveDraftRef = useRef(performSaveDraft);
+  performSaveDraftRef.current = performSaveDraft;
   useEffect(() => {
     performSaveDraftRef.current = performSaveDraft;
   });
@@ -3633,6 +3877,27 @@ export default function LiveAuditScreen({
                       </span>
                     )
                   )}
+                  {newerFormVersion && (
+                    <button
+                      type="button"
+                      onClick={handleMigrateDraft}
+                      disabled={isMigratingDraft}
+                      className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50 ml-1.5"
+                      title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
+                    >
+                      {isMigratingDraft ? (
+                        <>
+                          <Loader2 size={12} className="animate-spin" />
+                          <span>กำลังย้าย...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw size={12} />
+                          <span>ฟอร์มใหม่</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
                 <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
@@ -4528,6 +4793,28 @@ export default function LiveAuditScreen({
               />
             </div>
           </div>,
+          document.body
+        )}
+
+        {/* 🌟 Modern Swipeable Notification Toast for Outdated Drafts */}
+        {newerFormVersion && showNewFormToast && typeof document !== "undefined" && createPortal(
+          <SwipeToast
+            open={showNewFormToast}
+            onClose={() => setShowNewFormToast(false)}
+            position="top"
+            title={`พบแบบฟอร์มเวอร์ชันใหม่`}
+            description="หากย้ายแบบฟอร์ม ข้อมูลคำตอบบางข้ออาจเปลี่ยนแปลงได้"
+            icon={<RefreshCw size={18} className="text-emerald-300 shrink-0" />}
+            background="#0F6659"
+            color="#ffffff"
+            fuseColor="#34d399"
+            width={400}
+            radius={16}
+            duration={7000}
+            fuse="bottom"
+            pauseOnHover={true}
+            closeButton={true}
+          />,
           document.body
         )}
       </div>
