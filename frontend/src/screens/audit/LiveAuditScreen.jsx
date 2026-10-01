@@ -120,11 +120,11 @@ const QuestionCard = React.memo(function QuestionCard({
   const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
 
   const isNa = answer === "na";
-  const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (Number(answer) < 3 && answer !== undefined && answer !== ""));
+  const isScale = qType === "scale" || qType === "rating";
+  const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (isScale && Number(answer) < 3 && answer !== undefined && answer !== ""));
   const rawP = photosForQuestion;
   const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
   const hasPhoto = questionPhotos.length > 0;
-  const isScale = qType === "scale" || qType === "rating";
   const isCommentRequired = isFailed;
   const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
   const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0)));
@@ -172,7 +172,9 @@ const QuestionCard = React.memo(function QuestionCard({
           )}
 
           {isHighlighted && (
-            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">กรุณาตอบข้อนี้!</span>
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-rose-600 text-white animate-bounce">
+              {isCommentRequired && !commentValue?.trim() ? "กรุณาระบุข้อคิดเห็น!" : "กรุณาตอบข้อนี้!"}
+            </span>
           )}
 
           <div className="flex items-center gap-1.5 shrink-0 ml-auto">
@@ -1489,12 +1491,20 @@ export default function LiveAuditScreen({
   const [comments, setComments] = useState(() => initialRemappedDraft?.comments || (isResumeDraft ? (parsedDraftPayload?.comments || {}) : {}));
   const [openComments, setOpenComments] = useState({});
   const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
+  const loggedInAuditorName = currentUser?.fullName || currentUser?.name || defaultAuditorName || "ผู้ตรวจประเมิน";
   const [auditorName, setAuditorName] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
     return currentUser?.fullName || currentUser?.name || defaultAuditorName || "";
   });
   const [metadataValues, setMetadataValues] = useState(() => {
-    return parsedDraftPayload?.metadataValues || {};
+    const meta = parsedDraftPayload?.metadataValues ? { ...parsedDraftPayload.metadataValues } : {};
+    if (!meta.auditor) {
+      meta.auditor = parsedDraftPayload?.auditorName || currentUser?.fullName || currentUser?.name || defaultAuditorName || "";
+    }
+    if (!meta.audit_type) {
+      meta.audit_type = "ตามกำหนดการ";
+    }
+    return meta;
   });
 
   const activeMetadataFields = useMemo(() => {
@@ -1504,7 +1514,12 @@ export default function LiveAuditScreen({
     } else if (selectedForm?.metadataConfigJson) {
       try {
         const parsed = JSON.parse(selectedForm.metadataConfigJson);
-        if (Array.isArray(parsed) && parsed.length > 0) fields = parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          fields = parsed;
+        } else if (parsed?.metadataJson) {
+          const inner = typeof parsed.metadataJson === "string" ? JSON.parse(parsed.metadataJson) : parsed.metadataJson;
+          if (Array.isArray(inner) && inner.length > 0) fields = inner;
+        }
       } catch (e) { }
     }
 
@@ -1567,6 +1582,12 @@ export default function LiveAuditScreen({
       if (t === "announced") return "announced";
       return t;
     }
+    if (parsedDraftPayload?.metadataValues?.audit_type) {
+      const raw = String(parsedDraftPayload.metadataValues.audit_type).toLowerCase();
+      if (raw.includes("ปลอม") || raw === "undercover") return "undercover";
+      if (raw.includes("นอก") || raw === "spot" || raw === "unannounced") return "spot";
+      return "announced";
+    }
     if (preselectedPlan?.auditType) {
       const t = preselectedPlan.auditType.toLowerCase();
       if (t === "spot" || t === "unannounced") return "spot";
@@ -1574,7 +1595,7 @@ export default function LiveAuditScreen({
       if (t === "announced") return "announced";
       return t;
     }
-    return "";
+    return "announced";
   });
 
   const [extraNote, setExtraNote] = useState(() => {
@@ -1838,6 +1859,11 @@ export default function LiveAuditScreen({
       if (parsedDraftPayload.auditorName) {
         setAuditorName(parsedDraftPayload.auditorName);
       }
+      if (parsedDraftPayload.metadataValues) {
+        setMetadataValues(parsedDraftPayload.metadataValues);
+      } else if (parsedDraftPayload.auditorName && parsedDraftPayload.auditorName !== (currentUser?.fullName || currentUser?.name)) {
+        setMetadataValues(prev => ({ ...prev, auditor: parsedDraftPayload.auditorName }));
+      }
       if (parsedDraftPayload.isBackdated !== undefined) {
         setIsBackdated(Boolean(parsedDraftPayload.isBackdated));
       }
@@ -2092,7 +2118,7 @@ export default function LiveAuditScreen({
       const currentUnit = overrideData.unit || unit;
       const currentForm = overrideData.selectedForm || selectedForm;
       const currentStaffCount = overrideData.staffCount !== undefined ? overrideData.staffCount : staffCount;
-      const currentAuditorName = overrideData.auditorName !== undefined ? overrideData.auditorName : auditorName;
+      const currentAuditorName = overrideData.auditorName !== undefined ? overrideData.auditorName : (loggedInAuditorName || auditorName);
       const currentAuditType = overrideData.auditType !== undefined ? overrideData.auditType : auditType;
       const currentExtraNote = overrideData.extraNote !== undefined ? overrideData.extraNote : extraNote;
       const currentMetadataValues = overrideData.metadataValues !== undefined ? overrideData.metadataValues : metadataValues;
@@ -2414,10 +2440,28 @@ export default function LiveAuditScreen({
   const handleAnswerSelect = useCallback((questionId, val) => {
     setHighlightedQuestionId(prevHighlighted => (prevHighlighted === questionId ? null : prevHighlighted));
 
-    const isFailing = val === "no" || val === false || (typeof val === "number" && val < 3);
+    // 🌟 ตรวจสอบว่าคำถามเป็นข้อที่คิดคะแนนหรือไม่ (ถ้าเป็นข้อคิดคะแนนแล้วไม่ผ่าน ให้เด้งเปิดช่องคอมเมนต์ทันที)
+    let isScoredItem = false;
+    let isScale = false;
+    for (const sec of (selectedForm?.sections || [])) {
+      const item = (sec.items || []).find(i => i.id === questionId);
+      if (item) {
+        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+        const isNonScored = sec.sectionType === "INFO" || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        if (!isNonScored) {
+          isScoredItem = true;
+          if (qType === "scale" || qType === "rating") isScale = true;
+        }
+        break;
+      }
+    }
 
-    if (isFailing) {
-      setOpenComments(prev => ({ ...prev, [questionId]: true }));
+    if (isScoredItem) {
+      const isFailing = (isScale && typeof val === "number" && val < 3) ||
+                        (!isScale && (val === "no" || val === false));
+      if (isFailing) {
+        setOpenComments(prev => ({ ...prev, [questionId]: true }));
+      }
     }
 
     setAnswers(prev => {
@@ -2430,7 +2474,7 @@ export default function LiveAuditScreen({
       }
       return next;
     });
-  }, []);
+  }, [selectedForm]);
 
   const handleCommentChange = useCallback((questionId, val) => {
     setComments(prev => ({ ...prev, [questionId]: val }));
@@ -2579,8 +2623,9 @@ export default function LiveAuditScreen({
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
         const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
 
-        // ถ้าเป็นข้อไม่คิดคะแนน และไม่ได้ตั้งเป็น required ให้ข้ามการตรวจได้
-        if (isNonScored && !item.required) return;
+        // 🌟 ถ้าเป็นข้อไม่คิดคะแนน: ตรวจเฉพาะข้อที่มีการกดตั้งค่าว่า "ต้องกรอก / บังคับกรอก" (required) เท่านั้น!
+        const isItemRequired = Boolean(item.required || item.fieldConfig?.required);
+        if (isNonScored && !isItemRequired) return;
 
         const ans = answers[item.id];
         const isAnswered = ans !== undefined && ans !== null && ans !== "";
@@ -2667,16 +2712,18 @@ export default function LiveAuditScreen({
       if (!field.required) continue;
 
       if (field.type === "auditor" || field.id === "auditor") {
-        if (!auditorName?.trim()) {
+        const val = metadataValues[field.id] || metadataValues["auditor"];
+        if (!val || (typeof val === "string" && !val.trim())) {
           setActiveTab(1);
-          alert("⚠️ กรุณาระบุผู้ตรวจประเมินในแท็บ 'ข้อมูลการตรวจ'");
+          alert(`⚠️ กรุณาระบุ "${field.label || 'ชื่อผู้ตรวจประเมิน'}" ในแท็บ 'ข้อมูลการตรวจ'`);
           scrollToTop();
           return false;
         }
       }
 
       if (field.id === "audit_type") {
-        if (!auditType?.trim()) {
+        const val = auditType || metadataValues["audit_type"] || metadataValues[field.id];
+        if (!val || (typeof val === "string" && !val.trim())) {
           setActiveTab(1);
           alert("⚠️ กรุณาเลือกประเภทการตรวจในแท็บ 'ข้อมูลการตรวจ'");
           scrollToTop();
@@ -2714,16 +2761,25 @@ export default function LiveAuditScreen({
       return false;
     }
 
+    // 🌟 ตรวจสอบข้อคิดคะแนนที่ตกเกณฑ์ (Yes/No = ไม่ผ่าน หรือ Scale 1-5 ที่คะแนน < 3) บังคับต้องระบุข้อคิดเห็น
     const missingComments = [];
     currentSections.forEach((sec, sIdx) => {
+      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((item, qIdx) => {
+        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+
+        // 🌟 ข้อที่ไม่คิดคะแนน หรือจำนวนตัวเลข ไม่ต้องนำมาเชื่อมกับเงื่อนไขตกเกณฑ์ (< 3) เด็ดขาด
+        if (isNonScored) return;
+
         const ans = answers[item.id];
         const isNa = ans === "na";
+        const isScale = qType === "scale" || qType === "rating";
         const isFailed = !isNa && (
           ans === "no" || 
           ans === false || 
-          (typeof ans === "number" && ans < 3) || 
-          (!isNaN(Number(ans)) && ans !== "" && ans !== undefined && Number(ans) < 3)
+          (isScale && typeof ans === "number" && ans < 3) || 
+          (isScale && !isNaN(Number(ans)) && ans !== "" && ans !== undefined && Number(ans) < 3)
         );
 
         if (isFailed) {
@@ -2885,12 +2941,45 @@ export default function LiveAuditScreen({
         auditeeUserId: (unit.managerUserId && Number(unit.managerUserId) > 0) ? Number(unit.managerUserId) : null,
         auditeeNameText: auditeeSignName || unit.managerName || "-",
         auditScheduleId: targetSchedId,
-        staffCount: Number(staffCount) || 0,
-        auditType: auditType || "announced",
+        auditType: (() => {
+          const raw = auditType || metadataValues["audit_type"] || metadataValues.auditType;
+          if (!raw) return "announced";
+          const lower = String(raw).toLowerCase();
+          if (lower.includes("ปลอม") || lower === "undercover") return "undercover";
+          if (lower.includes("นอก") || lower === "spot" || lower === "unannounced") return "spot";
+          return "announced";
+        })(),
         notes: extraNote || "",
         metadataValuesJson: JSON.stringify({
+          _fields: (activeMetadataFields || []).map((field, idx) => {
+            let val = metadataValues[field.id];
+            if (field.id === "staff_count") {
+              val = (staffCount !== "" && staffCount !== undefined && staffCount !== null) ? staffCount : (val ?? "");
+            } else if (field.id === "audit_type") {
+              val = val || (auditType ? (
+                auditType === "spot" ? "นอกกำหนดการ" :
+                auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ"
+              ) : "");
+            } else if (field.id === "auditor" || field.type === "auditor") {
+              val = val || "";
+            }
+
+            return {
+              order: idx + 1,
+              id: field.id,
+              label: field.label || field.placeholder || field.id,
+              value: val !== undefined && val !== null ? val : "",
+              type: field.type || "text",
+              fieldConfig: field.fieldConfig || (field.options || field.columns || field.rows ? { options: field.options, columns: field.columns, rows: field.rows } : null),
+              unit: field.unit || (field.id === "staff_count" ? "คน" : "")
+            };
+          }),
           ...metadataValues,
-          ...(staffCount !== "" && staffCount !== undefined ? { staff_count: staffCount } : {})
+          ...(staffCount !== "" && staffCount !== undefined ? { staff_count: staffCount } : {}),
+          audit_type: metadataValues.audit_type || (
+            auditType === "spot" ? "นอกกำหนดการ" :
+            auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ"
+          )
         }),
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
@@ -3399,14 +3488,21 @@ export default function LiveAuditScreen({
       for (const field of activeMetadataFields) {
         if (!field.required) continue;
 
-        if (field.type === "auditor" && !auditorName?.trim()) {
-          alert("กรุณาระบุผู้ตรวจประเมิน");
-          return;
+        if (field.type === "auditor" || field.id === "auditor") {
+          let val = metadataValues[field.id] || metadataValues["auditor"];
+          if (!val || (typeof val === "string" && !val.trim())) {
+            val = currentUser?.fullName || currentUser?.name || defaultAuditorName || "ผู้ตรวจประเมิน";
+            setMetadataValues(prev => ({ ...prev, [field.id]: val, auditor: val }));
+          }
         }
 
-        if (field.id === "audit_type" && !auditType?.trim()) {
-          alert("กรุณาเลือกประเภทการตรวจ");
-          return;
+        if (field.id === "audit_type") {
+          let val = auditType || metadataValues["audit_type"] || metadataValues[field.id];
+          if (!val || (typeof val === "string" && !val.trim())) {
+            val = "announced";
+            setAuditType("announced");
+            setMetadataValues(prev => ({ ...prev, [field.id]: "ตามกำหนดการ", audit_type: "ตามกำหนดการ" }));
+          }
         }
 
         if (field.id === "staff_count" && (staffCount === "" || staffCount === undefined)) {
@@ -3414,7 +3510,7 @@ export default function LiveAuditScreen({
           return;
         }
 
-        if (field.id !== "auditor" && field.id !== "audit_type" && field.id !== "staff_count") {
+        if (field.id !== "auditor" && field.type !== "auditor" && field.id !== "audit_type" && field.id !== "staff_count") {
           const val = metadataValues[field.id];
           if (val === undefined || val === null || val === "" || (typeof val === "string" && !val.trim())) {
             alert(`กรุณากรอกข้อมูล "${field.label}"`);
@@ -3542,7 +3638,7 @@ export default function LiveAuditScreen({
                 <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
                   <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
                     <PenTool size={11} className="text-[#0F6659] shrink-0" />
-                    <span className="truncate">{auditorName || "ระบุผู้ตรวจ"}</span>
+                    <span className="truncate">{loggedInAuditorName || "ระบุผู้ตรวจ"}</span>
                   </span>
                   <span className="flex items-center gap-1 shrink-0 text-slate-400">
                     <Clock size={11} className="shrink-0" />
@@ -3699,7 +3795,16 @@ export default function LiveAuditScreen({
                         onChange={(newVal) => {
                           const next = { ...metadataValues, [field.id]: newVal };
                           setMetadataValues(next);
-                          performSaveDraft({ metadataValues: next });
+                          if (field.id === "audit_type" || field.id === "auditType") {
+                            const raw = String(newVal || "").toLowerCase();
+                            const mapped = raw.includes("ปลอม") || raw === "undercover" ? "undercover"
+                              : raw.includes("นอก") || raw === "spot" || raw === "unannounced" ? "spot"
+                              : "announced";
+                            setAuditType(mapped);
+                            performSaveDraft({ metadataValues: next, auditType: mapped });
+                          } else {
+                            performSaveDraft({ metadataValues: next });
+                          }
                         }}
                       />
                     </div>
@@ -3707,6 +3812,7 @@ export default function LiveAuditScreen({
                 }
 
                 if (field.id === "auditor" || field.type === "auditor") {
+                  const currentVal = metadataValues[field.id] || "";
                   return (
                     <div key={field.id}>
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -3714,11 +3820,12 @@ export default function LiveAuditScreen({
                       </label>
                       <div className="relative">
                         <select
-                          value={auditorName}
+                          value={currentVal}
                           onChange={(e) => {
                             const val = e.target.value;
-                            setAuditorName(val);
-                            performSaveDraft({ auditorName: val });
+                            const next = { ...metadataValues, [field.id]: val };
+                            setMetadataValues(next);
+                            performSaveDraft({ metadataValues: next });
                           }}
                           className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                         >
@@ -4232,7 +4339,7 @@ export default function LiveAuditScreen({
                 />
 
                 <SignaturePad
-                  label={`2. ผู้ตรวจประเมิน (${auditorName || defaultAuditorName})`}
+                  label={`2. ผู้ตรวจประเมิน (${loggedInAuditorName || auditorName || defaultAuditorName})`}
                   onSignChange={(sig) => {
                     setAuditorSignature(sig);
                     performSaveDraft({ auditorSignature: sig });

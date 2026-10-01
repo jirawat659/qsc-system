@@ -671,6 +671,15 @@ namespace QSC.Api.Controllers
             public string? Note { get; set; }
         }
 
+        private static readonly Dictionary<string, string[]> CapTransitions = new()
+        {
+            ["OPEN"]      = new[] { "SUBMITTED", "CANCELLED", "CLOSED" },
+            ["SUBMITTED"] = new[] { "CLOSED", "REJECTED", "CANCELLED" },
+            ["REJECTED"]  = new[] { "SUBMITTED", "CANCELLED", "CLOSED" },
+            ["CLOSED"]    = new[] { "OPEN" },
+            ["CANCELLED"] = new[] { "OPEN" }
+        };
+
         [Authorize(Roles = "ADMIN,STANDARD,AUDITOR")]
         [HttpPut("{id}/status")]
         public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateStatusDto dto)
@@ -703,10 +712,20 @@ namespace QSC.Api.Controllers
             var user = await _context.Users.Include(u => u.Role).FirstOrDefaultAsync(u => u.Id == currentUserId);
 
             var newStatus = dto.Status!.ToUpper();
-            task.Status = newStatus;
-            if ((newStatus == "CLOSED" || newStatus == "CANCELLED") && !task.ClosedAt.HasValue)
+            var current = (task.Status ?? "OPEN").ToUpper();
+            if (role != "ADMIN" && current != newStatus && !(CapTransitions.TryGetValue(current, out var next) && next.Contains(newStatus)))
             {
-                task.ClosedAt = now;
+                return BadRequest(new { message = $"ไม่สามารถเปลี่ยนสถานะจาก {current} เป็น {newStatus} ได้" });
+            }
+
+            task.Status = newStatus;
+            if (newStatus is "CLOSED" or "CANCELLED")
+            {
+                task.ClosedAt ??= now;
+            }
+            else
+            {
+                task.ClosedAt = null;
             }
 
             if (!string.IsNullOrWhiteSpace(dto.Note))

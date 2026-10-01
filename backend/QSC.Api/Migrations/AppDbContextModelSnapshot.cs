@@ -286,6 +286,9 @@ namespace QSC.Api.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AnswerValue")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("AuditRecordId")
                         .HasColumnType("int");
 

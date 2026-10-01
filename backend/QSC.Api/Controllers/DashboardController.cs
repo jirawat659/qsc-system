@@ -213,15 +213,24 @@ namespace QSC.Api.Controllers
             if (allowedLocationIds != null) locQuery = locQuery.Where(l => allowedLocationIds.Contains(l.Id));
             if (allowedBrandIds != null) locQuery = locQuery.Where(l => l.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-            var regionalScores = await locQuery
+            var regionalRaw = await locQuery
                 .GroupBy(l => l.Region)
                 .Select(g => new
                 {
                     region = g.Key,
-                    avgScore = Math.Round(g.Average(l => l.LastScore), 2),
-                    totalBranches = g.Count()
+                    avg = g.Where(l => l.LastAuditDate != null).Average(l => (double?)l.LastScore),
+                    totalBranches = g.Count(),
+                    auditedBranches = g.Count(l => l.LastAuditDate != null)
                 })
                 .ToListAsync();
+
+            var regionalScores = regionalRaw.Select(x => new
+            {
+                x.region,
+                avgScore = x.avg.HasValue ? Math.Round(x.avg.Value, 2) : (double?)null,
+                x.totalBranches,
+                x.auditedBranches
+            }).ToList();
 
             return Ok(new
             {
@@ -276,16 +285,27 @@ namespace QSC.Api.Controllers
                         : (!string.IsNullOrWhiteSpace(resp.SurveyItem!.CategoryName)
                             ? resp.SurveyItem.CategoryName
                             : (resp.SurveyItem.SurveySection != null ? resp.SurveyItem.SurveySection.Title : "ทั่วไป")),
+                    CategoryCode = !string.IsNullOrWhiteSpace(resp.CategoryCode)
+                        ? resp.CategoryCode
+                        : (resp.SurveyItem != null ? resp.SurveyItem.CategoryCode : null),
                     ScoreGiven = resp.ScoreGiven,
                     // คะแนนเต็ม ณ วันตรวจก่อน (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) แล้วค่อยใช้ค่าปัจจุบันของฟอร์ม
                     FullScore = resp.MaxScore != null
                         ? resp.MaxScore.Value
-                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 10.0)
+                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 0.0)
                 })
+                .Where(x => x.FullScore > 0)
                 .ToListAsync();
 
             var categoryScores = rawCategoryData
-                .GroupBy(d => d.CategoryName.Trim())
+                .Select(d => new
+                {
+                    NormalizedName = NormalizeCategoryName(d.CategoryName, d.CategoryCode),
+                    d.ScoreGiven,
+                    d.FullScore
+                })
+                .Where(d => d.NormalizedName != "INFO" && d.NormalizedName != "รายละเอียด" && d.NormalizedName != "ข้อมูลทั่วไป")
+                .GroupBy(d => d.NormalizedName)
                 .Select(g =>
                 {
                     var totalScoreGiven = g.Sum(x => x.ScoreGiven);
@@ -303,6 +323,27 @@ namespace QSC.Api.Controllers
                 .ToList();
 
             return Ok(categoryScores);
+        }
+
+        private static string NormalizeCategoryName(string? rawName, string? rawCode)
+        {
+            var code = (rawCode ?? "").Trim().ToUpper();
+            if (code == "PD" || code == "QLT") return "Product";
+            if (code == "PC" || code == "OPS") return "Process";
+            if (code == "S" || code == "SVC") return "Service";
+            if (code == "C" || code == "CLN") return "Cleanliness";
+            if (code == "DM" || code == "DOC") return "Documents";
+            if (code == "INFO") return "INFO";
+
+            var name = (rawName ?? "").Trim();
+            if (name.Contains("คุณภาพ") || name.Equals("Product", StringComparison.OrdinalIgnoreCase)) return "Product";
+            if (name.Contains("กระบวนการ") || name.Equals("Process", StringComparison.OrdinalIgnoreCase) || name.Contains("โรงงาน") || name.Contains("GMP")) return "Process";
+            if (name.Contains("บริการ") || name.Equals("Service", StringComparison.OrdinalIgnoreCase)) return "Service";
+            if (name.Contains("สะอาด") || name.Equals("Cleanliness", StringComparison.OrdinalIgnoreCase) || name.Contains("สุขอนามัย")) return "Cleanliness";
+            if (name.Contains("เอกสาร") || name.Equals("Documents", StringComparison.OrdinalIgnoreCase)) return "Documents";
+            if (name.Contains("รายละเอียด") || name.Contains("ข้อมูล") || name.Equals("INFO", StringComparison.OrdinalIgnoreCase)) return "INFO";
+
+            return string.IsNullOrEmpty(name) ? "Other" : name;
         }
     }
 }

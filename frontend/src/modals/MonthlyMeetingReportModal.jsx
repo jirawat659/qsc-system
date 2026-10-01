@@ -6,6 +6,7 @@ import { c, mono } from "../config/theme";
 import { DataContext } from "../context/DataContext";
 import ModalWrapper from "../shared/ModalWrapper";
 import api from "../config/api";
+import { parseServerDate } from "../utils/formatters";
 
 const THAI_MONTHS_FULL = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -30,16 +31,16 @@ const BRAND_ABBR_MAP = {
 
 function formatThaiDateShort(dateStr) {
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return "-";
+  const d = parseServerDate(dateStr);
+  if (!d || isNaN(d.getTime())) return "-";
   return `${d.getDate()} ${THAI_MONTHS_SHORT[d.getMonth()]} ${(d.getFullYear() + 543) % 100}`;
 }
 
 function extractTime(dateStr, timeStr) {
   if (timeStr) return timeStr;
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+  const d = parseServerDate(dateStr);
+  return !d || isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
 function getCategoryScores(record) {
@@ -261,11 +262,14 @@ export default function MonthlyMeetingReportModal({ onClose }) {
     const categoryScores = {};
     monthRecords.forEach(r => {
       (r.responses || []).forEach(resp => {
-        if (resp.isNa) return;
+        if (resp.isNa || resp.isScored === false) return;
+        const full = Number(resp.fullScore !== undefined && resp.fullScore !== null ? resp.fullScore : (resp.maxScore ?? resp.surveyItem?.fullScore ?? 0));
+        if (full <= 0) return; // 🌟 ข้อที่ไม่คิดคะแนน ไม่นำมาคำนวณในหมวดคะแนน
         const cat = (resp.categoryName || resp.surveyItem?.categoryName || resp.sectionTitle || 'ทั่วไป').trim();
+        if (cat === "รายละเอียด" || cat.toLowerCase() === "info" || cat === "ข้อมูลทั่วไป") return;
         if (!categoryScores[cat]) categoryScores[cat] = { total: 0, count: 0 };
         categoryScores[cat].total += (resp.scoreGiven || 0);
-        categoryScores[cat].count += (resp.fullScore > 0 ? resp.fullScore : 10);
+        categoryScores[cat].count += full;
       });
     });
     return Object.entries(categoryScores)

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 
+using System.Text.Json.Serialization;
+using QSC.Api.Helpers;
+
 namespace QSC.Api.Models
 {
     public class AuditSchedule
@@ -10,6 +13,7 @@ namespace QSC.Api.Models
         public Location? Location { get; set; }
         public int SurveyFormId { get; set; }
         public SurveyForm? SurveyForm { get; set; }
+        [JsonConverter(typeof(LocalDateTimeConverter))]
         public DateTime ScheduledDate { get; set; }
         public string? Time { get; set; }
         public string AuditType { get; set; } = "announced"; // announced, spot, undercover

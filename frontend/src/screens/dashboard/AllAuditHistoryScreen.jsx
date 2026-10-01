@@ -1049,9 +1049,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       <div className="md:hidden flex items-center gap-1.5 overflow-x-auto custom-tab-scrollbar pb-0.5">
         <span className="text-xs font-medium text-slate-400 shrink-0">เรียงตาม</span>
         {[
-          { key: "date",   label: "วันที่",  first: "date-desc",   second: "date-asc",    texts: ["ใหม่→เก่า", "เก่า→ใหม่"] },
-          { key: "score",  label: "คะแนน",  first: "score-desc",  second: "score-asc",   texts: ["สูง→ต่ำ", "ต่ำ→สูง"] },
-          { key: "branch", label: "สาขา",   first: "branch-asc",  second: "branch-desc", texts: ["ก→ฮ", "ฮ→ก"] },
+          { key: "date",   label: "วันที่",  first: "date-desc",   second: "date-asc"},
+          { key: "score",  label: "คะแนน",  first: "score-desc",  second: "score-asc"},
+          { key: "branch", label: "สาขา",   first: "branch-asc",  second: "branch-desc"},
         ].map(opt => {
           const isFirst = sortBy === opt.first || (opt.key === "branch" && sortBy === "branch");
           const isSecond = sortBy === opt.second;
@@ -1068,7 +1068,6 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               }`}
             >
               <span>{opt.label}</span>
-              {active && <span>· {isFirst ? opt.texts[0] : opt.texts[1]}</span>}
               {active
                 ? (isFirst ? <ArrowDown size={13} /> : <ArrowUp size={13} />)
                 : <ArrowUpDown size={12} className="text-slate-400" />}

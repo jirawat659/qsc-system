@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, User, FileSpreadsheet, Sparkles } from "lucide-react";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, User, FileSpreadsheet, Sparkles, Table } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TODAY, AUDIT_TYPES, AUDIT_TYPE_META, CAP_STATUS_MAP, REGION_LINES, BRAND_LINES, CATEGORY_DISPLAY_MAP, getCategoryDisplay } from "../../config/constants";
 import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
-import { exportToExcel } from "../../utils/exportToExcel";
+import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
+import { formatThaiDate, formatThaiTime, parseServerDate } from "../../utils/formatters";
 import api, { getFullImageUrl } from "../../config/api";
 
 import ModalWrapper from "../../shared/ModalWrapper";
@@ -28,14 +29,107 @@ const NON_SCORED_NOTE_MARKER = "\n[หมายเหตุ]: ";
 const splitNonScoredNotes = (notes, qType) => {
   const text = (notes || "").toString();
   const idx = text.indexOf(NON_SCORED_NOTE_MARKER);
-  let answer = idx >= 0 ? text.slice(0, idx) : text;
-  const comment = idx >= 0 ? text.slice(idx + NON_SCORED_NOTE_MARKER.length).trim() : "";
+  let parsedAns = idx >= 0 ? text.slice(0, idx) : text;
+  const parsedComment = idx >= 0 ? text.slice(idx + NON_SCORED_NOTE_MARKER.length).trim() : null;
   const t = String(qType || "").toLowerCase();
-  if ((t === "grid" || t === "checkbox") && answer.trim()) {
-    try { answer = JSON.parse(answer); } catch {}
+  if ((t === "grid" || t === "checkbox") && parsedAns.trim()) {
+    try { parsedAns = JSON.parse(parsedAns); } catch {}
   }
-  return { answer, comment: comment || null };
+  return { answer: parsedAns, comment: parsedComment || null };
 };
+
+// ตรวจสอบว่าข้อความเป็นคอมเม้นต์จริงของผู้ตรวจหรือไม่ (ไม่เป็นค่าว่าง ไม่ตรงกับคำตอบ และไม่เป็นก้อน JSON)
+const isRealCommentText = (text, answerVal) => {
+  if (!text || typeof text !== "string") return false;
+  const t = text.trim();
+  if (!t) return false;
+  if (answerVal !== undefined && answerVal !== null && t === String(answerVal).trim()) return false;
+  // 123='{', 91='['
+  const firstCharCode = t.charCodeAt(0);
+  if (firstCharCode === 123 || firstCharCode === 91) return false;
+  return true;
+};
+
+// 🌟 ตารางข้อมูลแบบซ่อน/เปิดได้ (Collapsible Grid Table)
+// แสดงผลเป็นตารางเต็มรูปแบบเหมือนตอนตรวจ (DynamicFieldRenderer type="grid" readOnly)
+// โดยตั้งค่าเริ่มต้นให้ซ่อนไว้ เพื่อให้ผู้ใช้กดเปิดดูเองตามต้องการ
+function CollapsibleGridTable({ label, fieldConfig, value, defaultOpen = false, className = "" }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  const cellData = useMemo(() => {
+    if (!value) return {};
+    if (typeof value === "object") return value;
+    try {
+      const p = JSON.parse(value);
+      return typeof p === "object" && p !== null ? p : {};
+    } catch (e) {
+      return {};
+    }
+  }, [value]);
+
+  const filledCount = Object.keys(cellData).filter(k => cellData[k] !== undefined && cellData[k] !== null && cellData[k] !== "").length;
+  const rowCount = fieldConfig?.rows?.length || 0;
+  const colCount = fieldConfig?.columns?.length || 0;
+
+  return (
+    <div className={`rounded-2xl border transition-all overflow-hidden ${
+      isOpen ? "bg-white border-[#0F6659]/40 shadow-sm" : "bg-slate-50/90 border-slate-200 hover:border-[#0F6659]/40 hover:bg-slate-50"
+    } ${className}`}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className="w-full p-3 sm:p-3.5 flex items-center justify-between text-left cursor-pointer transition-colors select-none group"
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all ${
+            isOpen ? "bg-[#0F6659] text-white shadow-2xs" : "bg-white text-[#0F6659] border border-slate-200/90 shadow-2xs group-hover:border-[#0F6659]/50"
+          }`}>
+            <Table size={15} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs sm:text-sm font-extrabold text-slate-800 truncate">
+              {label || "ตารางข้อมูล"}
+            </div>
+            <div className="text-[10.5px] text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
+              <span>{rowCount > 0 ? `${rowCount} แถว × ${colCount} คอลัมน์` : "ตารางข้อมูล"}</span>
+              {filledCount > 0 ? (
+                <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200/60 font-mono text-[9.5px] font-bold">
+                  บันทึกแล้ว {filledCount} ช่อง
+                </span>
+              ) : (
+                <span className="text-slate-400 text-[10px]">
+                  (ยังไม่มีข้อมูล)
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 ml-2">
+          <span className="text-[11px] font-bold text-[#0F6659] hidden sm:inline">
+            {isOpen ? "ซ่อนตาราง" : "เปิดดูตาราง"}
+          </span>
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-transform duration-200 ${
+            isOpen ? "rotate-180 bg-emerald-50 text-[#0F6659]" : "text-slate-400 bg-white border border-slate-200 shadow-2xs group-hover:text-slate-600"
+          }`}>
+            <ChevronDown size={14} />
+          </div>
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="p-3 sm:p-4 pt-1 border-t border-slate-100 animate-in fade-in duration-150">
+          <DynamicFieldRenderer
+            type="grid"
+            fieldConfig={fieldConfig}
+            value={value}
+            readOnly={true}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
 
 // 📊 หมวดหมู่คะแนนหลัก 5 หมวดตามมาตรฐาน QSC
 export const CORE_CATEGORY_ORDER = [
@@ -50,6 +144,9 @@ export const CORE_CATEGORY_ORDER = [
 export const getQuestionCategory = (q, sec) => {
   const name = (q?.categoryName || q?.category || "").trim();
   const code = (q?.categoryCode || "").trim().toUpperCase();
+
+  // 0. ตรวจสอบหมวดข้อมูลทั่วไป/รายละเอียด (ไม่คิดคะแนน)
+  if (name === "รายละเอียด" || name.toUpperCase() === "INFO" || code === "INFO" || name === "ข้อมูลทั่วไป") return "รายละเอียด";
 
   // 1. ตรวจสอบจากชื่อหมวด หรือรหัสย่อ (รองรับทั้ง PD/PC/S/C/DM และรหัสเดิม QLT/OPS/SVC/CLN/DOC)
   if (name === "Product" || code === "PD" || code === "QLT" || name.includes("คุณภาพ")) return "Product";
@@ -501,11 +598,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return (forms || []).find(f => Number(f.id) === Number(targetId)) || null;
   }, [forms, currentRecord?.surveyFormId, currentRecord?.formId]);
 
-  // 🌟 โหลด form detail ของเวอร์ชันที่ตรงกับรอบตรวจนี้ (ตาม surveyFormId) หากยังไม่มี sections
+  // 🌟 โหลด form detail ของเวอร์ชันที่ตรงกับรอบตรวจนี้ (ตาม surveyFormId) หากยังไม่มี sections หรือ metadataConfig
   useEffect(() => {
     const targetId = currentRecord?.surveyFormId || currentRecord?.formId;
     if (!targetId || !getFormDetail) return;
-    if (matchedForm && Array.isArray(matchedForm.sections)) return; // hydrate แล้ว
+    if (matchedForm && Array.isArray(matchedForm.sections) && (matchedForm.metadataConfigJson || matchedForm.metadataConfig)) return; // hydrate แล้ว
     getFormDetail(targetId);
   }, [currentRecord?.surveyFormId, currentRecord?.formId, matchedForm, getFormDetail]);
 
@@ -514,10 +611,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const score = typeof currentRecord.percentageScore === "number" 
     ? currentRecord.percentageScore 
     : (typeof currentRecord.score === "number" ? currentRecord.score : 0);
-  const passingScore = currentRecord.passingScore || currentRecord.surveyForm?.passingScore || 85;
-  const dateStr = currentRecord.date || (currentRecord.auditDate ? new Date(currentRecord.auditDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : "-");
-  const actualInspectDateStr = currentRecord.startedAt ? new Date(currentRecord.startedAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : dateStr;
-  const createdDateStr = currentRecord.createdAt ? new Date(currentRecord.createdAt).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
+  const passingScore = currentRecord.surveyForm?.passingScore ?? currentRecord.passingScore ?? 85;
+  const dateStr = currentRecord.date || (currentRecord.auditDate ? formatThaiDate(currentRecord.auditDate) : "-");
+  const actualInspectDateStr = currentRecord.startedAt ? formatThaiDate(currentRecord.startedAt) : dateStr;
+  const createdDateStr = currentRecord.createdAt ? (formatThaiDate(currentRecord.createdAt) + ' ' + formatThaiTime(currentRecord.createdAt)) : null;
   const auditorName = currentRecord.auditor || currentRecord.auditorName || currentRecord.primaryAuditor?.fullName || "-";
   const formTitle = currentRecord.form || currentRecord.formName || currentRecord.surveyFormTitle || currentRecord.surveyForm?.title || "-";
   const passed = currentRecord.isPassed !== undefined ? currentRecord.isPassed : (score >= passingScore && !currentRecord.hasCriticalDefect);
@@ -530,35 +627,117 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     : (currentRecord.auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ");
 
   const parsedMetadataValues = useMemo(() => {
-    if (currentRecord?.metadataValues && typeof currentRecord.metadataValues === "object") {
-      return currentRecord.metadataValues;
-    }
+    let result = {};
     if (currentRecord?.metadataValuesJson) {
       try {
-        return JSON.parse(currentRecord.metadataValuesJson);
+        const parsed = JSON.parse(currentRecord.metadataValuesJson);
+        if (parsed && typeof parsed === "object") {
+          result = parsed;
+        }
       } catch (e) {}
     }
-    return {};
+    if (currentRecord?.metadataValues && typeof currentRecord.metadataValues === "object") {
+      result = { ...result, ...currentRecord.metadataValues };
+      if (currentRecord.metadataValues._fields) {
+        result._fields = currentRecord.metadataValues._fields;
+      }
+    }
+    return result;
   }, [currentRecord]);
 
-  // รวมรายการ Metadata ทั้งหมด (ฟิลด์มาตรฐาน 3 ฟิลด์ + ฟิลด์เพิ่มเติมเฉพาะรอบตรวจ)
+  // รวมรายการ Metadata ทั้งหมด (ฟิลด์มาตรฐาน 3 ฟิลด์ + ฟิลด์เพิ่มเติมเฉพาะรอบตรวจ ตามลำดับและ Label ที่ตั้งไว้)
   const allDisplayMetadataFields = useMemo(() => {
-    let metaConfig = currentRecord?.surveyForm?.metadataConfig || matchedForm?.metadataConfig;
-    if (!metaConfig && (currentRecord?.surveyForm?.metadataConfigJson || matchedForm?.metadataConfigJson)) {
-      try {
-        metaConfig = JSON.parse(currentRecord?.surveyForm?.metadataConfigJson || matchedForm?.metadataConfigJson);
-      } catch (e) {}
+    // ฟังก์ชันช่วยแกะ Metadata Schema จาก Form Config
+    const extractMetadataConfig = (raw) => {
+      if (!raw) return null;
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === "string") {
+        try {
+          return extractMetadataConfig(JSON.parse(raw));
+        } catch (e) {
+          return null;
+        }
+      }
+      if (typeof raw === "object") {
+        if (Array.isArray(raw.metadataConfig)) return raw.metadataConfig;
+        if (raw.metadataConfigJson) return extractMetadataConfig(raw.metadataConfigJson);
+        if (raw.metadataJson) return extractMetadataConfig(raw.metadataJson);
+        if (Array.isArray(raw.fields)) return raw.fields;
+      }
+      return null;
+    };
+
+    const formConfig = extractMetadataConfig(currentRecord?.surveyForm?.metadataConfig)
+      || extractMetadataConfig(currentRecord?.surveyForm?.metadataConfigJson)
+      || extractMetadataConfig(matchedForm?.metadataConfig)
+      || extractMetadataConfig(matchedForm?.metadataConfigJson);
+
+    // 1. ถ้าใน JSON มีการบันทึก _fields แบบมีโครงสร้าง (order, label, value, type, unit)
+    const storedFields = Array.isArray(parsedMetadataValues?._fields)
+      ? parsedMetadataValues._fields
+      : (Array.isArray(parsedMetadataValues) ? parsedMetadataValues : null);
+
+    if (Array.isArray(storedFields) && storedFields.length > 0) {
+      const sorted = [...storedFields].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0));
+      return sorted.map((f, idx) => {
+        let displayVal = f.value;
+        if (f.id === "audit_type") {
+          const raw = String(f.value || auditType || "").toLowerCase();
+          displayVal = raw.includes("ปลอม") || raw === "undercover"
+            ? "ปลอมตัว"
+            : (raw.includes("นอก") || raw === "spot" || raw === "unannounced")
+              ? "นอกกำหนดการ"
+              : "ตามกำหนดการ";
+        } else if (f.id === "staff_count") {
+          const sc = f.value !== undefined && f.value !== null && f.value !== "" ? f.value : staffCount;
+          displayVal = sc !== undefined && sc !== null && sc !== "" ? String(sc) : "-";
+        } else if (f.id === "auditor" || f.type === "auditor") {
+          displayVal = f.value || "-";
+        } else if (typeof displayVal === "boolean") {
+          displayVal = displayVal ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)";
+        } else if (displayVal === undefined || displayVal === null || displayVal === "") {
+          displayVal = "-";
+        } else {
+          displayVal = String(displayVal);
+        }
+
+        const matchedMeta = Array.isArray(formConfig)
+          ? formConfig.find(m => m.id === f.id || m.id?.replace(/^meta_/, '') === f.id?.replace(/^meta_/, ''))
+          : null;
+
+        const resolvedType = f.type || matchedMeta?.type || (matchedMeta?.fieldConfig?.columns ? "grid" : "text");
+        const resolvedFieldConfig = f.fieldConfig || matchedMeta?.fieldConfig || (matchedMeta ? { options: matchedMeta.options, columns: matchedMeta.columns, rows: matchedMeta.rows } : null);
+
+        return {
+          id: f.id || `field_${idx}`,
+          label: f.label || matchedMeta?.label || (f.id ? f.id.replace(/^meta_/, '').replace(/_/g, ' ') : `ข้อมูลที่ ${idx + 1}`),
+          value: displayVal,
+          rawValue: f.value,
+          type: resolvedType,
+          fieldConfig: resolvedFieldConfig,
+          unit: f.unit ? (f.unit.startsWith(" ") ? f.unit : ` ${f.unit}`) : ""
+        };
+      });
     }
 
+    // 2. กรณีประวัติเก่าที่ยังไม่มี _fields: ดึง schema จาก form config มาจับคู่
     const defaultSystemConfig = [
       { id: "auditor", label: "ผู้ตรวจประเมิน (Auditor)", type: "auditor", enabled: true, isSystem: true },
       { id: "audit_type", label: "ประเภทการตรวจ (Audit Type)", type: "select", enabled: true, isSystem: true },
       { id: "staff_count", label: "จำนวนพนักงานขณะตรวจ", type: "number", unit: "คน", enabled: true, isSystem: true }
     ];
 
-    const effectiveConfig = (Array.isArray(metaConfig) && metaConfig.length > 0)
-      ? metaConfig
-      : defaultSystemConfig;
+    let effectiveConfig = [];
+    if (Array.isArray(formConfig) && formConfig.length > 0) {
+      effectiveConfig = [...formConfig];
+      defaultSystemConfig.forEach((sysField) => {
+        if (!effectiveConfig.some(f => f.id === sysField.id || (sysField.id === "auditor" && f.type === "auditor"))) {
+          effectiveConfig.unshift(sysField);
+        }
+      });
+    } else {
+      effectiveConfig = defaultSystemConfig;
+    }
 
     const list = [];
     effectiveConfig.forEach(field => {
@@ -567,14 +746,14 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       if (field.id === "auditor" || field.type === "auditor") {
         list.push({
           id: field.id,
-          label: field.label || "ผู้ตรวจประเมิน",
-          value: auditorName,
+          label: field.label || "ผู้ตรวจประเมิน (Auditor)",
+          value: parsedMetadataValues[field.id] || parsedMetadataValues.auditor || "-",
           unit: ""
         });
       } else if (field.id === "audit_type") {
         list.push({
           id: field.id,
-          label: field.label || "ประเภทการตรวจ",
+          label: field.label || "ประเภทการตรวจ (Audit Type)",
           value: auditType,
           unit: ""
         });
@@ -586,7 +765,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           id: field.id,
           label: field.label || "จำนวนพนักงานขณะตรวจ",
           value: sc !== undefined && sc !== null && sc !== "" ? String(sc) : "-",
-          unit: field.unit ? ` ${field.unit}` : " คน"
+          unit: field.unit ? (field.unit.startsWith(" ") ? field.unit : ` ${field.unit}`) : " คน"
         });
       } else {
         const val = parsedMetadataValues[field.id];
@@ -596,12 +775,12 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             : String(val);
           list.push({
             id: field.id,
-            label: field.label || field.id.replace(/_/g, ' '),
+            label: field.label || field.placeholder || field.id.replace(/^meta_/, '').replace(/_/g, ' '),
             value: displayVal,
             rawValue: val,
-            type: field.type || "text",
-            fieldConfig: field.fieldConfig,
-            unit: field.unit ? ` ${field.unit}` : ""
+            type: field.type || (field.fieldConfig?.columns ? "grid" : "text"),
+            fieldConfig: field.fieldConfig || { options: field.options, columns: field.columns, rows: field.rows },
+            unit: field.unit ? (field.unit.startsWith(" ") ? field.unit : ` ${field.unit}`) : ""
           });
         }
       }
@@ -609,19 +788,27 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     // หากมีค่าใน parsedMetadataValues ที่ไม่ได้อยู่ใน effectiveConfig
     Object.entries(parsedMetadataValues).forEach(([k, v]) => {
-      if (v === undefined || v === null || v === "" || k === "auditor" || k === "audit_type" || k === "staff_count") return;
+      if (v === undefined || v === null || v === "" || k === "auditor" || k === "audit_type" || k === "staff_count" || k === "_fields") return;
       if (!list.some(item => item.id === k)) {
+        // หาว่ามี definition ใน formConfig ไหม
+        const matchedField = Array.isArray(formConfig) ? formConfig.find(f => f.id === k || f.id?.replace(/^meta_/, '') === k.replace(/^meta_/, '')) : null;
+        const finalLabel = matchedField?.label || matchedField?.placeholder || k.replace(/^meta_/, '').replace(/_/g, ' ');
+        const finalType = matchedField?.type || (matchedField?.fieldConfig?.columns ? "grid" : (typeof v === "object" ? "grid" : "text"));
+        const finalConfig = matchedField?.fieldConfig || (matchedField ? { options: matchedField.options, columns: matchedField.columns, rows: matchedField.rows } : null);
         list.push({
           id: k,
-          label: k.replace(/_/g, ' '),
+          label: finalLabel,
           value: typeof v === "boolean" ? (v ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)") : String(v),
-          unit: ""
+          rawValue: v,
+          type: finalType,
+          fieldConfig: finalConfig,
+          unit: matchedField?.unit ? (matchedField.unit.startsWith(" ") ? matchedField.unit : ` ${matchedField.unit}`) : ""
         });
       }
     });
 
     return list;
-  }, [matchedForm, auditorName, auditType, staffCount, parsedMetadataValues]);
+  }, [matchedForm, currentRecord, auditorName, auditType, staffCount, parsedMetadataValues]);
 
   // Location and GPS Metadata
   const matchedLocation = useMemo(() => {
@@ -703,6 +890,28 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             const calculatedScore = isNonScored ? 0 : (isNa ? 0 : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? fullSc : 0)));
 
             const nonScored = isNonScored ? splitNonScoredNotes(res.notes, qType) : null;
+            let resolvedRawAnswer = isNonScored
+              ? (res.answerValue !== undefined && res.answerValue !== null && res.answerValue !== ""
+                  ? res.answerValue
+                  : (res.rawAnswer !== undefined && res.rawAnswer !== null && res.rawAnswer !== "" ? res.rawAnswer : (nonScored?.answer ?? "")))
+              : (res.rawAnswer || res.answerValue || "");
+
+            if ((qType === "grid" || qType === "checkbox") && typeof resolvedRawAnswer === "string" && resolvedRawAnswer.trim()) {
+              try { 
+                resolvedRawAnswer = JSON.parse(resolvedRawAnswer); 
+              } catch (e) {}
+            }
+
+            // 🌟 แยกคอมเม้นออกจากคำตอบอย่างแท้จริง ไม่ให้คำตอบหลุดมาแสดงในกล่องบันทึกผู้ตรวจ
+            let resolvedNote = null;
+            if (res.notes && typeof res.notes === "string" && res.notes.trim()) {
+              const trimmed = res.notes.trim();
+              if (isNonScored && nonScored?.comment) {
+                resolvedNote = nonScored.comment;
+              } else if (isRealCommentText(trimmed, resolvedRawAnswer)) {
+                resolvedNote = trimmed;
+              }
+            }
 
             secQuestions.push({
               num: runningNum++,
@@ -714,10 +923,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               questionType: qType,
               isScored: !isNonScored,
               fieldConfig: item.fieldConfig || res.fieldConfig || res.surveyItem?.fieldConfig,
-              rawAnswer: isNonScored ? nonScored.answer : (res.rawAnswer || res.answerValue || ""),
+              rawAnswer: resolvedRawAnswer,
               answer: qType === "scale"
                 ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
-                : isNonScored ? (res.rawAnswer || res.answerValue || "") : isPass,
+                : (isNonScored ? resolvedRawAnswer : isPass),
               scoreGiven: calculatedScore,
               scaleScore: calculatedScaleScore,
               fullScore: fullSc,
@@ -727,7 +936,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               categoryName: item.categoryName || item.category || res.categoryName || res.surveyItem?.categoryName,
               categoryCode: item.categoryCode || res.categoryCode || res.surveyItem?.categoryCode,
               sectionTitle: sec.title,
-              note: (res.notes && res.notes.trim()) ? res.notes.trim() : null,
+              note: resolvedNote,
               hasPhoto: (res.images && res.images.length > 0) || (!isPass && !isNa && res.hasPhoto),
               images: res.images || []
             });
@@ -791,6 +1000,28 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         }
 
         const nonScored = isNonScored ? splitNonScoredNotes(res.notes, qType) : null;
+        let resolvedRawAnswer = isNonScored
+          ? (res.answerValue !== undefined && res.answerValue !== null && res.answerValue !== ""
+              ? res.answerValue
+              : (res.rawAnswer !== undefined && res.rawAnswer !== null && res.rawAnswer !== "" ? res.rawAnswer : (nonScored?.answer ?? "")))
+          : (res.rawAnswer || res.answerValue || "");
+
+        if ((qType === "grid" || qType === "checkbox") && typeof resolvedRawAnswer === "string" && resolvedRawAnswer.trim()) {
+          try { 
+            resolvedRawAnswer = JSON.parse(resolvedRawAnswer); 
+          } catch (e) {}
+        }
+
+        // 🌟 แยกคอมเม้นออกจากคำตอบอย่างแท้จริง ไม่ให้คำตอบหลุดมาแสดงในกล่องบันทึกผู้ตรวจ
+        let resolvedNote = null;
+        if (res.notes && typeof res.notes === "string" && res.notes.trim()) {
+          const trimmed = res.notes.trim();
+          if (isNonScored && nonScored?.comment) {
+            resolvedNote = nonScored.comment;
+          } else if (isRealCommentText(trimmed, resolvedRawAnswer)) {
+            resolvedNote = trimmed;
+          }
+        }
 
         sectionsMap.get(secName).questions.push({
           num: runningNum++,
@@ -802,10 +1033,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           questionType: qType,
           isScored: !isNonScored,
           fieldConfig: res.fieldConfig || res.surveyItem?.fieldConfig,
-          rawAnswer: isNonScored ? nonScored.answer : (res.rawAnswer || res.answerValue || ""),
+          rawAnswer: resolvedRawAnswer,
           answer: qType === "scale"
             ? (calculatedScaleScore !== null ? calculatedScaleScore : (res.scoreGiven !== undefined ? res.scoreGiven : (isPass ? 5 : 3)))
-            : isNonScored ? (res.rawAnswer || res.answerValue || "") : isPass,
+            : (isNonScored ? resolvedRawAnswer : isPass),
           scoreGiven: calculatedScore,
           scaleScore: calculatedScaleScore,
           fullScore: fullSc,
@@ -815,7 +1046,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           categoryName: res.categoryName || res.surveyItem?.categoryName,
           categoryCode: res.categoryCode || res.surveyItem?.categoryCode,
           sectionTitle: secName,
-          note: (res.notes && res.notes.trim()) ? res.notes.trim() : null,
+          note: resolvedNote,
           hasPhoto: (res.images && res.images.length > 0) || (!isPass && !isNa && res.hasPhoto),
           images: res.images || []
         });
@@ -834,10 +1065,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     formBreakdown.forEach(sec => {
       (sec.questions || []).forEach(q => {
-        if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) {
+        if (q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) {
           return;
         }
         const catName = getQuestionCategory(q, sec);
+        if (!catName || catName === "รายละเอียด" || catName === "INFO" || catName === "ข้อมูลทั่วไป") {
+          return; // 🌟 ข้ามหมวดรายละเอียด ไม่นำมาคิดในคะแนนหมวดหมู่
+        }
         if (!catMap.has(catName)) {
           catMap.set(catName, {
             title: catName,
@@ -892,6 +1126,47 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     return categories;
   }, [formBreakdown]);
+
+  // 📤 ส่งออกรายงานรายรอบตรวจเป็น Excel (ใช้ข้อมูลชุดเดียวกับที่แสดงบนหน้าจอ: formBreakdown / allDisplayMetadataFields)
+  const [isExportingReport, setIsExportingReport] = useState(false);
+  const handleExportReport = async () => {
+    if (isExportingReport) return;
+    setIsExportingReport(true);
+    try {
+      const recId = currentRecord?.id || record?.id;
+      const typeName = matchedLocation?.locationType?.name || currentRecord.location?.locationType?.name || "-";
+      await exportAuditReportToExcel({
+        record: currentRecord,
+        sections: formBreakdown,
+        metaFields: allDisplayMetadataFields,
+        passingScore,
+        categoryOf: getQuestionCategory,
+        toFullUrl: getFullImageUrl,
+        signatureUrls: {
+          auditor: currentRecord.auditorSignatureUrl || currentRecord.auditorSignature,
+          auditee: currentRecord.auditeeSignatureUrl || currentRecord.auditeeSignature
+        },
+        header: {
+          reportNo: `QSC-${String(recId || 0).padStart(6, "0")}`,
+          issuedAt: formatBkk(new Date(), false).slice(0, 10),
+          locationCode: currentRecord.locationCode || matchedLocation?.code || "",
+          location: `${currentRecord.locationCode || matchedLocation?.code || ""} ${locationTitle}`.trim(),
+          brandType: `${currentRecord.locationBrand || "-"} / ${typeName}`,
+          form: formTitle,
+          startedAt: formatBkk(currentRecord.startedAt || currentRecord.auditDate),
+          endedAt: formatBkk(currentRecord.submittedAt),
+          auditor: auditorName,
+          auditee: /ผู้จัดการ/.test(managerName) ? managerName : `${managerName} (ผู้จัดการสาขา)`,
+          signedAt: formatBkk(currentRecord.signedAt || currentRecord.submittedAt, false)
+        }
+      });
+    } catch (err) {
+      console.error("Export audit report failed", err);
+      alert("ส่งออกรายงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
 
   const sections = categoryScores;
 
@@ -1212,16 +1487,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           <div className="shrink-0 ml-auto self-start">
             <button
               type="button"
-              onClick={() => {
-                exportToExcel({
-                  mode: "detailed_questions",
-                  targetUnit: matchedLocation || { id: currentRecord?.locationId, name: locationTitle, fullName: locationTitle },
-                  locations: allLocations,
-                  auditRecords: [currentRecord]
-                });
-              }}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#0F6659] hover:bg-[#0D5449] text-white flex items-center justify-center shadow-2xs hover:shadow-sm transition-all active:scale-95 cursor-pointer"
-              title="ส่งออกรายงาน Excel"
+              onClick={handleExportReport}
+              disabled={isExportingReport}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#0F6659] hover:bg-[#0D5449] disabled:opacity-60 disabled:cursor-wait text-white flex items-center justify-center shadow-2xs hover:shadow-sm transition-all active:scale-95 cursor-pointer"
+              title={isExportingReport ? "กำลังสร้างรายงาน…" : "ส่งออกรายงาน Excel"}
             >
               <FileSpreadsheet size={18} />
             </button>
@@ -1486,15 +1755,26 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                           </div>
                         </div>
 
-                        {/* 🌟 แสดงรูปแบบคำตอบ: หากเป็นข้อไม่คิดคะแนน ให้เรนเดอร์ DynamicFieldRenderer (readOnly) */}
+                        {/* 🌟 แสดงรูปแบบคำตอบ: หากเป็นข้อไม่คิดคะแนน ให้เรนเดอร์ DynamicFieldRenderer (readOnly) หรือ CollapsibleGridTable ถ้าเป็นตาราง */}
                         {isNonScored ? (
-                          <div className="pt-1 pointer-events-none select-none">
-                            <DynamicFieldRenderer
-                              type={q.type || q.questionType}
-                              fieldConfig={q.fieldConfig}
-                              value={q.rawAnswer || q.answer}
-                            />
-                          </div>
+                          (q.type === "grid" || q.questionType === "grid") ? (
+                            <div className="pt-1.5 w-full">
+                              <CollapsibleGridTable
+                                label={q.text || "ตารางข้อมูล"}
+                                fieldConfig={q.fieldConfig}
+                                value={q.rawAnswer || q.answer}
+                                defaultOpen={false}
+                              />
+                            </div>
+                          ) : (
+                            <div className="pt-1 pointer-events-none select-none">
+                              <DynamicFieldRenderer
+                                type={q.type || q.questionType}
+                                fieldConfig={q.fieldConfig}
+                                value={q.rawAnswer || q.answer}
+                              />
+                            </div>
+                          )
                         ) : q.type === "scale" ? (
                           <div className="pt-1 space-y-1.5 pointer-events-none select-none cursor-default">
                             <div className="flex gap-1.5 items-center w-full">
@@ -1573,8 +1853,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                           </div>
                         )}
 
-                        {/* 🌟 ส่วนคอมเม้น: ถ้าไม่มีคอมเม้นไม่ต้องแสดงกล่องบันทึกผู้ตรวจ */}
-                        {q.note && q.note.trim().length > 0 && (
+                        {/* 🌟 ส่วนคอมเม้น: ถ้าไม่มีคอมเม้นจริง ไม่ต้องแสดงกล่องบันทึกผู้ตรวจ */}
+                        {isRealCommentText(q.note, q.rawAnswer) && (
                           <div className="p-2.5 px-3 rounded-xl text-xs sm:text-sm font-medium flex items-center gap-2 bg-slate-50 text-slate-800 border border-slate-200">
                             <MessageSquare size={14} className="shrink-0 text-slate-400" />
                             <span><b>บันทึกผู้ตรวจ:</b> {q.note}</span>
@@ -1807,7 +2087,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             {isCategoryScoresExpanded && (
               <div className="rounded-2xl overflow-hidden shadow-2xs animate-in fade-in duration-200" style={cardStyle}>
                 {categoryScores.map((s, i) => {
-                  const isPassing = s.percent >= (currentRecord?.passingScore || 85);
+                  const isPassing = s.percent >= passingScore;
                   return (
                     <div key={s.title} className="px-4 py-3.5" style={{ borderBottom: i < categoryScores.length - 1 ? `1px solid ${c.border}` : "none" }}>
                       <div className="flex items-center justify-between mb-1.5">
@@ -1862,13 +2142,12 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                     {allDisplayMetadataFields.map((item) => {
                       if (item.type === "grid") {
                         return (
-                          <div key={item.id} className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 col-span-1 sm:col-span-2 md:col-span-3 space-y-2">
-                            <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
-                            <DynamicFieldRenderer
-                              type="grid"
+                          <div key={item.id} className="col-span-full">
+                            <CollapsibleGridTable
+                              label={item.label}
                               fieldConfig={item.fieldConfig}
                               value={item.rawValue}
-                              readOnly={true}
+                              defaultOpen={false}
                             />
                           </div>
                         );
