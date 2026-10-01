@@ -144,6 +144,9 @@ export const getQuestionCategory = (q, sec) => {
   const name = (q?.categoryName || q?.category || "").trim();
   const code = (q?.categoryCode || "").trim().toUpperCase();
 
+  // 0. ตรวจสอบหมวดข้อมูลทั่วไป/รายละเอียด (ไม่คิดคะแนน)
+  if (name === "รายละเอียด" || name.toUpperCase() === "INFO" || code === "INFO" || name === "ข้อมูลทั่วไป") return "รายละเอียด";
+
   // 1. ตรวจสอบจากชื่อหมวด หรือรหัสย่อ (รองรับทั้ง PD/PC/S/C/DM และรหัสเดิม QLT/OPS/SVC/CLN/DOC)
   if (name === "Product" || code === "PD" || code === "QLT" || name.includes("คุณภาพ")) return "Product";
   if (name === "Process" || code === "PC" || code === "OPS" || name.includes("กระบวนการ") || name.includes("โรงงาน") || name.includes("GMP")) return "Process";
@@ -1061,10 +1064,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
     formBreakdown.forEach(sec => {
       (sec.questions || []).forEach(q => {
-        if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) {
+        if (q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.type || q.questionType)) {
           return;
         }
         const catName = getQuestionCategory(q, sec);
+        if (!catName || catName === "รายละเอียด" || catName === "INFO" || catName === "ข้อมูลทั่วไป") {
+          return; // 🌟 ข้ามหมวดรายละเอียด ไม่นำมาคิดในคะแนนหมวดหมู่
+        }
         if (!catMap.has(catName)) {
           catMap.set(catName, {
             title: catName,

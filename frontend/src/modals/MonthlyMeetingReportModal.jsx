@@ -261,11 +261,14 @@ export default function MonthlyMeetingReportModal({ onClose }) {
     const categoryScores = {};
     monthRecords.forEach(r => {
       (r.responses || []).forEach(resp => {
-        if (resp.isNa) return;
+        if (resp.isNa || resp.isScored === false) return;
+        const full = Number(resp.fullScore !== undefined && resp.fullScore !== null ? resp.fullScore : (resp.maxScore ?? resp.surveyItem?.fullScore ?? 0));
+        if (full <= 0) return; // 🌟 ข้อที่ไม่คิดคะแนน ไม่นำมาคำนวณในหมวดคะแนน
         const cat = (resp.categoryName || resp.surveyItem?.categoryName || resp.sectionTitle || 'ทั่วไป').trim();
+        if (cat === "รายละเอียด" || cat.toLowerCase() === "info" || cat === "ข้อมูลทั่วไป") return;
         if (!categoryScores[cat]) categoryScores[cat] = { total: 0, count: 0 };
         categoryScores[cat].total += (resp.scoreGiven || 0);
-        categoryScores[cat].count += (resp.fullScore > 0 ? resp.fullScore : 10);
+        categoryScores[cat].count += full;
       });
     });
     return Object.entries(categoryScores)
