@@ -296,7 +296,7 @@ export default function GridConfigModal({ isOpen, onClose, initialConfig, initia
                   <div className="flex items-center gap-2">
                     <span className="w-5 h-5 rounded-md bg-[#0F6659] text-white flex items-center justify-center text-[10px] font-bold">1</span>
                     <h4 className="text-sm font-bold text-slate-800">
-                      กำหนดคอลัมน์ (Columns) ({columns.length})
+                      กำหนดคอลัมน์ ({columns.length})
                     </h4>
                   </div>
                   <button
@@ -424,7 +424,7 @@ export default function GridConfigModal({ isOpen, onClose, initialConfig, initia
                   <div className="flex items-center gap-2">
                     <span className="w-5 h-5 rounded-md bg-[#0F6659] text-white flex items-center justify-center text-[10px] font-bold">2</span>
                     <h4 className="text-sm font-bold text-slate-800">
-                      กำหนดแถว (Rows) ({rows.length})
+                      กำหนดแถว ({rows.length})
                     </h4>
                   </div>
                   <button
