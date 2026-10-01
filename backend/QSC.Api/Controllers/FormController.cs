@@ -24,7 +24,7 @@ namespace QSC.Api.Controllers
 
         [HttpGet]
         public async Task<IActionResult> GetForms(
-            [FromQuery] bool onlyLatest = true,
+            [FromQuery] bool onlyLatest = false,
             [FromQuery] int? brandId = null,
             [FromQuery] string? detail = "full")
         {
@@ -372,8 +372,11 @@ namespace QSC.Api.Controllers
         }
 
         // 🌟 Helper สำหรับจัดเก็บโครงสร้างหมวดหมู่ (SectionType) และการตั้งค่าฟิลด์ไดนามิก (FieldConfig)
-        // โดยเก็บเป็น Envelope ใน MetadataConfigJson อย่างปลอดภัย 100% โดยไม่ต้องเปลี่ยนแปลงสกีมาฐานข้อมูล
-        private static string PackFormMetadata(string? rawMetadataJson, List<SectionDto>? sections)
+        // รวมถึงประวัติการสืบทอดรหัสข้อคำถาม (itemLineageMapping) โดยเก็บเป็น Envelope ใน MetadataConfigJson อย่างปลอดภัย 100% โดยไม่ต้องเปลี่ยนแปลงสกีมาฐานข้อมูล
+        public static string PackFormMetadata(
+            string? rawMetadataJson, 
+            List<SectionDto>? sections, 
+            Dictionary<string, int>? itemLineageMapping = null)
         {
             var sectionTypes = new Dictionary<string, string>();
             var itemConfigs = new Dictionary<string, string>();
@@ -406,7 +409,7 @@ namespace QSC.Api.Controllers
                 }
             }
 
-            if (sectionTypes.Count == 0 && itemConfigs.Count == 0)
+            if (sectionTypes.Count == 0 && itemConfigs.Count == 0 && (itemLineageMapping == null || itemLineageMapping.Count == 0))
             {
                 return rawMetadataJson ?? string.Empty;
             }
@@ -416,20 +419,28 @@ namespace QSC.Api.Controllers
                 envelopeVersion = 1,
                 metadataJson = rawMetadataJson ?? string.Empty,
                 sectionTypes,
-                itemConfigs
+                itemConfigs,
+                itemLineageMapping = itemLineageMapping ?? new Dictionary<string, int>()
             };
 
             return JsonSerializer.Serialize(envelope);
         }
 
-        private static (string? cleanMetadataJson, Dictionary<string, string> sectionTypes, Dictionary<string, string> itemConfigs) UnpackFormMetadata(string? packedJson)
+        public static (string? cleanMetadataJson, Dictionary<string, string> sectionTypes, Dictionary<string, string> itemConfigs) UnpackFormMetadata(string? packedJson)
+        {
+            var (meta, secTypes, itConfigs, _) = UnpackFormMetadataWithLineage(packedJson);
+            return (meta, secTypes, itConfigs);
+        }
+
+        public static (string? cleanMetadataJson, Dictionary<string, string> sectionTypes, Dictionary<string, string> itemConfigs, Dictionary<string, int> itemLineageMapping) UnpackFormMetadataWithLineage(string? packedJson)
         {
             var sectionTypes = new Dictionary<string, string>();
             var itemConfigs = new Dictionary<string, string>();
+            var itemLineageMapping = new Dictionary<string, int>();
 
             if (string.IsNullOrWhiteSpace(packedJson))
             {
-                return (packedJson, sectionTypes, itemConfigs);
+                return (packedJson, sectionTypes, itemConfigs, itemLineageMapping);
             }
 
             try
@@ -460,7 +471,18 @@ namespace QSC.Api.Controllers
                         }
                     }
 
-                    return (meta, sectionTypes, itemConfigs);
+                    if (root.TryGetProperty("itemLineageMapping", out var linProp) && linProp.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in linProp.EnumerateObject())
+                        {
+                            if (prop.Value.TryGetInt32(out var newId))
+                            {
+                                itemLineageMapping[prop.Name] = newId;
+                            }
+                        }
+                    }
+
+                    return (meta, sectionTypes, itemConfigs, itemLineageMapping);
                 }
             }
             catch
@@ -468,7 +490,7 @@ namespace QSC.Api.Controllers
                 // Fallback สำหรับ JSON array ดั้งเดิม
             }
 
-            return (packedJson, sectionTypes, itemConfigs);
+            return (packedJson, sectionTypes, itemConfigs, itemLineageMapping);
         }
 
         [Authorize(Roles = "ADMIN,STANDARD")]
@@ -504,6 +526,13 @@ namespace QSC.Api.Controllers
             {
                 var effectiveBrandId = dto.BrandId ?? (dto.BrandIds != null && dto.BrandIds.Count > 0 ? dto.BrandIds.First() : null);
 
+                int? currentUserId = null;
+                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (int.TryParse(userIdClaim, out var parsedUid))
+                {
+                    currentUserId = parsedUid;
+                }
+
                 var form = new SurveyForm
                 {
                     Title = dto.Title,
@@ -516,7 +545,7 @@ namespace QSC.Api.Controllers
                     CategoryOrderJson = dto.CategoryOrderJson,
                     IsLatest = true,
                     IsActive = true,
-                    CreatedBy = dto.CreatedBy,
+                    CreatedBy = dto.CreatedBy ?? currentUserId,
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -910,6 +939,7 @@ namespace QSC.Api.Controllers
                     }
 
                     // Create new sections and items
+                    var itemLineageMapping = new Dictionary<string, int>();
                     int secIdx = 1;
                     foreach (var sDto in dto.Sections)
                     {
@@ -997,7 +1027,20 @@ namespace QSC.Api.Controllers
                                 IsActive = true
                             };
                             _context.SurveyItems.Add(item);
+                            await _context.SaveChangesAsync();
+
+                            // 🌟 Track lineage mapping if source item id was provided from frontend
+                            if (iDto.Id.HasValue && iDto.Id.Value > 0)
+                            {
+                                itemLineageMapping[iDto.Id.Value.ToString()] = item.Id;
+                            }
                         }
+                    }
+
+                    // 🌟 Re-pack metadata with itemLineageMapping now that all new item IDs are known
+                    if (itemLineageMapping.Any())
+                    {
+                        newVersionForm.MetadataConfigJson = PackFormMetadata(dto.MetadataConfigJson, dto.Sections, itemLineageMapping);
                         await _context.SaveChangesAsync();
                     }
 
@@ -1028,6 +1071,134 @@ namespace QSC.Api.Controllers
                 await transaction.RollbackAsync();
                 _logger.LogError(ex, "Error updating form");
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการอัปเดตแบบฟอร์ม กรุณาลองใหม่อีกครั้ง" });
+            }
+        }
+
+        [Authorize(Roles = "ADMIN,STANDARD")]
+        [HttpPost("{id}/duplicate")]
+        public async Task<IActionResult> DuplicateForm(int id)
+        {
+            var (currentUserId, role, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            var original = await _context.SurveyForms
+                .Include(f => f.Sections.Where(s => s.IsActive))
+                    .ThenInclude(s => s.Items.Where(i => i.IsActive))
+                .Include(f => f.FormBrands)
+                .Include(f => f.TargetLocations)
+                .FirstOrDefaultAsync(f => f.Id == id && f.IsActive);
+
+            if (original == null)
+            {
+                return NotFound(new { message = "ไม่พบแบบฟอร์มต้นฉบับ หรือแบบฟอร์มถูกปิดใช้งานแล้ว" });
+            }
+
+            if (allowedBrandIds != null)
+            {
+                bool inScope = (!original.FormBrands.Any() && original.BrandId == null)
+                    || original.FormBrands.Any(fb => allowedBrandIds.Contains(fb.BrandId))
+                    || (original.BrandId.HasValue && allowedBrandIds.Contains(original.BrandId.Value));
+                if (!inScope)
+                {
+                    return Forbid();
+                }
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                var duplicateTitle = $"{original.Title} (สำเนา)";
+
+                var newForm = new SurveyForm
+                {
+                    Title = duplicateTitle,
+                    LocationTypeId = original.LocationTypeId,
+                    BrandId = original.BrandId,
+                    PassingScore = original.PassingScore,
+                    TargetingMode = original.TargetingMode,
+                    Version = "v1.0",
+                    MetadataConfigJson = original.MetadataConfigJson,
+                    CategoryOrderJson = original.CategoryOrderJson,
+                    IsLatest = true,
+                    IsActive = true,
+                    CreatedBy = currentUserId > 0 ? currentUserId : original.CreatedBy,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.SurveyForms.Add(newForm);
+                await _context.SaveChangesAsync();
+
+                newForm.FormGroupId = newForm.Id;
+                await _context.SaveChangesAsync();
+
+                // Clone brands
+                foreach (var fb in original.FormBrands)
+                {
+                    _context.SurveyFormBrands.Add(new SurveyFormBrand
+                    {
+                        SurveyFormId = newForm.Id,
+                        BrandId = fb.BrandId
+                    });
+                }
+
+                // Clone target locations
+                foreach (var tl in original.TargetLocations)
+                {
+                    _context.SurveyFormTargetLocations.Add(new SurveyFormTargetLocation
+                    {
+                        SurveyFormId = newForm.Id,
+                        LocationId = tl.LocationId
+                    });
+                }
+
+                // Clone sections and items
+                foreach (var sec in original.Sections.OrderBy(s => s.OrderIndex))
+                {
+                    var newSec = new SurveySection
+                    {
+                        SurveyFormId = newForm.Id,
+                        Title = sec.Title,
+                        OrderIndex = sec.OrderIndex,
+                        WeightPercent = sec.WeightPercent,
+                        IsActive = true
+                    };
+                    _context.SurveySections.Add(newSec);
+                    await _context.SaveChangesAsync();
+
+                    foreach (var it in sec.Items.OrderBy(i => i.OrderIndex))
+                    {
+                        var newIt = new SurveyItem
+                        {
+                            SurveySectionId = newSec.Id,
+                            QuestionText = it.QuestionText,
+                            QuestionType = it.QuestionType,
+                            FullScore = it.FullScore,
+                            IsCritical = it.IsCritical,
+                            CategoryCode = it.CategoryCode,
+                            CategoryName = it.CategoryName,
+                            OrderIndex = it.OrderIndex,
+                            IsActive = true
+                        };
+                        _context.SurveyItems.Add(newIt);
+                    }
+                    await _context.SaveChangesAsync();
+                }
+
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    message = $"ทำซ้ำแบบฟอร์มสำเร็จ: {duplicateTitle}",
+                    formId = newForm.Id,
+                    title = newForm.Title,
+                    version = newForm.Version
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error duplicating form {FormId}", id);
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการทำซ้ำแบบฟอร์ม กรุณาลองใหม่อีกครั้ง" });
             }
         }
 

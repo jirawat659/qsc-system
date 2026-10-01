@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace QSC.Api.Models
 {
@@ -21,5 +22,14 @@ namespace QSC.Api.Models
         public double? StartLongitude { get; set; }
         public DateTime? StartedAt { get; set; }
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+        [NotMapped]
+        public bool IsFormOutdated { get; set; } = false;
+
+        [NotMapped]
+        public int? LatestFormId { get; set; }
+
+        [NotMapped]
+        public string? LatestFormVersion { get; set; }
     }
 }

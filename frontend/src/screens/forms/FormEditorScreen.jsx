@@ -179,6 +179,12 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   });
   const [isBrandDropdownOpen, setIsBrandDropdownOpen] = useState(false);
   const brandDropdownRef = useRef(null);
+  const [targetingMode, setTargetingMode] = useState(form?.targetingMode || "ALL_LOCATIONS");
+  const [targetLocationIds, setTargetLocationIds] = useState(() => {
+    if (Array.isArray(form?.targetLocationIds)) return form.targetLocationIds.map(Number);
+    if (Array.isArray(form?.targetLocations)) return form.targetLocations.map(tl => Number(tl.locationId || tl.id));
+    return [];
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingFullForm, setIsLoadingFullForm] = useState(() => Boolean(form?.id && (!form.sections || form.sections.length === 0)));
   const [loadError, setLoadError] = useState(null);
@@ -272,6 +278,8 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             if (formData.locationTypeId) setLocationTypeId(formData.locationTypeId);
             if (formData.passingScore !== undefined && formData.passingScore !== null) setPassingScore(formData.passingScore);
             if (Array.isArray(formData.brandIds) && formData.brandIds.length > 0) setBrandIds(formData.brandIds.map(Number));
+            if (formData.targetingMode) setTargetingMode(formData.targetingMode);
+            if (Array.isArray(formData.targetLocationIds)) setTargetLocationIds(formData.targetLocationIds.map(Number));
             setLoadError(null);
           }
         })
@@ -1547,7 +1555,8 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       brandId: brandIds.length > 0 ? brandIds[0] : null,
       brandIds: brandIds.map(Number),
       passingScore: Number(passingScore) || 85,
-      targetingMode: "ALL_LOCATIONS",
+      targetingMode: targetingMode || "ALL_LOCATIONS",
+      targetLocationIds: (targetLocationIds || []).map(Number),
       version: form?.version || "v1.0",
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
       categoryOrderJson: JSON.stringify(categories),

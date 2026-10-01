@@ -302,7 +302,7 @@ export default function MainDashboard({ onLogout }) {
       const [locRes, schedRes, formRes, draftsRes, brandRes] = await Promise.allSettled([
         api.get('/location'),
         api.get('/schedule'),
-        api.get('/form?detail=summary'),
+        api.get('/form?onlyLatest=false&detail=summary'),
         api.get('/audit/drafts'),
         api.get('/brand')
       ]);
