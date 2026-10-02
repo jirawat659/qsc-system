@@ -1482,6 +1482,9 @@ namespace QSC.Api.Migrations
                     b.Property<int?>("CreatedBy")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("EntraOid")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(200)

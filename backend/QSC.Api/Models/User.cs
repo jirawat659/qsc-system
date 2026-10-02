@@ -15,6 +15,7 @@ namespace QSC.Api.Models
         public string BrandScope { get; set; } = "ALL"; // ALL or SPECIFIC
         public bool MustChangePassword { get; set; } = true;
         public bool IsActive { get; set; } = true;
+        public Guid? EntraOid { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public ICollection<UserLocation> UserLocations { get; set; } = new List<UserLocation>();

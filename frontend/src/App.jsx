@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import MainDashboard from './pages/MainDashboard';
+import SsoCallback, { SSO_CALLBACK_PATH } from './pages/SsoCallback';
 import authStorage from './config/storage';
 import signalRService from './services/signalrService';
 
@@ -20,6 +21,10 @@ function App() {
     signalRService.disconnect();
     setToken(null);
   };
+
+  if (window.location.pathname === SSO_CALLBACK_PATH) {
+    return <SsoCallback />;
+  }
 
   if (!token) {
     return <Login onLoginSuccess={(newToken) => setToken(newToken)} />;

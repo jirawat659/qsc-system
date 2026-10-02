@@ -99,22 +99,21 @@ $RECYCLE.BIN/
 # ==========================================
 qsc-clean-source/
 *.zip
-qsc-code.zip
 *.tar.gz
 *.rar
 *.7z
+
+# ==========================================
+# 🛑 SSO Test Kits & Mocks (Local testing only)
+# ==========================================
+Login/
+mock-au-portal/
+qsc-webapp-main/
 
 # ==========================================
 # 🛑 AI Agent Scratch & Workspaces
 # ==========================================
 .agent/
 .agents/
-
-# ==========================================
-# 🛑 Excluded Standalone / External Projects
-# ==========================================
-Login/
-mock-au-portal/
-qsc-webapp-main/
 
 

@@ -218,7 +218,42 @@ function Login({ onLoginSuccess }) {
           </button>
         </form>
 
-        <div className="mt-8 pt-4 border-t border-slate-100 text-center">
+        {/* SSO Option Divider */}
+        <div className="relative my-5 text-center">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-200"></div>
+          </div>
+          <div className="relative flex justify-center text-xs">
+            <span className="bg-white px-3 text-slate-400 font-medium">หรือเข้าสู่ระบบด้วย</span>
+          </div>
+        </div>
+
+        {/* Microsoft Entra ID Button */}
+        <button
+          type="button"
+          onClick={() => {
+            const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
+            const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
+            const redirectUri = encodeURIComponent(`${window.location.origin}/sso/callback`);
+            const scope = encodeURIComponent('openid profile email');
+            const responseType = 'id_token';
+            const nonce = Math.random().toString(36).substring(2);
+            const state = Math.random().toString(36).substring(2);
+
+            window.location.href = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=${responseType}&redirect_uri=${redirectUri}&scope=${scope}&response_mode=fragment&nonce=${nonce}&state=${state}`;
+          }}
+          className="w-full py-3 px-4 rounded-2xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50/80 text-slate-700 font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2.5 shadow-sm active:scale-98 cursor-pointer"
+        >
+          <svg className="w-4 h-4 shrink-0" viewBox="0 0 21 21">
+            <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+            <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+            <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+            <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+          </svg>
+          <span>เข้าสู่ระบบด้วย Microsoft Entra ID</span>
+        </button>
+
+        <div className="mt-6 pt-4 border-t border-slate-100 text-center">
           <p className="text-[11px] text-slate-400">
             ระบบตรวจสอบและควบคุมคุณภาพมาตรฐานองค์กร
           </p>

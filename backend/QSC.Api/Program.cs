@@ -28,6 +28,13 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) =>
     options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
 
+// 1.1 SSO Services (Microsoft Entra ID & AU Portal Launcher)
+builder.Services.Configure<QSC.Api.Sso.SsoOptions>(builder.Configuration.GetSection("AuPortal"));
+builder.Services.AddSingleton<QSC.Api.Sso.JtiStore>();
+builder.Services.AddSingleton<QSC.Api.Sso.SsoTokenValidator>();
+builder.Services.AddSingleton<QSC.Api.Sso.TokenService>();
+builder.Services.AddHttpClient<QSC.Api.Sso.PdpClient>();
+
 // 2. CORS Setup
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
     ?? new[] { "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3000" };

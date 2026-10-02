@@ -1,0 +1,34 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.IdentityModel.Tokens;
+using QSC.Api.Models;
+
+namespace QSC.Api.Sso;
+
+/// <summary>
+/// ออก session JWT ของ QSC (HS256 เหมือน AuthController.Login เดิมทุกประการ)
+/// แยกออกมาเพื่อให้ password login กับ SSO ใช้ร่วมกัน — เมื่อ cutover แล้วให้ AuthController เรียกตัวนี้แทนโค้ดซ้ำ
+/// </summary>
+public sealed class TokenService(IConfiguration config)
+{
+    public string Issue(User user, string roleCode)
+    {
+        var key = Encoding.UTF8.GetBytes(config["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!"));
+        var descriptor = new SecurityTokenDescriptor
+        {
+            Subject = new ClaimsIdentity(new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.Username),
+                new Claim(ClaimTypes.Role, roleCode),
+            }),
+            Expires = DateTime.UtcNow.AddHours(8),
+            Issuer = config["Jwt:Issuer"] ?? "QscApi",
+            Audience = config["Jwt:Audience"] ?? "QscFrontend",
+            SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
+        };
+        var handler = new JwtSecurityTokenHandler();
+        return handler.WriteToken(handler.CreateToken(descriptor));
+    }
+}
