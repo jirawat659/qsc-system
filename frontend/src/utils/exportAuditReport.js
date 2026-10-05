@@ -176,7 +176,7 @@ function estimateGridRows(grid) {
  * @param {Function} p.categoryOf  (q, sec) => "Product" | ...   ใช้ getQuestionCategory ของหน้าจอ
  * @param {object} p.header        ข้อความส่วนหัวที่หน้าจอประกอบไว้แล้ว
  */
-export function buildAuditReportModel({ record, sections, metaFields = [], passingScore = 85, categoryOf, header, categories = DEFAULT_CATEGORIES }) {
+export function buildAuditReportModel({ record, sections, metaFields = [], passingScore = 85, categoryOf, header, categories, categoryOrder }) {
   const questions = [];
   const outSections = (sections || []).map((sec, sIdx) => {
     const qs = (sec.questions || []).map(q => {
@@ -184,6 +184,7 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
       const grid = isGrid ? normalizeGrid(q) : null;
       const scored = !!q.isScored;
       const counted = scored && !q.isNa;
+      const cat = scored ? (categoryOf ? categoryOf(q, sec) : (q.category || "-")) : "-";
       const item = {
         num: q.num,
         text: q.text,
@@ -192,7 +193,7 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
         scored,
         given: counted ? Number(q.scoreGiven) || 0 : null,
         full: counted ? Number(q.fullScore) || 0 : null,
-        category: scored ? categoryOf(q, sec) : "-",
+        category: cat,
         note: scored ? (q.note || "") : extractComment(q.note),
         grid
       };
@@ -203,8 +204,62 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
     return { title: /^\d+[.)]/.test(t) ? t : `${sIdx + 1}. ${t}`, questions: qs };
   });
 
+  // 🌟 สรุปคะแนนรายหมวดแบบ Dynamic ตามข้อคำถามจริงในฟอร์ม (ไม่ hardcode 5 หมวดคงที่)
+  const scoredQuestions = questions.filter(q => q.scored && q.category && q.category !== "-");
+  const presentCatKeys = [];
+  scoredQuestions.forEach(q => {
+    if (!presentCatKeys.includes(q.category)) {
+      presentCatKeys.push(q.category);
+    }
+  });
+
+  // จัดลำดับหมวดหมู่ตาม categoryOrder ถ้ามี หรือตามลำดับมาตรฐานเริ่มต้น
+  let effectiveOrder = null;
+  const rawOrder = categoryOrder || record?.surveyForm?.categoryOrderJson || record?.categoryOrderJson || record?.surveyForm?.categories;
+  if (typeof rawOrder === "string") {
+    try {
+      const parsed = JSON.parse(rawOrder);
+      if (Array.isArray(parsed) && parsed.length > 0) effectiveOrder = parsed;
+    } catch (e) {}
+  } else if (Array.isArray(rawOrder) && rawOrder.length > 0) {
+    effectiveOrder = rawOrder;
+  }
+  if (!effectiveOrder) {
+    effectiveOrder = DEFAULT_CATEGORIES.map(c => c.key);
+  }
+
+  presentCatKeys.sort((a, b) => {
+    const idxA = effectiveOrder.indexOf(a);
+    const idxB = effectiveOrder.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b, "th");
+  });
+
+  const getCategoryLabel = (key) => {
+    const def = DEFAULT_CATEGORIES.find(c => c.key.toLowerCase() === String(key).toLowerCase());
+    if (def) return def.label;
+    return key;
+  };
+
+  const resolvedCategories = presentCatKeys.map(key => {
+    const custom = Array.isArray(categories) ? categories.find(c => (c.key || c.name || c) === key) : null;
+    const label = custom?.label || custom?.title || getCategoryLabel(key);
+    return { key, label };
+  });
+
+  // Fallback กรณีไม่มีข้อคิดคะแนนเลย ให้มี 1 แถวกันสูตร Excel error
+  if (resolvedCategories.length === 0) {
+    if (Array.isArray(categories) && categories.length > 0) {
+      categories.forEach(c => resolvedCategories.push(typeof c === "string" ? { key: c, label: getCategoryLabel(c) } : c));
+    } else {
+      resolvedCategories.push({ key: "General", label: "คะแนนทั่วไป" });
+    }
+  }
+
   // สรุปคะแนนรายหมวด (ค่าที่คำนวณไว้ใส่เป็น cached result ให้โปรแกรมที่ไม่คำนวณสูตรยังเห็นตัวเลข)
-  const catTotals = categories.map(c => {
+  const catTotals = resolvedCategories.map(c => {
     const own = questions.filter(q => q.scored && q.given !== null && q.category === c.key);
     return { ...c, given: own.reduce((s, q) => s + q.given, 0), full: own.reduce((s, q) => s + q.full, 0) };
   });
@@ -651,8 +706,8 @@ export async function loadSignatureImage(url, toFullUrl = u => u) {
   } catch { return null; } // ลายเซ็นโหลดไม่ได้ → ปล่อยช่องว่างให้เซ็นด้วยมือ ไม่ทำให้ export ล้ม
 }
 
-export async function exportAuditReportToExcel({ record, sections, metaFields, passingScore, categoryOf, header, signatureUrls = {}, toFullUrl }) {
-  const model = buildAuditReportModel({ record, sections, metaFields, passingScore, categoryOf, header });
+export async function exportAuditReportToExcel({ record, sections, metaFields, passingScore, categoryOf, header, signatureUrls = {}, toFullUrl, categories, categoryOrder }) {
+  const model = buildAuditReportModel({ record, sections, metaFields, passingScore, categoryOf, header, categories, categoryOrder });
   const [{ default: ExcelJS }, auditorSig, auditeeSig] = await Promise.all([
     import("exceljs"),
     loadSignatureImage(signatureUrls.auditor, toFullUrl),

@@ -171,6 +171,8 @@ export const getQuestionCategory = (q, sec) => {
   if (text.includes("สะอาด") || text.includes("ฆ่าเชื้อ") || text.includes("ล้างมือ")) return "Cleanliness";
   if (text.includes("เอกสาร") || text.includes("Log") || text.includes("FIFO") || text.includes("บันทึก") || text.includes("รายงาน")) return "Documents";
 
+  if (name) return name;
+  if (title) return title;
   return "Product";
 };
 
@@ -1141,6 +1143,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         metaFields: allDisplayMetadataFields,
         passingScore,
         categoryOf: getQuestionCategory,
+        categoryOrder: currentRecord?.surveyForm?.categoryOrderJson || currentRecord?.categoryOrderJson || currentRecord?.surveyForm?.categories,
         toFullUrl: getFullImageUrl,
         signatureUrls: {
           auditor: currentRecord.auditorSignatureUrl || currentRecord.auditorSignature,

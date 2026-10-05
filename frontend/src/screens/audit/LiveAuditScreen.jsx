@@ -90,6 +90,8 @@ export const getQuestionCategory = (q, sec) => {
   if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN") || title.includes("Cleanliness")) return "Cleanliness";
   if (title.includes("เอกสาร") || title.includes("DOC") || title.includes("Documents")) return "Documents";
 
+  if (name) return name;
+  if (title) return title;
   return "Product";
 };
 
@@ -3120,6 +3122,7 @@ export default function LiveAuditScreen({
         metaFields: exportMetaFields,
         passingScore: passingScore || 85,
         categoryOf: getQuestionCategory,
+        categoryOrder: selectedForm?.categoryOrderJson || selectedForm?.categories,
         toFullUrl: getFullImageUrl,
         signatureUrls: {
           auditor: auditorSignature || null,
