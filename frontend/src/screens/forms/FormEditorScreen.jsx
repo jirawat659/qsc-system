@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Sliders, Store, Loader2, Table, Hash, Calendar, Clock, UserCheck, CircleDot, CheckSquare, ChevronDownSquare, Settings2, Calculator } from "lucide-react";
+import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Sliders, Store, Loader2, Table, Hash, Calendar, Clock, UserCheck, CircleDot, CheckSquare, ChevronDownSquare, Settings2, Calculator, Globe, ChevronRight } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
@@ -8,6 +8,7 @@ import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import FieldTypeSelectModal from "../../modals/FieldTypeSelectModal";
 import GridConfigModal, { CASH_AUDIT_PRESET } from "../../modals/GridConfigModal";
+import TargetLocationTreeModal from "../../modals/TargetLocationTreeModal";
 import api from "../../config/api";
 import { DataContext } from "../../context/DataContext";
 import { CATEGORY_DISPLAY_MAP, getCategoryDisplay } from "../../config/constants";
@@ -126,7 +127,7 @@ export const getQuestionPlaceholder = (type) => {
 };
 
 export default function FormEditorScreen({ form, onBack, onSave, readOnly = false }) {
-  const { brands: contextBrands, currentUser } = useContext(DataContext);
+  const { brands: contextBrands, locations: contextLocations, currentUser } = useContext(DataContext);
   const userRole = (currentUser?.role || currentUser?.roleCode || "").toUpperCase();
   const isAuditorOrAuditee = userRole === "AUDITOR" || userRole === "AUDITEE";
   const canManage = !isAuditorOrAuditee && (userRole === "ADMIN" || userRole === "STANDARD" || (currentUser?.permissions || []).includes("forms.manage"));
@@ -171,20 +172,29 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const [locationTypeId, setLocationTypeId] = useState(form?.locationTypeId || 1);
   const [locationTypes, setLocationTypes] = useState([]);
   const [brands, setBrands] = useState(() => (Array.isArray(contextBrands) && contextBrands.length > 0 ? contextBrands : []));
+  const [locations, setLocations] = useState(() => (Array.isArray(contextLocations) && contextLocations.length > 0 ? contextLocations : []));
   const [brandIds, setBrandIds] = useState(() => {
     if (form?.brandIds && Array.isArray(form.brandIds)) return form.brandIds.map(Number);
     if (form?.formBrands && Array.isArray(form.formBrands)) return form.formBrands.map(fb => Number(fb.brandId || fb.id));
     if (form?.brandId) return [Number(form.brandId)];
     return [];
   });
-  const [isBrandDropdownOpen, setIsBrandDropdownOpen] = useState(false);
-  const brandDropdownRef = useRef(null);
+  const selectedBrandNames = useMemo(() => {
+    return brandIds.map((bid, idx) => {
+      const b = brands.find(brand => Number(brand.id) === Number(bid));
+      if (b?.name) return b.name;
+      if (Array.isArray(form?.brandNames) && form.brandNames[idx]) return form.brandNames[idx];
+      if (form?.brandName && Number(form?.brandId) === Number(bid)) return form.brandName;
+      return "";
+    }).filter(Boolean);
+  }, [brandIds, brands, form?.brandNames, form?.brandName, form?.brandId]);
   const [targetingMode, setTargetingMode] = useState(form?.targetingMode || "ALL_LOCATIONS");
   const [targetLocationIds, setTargetLocationIds] = useState(() => {
     if (Array.isArray(form?.targetLocationIds)) return form.targetLocationIds.map(Number);
     if (Array.isArray(form?.targetLocations)) return form.targetLocations.map(tl => Number(tl.locationId || tl.id));
     return [];
   });
+  const [isTargetLocationModalOpen, setIsTargetLocationModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingFullForm, setIsLoadingFullForm] = useState(() => Boolean(form?.id && (!form.sections || form.sections.length === 0)));
   const [loadError, setLoadError] = useState(null);
@@ -193,6 +203,9 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     let isMounted = true;
     if (contextBrands && contextBrands.length > 0 && brands.length === 0) {
       setBrands(contextBrands);
+    }
+    if (contextLocations && contextLocations.length > 0 && locations.length === 0) {
+      setLocations(contextLocations);
     }
 
     api.get('/location-type')
@@ -207,6 +220,14 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       .then(res => {
         if (isMounted && res.data && Array.isArray(res.data)) {
           setBrands(res.data);
+        }
+      })
+      .catch(() => {});
+
+    api.get('/location')
+      .then(res => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setLocations(res.data);
         }
       })
       .catch(() => {});
@@ -276,8 +297,11 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
             if (formData.title && !formName) setFormName(formData.title);
             if (formData.locationTypeId) setLocationTypeId(formData.locationTypeId);
-            if (formData.passingScore !== undefined && formData.passingScore !== null) setPassingScore(formData.passingScore);
-            if (Array.isArray(formData.brandIds) && formData.brandIds.length > 0) setBrandIds(formData.brandIds.map(Number));
+            if (Array.isArray(formData.brandIds) && formData.brandIds.length > 0) {
+              setBrandIds(formData.brandIds.map(Number));
+            } else if (formData.brandId) {
+              setBrandIds([Number(formData.brandId)]);
+            }
             if (formData.targetingMode) setTargetingMode(formData.targetingMode);
             if (Array.isArray(formData.targetLocationIds)) setTargetLocationIds(formData.targetLocationIds.map(Number));
             setLoadError(null);
@@ -1802,117 +1826,68 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             </div>
           </div>
 
-          {/* แบรนด์ (Brand) */}
-          <div ref={brandDropdownRef} className="min-w-0 relative">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5 truncate flex items-center justify-between">
-              <span>แบรนด์ (Brand)</span>
+          {/* แบรนด์และสาขาเป้าหมายที่แบบฟอร์มจะใช้งานได้ (Brand & Target Locations) */}
+          <div className="min-w-0 relative">
+            <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
+              <span>แบรนด์และสาขาเป้าหมายที่แบบฟอร์มจะใช้งานได้ (Form Target)</span>
+              <span className="text-xs text-slate-400 font-normal">
+                {brandIds.length === 0 && (targetingMode === "ALL_LOCATIONS" || targetLocationIds.length === 0)
+                  ? "ทุกแบรนด์และทุกสาขา (Global)"
+                  : targetingMode === "ALL_LOCATIONS"
+                  ? `ทุกสาขาของแบรนด์ ${selectedBrandNames.join(", ")}`
+                  : `จำกัดเฉพาะ ${targetLocationIds.length} สาขา`}
+              </span>
             </label>
             <div 
-              onClick={!isReadOnly ? () => setIsBrandDropdownOpen(prev => !prev) : undefined}
-              className={`w-full min-h-[50px] px-4 py-2.5 rounded-2xl border transition-all shadow-xs flex items-center justify-between gap-2 ${
+              onClick={!isReadOnly ? () => setIsTargetLocationModalOpen(true) : undefined}
+              className={`w-full min-h-[58px] p-3 sm:px-4 sm:py-3 rounded-2xl border transition-all shadow-xs flex flex-col justify-between gap-2.5 ${
                 isReadOnly
                   ? "bg-slate-50/80 border-slate-200 cursor-default"
-                  : isBrandDropdownOpen
-                  ? "bg-white border-[#0F6659] ring-2 ring-[#0F6659]/10 cursor-pointer"
-                  : "bg-white border-slate-200 hover:border-slate-300 cursor-pointer"
+                  : "bg-white border-slate-200 hover:border-[#0F6659] hover:shadow-xs cursor-pointer group"
               }`}
             >
-              <div className="flex items-center gap-1.5 flex-wrap min-w-0 flex-1 py-0.5">
-                {brandIds.length === 0 ? (
-                  <span className="text-sm font-normal text-slate-800 truncate">
-                    ทุกแบรนด์ (All Brands / Global)
+              {/* รายการแบรนด์และสาขา เรียงกันด้านบน ไม่พอขึ้นบรรทัดใหม่ */}
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0 w-full">
+                {brandIds.length === 0 && (targetingMode === "ALL_LOCATIONS" || targetLocationIds.length === 0) ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80 select-none">
+                    <Globe size={13} className="shrink-0" />
+                    <span>ทุกแบรนด์และทุกสาขา (All Brands & Locations / ค่าเริ่มต้น)</span>
                   </span>
                 ) : (
-                  brandIds.map(bid => {
-                    const bObj = brands.find(b => Number(b.id) === Number(bid));
-                    return (
-                      <span 
-                        key={bid}
-                        className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80 shrink-0 select-none animate-in fade-in zoom-in-95 duration-100"
-                        onClick={!isReadOnly ? (e) => {
-                          e.stopPropagation();
-                          setBrandIds(prev => prev.filter(id => Number(id) !== Number(bid)));
-                        } : undefined}
-                        title={!isReadOnly ? "คลิกเพื่อลบแบรนด์นี้ออก" : undefined}
-                      >
-                        <span>{bObj?.name || `Brand #${bid}`}</span>
-                        {!isReadOnly && <X size={12} className="text-emerald-700 hover:text-rose-600 cursor-pointer ml-0.5" />}
+                  <>
+                    {/* Brand Badges */}
+                    {selectedBrandNames.map(bName => (
+                      <span key={bName} className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-lg bg-emerald-50 text-[#0F6659] border border-emerald-200/80 select-none">
+                        <Tag size={12} className="shrink-0" />
+                        <span>{bName}</span>
                       </span>
-                    );
-                  })
+                    ))}
+
+                    {/* Scope Badge */}
+                    {targetingMode === "ALL_LOCATIONS" ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 select-none">
+                        (ทุกสาขาของแบรนด์นี้)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 select-none">
+                        <Store size={13} className="shrink-0 text-amber-700" />
+                        <span>เฉพาะ {targetLocationIds.length} สาขาที่เลือก</span>
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
+
+              {/* ปุ่มเลือกแบรนด์ / สาขา ไว้มุมขวาล่าง */}
               {!isReadOnly && (
-                <ChevronDown size={18} className={`text-[#0F6659] shrink-0 transition-transform duration-200 ${isBrandDropdownOpen ? 'rotate-180' : ''}`} />
+                <div className="flex items-center justify-end w-full pt-0.5">
+                  <div className="inline-flex items-center gap-1 text-[#0F6659] text-xs font-bold group-hover:translate-x-0.5 transition-transform">
+                    <span>เลือกแบรนด์ / สาขา</span>
+                    <ChevronRight size={16} />
+                  </div>
+                </div>
               )}
             </div>
-
-            {/* Multi-Brand Popover Menu */}
-            {isBrandDropdownOpen && !isReadOnly && (
-              <div 
-                className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95 duration-150 max-h-56 overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                {/* All Brands Option */}
-                <div 
-                  role="button"
-                  onClick={() => setBrandIds([])}
-                  className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-bold select-none ${
-                    brandIds.length === 0 ? 'bg-emerald-50 text-[#0F6659]' : 'text-slate-800 hover:bg-slate-50'
-                  }`}
-                >
-                  <input 
-                    type="checkbox"
-                    checked={brandIds.length === 0}
-                    readOnly
-                    className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer pointer-events-none"
-                  />
-                  <span className="flex-1">ทุกแบรนด์ (All Brands / Global)</span>
-                </div>
-                
-                <div className="border-t border-slate-100 my-1" />
-
-                {/* Individual Brands (Active Only) */}
-                {brands.filter(b => b.isActive !== false).length === 0 ? (
-                  <div className="p-3 text-xs text-slate-400 text-center">
-                    ไม่มีรายการแบรนด์ในระบบ
-                  </div>
-                ) : (
-                  brands.filter(b => b.isActive !== false).map(b => {
-                    const bid = Number(b.id);
-                    const isChecked = brandIds.map(Number).includes(bid);
-                    return (
-                      <div 
-                        key={b.id}
-                        role="button"
-                        onClick={() => {
-                          setBrandIds(prev => {
-                            const cur = prev.map(Number);
-                            if (cur.includes(bid)) {
-                              return cur.filter(id => id !== bid);
-                            } else {
-                              return [...cur, bid];
-                            }
-                          });
-                        }}
-                        className={`flex items-center gap-2.5 p-2 rounded-xl cursor-pointer transition-colors text-xs sm:text-sm font-medium select-none ${
-                          isChecked ? 'bg-emerald-50 text-[#0F6659] font-bold' : 'text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <input 
-                          type="checkbox"
-                          checked={isChecked}
-                          readOnly
-                          className="w-4 h-4 rounded text-[#0F6659] focus:ring-[#0F6659] accent-[#0F6659] cursor-pointer pointer-events-none"
-                        />
-                        <span className="flex-1">{b.name}</span>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            )}
           </div>
 
           {/* คำอธิบายแบบฟอร์ม */}
@@ -3506,7 +3481,26 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         />
       )}
 
-      {/* 🌟 9. TOP FLOATING TOAST (Dynamic Fresh Mint for success / Soft Rose for warning & error) */}
+      {/* 🌟 9. TARGET LOCATION TREE MODAL (Brand & Branch Scope Hierarchy) */}
+      <TargetLocationTreeModal
+        isOpen={isTargetLocationModalOpen}
+        onClose={() => setIsTargetLocationModalOpen(false)}
+        targetingMode={targetingMode}
+        targetLocationIds={targetLocationIds}
+        brandIds={brandIds}
+        locations={locations}
+        brands={brands}
+        locationTypes={locationTypes}
+        onSave={({ targetingMode: newMode, targetLocationIds: newIds, brandIds: newBrandIds }) => {
+          setTargetingMode(newMode);
+          setTargetLocationIds(newIds);
+          if (Array.isArray(newBrandIds)) {
+            setBrandIds(newBrandIds);
+          }
+        }}
+      />
+
+      {/* 🌟 10. TOP FLOATING TOAST (Dynamic Fresh Mint for success / Soft Rose for warning & error) */}
       {toastMessage && typeof document !== "undefined" && createPortal(
         <div className={`fixed top-5 left-1/2 -translate-x-1/2 z-[999999] pointer-events-none flex items-center gap-3 px-5 py-3 rounded-2xl backdrop-blur-md shadow-xl text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4 duration-200 ${
           toastMessage.isError

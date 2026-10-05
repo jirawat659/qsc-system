@@ -21,6 +21,7 @@ import { compressImageFile, validateImageFile } from "../../utils/imageCompresso
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import signalRService from "../../services/signalrService";
+import SyncStatusPill from "../../shared/SyncStatusPill";
 
 const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -1688,6 +1689,10 @@ export default function LiveAuditScreen({
   }, [initialDraftId]);
 
   const [syncStatus, setSyncStatus] = useState("idle");
+  const [showSaveTime, setShowSaveTime] = useState(false);
+  const [lastSavedTime, setLastSavedTime] = useState(() =>
+    new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+  );
   const isDiscardingRef = useRef(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -1910,6 +1915,9 @@ export default function LiveAuditScreen({
         if (t === "spot" || t === "unannounced") setAuditType("spot");
         else if (t === "undercover") setAuditType("undercover");
         else if (t === "announced") setAuditType("announced");
+      }
+      if (parsedDraftPayload.savedAt) {
+        setLastSavedTime(parsedDraftPayload.savedAt);
       }
       if (parsedDraftPayload.sectionIdx !== undefined) {
         setSectionIdx(parsedDraftPayload.sectionIdx);
@@ -2144,7 +2152,10 @@ export default function LiveAuditScreen({
         prev.leftActionType === currentActionType &&
         prev.sectionBadgeNumber === sectionBadgeNumber &&
         prev.actionMigrating === isMigratingDraft &&
-        prev.newerVersionKey === (newerFormVersion?.latestVersion || null)
+        prev.newerVersionKey === (newerFormVersion?.latestVersion || null) &&
+        prev.showSaveTime === showSaveTime &&
+        prev.lastSavedTime === lastSavedTime && 
+        prev.syncStatus === syncStatus
       ) {
         return prev;
       }
@@ -2158,27 +2169,45 @@ export default function LiveAuditScreen({
         sectionBadgeNumber,
         actionMigrating: isMigratingDraft,
         newerVersionKey: newerFormVersion?.latestVersion || null,
-        action: newerFormVersion ? (
-          <button
-            type="button"
-            onClick={handleMigrateDraft}
-            disabled={isMigratingDraft}
-            className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
-            title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
-          >
-            {isMigratingDraft ? (
-              <>
-                <Loader2 size={13} className="animate-spin" />
-                <span className="hidden sm:inline">กำลังย้าย...</span>
-              </>
-            ) : (
-              <>
-                <RefreshCw size={13} />
-                <span>ฟอร์มใหม่</span>
-              </>
+        showSaveTime,
+        lastSavedTime,
+        syncStatus,
+        action: (
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (ตามรูปที่ 1) */}
+            {step === "audit" && (
+              <SyncStatusPill
+                syncStatus={syncStatus}
+                showSaveTime={showSaveTime}
+                lastSavedTime={lastSavedTime}
+                onToggle={() => setShowSaveTime(prev => !prev)}
+              />
             )}
-          </button>
-        ) : null,
+
+            {/* ปุ่มฟอร์มใหม่เดิม */}
+            {newerFormVersion && (
+              <button
+                type="button"
+                onClick={handleMigrateDraft}
+                disabled={isMigratingDraft}
+                className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
+              >
+                {isMigratingDraft ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span className="hidden sm:inline">กำลังย้าย...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={13} />
+                    <span>ฟอร์มใหม่</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        ),
         onMenuClick: () => setIsCategoryDrawerOpen(true),
         onBack: () => {
           if (step === "select-form") {
@@ -2208,7 +2237,7 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus]);
 
   // ล้าง subHeader เมื่อ Component ถูก Unmount
   useEffect(() => {
@@ -2357,6 +2386,7 @@ export default function LiveAuditScreen({
         setSyncStatus("idle");
         return;
       }
+      const currentTimeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
       const payload = {
         unit: currentUnit,
@@ -2376,6 +2406,7 @@ export default function LiveAuditScreen({
         auditeeSignature: currentAuditeeSignature,
         auditorSignature: currentAuditorSignature,
         auditeeSignName: currentAuditeeSignName,
+        savedAt: currentTimeStr,
         startedAt: (() => {
           const effective = auditStartedAtRef.current || auditStartedAt || parsedDraftPayload?.startedAt || new Date().toISOString();
           if (!auditStartedAtRef.current) {
@@ -2436,6 +2467,7 @@ export default function LiveAuditScreen({
       }
 
       isAnswerModifiedRef.current = false;
+      setLastSavedTime(currentTimeStr);
       setSyncStatus("synced");
 
       const draftObj = {
@@ -2626,6 +2658,13 @@ export default function LiveAuditScreen({
             if (payload.auditType) {
               setAuditType(payload.auditType);
             }
+            
+            const initialTime = payload.savedAt ||
+              (remote.updatedAt ? new Date(remote.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : null);
+            if (initialTime) {
+              setLastSavedTime(initialTime);
+            }
+
             hasHydratedDraftRef.current = true;
           } catch (parseErr) {
             console.warn("Parse remote draft payload error:", parseErr);
@@ -2724,6 +2763,12 @@ export default function LiveAuditScreen({
           if (payload.auditType) {
             setAuditType(payload.auditType);
           }
+          const incomingTime = payload.savedAt ||
+            (syncedDraft.updatedAt
+              ? new Date(syncedDraft.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
+              : new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
+
+          setLastSavedTime(incomingTime); // 👈 อัปเดตเวลาบนปุ่ม Synced ของเครื่องนี้ทันที
           setSyncStatus("synced");
         } catch (e) {
           console.warn("SignalR draft payload parse error:", e);
@@ -4093,21 +4138,21 @@ export default function LiveAuditScreen({
                     <ChevronLeft size={18} />
                   </button>
                   <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
-                  {syncStatus !== "idle" && (
+                  {/*{syncStatus !== "idle" && (
                     syncStatus === "saving" ? (
-                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 animate-pulse">
+                      <span className="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 animate-pulse">
                         <Loader2 size={10} className="animate-spin text-amber-600" /> Syncing...
                       </span>
                     ) : syncStatus === "error" ? (
-                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
+                      <span className="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 border border-rose-200 text-[10px] font-bold text-rose-700">
                         <AlertCircle size={10} className="text-rose-600" /> Error
                       </span>
                     ) : (
-                      <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-[#0F6659]">
+                      <span className="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[10px] font-bold text-[#0F6659]">
                         <CheckCircle2 size={10} className="text-[#0F6659]" /> Synced
                       </span>
                     )
-                  )}
+                  )}*/}
                   {newerFormVersion && (
                     <button
                       type="button"
@@ -4751,6 +4796,17 @@ export default function LiveAuditScreen({
 
                     <div className="flex items-center gap-1.5 shrink-0">
                       {/* 🌟 ปุ่ม ChevronDown ที่คงอยู่ใน DOM เพื่อให้ CSS Transition คลี่ขยายและ Fade เข้าแบบนุ่มนวล */}
+                      {activeSectionIndex === sIdx && (
+                        <SyncStatusPill
+                          syncStatus={syncStatus}
+                          showSaveTime={showSaveTime}
+                          lastSavedTime={lastSavedTime}
+                          onToggle={(e) => {
+                            e.stopPropagation(); // ป้องกันไม่ให้ไปเปิด Drawer เมนู
+                            setShowSaveTime(prev => !prev);
+                          }}
+                        />
+                      )}
                       <span
                         className={`inline-flex items-center justify-center rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] shadow-2xs overflow-hidden transition-all duration-300 ease-in-out shrink-0 ${
                           isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""
