@@ -1968,7 +1968,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
               <div className="flex items-center gap-2">
                 <div>
                   <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
-                    ประเภทหมวดคะแนนในแบบฟอร์มนี้ (Scoring Categories)
+                    ประเภทหมวดคะแนน
                   </h3>
                   <p className="text-xs text-slate-500">
                     กำหนดหมวดคะแนน นำไปใช้คำนวณสถิติแยกตามหมวด

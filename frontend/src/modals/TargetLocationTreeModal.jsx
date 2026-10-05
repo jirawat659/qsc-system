@@ -23,8 +23,12 @@ export default function TargetLocationTreeModal({
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   // Track expanded state for tree nodes
-  const [expandedNodes, setExpandedNodes] = useState({
-    company: true
+  const [expandedNodes, setExpandedNodes] = useState(() => {
+    const initial = {};
+    if (Array.isArray(brandIds) && brandIds.length > 0) {
+      brandIds.forEach(id => { initial[`brand_${id}`] = true; });
+    }
+    return initial;
   });
 
   const toggleExpand = (nodeKey) => {
@@ -35,15 +39,15 @@ export default function TargetLocationTreeModal({
   };
 
   const expandAll = () => {
-    const all = { company: true };
-    brands.forEach(b => { all[`brand_${b.id}`] = true; });
-    all["unbranded"] = true;
-    all["factories"] = true;
+    const all = {};
+    (brands || []).forEach(b => { all[`brand_${b.id}`] = true; });
+    all["brand_unbranded"] = true;
+    all["brand_factories"] = true;
     setExpandedNodes(all);
   };
 
   const collapseAll = () => {
-    setExpandedNodes({ company: true });
+    setExpandedNodes({});
   };
 
   // Group locations by Brand and Location Type
@@ -315,6 +319,15 @@ export default function TargetLocationTreeModal({
               เลือกเป้าหมายการใช้งาน (Target)
             </h3>
             <div className="flex items-center gap-3 shrink-0">
+              {allValidLocationIds.length > 0 && selectedIds.size < allValidLocationIds.length && (
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="text-xs sm:text-sm font-bold text-[#0F6659] hover:underline cursor-pointer"
+                >
+                  เลือกทั้งหมด
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleClearAll}
@@ -332,7 +345,7 @@ export default function TargetLocationTreeModal({
             </div>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 leading-relaxed font-normal">
-            เลือกสาขา/คลัง/แบรนด์/บริษัทที่แบบฟอร์มนี้จะเปิดให้ใช้งานได้
+            เลือกแบรนด์หรือสาขาเป้าหมายที่แบบฟอร์มนี้จะเปิดให้ใช้งานได้
           </p>
 
           {/* Search bar */}
@@ -357,159 +370,110 @@ export default function TargetLocationTreeModal({
           </div>
         </div>
 
-        {/* 🌟 2. TREE VIEW CONTENT */}
+        {/* 🌟 2. TREE VIEW CONTENT (เริ่มต้นจากแบรนด์โดยตรง) */}
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 pt-3 space-y-3">
           <div className="border border-slate-200 rounded-3xl p-3 sm:p-4 bg-white shadow-2xs divide-y divide-slate-100">
-            {/* Top Level: Company */}
-            <div className="pb-2">
-              <div className="flex items-center gap-2.5 py-1.5 px-2 rounded-xl hover:bg-slate-50/80 transition-colors select-none">
-                <button
-                  type="button"
-                  onClick={() => toggleExpand("company")}
-                  className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-slate-900 cursor-pointer shrink-0"
-                >
-                  {expandedNodes.company ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                </button>
-
-                {/* Company Checkbox */}
-                <div
-                  role="checkbox"
-                  aria-checked={isAllCompanySelected ? "true" : isCompanyIndeterminate ? "mixed" : "false"}
-                  tabIndex={0}
-                  onClick={handleToggleAllCompany}
-                  className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer shrink-0 transition-all ${
-                    isAllCompanySelected || isCompanyIndeterminate
-                      ? "bg-[#0F6659] border-[#0F6659] text-white"
-                      : "bg-white border-slate-300 hover:border-slate-400"
-                  }`}
-                >
-                  {isAllCompanySelected ? (
-                    <Check size={12} strokeWidth={3} />
-                  ) : isCompanyIndeterminate ? (
-                    <Minus size={12} strokeWidth={3} />
-                  ) : null}
-                </div>
-
-                <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => toggleExpand("company")}>
-                  <span className="text-xs sm:text-sm font-bold text-slate-900 truncate cursor-pointer">
-                    บริษัท อาฟเตอร์ ยู จำกัด (มหาชน)
-                  </span>
-                  <span className="text-[11px] font-medium text-slate-400 shrink-0">
-                    บริษัท
-                  </span>
-                  <span className="text-[11px] font-bold text-slate-400 shrink-0 ml-auto">
-                    ({allValidLocationIds.length} สาขา)
-                  </span>
-                </div>
+            {filteredBrandGroups.length === 0 ? (
+              <div className="p-6 text-center text-xs sm:text-sm text-slate-400">
+                ไม่พบสาขาหรือแบรนด์ที่ตรงกับคำค้นหา "{searchTerm}"
               </div>
+            ) : (
+              filteredBrandGroups.map(group => {
+                const brandKey = `brand_${group.id}`;
+                const isExpanded = Boolean(expandedNodes[brandKey]);
+                const { checked, indeterminate, count, total } = getBrandCheckState(group.id);
 
-              {/* Sub Level: Brands & Facilities under Company */}
-              {expandedNodes.company && (
-                <div className="pl-6 sm:pl-7 pt-1.5 space-y-1">
-                  {filteredBrandGroups.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-400">
-                      ไม่พบสาขาหรือแบรนด์ที่ตรงกับคำค้นหา "{searchTerm}"
+                return (
+                  <div key={group.id} className="py-1 first:pt-0 last:pb-0">
+                    {/* Brand Node Row */}
+                    <div className="flex items-center gap-2.5 py-1.5 px-2 rounded-xl hover:bg-slate-50/80 transition-colors select-none group">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpand(brandKey)}
+                        className="w-5 h-5 flex items-center justify-center text-slate-400 group-hover:text-slate-700 cursor-pointer shrink-0"
+                      >
+                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                      </button>
+
+                      {/* Brand Checkbox */}
+                      <div
+                        role="checkbox"
+                        aria-checked={checked ? "true" : indeterminate ? "mixed" : "false"}
+                        tabIndex={0}
+                        onClick={() => handleToggleBrand(group.id)}
+                        className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer shrink-0 transition-all ${
+                          checked || indeterminate
+                            ? "bg-[#0F6659] border-[#0F6659] text-white"
+                            : "bg-white border-slate-300 hover:border-slate-400"
+                        }`}
+                      >
+                        {checked ? (
+                          <Check size={12} strokeWidth={3} />
+                        ) : indeterminate ? (
+                          <Minus size={12} strokeWidth={3} />
+                        ) : null}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => toggleExpand(brandKey)}>
+                        <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate cursor-pointer">
+                          {group.name}
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-400 shrink-0">
+                          {group.type === "brand" ? "แบรนด์" : "กลุ่มสาขา"}
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-400 shrink-0 ml-auto">
+                          ({count > 0 ? `${count}/` : ""}{total} สาขา)
+                        </span>
+                      </div>
                     </div>
-                  ) : (
-                    filteredBrandGroups.map(group => {
-                      const brandKey = `brand_${group.id}`;
-                      const isExpanded = Boolean(expandedNodes[brandKey]);
-                      const { checked, indeterminate, count, total } = getBrandCheckState(group.id);
 
-                      return (
-                        <div key={group.id} className="space-y-0.5">
-                          {/* Brand Node Row */}
-                          <div className="flex items-center gap-2.5 py-1.5 px-2 rounded-xl hover:bg-slate-50/80 transition-colors select-none group">
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(brandKey)}
-                              className="w-5 h-5 flex items-center justify-center text-slate-400 group-hover:text-slate-700 cursor-pointer shrink-0"
-                            >
-                              {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                            </button>
+                    {/* Branch Nodes under Brand */}
+                    {isExpanded && (
+                      <div className="pl-7 sm:pl-8 space-y-0.5 pt-0.5 pb-1">
+                        {group.locations.map(loc => {
+                          const locId = Number(loc.id);
+                          const isSelected = selectedIds.has(locId);
+                          const typeName = typeof loc.locationType === "object"
+                            ? (loc.locationType?.name || loc.locationType?.code)
+                            : (loc.locationType || "หน้าร้าน");
 
-                            {/* Brand Checkbox */}
+                          return (
                             <div
-                              role="checkbox"
-                              aria-checked={checked ? "true" : indeterminate ? "mixed" : "false"}
-                              tabIndex={0}
-                              onClick={() => handleToggleBrand(group.id)}
-                              className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer shrink-0 transition-all ${
-                                checked || indeterminate
-                                  ? "bg-[#0F6659] border-[#0F6659] text-white"
-                                  : "bg-white border-slate-300 hover:border-slate-400"
-                              }`}
+                              key={loc.id}
+                              onClick={() => handleToggleLocation(locId)}
+                              className="flex items-center gap-2.5 py-1 px-2 rounded-xl hover:bg-emerald-50/40 transition-colors select-none cursor-pointer"
                             >
-                              {checked ? (
-                                <Check size={12} strokeWidth={3} />
-                              ) : indeterminate ? (
-                                <Minus size={12} strokeWidth={3} />
-                              ) : null}
-                            </div>
-
-                            <div className="flex items-center gap-2 flex-1 min-w-0" onClick={() => toggleExpand(brandKey)}>
-                              <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate cursor-pointer">
-                                {group.name}
+                              <div className="w-5 shrink-0" />
+                              <div
+                                role="checkbox"
+                                aria-checked={isSelected}
+                                tabIndex={0}
+                                className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
+                                  isSelected
+                                    ? "bg-[#0F6659] border-[#0F6659] text-white"
+                                    : "bg-white border-slate-300 hover:border-slate-400"
+                                }`}
+                              >
+                                {isSelected && <Check size={11} strokeWidth={3} />}
+                              </div>
+                              <span className={`text-xs sm:text-sm truncate ${isSelected ? "font-bold text-emerald-950" : "font-normal text-slate-700"}`}>
+                                {loc.name || loc.fullName}
+                                {loc.code ? <span className="text-slate-400 font-mono text-[11px] ml-1.5">({loc.code})</span> : null}
                               </span>
-                              <span className="text-[11px] font-medium text-slate-400 shrink-0">
-                                {group.type === "brand" ? "แบรนด์" : "กลุ่มสาขา"}
-                              </span>
-                              <span className="text-[11px] font-medium text-slate-400 shrink-0 ml-auto">
-                                ({count > 0 ? `${count}/` : ''}{total} สาขา)
-                              </span>
+                              {typeName && (
+                                <span className="text-[10.5px] font-normal text-slate-400 shrink-0 ml-auto">
+                                  {typeName.includes("หน้าร้าน") ? "หน้าร้าน" : (typeName.includes("โรงงาน") ? "โรงงาน" : typeName)}
+                                </span>
+                              )}
                             </div>
-                          </div>
-
-                          {/* Branch Nodes under Brand */}
-                          {isExpanded && (
-                            <div className="pl-7 sm:pl-8 space-y-0.5 pt-0.5 pb-1">
-                              {group.locations.map(loc => {
-                                const locId = Number(loc.id);
-                                const isSelected = selectedIds.has(locId);
-                                const typeName = typeof loc.locationType === 'object'
-                                  ? (loc.locationType?.name || loc.locationType?.code)
-                                  : (loc.locationType || "หน้าร้าน");
-
-                                return (
-                                  <div
-                                    key={loc.id}
-                                    onClick={() => handleToggleLocation(locId)}
-                                    className="flex items-center gap-2.5 py-1 px-2 rounded-xl hover:bg-emerald-50/40 transition-colors select-none cursor-pointer"
-                                  >
-                                    <div className="w-5 shrink-0" />
-                                    <div
-                                      role="checkbox"
-                                      aria-checked={isSelected}
-                                      tabIndex={0}
-                                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all ${
-                                        isSelected
-                                          ? "bg-[#0F6659] border-[#0F6659] text-white"
-                                          : "bg-white border-slate-300 hover:border-slate-400"
-                                      }`}
-                                    >
-                                      {isSelected && <Check size={11} strokeWidth={3} />}
-                                    </div>
-                                    <span className={`text-xs sm:text-sm truncate ${isSelected ? "font-bold text-emerald-950" : "font-normal text-slate-700"}`}>
-                                      {loc.name || loc.fullName}
-                                      {loc.code ? <span className="text-slate-400 font-mono text-[11px] ml-1.5">({loc.code})</span> : null}
-                                    </span>
-                                    {typeName && (
-                                      <span className="text-[10.5px] font-normal text-slate-400 shrink-0 ml-auto">
-                                        {typeName.includes("หน้าร้าน") ? "หน้าร้าน" : (typeName.includes("โรงงาน") ? "โรงงาน" : typeName)}
-                                      </span>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              )}
-            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
