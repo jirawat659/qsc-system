@@ -20,6 +20,7 @@ import SwipeToast from "../../shared/SwipeToast";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
+import signalRService from "../../services/signalrService";
 
 const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -1227,6 +1228,7 @@ export default function LiveAuditScreen({
 
     const allDrafts = activeDrafts && activeDrafts.length > 0 ? activeDrafts : (activeDraft ? [activeDraft] : []);
 
+    // 1. Explicit resume of a draft (e.g. clicked draft card in "กำลังตรวจ")
     if (preselectedPlan?.isResume) {
       const explicitDraftId = preselectedPlan.originalId || preselectedPlan.id;
       if (explicitDraftId && typeof explicitDraftId === 'number') {
@@ -1238,38 +1240,16 @@ export default function LiveAuditScreen({
       }
     }
 
-    if (preselectedPlan && !preselectedPlan.isResume) {
-      return null;
-    }
-
-    if (!targetLocationId && !preselectedPlan?.locationName && !preselectedPlan?.unit) {
-      return null;
-    }
-
-    if (preselectedPlan?.id && typeof preselectedPlan.id === 'number') {
-      const foundBySched = allDrafts.find(d => Number(d.auditScheduleId) === Number(preselectedPlan.id));
+    // 2. Scheduled audit with an existing in-progress draft for that specific schedule
+    const schedId = preselectedPlan?.auditScheduleId || (typeof preselectedPlan?.id === 'number' && !preselectedPlan?.isNewAudit ? preselectedPlan.id : null);
+    if (schedId && !preselectedPlan?.isNewAudit) {
+      const foundBySched = allDrafts.find(d => Number(d.auditScheduleId) === Number(schedId));
       if (foundBySched) return foundBySched;
     }
 
-    const pUnitName = typeof preselectedPlan?.unit === 'string'
-      ? preselectedPlan.unit
-      : (preselectedPlan?.unit?.fullName || preselectedPlan?.unit?.name);
-
-    const found = allDrafts.find(d => {
-      const dLocId = d.locationId || d.location?.id || d.unit?.id;
-      const dLocName = d.locationName || d.locationFullName || d.unit?.name || d.unit?.fullName;
-      const matchLoc = (targetLocationId && Number(dLocId) === Number(targetLocationId)) ||
-        (preselectedPlan?.locationName && (dLocName === preselectedPlan.locationName || dLocName === pUnitName)) ||
-        (pUnitName && (dLocName === pUnitName || (d.locationFullName && d.locationFullName.includes(pUnitName))));
-      const matchForm = !targetFormId ||
-        Number(d.surveyFormId) === Number(targetFormId) ||
-        Number(d.formId) === Number(targetFormId) ||
-        (d.latestFormId && Number(d.latestFormId) === Number(targetFormId));
-      return matchLoc && matchForm;
-    });
-
-    return found || null;
-  }, [preselectedPlan, targetLocationId, targetFormId, activeDrafts, activeDraft, allLocations]);
+    // 🌟 Never auto-match drafts by branch & form for a new audit!
+    return null;
+  }, [preselectedPlan, activeDrafts, activeDraft]);
 
   const parsedDraftPayload = useMemo(() => {
     if (!matchedDraftRecord) return null;
@@ -1285,18 +1265,8 @@ export default function LiveAuditScreen({
       return matchedDraftRecord;
     }
 
-    if (targetLocationId) {
-      try {
-        const localKey = targetFormId
-          ? `qsc_draft_${targetLocationId}_${targetFormId}`
-          : `qsc_draft_${targetLocationId}`;
-        const localStr = localStorage.getItem(localKey);
-        if (localStr) return JSON.parse(localStr);
-      } catch (e) { }
-    }
-
     return null;
-  }, [matchedDraftRecord, targetLocationId, targetFormId]);
+  }, [matchedDraftRecord]);
 
   const isResumeDraft = Boolean(
     !preselectedPlan?.isNewAudit &&
@@ -1738,6 +1708,9 @@ export default function LiveAuditScreen({
     realStartGpsRef.current = realStartGps;
   }, [realStartGps]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const isSubmittedSuccessRef = useRef(false);
+  const [remoteSubmittedInfo, setRemoteSubmittedInfo] = useState(null);
   const [submitError, setSubmitError] = useState(null);
   const [isCategoryBreakdownExpanded, setIsCategoryBreakdownExpanded] = useState(true);
   const [isAuditHeaderScrolled, setIsAuditHeaderScrolled] = useState(false);
@@ -1975,9 +1948,7 @@ export default function LiveAuditScreen({
   useEffect(() => {
     if (step === "audit" && unit?.id && selectedForm?.id) {
       try {
-        const localDraftKey = `qsc_draft_${unit.id}_${selectedForm.id}`;
-        const currentLocalDraft = localStorage.getItem(localDraftKey);
-
+        const currentLocalDraft = localStorage.getItem(`qsc_draft_${unit.id}_${selectedForm.id}`);
         const sessionData = {
           screen: "audit",
           plan: {
@@ -2214,10 +2185,14 @@ export default function LiveAuditScreen({
             setStep("select-unit");
           } else {
             if (isResumeDraft || isFromAssignedPlan) {
-              if (autoSaveTimerRef.current) {
-                clearTimeout(autoSaveTimerRef.current);
-                autoSaveTimerRef.current = null;
-                performSaveDraft();
+              if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
+                if (autoSaveTimerRef.current) {
+                  clearTimeout(autoSaveTimerRef.current);
+                  autoSaveTimerRef.current = null;
+                }
+                const queued = pendingSaveDataRef.current || {};
+                pendingSaveDataRef.current = null;
+                performSaveDraftRef.current(queued);
               }
               if (onBackRef.current) onBackRef.current(true);
               return;
@@ -2255,10 +2230,14 @@ export default function LiveAuditScreen({
       setStep("select-unit");
     } else if (step === "audit") {
       if (isResumeDraft || isFromAssignedPlan) {
-        if (autoSaveTimerRef.current) {
-          clearTimeout(autoSaveTimerRef.current);
-          autoSaveTimerRef.current = null;
-          performSaveDraft();
+        if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
+          if (autoSaveTimerRef.current) {
+            clearTimeout(autoSaveTimerRef.current);
+            autoSaveTimerRef.current = null;
+          }
+          const queued = pendingSaveDataRef.current || {};
+          pendingSaveDataRef.current = null;
+          performSaveDraftRef.current(queued);
         }
         if (onBackRef.current) onBackRef.current(true);
         return;
@@ -2291,6 +2270,7 @@ export default function LiveAuditScreen({
     };
   }, [step]);
 
+  const isAnswerModifiedRef = useRef(false);
   const autoSaveTimerRef = useRef(null);
   const isSavingRef = useRef(false);
   const pendingSaveDataRef = useRef(null);
@@ -2368,8 +2348,12 @@ export default function LiveAuditScreen({
       }
 
       const totalAnswered = Object.keys(currentAnswers).length;
+      const hasMetadata = Object.keys(currentMetadataValues || {}).length > 0;
+      const hasComments = Object.keys(currentComments || {}).length > 0;
+      const hasPhotos = Object.keys(currentPhotos || {}).length > 0;
+      const hasAnyData = totalAnswered > 0 || hasMetadata || hasComments || hasPhotos || currentIsBackdated || currentStaffCount || currentExtraNote || currentAuditeeSignature || currentAuditorSignature;
 
-      if (totalAnswered === 0 && !currentAuditeeSignature && !currentAuditorSignature) {
+      if (!hasAnyData && !isAnswerModifiedRef.current) {
         setSyncStatus("idle");
         return;
       }
@@ -2419,6 +2403,7 @@ export default function LiveAuditScreen({
         localStorage.setItem(`qsc_draft_${currentUnit.id}_${currentForm.id}`, draftPayloadJson);
       } catch (e) { }
 
+      const isExplicitNewAudit = Boolean(preselectedPlan?.isNewAudit && !currDraftId);
       const res = await api.put('/audit/draft', {
         id: currDraftId,
         locationId: currentUnit.id,
@@ -2431,7 +2416,8 @@ export default function LiveAuditScreen({
         totalQuestions,
         startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
         startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
-        startedAt: payload.startedAt
+        startedAt: payload.startedAt,
+        isNewAudit: isExplicitNewAudit
       });
 
       // 🌟 M2: ป้องกัน race condition ถ้ามี auto-save รอบใหม่กว่าถูกส่งออกไปแล้วขณะที่ request นี้กำลังเดินทาง
@@ -2440,10 +2426,16 @@ export default function LiveAuditScreen({
       }
 
       if (res?.data?.id) {
-        draftIdRef.current = res.data.id;
-        setDraftId(res.data.id);
+        const newId = res.data.id;
+        const prevId = draftIdRef.current;
+        draftIdRef.current = newId;
+        setDraftId(newId);
+        if (!prevId || prevId !== newId) {
+          signalRService.joinAuditRoom(`audit_draft_${newId}`);
+        }
       }
 
+      isAnswerModifiedRef.current = false;
       setSyncStatus("synced");
 
       const draftObj = {
@@ -2501,73 +2493,276 @@ export default function LiveAuditScreen({
     }
   };
 
-  useEffect(() => {
-    if (!unit?.id || !selectedForm?.id || step !== "audit") {
-      setSyncStatus("idle");
-      return;
-    }
-
-    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับร่างเดิมก่อน hydrate เสร็จสมบูรณ์
-    if (isResumeDraft && !hasHydratedDraftRef.current) {
-      return;
-    }
-
-    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับขณะกำลังกดย้ายฟอร์มใหม่
-    if (isMigratingDraft || isMigratingDraftRef.current) {
-      return;
-    }
-
-    const totalAnswered = Object.keys(answers || {}).length;
-    if (totalAnswered === 0) {
-      setSyncStatus("idle");
-      return;
-    }
-
-    setSyncStatus("saving");
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-
-    autoSaveTimerRef.current = setTimeout(() => {
-      performSaveDraft();
-    }, 800);
-
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-    };
-  }, [
-    unit,
-    selectedForm,
-    sectionIdx,
-    answers,
-    photos,
-    comments,
-    staffCount,
-    auditorName,
-    auditType,
-    extraNote,
-    metadataValues,
-    isBackdated,
-    backdatedStartDate,
-    backdatedEndDate,
-    auditeeSignature,
-    auditorSignature,
-    auditeeSignName,
-    step,
-    currentUser,
-    isMigratingDraft
-  ]);
-
   performSaveDraftRef.current = performSaveDraft;
   useEffect(() => {
     performSaveDraftRef.current = performSaveDraft;
   });
 
-  // Flush draft on unmount if any debounce timer is pending
+  // 🌟 Action-based Debounced Save (800ms)
+  // Saves only when the user performs answer actions (answering questions, photos, comments, staff, etc.)
+  // Never saves when switching sections or pages
+  const scheduleActionSave = useCallback((overrideData = {}) => {
+    isAnswerModifiedRef.current = true;
+    setSyncStatus("saving");
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+    pendingSaveDataRef.current = {
+      ...(pendingSaveDataRef.current || {}),
+      ...overrideData
+    };
+    autoSaveTimerRef.current = setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      const queued = pendingSaveDataRef.current || {};
+      pendingSaveDataRef.current = null;
+      if (performSaveDraftRef.current) {
+        performSaveDraftRef.current(queued);
+      }
+    }, 800);
+  }, []);
+
+  // 🌟 Auto-fetch the latest draft from server upon entering step === "audit"
+  // ONLY if this is NOT a new audit (i.e. resuming an in-progress draft)
+  const hasAutoFetchedDraftRef = useRef(false);
+  useEffect(() => {
+    if (step !== "audit" || !unit?.id || !selectedForm?.id) return;
+    if (hasAutoFetchedDraftRef.current) return;
+    hasAutoFetchedDraftRef.current = true;
+
+    // 🛡️ If this is an explicit new audit, NEVER pull or auto-fetch old drafts!
+    if (preselectedPlan?.isNewAudit) {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchLatestServerDraft = async () => {
+      try {
+        const targetDraftId = getEffectiveDraftId();
+        const schedId = effectiveSchedId;
+
+        // 🛡️ ONLY fetch server draft if we have an explicit target draft ID or schedule ID to resume!
+        // NEVER fetch old drafts just by locationId & surveyFormId during a new audit!
+        if (!targetDraftId && !schedId) {
+          return;
+        }
+
+        const params = new URLSearchParams();
+        if (targetDraftId) {
+          params.set("id", targetDraftId);
+        } else if (schedId) {
+          params.set("scheduleId", schedId);
+        }
+
+        const res = await api.get(`/audit/draft?${params.toString()}`);
+        if (!isMounted || !res.data) return;
+
+        const remote = res.data;
+        if (remote.id) {
+          draftIdRef.current = remote.id;
+          setDraftId(remote.id);
+        }
+
+        // Hydrate only if answers on this device have not been modified yet
+        if (!isAnswerModifiedRef.current && remote.draftPayloadJson) {
+          try {
+            const payload = typeof remote.draftPayloadJson === "string"
+              ? JSON.parse(remote.draftPayloadJson)
+              : remote.draftPayloadJson;
+
+            const currentForm = selectedForm;
+            let activeAnswers = payload.answers || {};
+            let activePhotos = payload.photos || {};
+            let activeComments = payload.comments || {};
+
+            if (currentForm && Array.isArray(currentForm.sections) && currentForm.sections.length > 0) {
+              const remapped = remapDraftItemsToCurrentForm(payload, currentForm);
+              activeAnswers = remapped.answers;
+              activePhotos = remapped.photos;
+              activeComments = remapped.comments;
+            }
+
+            if (payload.answers !== undefined) {
+              setAnswers(prev => {
+                // If local state already has answers, merge them preserving local answers so we don't clobber recent answers
+                if (prev && Object.keys(prev).length > 0) {
+                  return { ...activeAnswers, ...prev };
+                }
+                return activeAnswers;
+              });
+            }
+            if (payload.photos !== undefined) {
+              setPhotos(prev => (prev && Object.keys(prev).length > 0 ? { ...activePhotos, ...prev } : activePhotos));
+            }
+            if (payload.comments !== undefined) {
+              setComments(prev => (prev && Object.keys(prev).length > 0 ? { ...activeComments, ...prev } : activeComments));
+            }
+            if (payload.staffCount !== undefined) {
+              setStaffCount(payload.staffCount);
+            }
+            if (payload.extraNote !== undefined) {
+              setExtraNote(payload.extraNote);
+            }
+            if (payload.metadataValues && Object.keys(payload.metadataValues).length > 0) {
+              setMetadataValues(prev => (Object.keys(prev || {}).length === 0 ? payload.metadataValues : { ...payload.metadataValues, ...prev }));
+            }
+            if (payload.auditeeSignature !== undefined) {
+              setAuditeeSignature(payload.auditeeSignature || null);
+            }
+            if (payload.auditorSignature !== undefined) {
+              setAuditorSignature(payload.auditorSignature || null);
+            }
+            if (payload.auditeeSignName !== undefined) {
+              setAuditeeSignName(payload.auditeeSignName || "");
+            }
+            if (payload.isBackdated !== undefined) {
+              setIsBackdated(Boolean(payload.isBackdated));
+            }
+            if (payload.backdatedStartDate !== undefined) {
+              setBackdatedStartDate(payload.backdatedStartDate);
+            }
+            if (payload.backdatedEndDate !== undefined) {
+              setBackdatedEndDate(payload.backdatedEndDate);
+            }
+            if (payload.auditType) {
+              setAuditType(payload.auditType);
+            }
+            hasHydratedDraftRef.current = true;
+          } catch (parseErr) {
+            console.warn("Parse remote draft payload error:", parseErr);
+          }
+        }
+      } catch (err) {
+        console.warn("Auto-fetch server draft error:", err);
+      }
+    };
+
+    fetchLatestServerDraft();
+    return () => {
+      isMounted = false;
+    };
+  }, [step, unit?.id, selectedForm?.id, effectiveSchedId, currentUser?.id, preselectedPlan?.isNewAudit, getEffectiveDraftId]);
+
+  // 🌟 Real-time SignalR draft synchronization across multiple devices/screens
+  useEffect(() => {
+    if (step !== "audit" || !unit?.id || !selectedForm?.id) return;
+
+    const currentDraftId = getEffectiveDraftId();
+    const roomsToJoin = [];
+
+    if (currentDraftId) {
+      roomsToJoin.push(`audit_draft_${currentDraftId}`);
+    }
+    if (effectiveSchedId) {
+      roomsToJoin.push(`audit_sched_${effectiveSchedId}`);
+    }
+
+    roomsToJoin.forEach(room => signalRService.joinAuditRoom(room));
+
+    const unsub = signalRService.onAuditDraftSynced((syncedDraft) => {
+      const activeDraftId = draftIdRef.current || getEffectiveDraftId();
+      const matchesDraftId = activeDraftId && Number(syncedDraft.draftId) === Number(activeDraftId);
+      const matchesSched = effectiveSchedId && Number(syncedDraft.auditScheduleId) === Number(effectiveSchedId);
+
+      if (!matchesDraftId && !matchesSched) return;
+
+      if (syncedDraft.draftId) {
+        const isNewRoom = !draftIdRef.current || Number(draftIdRef.current) !== Number(syncedDraft.draftId);
+        draftIdRef.current = syncedDraft.draftId;
+        setDraftId(syncedDraft.draftId);
+        if (isNewRoom) {
+          signalRService.joinAuditRoom(`audit_draft_${syncedDraft.draftId}`);
+        }
+      }
+
+      if (syncedDraft.draftPayloadJson) {
+        try {
+          const payload = typeof syncedDraft.draftPayloadJson === "string"
+            ? JSON.parse(syncedDraft.draftPayloadJson)
+            : syncedDraft.draftPayloadJson;
+
+          // Merge updates: replace state with server snapshot, preserving only local uncommitted changes if any
+          if (payload.answers !== undefined) {
+            const pendingAnswers = pendingSaveDataRef.current?.answers;
+            setAnswers(pendingAnswers ? { ...payload.answers, ...pendingAnswers } : (payload.answers || {}));
+          }
+          if (payload.photos !== undefined) {
+            const pendingPhotos = pendingSaveDataRef.current?.photos;
+            setPhotos(pendingPhotos ? { ...payload.photos, ...pendingPhotos } : (payload.photos || {}));
+          }
+          if (payload.comments !== undefined) {
+            const pendingComments = pendingSaveDataRef.current?.comments;
+            setComments(pendingComments ? { ...payload.comments, ...pendingComments } : (payload.comments || {}));
+          }
+          if (payload.staffCount !== undefined) {
+            setStaffCount(payload.staffCount);
+          }
+          if (payload.extraNote !== undefined) {
+            setExtraNote(payload.extraNote);
+          }
+          if (payload.metadataValues !== undefined) {
+            const pendingMeta = pendingSaveDataRef.current?.metadataValues;
+            setMetadataValues(pendingMeta ? { ...payload.metadataValues, ...pendingMeta } : (payload.metadataValues || {}));
+          }
+          if (payload.auditeeSignature !== undefined) {
+            setAuditeeSignature(payload.auditeeSignature || null);
+          }
+          if (payload.auditorSignature !== undefined) {
+            setAuditorSignature(payload.auditorSignature || null);
+          }
+          if (payload.auditeeSignName !== undefined) {
+            setAuditeeSignName(payload.auditeeSignName || "");
+          }
+          if (payload.isBackdated !== undefined) {
+            setIsBackdated(Boolean(payload.isBackdated));
+          }
+          if (payload.backdatedStartDate !== undefined) {
+            setBackdatedStartDate(payload.backdatedStartDate);
+          }
+          if (payload.backdatedEndDate !== undefined) {
+            setBackdatedEndDate(payload.backdatedEndDate);
+          }
+          if (payload.auditType) {
+            setAuditType(payload.auditType);
+          }
+          setSyncStatus("synced");
+        } catch (e) {
+          console.warn("SignalR draft payload parse error:", e);
+        }
+      }
+    });
+
+    const unsubSubmitted = signalRService.onAuditSubmitted((submittedData) => {
+      const activeDraftId = draftIdRef.current || getEffectiveDraftId();
+      const matchesDraftId = activeDraftId && Number(submittedData.draftId) === Number(activeDraftId);
+      const matchesSched = effectiveSchedId && Number(submittedData.auditScheduleId) === Number(effectiveSchedId);
+
+      if (!matchesDraftId && !matchesSched) return;
+
+      // Don't show modal if this device was the one that submitted
+      if (isSubmittingRef.current || isSubmittedSuccessRef.current) return;
+
+      setRemoteSubmittedInfo(submittedData);
+    });
+
+    return () => {
+      unsub();
+      unsubSubmitted();
+      roomsToJoin.forEach(room => signalRService.leaveAuditRoom(room));
+    };
+  }, [step, unit?.id, selectedForm?.id, effectiveSchedId, preselectedPlan?.isNewAudit, getEffectiveDraftId]);
+
+  // Flush draft on unmount ONLY if answers were modified by user on this device
   useEffect(() => {
     return () => {
       if (isDiscardingRef.current) return;
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-        performSaveDraftRef.current();
+      if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
+        if (autoSaveTimerRef.current) {
+          clearTimeout(autoSaveTimerRef.current);
+          autoSaveTimerRef.current = null;
+        }
+        const queued = pendingSaveDataRef.current || {};
+        pendingSaveDataRef.current = null;
+        performSaveDraftRef.current(queued);
       }
     };
   }, []);
@@ -2643,6 +2838,7 @@ export default function LiveAuditScreen({
             ? prev[questionId]
             : (prev[questionId] ? [prev[questionId]] : []);
           const next = { ...prev, [questionId]: [...existing, ...successfulUrls] };
+          scheduleActionSave({ photos: next });
           return next;
         });
       }
@@ -2659,7 +2855,7 @@ export default function LiveAuditScreen({
       console.error("Compression/Upload error:", e);
       setPhotoUploadErrors(prev => ({ ...prev, [questionId]: "ไม่สามารถประมวลผลรูปภาพได้ กรุณาลองใหม่อีกครั้ง" }));
     }
-  }, []);
+  }, [scheduleActionSave]);
 
   const handlePhotoDelete = useCallback((questionId, photoIdx) => {
     setPhotos(prev => {
@@ -2677,9 +2873,10 @@ export default function LiveAuditScreen({
       } else {
         delete next[questionId];
       }
+      scheduleActionSave({ photos: next });
       return next;
     });
-  }, []);
+  }, [scheduleActionSave]);
 
   const handleAnswerSelect = useCallback((questionId, val) => {
     setHighlightedQuestionId(prevHighlighted => (prevHighlighted === questionId ? null : prevHighlighted));
@@ -2716,13 +2913,18 @@ export default function LiveAuditScreen({
       } else {
         next[questionId] = val;
       }
+      scheduleActionSave({ answers: next });
       return next;
     });
-  }, [selectedForm]);
+  }, [selectedForm, scheduleActionSave]);
 
   const handleCommentChange = useCallback((questionId, val) => {
-    setComments(prev => ({ ...prev, [questionId]: val }));
-  }, []);
+    setComments(prev => {
+      const next = { ...prev, [questionId]: val };
+      scheduleActionSave({ comments: next });
+      return next;
+    });
+  }, [scheduleActionSave]);
 
   const handleToggleComment = useCallback((questionId, currentlyOpen) => {
     setOpenComments(prev => ({ ...prev, [questionId]: !currentlyOpen }));
@@ -3095,6 +3297,7 @@ export default function LiveAuditScreen({
     }
 
     setIsSubmitting(true);
+    isSubmittingRef.current = true;
     setSubmitError(null);
     try {
       let endLat = null;
@@ -3303,6 +3506,7 @@ export default function LiveAuditScreen({
       if (onSaveDraft) onSaveDraft(null);
       if (refreshData) await refreshData();
 
+      isSubmittedSuccessRef.current = true;
       setShowConfirmModal(false);
       if (onCompleteAudit) onCompleteAudit();
       if (onActiveStateChange) onActiveStateChange(false);
@@ -3315,8 +3519,35 @@ export default function LiveAuditScreen({
       alert(`ไม่สามารถส่งผลตรวจได้: ${errMsg}`);
     } finally {
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
+
+  const handleAcknowledgeSubmitted = useCallback(() => {
+    isDiscardingRef.current = true;
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    try {
+      const activeDraftId = draftIdRef.current || getEffectiveDraftId();
+      if (activeDraftId) localStorage.removeItem(`qsc_draft_id_${activeDraftId}`);
+      if (effectiveSchedId) localStorage.removeItem(`qsc_draft_sched_${effectiveSchedId}`);
+      if (unit?.id && selectedForm?.id) localStorage.removeItem(`qsc_draft_${unit.id}_${selectedForm.id}`);
+      sessionStorage.removeItem("qsc_active_audit_session");
+    } catch (e) {}
+
+    setRemoteSubmittedInfo(null);
+    if (refreshData) refreshData();
+    if (onCompleteAudit) onCompleteAudit();
+    if (onActiveStateChange) onActiveStateChange(false);
+    if (onClearPlan) onClearPlan();
+    if (onBack) {
+      onBack();
+    } else {
+      setStep("select-unit");
+    }
+  }, [effectiveSchedId, getEffectiveDraftId, onActiveStateChange, onBack, onClearPlan, onCompleteAudit, refreshData, selectedForm?.id, unit?.id]);
 
   const confirmDiscardDraft = async () => {
     isDiscardingRef.current = true;
@@ -4066,9 +4297,9 @@ export default function LiveAuditScreen({
                               : raw.includes("นอก") || raw === "spot" || raw === "unannounced" ? "spot"
                               : "announced";
                             setAuditType(mapped);
-                            performSaveDraft({ metadataValues: next, auditType: mapped });
+                            scheduleActionSave({ metadataValues: next, auditType: mapped });
                           } else {
-                            performSaveDraft({ metadataValues: next });
+                            scheduleActionSave({ metadataValues: next });
                           }
                         }}
                       />
@@ -4090,7 +4321,7 @@ export default function LiveAuditScreen({
                             const val = e.target.value;
                             const next = { ...metadataValues, [field.id]: val };
                             setMetadataValues(next);
-                            performSaveDraft({ metadataValues: next });
+                            scheduleActionSave({ metadataValues: next });
                           }}
                           className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                         >
@@ -4126,7 +4357,7 @@ export default function LiveAuditScreen({
                               type="button"
                               onClick={() => {
                                 setAuditType(key);
-                                performSaveDraft({ auditType: key });
+                                scheduleActionSave({ auditType: key });
                               }}
                               className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isSelected
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
@@ -4159,7 +4390,7 @@ export default function LiveAuditScreen({
                             setStaffCount(val);
                             const nextMeta = { ...metadataValues, staff_count: val };
                             setMetadataValues(nextMeta);
-                            performSaveDraft({ staffCount: val, metadataValues: nextMeta });
+                            scheduleActionSave({ staffCount: val, metadataValues: nextMeta });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
@@ -4187,7 +4418,7 @@ export default function LiveAuditScreen({
                           onChange={(e) => {
                             const next = { ...metadataValues, [field.id]: e.target.value };
                             setMetadataValues(next);
-                            performSaveDraft({ metadataValues: next });
+                            scheduleActionSave({ metadataValues: next });
                           }}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
                           className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs"
@@ -4213,7 +4444,12 @@ export default function LiveAuditScreen({
                         <input
                           type="date"
                           value={currentVal || ""}
-                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const next = { ...metadataValues, [field.id]: val };
+                            setMetadataValues(next);
+                            scheduleActionSave({ metadataValues: next });
+                          }}
                           className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
                         />
                         <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
@@ -4238,7 +4474,12 @@ export default function LiveAuditScreen({
                         <input
                           type="time"
                           value={currentVal || ""}
-                          onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const next = { ...metadataValues, [field.id]: val };
+                            setMetadataValues(next);
+                            scheduleActionSave({ metadataValues: next });
+                          }}
                           className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
                         />
                         <Clock size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
@@ -4266,7 +4507,11 @@ export default function LiveAuditScreen({
                             <button
                               key={opt}
                               type="button"
-                              onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: opt }))}
+                              onClick={() => {
+                                const next = { ...metadataValues, [field.id]: opt };
+                                setMetadataValues(next);
+                                scheduleActionSave({ metadataValues: next });
+                              }}
                               className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${currentVal === opt
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                   : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -4280,7 +4525,12 @@ export default function LiveAuditScreen({
                         <div className="relative">
                           <select
                             value={currentVal || ""}
-                            onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const next = { ...metadataValues, [field.id]: val };
+                              setMetadataValues(next);
+                              scheduleActionSave({ metadataValues: next });
+                            }}
                             className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
                           >
                             <option value="">-- เลือก --</option>
@@ -4309,7 +4559,11 @@ export default function LiveAuditScreen({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setMetadataValues(prev => ({ ...prev, [field.id]: !isTrue }))}
+                        onClick={() => {
+                          const next = { ...metadataValues, [field.id]: !isTrue };
+                          setMetadataValues(next);
+                          scheduleActionSave({ metadataValues: next });
+                        }}
                         className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${isTrue
                             ? 'bg-[#0F6659] text-white shadow-2xs'
                             : 'bg-slate-200 text-slate-600'
@@ -4329,7 +4583,12 @@ export default function LiveAuditScreen({
                     <textarea
                       rows={2}
                       value={currentVal || ""}
-                      onChange={(e) => setMetadataValues(prev => ({ ...prev, [field.id]: e.target.value }))}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const next = { ...metadataValues, [field.id]: val };
+                        setMetadataValues(next);
+                        scheduleActionSave({ metadataValues: next });
+                      }}
                       onInput={(e) => {
                         // 🌟 ยืดขยายความสูงอัตโนมัติตามเนื้อหาที่พิมพ์จริง
                         e.target.style.height = "auto";
@@ -4373,9 +4632,9 @@ export default function LiveAuditScreen({
                         const endStr = backdatedEndDate || toIsoLocal(now);
                         setBackdatedStartDate(startStr);
                         setBackdatedEndDate(endStr);
-                        performSaveDraft({ isBackdated: next, backdatedStartDate: startStr, backdatedEndDate: endStr });
+                        scheduleActionSave({ isBackdated: next, backdatedStartDate: startStr, backdatedEndDate: endStr });
                       } else {
-                        performSaveDraft({ isBackdated: next });
+                        scheduleActionSave({ isBackdated: next });
                       }
                     }}
                     className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer min-h-[38px] flex items-center justify-center shrink-0 active:scale-95 ${
@@ -4400,7 +4659,7 @@ export default function LiveAuditScreen({
                           onChange={(e) => {
                             const val = e.target.value;
                             setBackdatedStartDate(val);
-                            performSaveDraft({ backdatedStartDate: val });
+                            scheduleActionSave({ backdatedStartDate: val });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
@@ -4424,7 +4683,7 @@ export default function LiveAuditScreen({
                           onChange={(e) => {
                             const val = e.target.value;
                             setBackdatedEndDate(val);
-                            performSaveDraft({ backdatedEndDate: val });
+                            scheduleActionSave({ backdatedEndDate: val });
                           }}
                           className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
                         />
@@ -4580,7 +4839,7 @@ export default function LiveAuditScreen({
                     onChange={(e) => {
                       const val = e.target.value;
                       setExtraNote(val);
-                      performSaveDraft({ extraNote: val });
+                      scheduleActionSave({ extraNote: val });
                     }}
                     onInput={(e) => {
                       e.target.style.height = "auto";
@@ -4598,7 +4857,7 @@ export default function LiveAuditScreen({
                   signatoryName={auditeeSignName}
                   onSignChange={(sig) => {
                     setAuditeeSignature(sig);
-                    performSaveDraft({ auditeeSignature: sig });
+                    scheduleActionSave({ auditeeSignature: sig });
                   }}
                   signatureUrl={auditeeSignature}
                 />
@@ -4607,7 +4866,7 @@ export default function LiveAuditScreen({
                   label={`2. ผู้ตรวจประเมิน (${loggedInAuditorName || auditorName || defaultAuditorName})`}
                   onSignChange={(sig) => {
                     setAuditorSignature(sig);
-                    performSaveDraft({ auditorSignature: sig });
+                    scheduleActionSave({ auditorSignature: sig });
                   }}
                   signatureUrl={auditorSignature}
                 />
@@ -4736,6 +4995,44 @@ export default function LiveAuditScreen({
                   ) : (
                     "ยืนยันลบ"
                   )}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        {/* REMOTE AUDIT SUBMITTED NOTIFICATION MODAL */}
+        {remoteSubmittedInfo && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-sm sm:max-w-md w-full shadow-2xl border border-slate-200 space-y-5 text-center animate-in zoom-in-95 duration-200">
+              <div className="w-16 h-16 rounded-3xl bg-emerald-100 text-[#0F6659] flex items-center justify-center mx-auto shadow-inner">
+                <CheckCircle2 size={36} strokeWidth={2.5} />
+              </div>
+              <div className="space-y-1.5">
+                <h4 className="text-xl font-black text-slate-900">
+                  ผลการตรวจถูกส่งเรียบร้อยแล้ว
+                </h4>
+                <p className="text-xs sm:text-sm text-slate-600 font-medium leading-relaxed px-2">
+                  รอบการตรวจนี้ได้รับการส่งผลการประเมินเรียบร้อยแล้ว
+                  {remoteSubmittedInfo.submittedByName ? (
+                    <> โดย <span className="font-bold text-slate-900">{remoteSubmittedInfo.submittedByName}</span></>
+                  ) : null}
+                  {remoteSubmittedInfo.percentageScore !== undefined ? (
+                    <span className="block mt-2 font-bold text-sm sm:text-base text-[#0F6659]">
+                      คะแนน {remoteSubmittedInfo.percentageScore}% ({remoteSubmittedInfo.isPassed ? "ผ่านเกณฑ์" : "ไม่ผ่านเกณฑ์"})
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleAcknowledgeSubmitted}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-[#0F6659] hover:bg-[#0c5449] active:scale-95 text-white font-extrabold text-sm shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <Check size={18} strokeWidth={2.5} />
+                  <span>รับทราบและกลับสู่หน้าหลัก</span>
                 </button>
               </div>
             </div>

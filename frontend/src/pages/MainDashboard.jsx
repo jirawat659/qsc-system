@@ -643,7 +643,8 @@ export default function MainDashboard({ onLogout }) {
       setMoreResetKey(prev => prev + 1);
     }
     if (key === "audit") {
-      setPreselectedPlan(null);
+      setPreselectedPlan({ isNewAudit: true });
+      setActiveAuditDraft(null);
       setIsAuditFromReportList(false);
       setAuditReturnScreen("dashboard");
     }
@@ -759,12 +760,12 @@ export default function MainDashboard({ onLogout }) {
               onStartAudit={(plan) => handleStartAuditDirect(plan)}
               onResumeDraft={(draft) => {
                 setActiveAuditDraft(draft);
-                handleStartAuditDirect({ ...draft, isResume: true });
+                handleStartAuditDirect({ ...draft, isResume: true, id: draft.id, originalId: draft.id });
               }}
               onStartNewAudit={() => {
                 setAuditReturnScreen(screen); // 🌟 จำหน้าปัจจุบันไว้เหมือนกัน
                 setIsAuditFromReportList(false);
-                setPreselectedPlan(null);
+                setPreselectedPlan({ isNewAudit: true });
                 setActiveAuditDraft(null);
                 setScreen("audit");
               }}
