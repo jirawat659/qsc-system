@@ -7,9 +7,12 @@ class SignalRService {
     this.connection = null;
     this.connectedToken = null;
     this.joinedRooms = new Set();
+    this.joinedAuditRooms = new Set();
     this.messageHandlers = new Set();
     this.statusHandlers = new Set();
     this.auditHandlers = new Set();
+    this.draftSyncHandlers = new Set();
+    this.auditSubmittedHandlers = new Set();
     this.isConnecting = false;
   }
 
@@ -27,6 +30,7 @@ class SignalRService {
       this.connection = null;
       this.connectedToken = null;
       this.joinedRooms.clear();
+      this.joinedAuditRooms.clear();
     }
 
     if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
@@ -86,11 +90,32 @@ class SignalRService {
         });
       });
 
+      this.connection.on("AuditDraftSynced", (draftPayload) => {
+        this.draftSyncHandlers.forEach((handler) => {
+          try {
+            handler(draftPayload);
+          } catch (e) {}
+        });
+      });
+
+      this.connection.on("AuditSubmitted", (submittedPayload) => {
+        this.auditSubmittedHandlers.forEach((handler) => {
+          try {
+            handler(submittedPayload);
+          } catch (e) {}
+        });
+      });
+
       // On Reconnected, re-join all active rooms
       this.connection.onreconnected(async () => {
         for (const roomId of this.joinedRooms) {
           try {
             await this.connection.invoke("JoinCapRoom", roomId);
+          } catch (e) {}
+        }
+        for (const roomKey of this.joinedAuditRooms) {
+          try {
+            await this.connection.invoke("JoinAuditRoom", roomKey);
           } catch (e) {}
         }
       });
@@ -187,6 +212,59 @@ class SignalRService {
   }
 
   /**
+   * Joins a specific live audit session room for real-time draft synchronization
+   * @param {string} roomKey e.g. "audit_sched_12" or "audit_loc_1_form_2"
+   */
+  async joinAuditRoom(roomKey) {
+    if (!roomKey) return;
+    this.joinedAuditRooms.add(roomKey);
+    const conn = await this.getConnection();
+    if (conn && conn.state === signalR.HubConnectionState.Connected) {
+      try {
+        await conn.invoke("JoinAuditRoom", roomKey);
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * Leaves a specific live audit session room
+   * @param {string} roomKey
+   */
+  async leaveAuditRoom(roomKey) {
+    if (!roomKey) return;
+    this.joinedAuditRooms.delete(roomKey);
+    if (this.connection && this.connection.state === signalR.HubConnectionState.Connected) {
+      try {
+        await this.connection.invoke("LeaveAuditRoom", roomKey);
+      } catch (e) {}
+    }
+  }
+
+  /**
+   * Subscribes to AuditDraftSynced real-time event (Returns unsubscribe function)
+   * @param {Function} handler
+   * @returns {Function} unsubscribe
+   */
+  onAuditDraftSynced(handler) {
+    this.draftSyncHandlers.add(handler);
+    return () => {
+      this.draftSyncHandlers.delete(handler);
+    };
+  }
+
+  /**
+   * Subscribes to AuditSubmitted real-time event (Returns unsubscribe function)
+   * @param {Function} handler
+   * @returns {Function} unsubscribe
+   */
+  onAuditSubmitted(handler) {
+    this.auditSubmittedHandlers.add(handler);
+    return () => {
+      this.auditSubmittedHandlers.delete(handler);
+    };
+  }
+
+  /**
    * Disconnects the SignalR connection
    */
   async disconnect() {
@@ -197,6 +275,7 @@ class SignalRService {
       this.connection = null;
       this.connectedToken = null;
       this.joinedRooms.clear();
+      this.joinedAuditRooms.clear();
     }
   }
 }

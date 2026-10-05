@@ -45,7 +45,7 @@ namespace QSC.Api.Controllers
         // 1. LIVE AUDIT DRAFTS & AUTO-SYNC
         // ==========================================
         [HttpGet("draft")]
-        public async Task<IActionResult> GetDraft([FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId, [FromQuery] int? scheduleId)
+        public async Task<IActionResult> GetDraft([FromQuery] int? id, [FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId, [FromQuery] int? scheduleId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
@@ -61,25 +61,17 @@ namespace QSC.Api.Controllers
                 .Where(d => (allowedLocationIds == null || allowedLocationIds.Contains(d.LocationId)) &&
                             (allowedBrandIds == null || (d.Location != null && d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)))));
 
-            if (scheduleId.HasValue && scheduleId.Value > 0)
+            if (id.HasValue && id.Value > 0)
+            {
+                query = query.Where(d => d.Id == id.Value);
+            }
+            else if (scheduleId.HasValue && scheduleId.Value > 0)
             {
                 query = query.Where(d => d.AuditScheduleId == scheduleId.Value);
             }
             else
             {
-                if (locationId.HasValue)
-                {
-                    query = query.Where(d => d.LocationId == locationId.Value);
-                }
-
-                if (surveyFormId.HasValue)
-                {
-                    query = query.Where(d => d.SurveyFormId == surveyFormId.Value);
-                }
-
-                query = query.Where(d => d.AuditorId == targetAuditorId);
-
-                query = query.Where(d => d.AuditScheduleId == null);
+                return Ok(null);
             }
 
             var draft = await query
@@ -209,6 +201,7 @@ namespace QSC.Api.Controllers
             public double? StartLatitude { get; set; }
             public double? StartLongitude { get; set; }
             public DateTime? StartedAt { get; set; }
+            public bool IsNewAudit { get; set; } = false;
         }
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
@@ -226,10 +219,46 @@ namespace QSC.Api.Controllers
                     (allowedBrandIds == null || location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))));
                 if (!canAccessLocation) return Forbid();
 
-                // 🎯 Do not save draft if no questions have been answered
-                if (dto.TotalAnswered <= 0)
+                // 🎯 Do not save draft if completely empty (no answers, no metadata, no signatures, no comments/photos)
+                bool hasAnyData = dto.TotalAnswered > 0 || (dto.Id.HasValue && dto.Id.Value > 0);
+                if (!hasAnyData && !string.IsNullOrWhiteSpace(dto.DraftPayloadJson))
                 {
-                    return Ok(new { message = "No answers yet, draft skipped", totalAnswered = 0 });
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(dto.DraftPayloadJson);
+                        var root = doc.RootElement;
+                        bool hasAnswers = root.TryGetProperty("answers", out var ansElem) &&
+                            ansElem.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                            ansElem.EnumerateObject().Any();
+                        bool hasMeta = root.TryGetProperty("metadataValues", out var metaElem) &&
+                            metaElem.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                            metaElem.EnumerateObject().Any(p => !string.IsNullOrWhiteSpace(p.Value.ToString()));
+                        bool hasComments = root.TryGetProperty("comments", out var commElem) &&
+                            commElem.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                            commElem.EnumerateObject().Any();
+                        bool hasPhotos = root.TryGetProperty("photos", out var photoElem) &&
+                            photoElem.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                            photoElem.EnumerateObject().Any();
+                        bool hasBackdated = root.TryGetProperty("isBackdated", out var backElem) &&
+                            (backElem.ValueKind == System.Text.Json.JsonValueKind.True ||
+                             (backElem.ValueKind == System.Text.Json.JsonValueKind.String && backElem.GetString() == "true"));
+                        bool hasStaff = root.TryGetProperty("staffCount", out var staffElem) &&
+                            !string.IsNullOrWhiteSpace(staffElem.ToString());
+                        bool hasExtraNote = root.TryGetProperty("extraNote", out var noteElem) &&
+                            !string.IsNullOrWhiteSpace(noteElem.ToString());
+                        bool hasSig = (root.TryGetProperty("auditeeSignature", out var sig1) && !string.IsNullOrWhiteSpace(sig1.ToString())) ||
+                                      (root.TryGetProperty("auditorSignature", out var sig2) && !string.IsNullOrWhiteSpace(sig2.ToString()));
+                        hasAnyData = hasAnswers || hasMeta || hasComments || hasPhotos || hasBackdated || hasStaff || hasExtraNote || hasSig;
+                    }
+                    catch
+                    {
+                        hasAnyData = dto.DraftPayloadJson.Length > 200;
+                    }
+                }
+
+                if (!hasAnyData)
+                {
+                    return Ok(new { message = "No answers or metadata yet, draft skipped", totalAnswered = 0 });
                 }
 
                 // 🔒 IDOR FIX: dto.AuditorId came straight from the client with no ownership check
@@ -266,21 +295,11 @@ namespace QSC.Api.Controllers
                     draft = await _context.AuditDrafts.FindAsync(dto.Id.Value);
                 }
 
-                // 2. If no Draft ID but an AuditScheduleId was provided, match draft by AuditScheduleId
-                if (draft == null && effectiveScheduleId.HasValue)
+                // 2. If no Draft ID but an AuditScheduleId was provided, match draft by AuditScheduleId (only if not forcing new audit)
+                if (draft == null && effectiveScheduleId.HasValue && !dto.IsNewAudit)
                 {
                     draft = await _context.AuditDrafts
                         .Where(d => d.AuditScheduleId == effectiveScheduleId.Value)
-                        .OrderByDescending(d => d.UpdatedAt)
-                        .FirstOrDefaultAsync();
-                }
-
-                // 2.1 M1: If ad-hoc audit (no schedule), match existing active draft for this auditor + location + form
-                // เพื่อป้องกันการสร้างดราฟต์ซ้ำซ้อนกรณี client ส่ง auto-save ติดๆ กันก่อนได้ id กลับไป
-                if (draft == null && !effectiveScheduleId.HasValue)
-                {
-                    draft = await _context.AuditDrafts
-                        .Where(d => d.LocationId == dto.LocationId && d.SurveyFormId == effectiveFormId && d.AuditorId == effectiveAuditorId && d.AuditScheduleId == null)
                         .OrderByDescending(d => d.UpdatedAt)
                         .FirstOrDefaultAsync();
                 }
@@ -386,6 +405,39 @@ namespace QSC.Api.Controllers
                 if (!saved)
                 {
                     return Conflict(new { message = "บันทึกแบบร่างไม่สำเร็จเนื่องจากมีการแก้ไขพร้อมกัน กรุณาลองใหม่อีกครั้ง" });
+                }
+
+                // 🌟 Broadcast real-time draft update to all devices viewing this audit round
+                if (draft != null)
+                {
+                    try
+                    {
+                        var syncPayload = new
+                        {
+                            draftId = draft.Id,
+                            locationId = dto.LocationId,
+                            surveyFormId = effectiveFormId,
+                            auditScheduleId = dto.AuditScheduleId,
+                            totalAnswered = dto.TotalAnswered,
+                            totalQuestions = dto.TotalQuestions,
+                            draftPayloadJson = dto.DraftPayloadJson,
+                            updatedAt = draft.UpdatedAt,
+                            senderAuditorId = effectiveAuditorId
+                        };
+
+                        // 1. Broadcast to DraftId room (separates each round distinctly)
+                        await _hubContext.Clients.Group($"audit_draft_{draft.Id}").SendAsync("AuditDraftSynced", syncPayload);
+
+                        // 2. Also broadcast to schedule room if this round is tied to a schedule
+                        if (dto.AuditScheduleId.HasValue && dto.AuditScheduleId.Value > 0)
+                        {
+                            await _hubContext.Clients.Group($"audit_sched_{dto.AuditScheduleId.Value}").SendAsync("AuditDraftSynced", syncPayload);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to broadcast AuditDraftSynced via SignalR");
+                    }
                 }
 
                 return Ok(draft);
@@ -1512,10 +1564,45 @@ namespace QSC.Api.Controllers
                         isPassed = isOverallPassed,
                         auditDate = record.AuditDate
                     });
+
+                    // 🌟 Broadcast AuditSubmitted to draft, schedule, and location rooms so concurrent devices are notified immediately
+                    var targetRooms = new List<string>();
+                    if (dto.DraftId.HasValue && dto.DraftId.Value > 0)
+                    {
+                        targetRooms.Add($"audit_draft_{dto.DraftId.Value}");
+                    }
+                    foreach (var d in uniqueDrafts)
+                    {
+                        targetRooms.Add($"audit_draft_{d.Id}");
+                    }
+                    if (validScheduleId.HasValue && validScheduleId.Value > 0)
+                    {
+                        targetRooms.Add($"audit_sched_{validScheduleId.Value}");
+                    }
+                    targetRooms.Add($"audit_loc_{dto.LocationId}_form_{dto.SurveyFormId}");
+
+                    var auditorUser = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == primaryAuditorId);
+                    var submitterName = auditorUser?.FullName ?? "ผู้ตรวจประเมิน";
+
+                    var submittedPayload = new
+                    {
+                        auditRecordId = record.Id,
+                        draftId = dto.DraftId,
+                        auditScheduleId = validScheduleId,
+                        locationId = dto.LocationId,
+                        surveyFormId = dto.SurveyFormId,
+                        submittedBy = primaryAuditorId,
+                        submittedByName = submitterName,
+                        percentageScore = percentageScore,
+                        isPassed = isOverallPassed,
+                        auditDate = record.AuditDate
+                    };
+
+                    await _hubContext.Clients.Groups(targetRooms.Distinct().ToList()).SendAsync("AuditSubmitted", submittedPayload);
                 }
                 catch (Exception hubEx)
                 {
-                    _logger.LogWarning(hubEx, "Failed to broadcast AuditCreated SignalR event");
+                    _logger.LogWarning(hubEx, "Failed to broadcast AuditCreated/AuditSubmitted SignalR event");
                 }
 
                 return Ok(new

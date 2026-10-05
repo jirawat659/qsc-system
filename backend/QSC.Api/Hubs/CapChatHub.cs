@@ -203,5 +203,17 @@ namespace QSC.Api.Hubs
             var groupName = $"cap_{capTaskId}";
             await Clients.Group(groupName).SendAsync("CapStatusUpdated", statusPayload);
         }
+
+        public async Task JoinAuditRoom(string roomKey)
+        {
+            if (string.IsNullOrWhiteSpace(roomKey)) return;
+            await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+        }
+
+        public async Task LeaveAuditRoom(string roomKey)
+        {
+            if (string.IsNullOrWhiteSpace(roomKey)) return;
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomKey);
+        }
     }
 }
