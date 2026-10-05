@@ -3197,13 +3197,13 @@ export default function LiveAuditScreen({
               />
             )}
 
-            {/* 🌟 ปุ่มออกรายงาน Excel (ข้อมูลแบบร่าง) */}
+            {/* 🌟 ปุ่มออกรายงาน Excel (ข้อมูลแบบร่าง) - ซ่อนในมุมมองมือถือ แสดงเฉพาะบนแท็บเล็ต/เดสก์ท็อป */}
             {step === "audit" && (
               <button
                 type="button"
                 onClick={handleExportDraftExcel}
                 disabled={isExportingExcel}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
                 title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
               >
                 {isExportingExcel ? (
