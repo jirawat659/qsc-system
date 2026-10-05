@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -22,6 +22,7 @@ import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import signalRService from "../../services/signalrService";
 import SyncStatusPill from "../../shared/SyncStatusPill";
+import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
 
 const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -2127,6 +2128,152 @@ export default function LiveAuditScreen({
     }
   };
 
+  // 📤 ส่งออกรายงานการตรวจเป็น Excel ระหว่างตรวจ (ดึงข้อมูลแบบร่าง ณ ปัจจุบัน)
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  const handleExportDraftExcel = useCallback(async () => {
+    if (isExportingExcel || !selectedForm) return;
+    setIsExportingExcel(true);
+    try {
+      let runningNum = 1;
+      const exportSections = (currentSections || []).map((sec, sIdx) => {
+        const secQuestions = (sec.items || []).map((item, itemIdx) => {
+          const qId = item.id;
+          const ans = answers[qId];
+          const comment = comments[qId] || "";
+          const qPhotos = photos[qId] || [];
+          const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+          const isNonScored = sec.sectionType === "INFO" || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+          const fullScore = isNonScored ? 0 : (item.fullScore || 10);
+          const isNa = !isNonScored && ans === "na";
+
+          let scaleScore = null;
+          let isPassed = true;
+          let scoreGiven = 0;
+
+          if (isNonScored) {
+            isPassed = true;
+            scoreGiven = 0;
+          } else if (isNa) {
+            isPassed = true;
+            scoreGiven = 0;
+          } else if (qType === "scale" || qType === "rating") {
+            scaleScore = ans !== undefined && ans !== "" && !isNaN(Number(ans)) ? Number(ans) : null;
+            scoreGiven = scaleScore !== null ? (scaleScore / 5) * fullScore : 0;
+            isPassed = scaleScore !== null ? scaleScore >= 3 : false;
+          } else {
+            isPassed = ans === "yes" || ans === true;
+            scoreGiven = isPassed ? fullScore : 0;
+          }
+
+          const qText = item.questionText || item.text || item.title || `ข้อตรวจที่ ${runningNum}`;
+          const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
+          const singleMatch = qText.match(/^(?:ข้อ\s*)(\d+)(?:\s|$|[:.-])/i);
+          const displayNum = textMatch ? textMatch[1] : (singleMatch ? singleMatch[1] : `${sIdx + 1}.${itemIdx + 1}`);
+          const cleanText = qText.replace(/^(?:ข้อ\s*)?(?:\d+(?:\.\d+)*\s*[:.-]?\s*)/i, "").trim() || qText;
+
+          return {
+            id: qId,
+            num: displayNum,
+            text: cleanText,
+            type: qType,
+            questionType: qType.toUpperCase(),
+            isScored: !isNonScored,
+            isNa,
+            isPassed,
+            scaleScore,
+            scoreGiven,
+            fullScore,
+            rawAnswer: ans !== undefined && ans !== null ? (typeof ans === "object" ? JSON.stringify(ans) : String(ans)) : "",
+            rawValue: ans !== undefined && ans !== null ? (typeof ans === "object" ? JSON.stringify(ans) : String(ans)) : "",
+            value: ans,
+            fieldConfig: item.fieldConfig || item.fieldConfigJson,
+            note: comment,
+            imageUrls: Array.isArray(qPhotos) ? qPhotos.map(p => (typeof p === "string" ? p : (p?.url || p?.preview || ""))).filter(Boolean) : []
+          };
+        });
+
+        return {
+          title: sec.title || `หมวดที่ ${sIdx + 1}`,
+          questions: secQuestions
+        };
+      });
+
+      const exportMetaFields = (activeMetadataFields || []).map((f) => {
+        const val = metadataValues[f.id] !== undefined ? metadataValues[f.id] : "";
+        return {
+          label: f.label || f.placeholder || f.id,
+          value: val,
+          type: f.type || "text",
+          unit: f.unit || "",
+          fieldConfig: f.fieldConfig
+        };
+      });
+
+      const locationTitle = unit?.fullName || unit?.name || "ไม่ระบุสาขา";
+      const locationCode = unit?.code || "";
+      const brandName = unit?.brand?.name || unit?.brandName || (Array.isArray(unit?.locationBrands) && unit.locationBrands[0]?.brand?.name) || "After You";
+      const typeName = typeof unit?.locationType === "object"
+        ? (unit?.locationType?.name || unit?.locationType?.code || "หน้าร้าน")
+        : (unit?.locationType || unit?.locationTypeName || "หน้าร้าน");
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = formatBkk(now, false).slice(0, 10);
+      const startedStr = formatBkk(auditStartedAt || now);
+
+      const header = {
+        reportNo: `DRAFT-${locationCode || "QSC"}-${dateStr.replace(/\//g, "")}`,
+        issuedAt: dateStr,
+        locationCode: locationCode,
+        location: `${locationCode ? `(${locationCode}) ` : ""}${locationTitle}`.trim(),
+        brandType: `${brandName} / ${typeName}`,
+        form: `${selectedForm?.title || "แบบฟอร์มการตรวจ"} (ฉบับแบบร่าง)`,
+        startedAt: startedStr,
+        endedAt: `กำลังตรวจ (ณ เวลา ${timeStr})`,
+        auditor: auditorName || loggedInAuditorName,
+        auditee: auditeeSignName ? `${auditeeSignName} (ผู้จัดการสาขา)` : "ผู้จัดการสาขา",
+        signedAt: "-"
+      };
+
+      const draftRecord = {
+        id: (matchedDraftRecord?.id) || 0,
+        percentageScore: scoreAnalysis.percentage,
+        score: scoreAnalysis.percentage,
+        isPassed: scoreAnalysis.isPassed,
+        locationName: locationTitle,
+        locationCode: locationCode,
+        locationBrand: brandName,
+        location: unit,
+        surveyFormTitle: selectedForm?.title,
+        auditDate: auditStartedAt,
+        startedAt: auditStartedAt,
+        submittedAt: now.toISOString(),
+        auditorName: auditorName || loggedInAuditorName,
+        auditeeName: auditeeSignName || "ผู้จัดการสาขา"
+      };
+
+      await exportAuditReportToExcel({
+        record: draftRecord,
+        sections: exportSections,
+        metaFields: exportMetaFields,
+        passingScore: passingScore || 85,
+        categoryOf: getQuestionCategory,
+        toFullUrl: getFullImageUrl,
+        signatureUrls: {
+          auditor: auditorSignature || null,
+          auditee: auditeeSignature || null
+        },
+        header
+      });
+    } catch (err) {
+      console.error("Export draft Excel failed:", err);
+      alert("ส่งออกรายงาน Excel ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsExportingExcel(false);
+    }
+  }, [isExportingExcel, selectedForm, currentSections, answers, comments, photos, activeMetadataFields, metadataValues, unit, auditStartedAt, auditorName, loggedInAuditorName, auditeeSignName, matchedDraftRecord, scoreAnalysis, passingScore, auditorSignature, auditeeSignature]);
+
   // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
   useEffect(() => {
     if (!setSubHeader) return;
@@ -2155,7 +2302,8 @@ export default function LiveAuditScreen({
         prev.newerVersionKey === (newerFormVersion?.latestVersion || null) &&
         prev.showSaveTime === showSaveTime &&
         prev.lastSavedTime === lastSavedTime && 
-        prev.syncStatus === syncStatus
+        prev.syncStatus === syncStatus &&
+        prev.isExportingExcel === isExportingExcel
       ) {
         return prev;
       }
@@ -2172,6 +2320,7 @@ export default function LiveAuditScreen({
         showSaveTime,
         lastSavedTime,
         syncStatus,
+        isExportingExcel,
         action: (
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (ตามรูปที่ 1) */}
@@ -2182,6 +2331,24 @@ export default function LiveAuditScreen({
                 lastSavedTime={lastSavedTime}
                 onToggle={() => setShowSaveTime(prev => !prev)}
               />
+            )}
+
+            {/* 🌟 ปุ่มออกรายงาน Excel (ข้อมูลแบบร่าง) */}
+            {step === "audit" && (
+              <button
+                type="button"
+                onClick={handleExportDraftExcel}
+                disabled={isExportingExcel}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
+              >
+                {isExportingExcel ? (
+                  <Loader2 size={13} className="animate-spin text-[#0F6659]" />
+                ) : (
+                  <FileSpreadsheet size={13} className="text-[#0F6659]" />
+                )}
+                <span className="hidden sm:inline">รายงาน Excel</span>
+              </button>
             )}
 
             {/* ปุ่มฟอร์มใหม่เดิม */}
@@ -2237,7 +2404,7 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel, handleExportDraftExcel]);
 
   // ล้าง subHeader เมื่อ Component ถูก Unmount
   useEffect(() => {
@@ -4176,15 +4343,31 @@ export default function LiveAuditScreen({
                   )}
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
-                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
-                  <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
-                    <PenTool size={11} className="text-[#0F6659] shrink-0" />
-                    <span className="truncate">{loggedInAuditorName || "ระบุผู้ตรวจ"}</span>
-                  </span>
-                  <span className="flex items-center gap-1 shrink-0 text-slate-400">
-                    <Clock size={11} className="shrink-0" />
-                    <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </span>
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <div className="flex items-center gap-2.5 flex-wrap text-[11px] font-medium text-slate-500">
+                    <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
+                      <PenTool size={11} className="text-[#0F6659] shrink-0" />
+                      <span className="truncate">{loggedInAuditorName || "ระบุผู้ตรวจ"}</span>
+                    </span>
+                    <span className="flex items-center gap-1 shrink-0 text-slate-400">
+                      <Clock size={11} className="shrink-0" />
+                      <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportDraftExcel}
+                    disabled={isExportingExcel}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                    title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
+                  >
+                    {isExportingExcel ? (
+                      <Loader2 size={13} className="animate-spin text-[#0F6659]" />
+                    ) : (
+                      <FileSpreadsheet size={13} className="text-[#0F6659]" />
+                    )}
+                    <span>ออกรายงาน Excel</span>
+                  </button>
                 </div>
               </div>
 

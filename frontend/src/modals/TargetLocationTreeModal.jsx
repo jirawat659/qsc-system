@@ -319,15 +319,6 @@ export default function TargetLocationTreeModal({
               เลือกเป้าหมายการใช้งาน (Target)
             </h3>
             <div className="flex items-center gap-3 shrink-0">
-              {allValidLocationIds.length > 0 && selectedIds.size < allValidLocationIds.length && (
-                <button
-                  type="button"
-                  onClick={handleSelectAll}
-                  className="text-xs sm:text-sm font-bold text-[#0F6659] hover:underline cursor-pointer"
-                >
-                  เลือกทั้งหมด
-                </button>
-              )}
               <button
                 type="button"
                 onClick={handleClearAll}
@@ -510,7 +501,7 @@ export default function TargetLocationTreeModal({
               <span>
                 {totalSelectedCount === 0 || isAllCompanySelected
                   ? "ยืนยัน (ใช้ได้ทุกสาขา)"
-                  : `บันทึกสาขาเป้าหมาย (${totalSelectedCount} สาขา)`}
+                  : "บันทึกสาขาเป้าหมาย"}
               </span>
             </button>
           </div>
