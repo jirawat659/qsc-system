@@ -1706,9 +1706,9 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       )}*/}
 
       {/* 🌟 2. STREAMLINED FORM SETTINGS CARD */}
-      <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between gap-2 pb-1">
-          <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
+      <div className="rounded-3xl p-4 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-3 sm:space-y-4">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug pt-0.5">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 sm:gap-2 shrink-0">
             <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] sm:text-xs font-semibold whitespace-nowrap text-center">
               {sections.length} หมวดหมู่
@@ -1719,7 +1719,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3 sm:space-y-4">
           {/* ชื่อแบบฟอร์ม */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
@@ -1772,7 +1772,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                   onBlur={() => {
                     if (!passingScore || passingScore < 1) setPassingScore(85);
                   }}
-                  className={`w-8 sm:w-11 text-sm sm:text-base font-bold outline-none font-mono text-left p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                  className={`w-8 sm:w-11 text-sm sm:text-base font-semibold outline-none font-mono text-left p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                     isReadOnly ? "text-slate-700 cursor-default" : "text-slate-800 focus:text-emerald-950 cursor-text"
                   }`}
                   placeholder="85"
