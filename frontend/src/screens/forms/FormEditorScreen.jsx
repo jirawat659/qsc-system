@@ -1676,7 +1676,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
       />
 
       {/* ⚠️ IN-USE WARNING BANNER */}
-      {!isReadOnly && (form?.usedCount > 0 || form?.draftCount > 0 || form?.scheduledCount > 0) && (
+      {/*{!isReadOnly && (form?.usedCount > 0 || form?.draftCount > 0 || form?.scheduledCount > 0) && (
         <div className="rounded-2xl p-4 bg-amber-50/90 border border-amber-200 text-amber-950 flex items-start gap-3 shadow-2xs">
           <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
           <div className="text-xs sm:text-sm space-y-1">
@@ -1703,17 +1703,17 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             </p>
           </div>
         </div>
-      )}
+      )}*/}
 
       {/* 🌟 2. STREAMLINED FORM SETTINGS CARD */}
       <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200 shadow-2xs space-y-4">
         <div className="flex items-center justify-between gap-2 pb-1">
           <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug">ข้อมูลทั่วไปและเกณฑ์ของแบบฟอร์ม</h3>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 sm:gap-2 shrink-0">
+            <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] sm:text-xs font-semibold whitespace-nowrap text-center">
               {sections.length} หมวดหมู่
             </span>
-            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-semibold">
+            <span className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-[11px] sm:text-xs font-semibold whitespace-nowrap text-center">
               {totalQuestions} ข้อคำถาม
             </span>
           </div>
@@ -1722,7 +1722,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         <div className="space-y-4">
           {/* ชื่อแบบฟอร์ม */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
               <span>ชื่อแบบฟอร์ม {!isReadOnly && <span className="text-rose-500">*</span>}</span>
               {formErrors.name && (
                 <span className="text-xs font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
@@ -1753,7 +1753,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           <div className="flex items-start gap-2.5 sm:gap-4">
             {/* เกณฑ์คะแนนผ่าน (%) - ช่องเล็กลงกะทัดรัด */}
             <div className="w-28 sm:w-36 md:w-40 shrink-0">
-              <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-1.5 truncate">
+              <label className="block text-[14px] font-semibold text-slate-700 mb-1.5 truncate">
                 เกณฑ์ผ่าน (%) {!isReadOnly && <span className="text-rose-500">*</span>}
               </label>
               <div className={`flex items-center justify-between px-2.5 sm:px-3.5 py-3 min-h-[50px] rounded-2xl border transition-all shadow-xs gap-1 ${
@@ -1786,7 +1786,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
             {/* ประเภทฟอร์ม (Category) */}
             <div className="flex-1 min-w-0">
-              <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-1.5 truncate">
+              <label className="block text-[14px] font-semibold text-slate-700 mb-1.5 truncate">
                 ประเภทฟอร์ม
               </label>
               <div className={`relative flex items-center border rounded-2xl transition-all shadow-xs min-h-[50px] px-3.5 sm:px-4 ${
@@ -1828,7 +1828,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
           {/* แบรนด์และสาขาเป้าหมายที่แบบฟอร์มจะใช้งานได้ (Brand & Target Locations) */}
           <div className="min-w-0 relative">
-            <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
               <span>เป้าหมายการใช้งาน (Target)</span>
               <span className="text-xs text-slate-400 font-normal">
                 {brandIds.length === 0 && (targetingMode === "ALL_LOCATIONS" || targetLocationIds.length === 0)
@@ -1892,7 +1892,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
           {/* คำอธิบายแบบฟอร์ม */}
           <div>
-            <label className="block text-sm font-bold text-slate-700 mb-1.5">
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
               คำอธิบายแบบฟอร์ม
             </label>
             <input
