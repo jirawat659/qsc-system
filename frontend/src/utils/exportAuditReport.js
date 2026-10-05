@@ -571,14 +571,18 @@ export function buildAuditReportWorkbook(ExcelJS, model, opts = {}) {
   box(ws, 3, 6, 3, 8, `วันที่ออกรายงาน: ${H.issuedAt}`, { size: 9, color: C.white, fill: C.teal, h: "right" });
   ws.getRow(2).height = 34; ws.getRow(3).height = 18;
 
-  box(ws, 6, 1, 6, 4, H.location, { size: 14, bold: true });
-  box(ws, 7, 1, 7, 4, H.brandType);
-  box(ws, 8, 1, 8, 4, `แบบฟอร์ม: ${H.form}`);
+  box(ws, 6, 1, 6, 4, H.location, { size: 14, bold: true, wrap: false });
+  box(ws, 7, 1, 7, 4, H.brandType, { wrap: false });
+  box(ws, 8, 1, 8, 4, `แบบฟอร์ม: ${H.form}`, { wrap: false });
   [["วันเวลาเริ่มตรวจ", H.startedAt], ["วันเวลาสิ้นสุดตรวจ", H.endedAt], ["ผู้ตรวจ", H.auditor], ["ผู้รับการตรวจ", H.auditee]].forEach(([k, v], i) => {
-    box(ws, 6 + i, 5, 6 + i, 6, k, { size: 9, color: C.muted });
-    box(ws, 6 + i, 7, 6 + i, 8, v, { bold: true });
+    box(ws, 6 + i, 5, 6 + i, 6, k, { size: 9, color: C.muted, wrap: false });
+    box(ws, 6 + i, 7, 6 + i, 8, v, { bold: true, wrap: false });
   });
-  ws.getRow(6).height = 24; ws.getRow(10).height = 7.5;
+  ws.getRow(6).height = 24;
+  ws.getRow(7).height = 20;
+  ws.getRow(8).height = 20;
+  ws.getRow(9).height = 20;
+  ws.getRow(10).height = 7.5;
 
   // กล่องคะแนนรวม
   const boxLbl = { size: 9, bold: true, fill: C.tealLight, h: "center", color: C.tealDark };
@@ -607,35 +611,35 @@ export function buildAuditReportWorkbook(ExcelJS, model, opts = {}) {
     const row = catFirst + i;
     const st = { size: 12, border: BOX, h: "center" };
     const p = c.full ? c.given / c.full : "-";
-    box(ws, row, 1, row, 1, i + 1, st);
-    box(ws, row, 2, row, 3, c.label, { ...st, h: "left" });
-    box(ws, row, 4, row, 4, formula(`SUMIFS(${rngD},${rngF},"${c.key}",${rngA},">0")`, c.given), st);
-    box(ws, row, 5, row, 5, formula(`SUMIFS(${rngE},${rngF},"${c.key}",${rngA},">0")`, c.full), st);
-    box(ws, row, 6, row, 6, formula(`IF(E${row}=0,"-",D${row}/E${row})`, p), { ...st, bold: true, numFmt: "0.00%" });
-    box(ws, row, 7, row, 8, formula(`IF(E${row}=0,"N/A",IF(F${row}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, c.full ? (p >= model.passing ? "ผ่าน" : "ไม่ผ่าน") : "N/A"), { ...st, bold: true });
+    box(ws, row, 1, row, 1, i + 1, { ...st, wrap: false });
+    box(ws, row, 2, row, 3, c.label, { ...st, h: "left", wrap: false });
+    box(ws, row, 4, row, 4, formula(`SUMIFS(${rngD},${rngF},"${c.key}",${rngA},">0")`, c.given), { ...st, wrap: false });
+    box(ws, row, 5, row, 5, formula(`SUMIFS(${rngE},${rngF},"${c.key}",${rngA},">0")`, c.full), { ...st, wrap: false });
+    box(ws, row, 6, row, 6, formula(`IF(E${row}=0,"-",D${row}/E${row})`, p), { ...st, bold: true, numFmt: "0.00%", wrap: false });
+    box(ws, row, 7, row, 8, formula(`IF(E${row}=0,"N/A",IF(F${row}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, c.full ? (p >= model.passing ? "ผ่าน" : "ไม่ผ่าน") : "N/A"), { ...st, bold: true, wrap: false });
     ws.getRow(row).height = 21.75;
   });
   const tt = { size: 12, bold: true, color: C.tealDark, fill: C.tealLight, h: "center", border: { top: medium, bottom: medium, left: thin, right: thin } };
-  box(ws, catTotal, 1, catTotal, 3, "คะแนนรวม", { ...tt, h: "right" });
-  box(ws, catTotal, 4, catTotal, 4, formula(`SUM(D${catFirst}:D${catLast})`, totals.given), tt);
-  box(ws, catTotal, 5, catTotal, 5, formula(`SUM(E${catFirst}:E${catLast})`, totals.full), tt);
-  box(ws, catTotal, 6, catTotal, 6, formula(`IF(E${catTotal}=0,"-",D${catTotal}/E${catTotal})`, pct), { ...tt, numFmt: "0.00%" });
-  box(ws, catTotal, 7, catTotal, 8, formula(`IF(E${catTotal}=0,"N/A",IF(F${catTotal}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, verdict === "ผ่านเกณฑ์" ? "ผ่าน" : "ไม่ผ่าน"), { ...tt, border: BOX });
+  box(ws, catTotal, 1, catTotal, 3, "คะแนนรวม", { ...tt, h: "right", wrap: false });
+  box(ws, catTotal, 4, catTotal, 4, formula(`SUM(D${catFirst}:D${catLast})`, totals.given), { ...tt, wrap: false });
+  box(ws, catTotal, 5, catTotal, 5, formula(`SUM(E${catFirst}:E${catLast})`, totals.full), { ...tt, wrap: false });
+  box(ws, catTotal, 6, catTotal, 6, formula(`IF(E${catTotal}=0,"-",D${catTotal}/E${catTotal})`, pct), { ...tt, numFmt: "0.00%", wrap: false });
+  box(ws, catTotal, 7, catTotal, 8, formula(`IF(E${catTotal}=0,"N/A",IF(F${catTotal}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, verdict === "ผ่านเกณฑ์" ? "ผ่าน" : "ไม่ผ่าน"), { ...tt, border: BOX, wrap: false });
   ws.getRow(catTotal).height = 21.75; ws.getRow(catTotal + 1).height = 7.5;
   const cf = (val, bg, fg) => ({ type: "cellIs", operator: "equal", formulae: [`"${val}"`], style: { font: { color: { argb: fg } }, fill: { type: "pattern", pattern: "solid", bgColor: { argb: bg } } } });
   ws.addConditionalFormatting({ ref: `G${catFirst}:H${catTotal}`, rules: [cf("ผ่าน", C.tealLight, C.tealDark), cf("ไม่ผ่าน", C.roseBg, C.rose), cf("N/A", C.slateBg, C.muted)] });
 
   // รายละเอียดการตรวจ (ป้าย/ค่า 2 ชุดต่อแถว)
-  box(ws, detailsHead, 1, detailsHead, NCOL, "รายละเอียดการตรวจ", { size: 12, bold: true, color: C.teal, border: { bottom: medium } });
+  box(ws, detailsHead, 1, detailsHead, NCOL, "รายละเอียดการตรวจ", { size: 12, bold: true, color: C.teal, border: { bottom: medium }, wrap: false });
   ws.getRow(detailsHead).height = 24;
   for (let i = 0; i < metaRows * 2; i += 2) {
     const row = detailsHead + 1 + i / 2;
     [[model.details[i], 1, 3], [model.details[i + 1], 5, 7]].forEach(([d, lc, vc]) => {
       const lEnd = lc === 1 ? 2 : 6, vEnd = lc === 1 ? 4 : 8;
-      box(ws, row, lc, row, lEnd, d?.label ?? null, { size: 9, color: C.muted, border: { bottom: thin } });
-      box(ws, row, vc, row, vEnd, d?.value ?? null, { bold: true, border: { bottom: thin } });
+      box(ws, row, lc, row, lEnd, d?.label ?? null, { size: 9, color: C.muted, border: { bottom: thin }, wrap: false });
+      box(ws, row, vc, row, vEnd, d?.value ?? null, { bold: true, border: { bottom: thin }, wrap: false });
     });
-    ws.getRow(row).height = rowHeightFor(Math.max(estimateLines(model.details[i]?.value, spanWidth(3, 4)), estimateLines(model.details[i + 1]?.value, spanWidth(7, 8))), 19.5);
+    ws.getRow(row).height = 20;
   }
 
   // วาดตารางข้อมูลในส่วนรายละเอียดการตรวจ (ถ้ามี)
