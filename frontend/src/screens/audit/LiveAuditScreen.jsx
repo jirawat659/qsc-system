@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -22,6 +22,7 @@ import { isFormApplicableToLocation } from "../../utils/formMatching";
 import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import signalRService from "../../services/signalrService";
 import SyncStatusPill from "../../shared/SyncStatusPill";
+import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
 
 const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -89,6 +90,8 @@ export const getQuestionCategory = (q, sec) => {
   if (title.includes("สะอาด") || title.includes("สุขอนามัย") || title.includes("CLN") || title.includes("Cleanliness")) return "Cleanliness";
   if (title.includes("เอกสาร") || title.includes("DOC") || title.includes("Documents")) return "Documents";
 
+  if (name) return name;
+  if (title) return title;
   return "Product";
 };
 
@@ -2127,117 +2130,6 @@ export default function LiveAuditScreen({
     }
   };
 
-  // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
-  useEffect(() => {
-    if (!setSubHeader) return;
-    if (step === "select-unit") {
-      setSubHeader(prev => (prev === null ? prev : null));
-      return;
-    }
-
-    const title = step === "select-form" ? "เลือกแบบฟอร์มการตรวจ" : (unit?.fullName || unit?.name || "ตรวจประเมิน QSC");
-    const subtitle = step === "select-form" ? (unit?.fullName || unit?.name || "-") : (selectedForm?.title || "แบบฟอร์มการตรวจ");
-    const currentActionType = (step === "audit" && isAuditHeaderScrolled) ? "menu" : "back";
-    const sectionBadgeNumber = null;
-
-    const isAuditingQuestions = step === "audit";
-
-    setSubHeader(prev => {
-      if (
-        prev &&
-        prev.title === title &&
-        prev.subtitle === subtitle &&
-        prev.isAudit === isAuditingQuestions &&
-        prev.hasBack === true &&
-        prev.leftActionType === currentActionType &&
-        prev.sectionBadgeNumber === sectionBadgeNumber &&
-        prev.actionMigrating === isMigratingDraft &&
-        prev.newerVersionKey === (newerFormVersion?.latestVersion || null) &&
-        prev.showSaveTime === showSaveTime &&
-        prev.lastSavedTime === lastSavedTime && 
-        prev.syncStatus === syncStatus
-      ) {
-        return prev;
-      }
-
-      return {
-        title,
-        subtitle,
-        hasBack: true,
-        isAudit: isAuditingQuestions,
-        leftActionType: currentActionType,
-        sectionBadgeNumber,
-        actionMigrating: isMigratingDraft,
-        newerVersionKey: newerFormVersion?.latestVersion || null,
-        showSaveTime,
-        lastSavedTime,
-        syncStatus,
-        action: (
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (ตามรูปที่ 1) */}
-            {step === "audit" && (
-              <SyncStatusPill
-                syncStatus={syncStatus}
-                showSaveTime={showSaveTime}
-                lastSavedTime={lastSavedTime}
-                onToggle={() => setShowSaveTime(prev => !prev)}
-              />
-            )}
-
-            {/* ปุ่มฟอร์มใหม่เดิม */}
-            {newerFormVersion && (
-              <button
-                type="button"
-                onClick={handleMigrateDraft}
-                disabled={isMigratingDraft}
-                className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
-                title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
-              >
-                {isMigratingDraft ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin" />
-                    <span className="hidden sm:inline">กำลังย้าย...</span>
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw size={13} />
-                    <span>ฟอร์มใหม่</span>
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-        ),
-        onMenuClick: () => setIsCategoryDrawerOpen(true),
-        onBack: () => {
-          if (step === "select-form") {
-            setStep("select-unit");
-          } else {
-            if (isResumeDraft || isFromAssignedPlan) {
-              if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
-                if (autoSaveTimerRef.current) {
-                  clearTimeout(autoSaveTimerRef.current);
-                  autoSaveTimerRef.current = null;
-                }
-                const queued = pendingSaveDataRef.current || {};
-                pendingSaveDataRef.current = null;
-                performSaveDraftRef.current(queued);
-              }
-              if (onBackRef.current) onBackRef.current(true);
-              return;
-            }
-            setStep("select-form");
-          }
-        }
-      };
-    });
-
-    return () => {
-      if (setSubHeader) {
-        setSubHeader(prev => (prev?.title === title ? null : prev));
-      }
-    };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus]);
 
   // ล้าง subHeader เมื่อ Component ถูก Unmount
   useEffect(() => {
@@ -3105,6 +2997,278 @@ export default function LiveAuditScreen({
 
     return categories;
   }, [currentSections, answers, selectedForm?.categoryOrderJson, selectedForm?.categories]);
+
+  // 🌟 ส่งออกรายงาน Excel จากข้อมูลแบบร่าง ณ ปัจจุบันระหว่างตรวจ
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  const handleExportDraftExcel = useCallback(async () => {
+    if (isExportingExcel) return;
+    setIsExportingExcel(true);
+    try {
+      const now = new Date();
+      const timeStr = formatBkk(now, true);
+      const startedStr = auditStartedAt ? formatBkk(auditStartedAt, true) : timeStr;
+
+      // 1. แปลง activeMetadataFields
+      const exportMetaFields = (activeMetadataFields || []).map((f) => {
+        let val = metadataValues[f.id];
+        if (f.id === "staff_count") {
+          val = (staffCount !== "" && staffCount !== undefined && staffCount !== null) ? staffCount : (val ?? "");
+        } else if (f.id === "audit_type") {
+          val = val || (auditType ? (
+            auditType === "spot" ? "นอกกำหนดการ" :
+            auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ"
+          ) : "");
+        } else if (f.id === "auditor" || f.type === "auditor") {
+          val = val || auditorName || loggedInAuditorName || "";
+        }
+        return {
+          label: f.label || f.placeholder || f.id,
+          value: val !== undefined && val !== null ? val : "",
+          unit: f.unit || (f.id === "staff_count" ? "คน" : "")
+        };
+      });
+
+      // 2. แปลง sections และคำถามเป็นโครงสร้างที่ exportAuditReportToExcel คาดหวัง
+      const exportSections = (currentSections || []).map((sec, sIdx) => {
+        const isInfoSec = sec.sectionType === "INFO";
+        return {
+          title: sec.title || `หมวดที่ ${sIdx + 1}`,
+          questions: (sec.items || []).map((q, qIdx) => {
+            const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+            const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+            const isScored = !isNonScored;
+            const ans = answers[q.id];
+            const isNa = ans === "na";
+            const fullScore = Number(q.fullScore) || 10;
+
+            let scoreGiven = null;
+            let isPassed = false;
+            if (isScored && !isNa && ans !== undefined && ans !== null && ans !== "") {
+              if (qType === "scale" || qType === "rating") {
+                const num = Number(ans) || 0;
+                scoreGiven = (num / 5) * fullScore;
+                isPassed = num >= 3;
+              } else {
+                const passed = ans === "yes" || ans === true;
+                scoreGiven = passed ? fullScore : 0;
+                isPassed = passed;
+              }
+            }
+
+            const itemComment = comments[q.id] || "";
+            const note = isScored ? itemComment : (itemComment ? `\n[หมายเหตุ]: ${itemComment}` : "");
+
+            return {
+              num: q.orderIndex || qIdx + 1,
+              text: q.questionText || q.text || `ข้อที่ ${qIdx + 1}`,
+              type: qType,
+              fieldConfig: q.fieldConfig,
+              isScored,
+              fullScore,
+              isNa,
+              answer: ans,
+              scaleScore: (qType === "scale" || qType === "rating") ? (Number(ans) || null) : null,
+              scoreGiven,
+              rawAnswer: ans,
+              rawValue: ans,
+              note,
+              isPassed,
+              category: isScored ? getQuestionCategory(q, sec) : "-"
+            };
+          })
+        };
+      });
+
+      const brandName = unit?.brand?.name || unit?.brand || "-";
+      const typeName = unit?.locationType?.name || unit?.locationType || "-";
+      const locationTitle = unit?.fullName || unit?.name || "-";
+      const locationCode = unit?.code || "";
+
+      const header = {
+        reportNo: `DRAFT-${locationCode || "QSC"}-${formatBkk(now, false).slice(0, 10).replace(/\//g, "")}`,
+        issuedAt: formatBkk(now, false).slice(0, 10),
+        locationCode: locationCode,
+        location: `${locationCode} ${locationTitle}`.trim(),
+        brandType: `${brandName} / ${typeName}`,
+        form: selectedForm?.title || "แบบฟอร์มการตรวจ",
+        startedAt: startedStr,
+        endedAt: `กำลังตรวจ (ณ เวลา ${timeStr})`,
+        auditor: auditorName || loggedInAuditorName,
+        auditee: auditeeSignName ? `${auditeeSignName} (ผู้จัดการสาขา)` : "ผู้จัดการสาขา",
+        signedAt: "-"
+      };
+
+      const draftRecord = {
+        id: (matchedDraftRecord?.id) || 0,
+        percentageScore: scoreAnalysis.percentage,
+        score: scoreAnalysis.percentage,
+        isPassed: scoreAnalysis.isPassed,
+        locationName: locationTitle,
+        locationCode: locationCode,
+        locationBrand: brandName,
+        location: unit,
+        surveyFormTitle: selectedForm?.title,
+        auditDate: auditStartedAt,
+        startedAt: auditStartedAt,
+        submittedAt: now.toISOString(),
+        auditorName: auditorName || loggedInAuditorName,
+        auditeeName: auditeeSignName || "ผู้จัดการสาขา"
+      };
+
+      await exportAuditReportToExcel({
+        record: draftRecord,
+        sections: exportSections,
+        metaFields: exportMetaFields,
+        passingScore: passingScore || 85,
+        categoryOf: getQuestionCategory,
+        categoryOrder: selectedForm?.categoryOrderJson || selectedForm?.categories,
+        toFullUrl: getFullImageUrl,
+        signatureUrls: {
+          auditor: auditorSignature || null,
+          auditee: auditeeSignature || null
+        },
+        header
+      });
+    } catch (err) {
+      console.error("Export draft Excel failed:", err);
+      alert("ส่งออกรายงาน Excel ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsExportingExcel(false);
+    }
+  }, [isExportingExcel, selectedForm, currentSections, answers, comments, photos, activeMetadataFields, metadataValues, staffCount, auditType, unit, auditStartedAt, auditorName, loggedInAuditorName, auditeeSignName, matchedDraftRecord, scoreAnalysis, passingScore, auditorSignature, auditeeSignature, getQuestionCategory]);
+
+  // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
+  useEffect(() => {
+    if (!setSubHeader) return;
+    if (step === "select-unit") {
+      setSubHeader(prev => (prev === null ? prev : null));
+      return;
+    }
+
+    const title = step === "select-form" ? "เลือกแบบฟอร์มการตรวจ" : (unit?.fullName || unit?.name || "ตรวจประเมิน QSC");
+    const subtitle = step === "select-form" ? (unit?.fullName || unit?.name || "-") : (selectedForm?.title || "แบบฟอร์มการตรวจ");
+    const currentActionType = (step === "audit" && isAuditHeaderScrolled) ? "menu" : "back";
+    const sectionBadgeNumber = null;
+
+    const isAuditingQuestions = step === "audit";
+
+    setSubHeader(prev => {
+      if (
+        prev &&
+        prev.title === title &&
+        prev.subtitle === subtitle &&
+        prev.isAudit === isAuditingQuestions &&
+        prev.hasBack === true &&
+        prev.leftActionType === currentActionType &&
+        prev.sectionBadgeNumber === sectionBadgeNumber &&
+        prev.actionMigrating === isMigratingDraft &&
+        prev.newerVersionKey === (newerFormVersion?.latestVersion || null) &&
+        prev.showSaveTime === showSaveTime &&
+        prev.lastSavedTime === lastSavedTime && 
+        prev.syncStatus === syncStatus &&
+        prev.isExportingExcel === isExportingExcel
+      ) {
+        return prev;
+      }
+
+      return {
+        title,
+        subtitle,
+        hasBack: true,
+        isAudit: isAuditingQuestions,
+        leftActionType: currentActionType,
+        sectionBadgeNumber,
+        actionMigrating: isMigratingDraft,
+        newerVersionKey: newerFormVersion?.latestVersion || null,
+        showSaveTime,
+        lastSavedTime,
+        syncStatus,
+        isExportingExcel,
+        action: (
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (ตามรูปที่ 1) */}
+            {step === "audit" && (
+              <SyncStatusPill
+                syncStatus={syncStatus}
+                showSaveTime={showSaveTime}
+                lastSavedTime={lastSavedTime}
+                onToggle={() => setShowSaveTime(prev => !prev)}
+              />
+            )}
+
+            {/* 🌟 ปุ่มออกรายงาน Excel (ข้อมูลแบบร่าง) - ซ่อนในมุมมองมือถือ แสดงเฉพาะบนแท็บเล็ต/เดสก์ท็อป */}
+            {step === "audit" && (
+              <button
+                type="button"
+                onClick={handleExportDraftExcel}
+                disabled={isExportingExcel}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
+              >
+                {isExportingExcel ? (
+                  <Loader2 size={13} className="animate-spin text-[#0F6659]" />
+                ) : (
+                  <FileSpreadsheet size={13} className="text-[#0F6659]" />
+                )}
+                <span className="hidden sm:inline">รายงาน Excel</span>
+              </button>
+            )}
+
+            {/* ปุ่มฟอร์มใหม่เดิม */}
+            {newerFormVersion && (
+              <button
+                type="button"
+                onClick={handleMigrateDraft}
+                disabled={isMigratingDraft}
+                className="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-full bg-gradient-to-b from-amber-400 to-amber-500 hover:from-amber-400 hover:to-amber-600 text-white font-extrabold text-xs shadow-md shadow-amber-500/30 hover:shadow-lg hover:shadow-amber-500/40 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                title="มีแบบฟอร์มเวอร์ชันใหม่ คลิกเพื่อย้ายคำตอบมายังฟอร์มใหม่"
+              >
+                {isMigratingDraft ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span className="hidden sm:inline">กำลังย้าย...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={13} />
+                    <span>ฟอร์มใหม่</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        ),
+        onMenuClick: () => setIsCategoryDrawerOpen(true),
+        onBack: () => {
+          if (step === "select-form") {
+            setStep("select-unit");
+          } else {
+            if (isResumeDraft || isFromAssignedPlan) {
+              if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
+                if (autoSaveTimerRef.current) {
+                  clearTimeout(autoSaveTimerRef.current);
+                  autoSaveTimerRef.current = null;
+                }
+                const queued = pendingSaveDataRef.current || {};
+                pendingSaveDataRef.current = null;
+                performSaveDraftRef.current(queued);
+              }
+              if (onBackRef.current) onBackRef.current(true);
+              return;
+            }
+            setStep("select-form");
+          }
+        }
+      };
+    });
+
+    return () => {
+      if (setSubHeader) {
+        setSubHeader(prev => (prev?.title === title ? null : prev));
+      }
+    };
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel, handleExportDraftExcel]);
 
   const checkUnansweredQuestions = () => {
     const unanswered = [];
@@ -4176,15 +4340,31 @@ export default function LiveAuditScreen({
                   )}
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">{selectedForm?.title}</p>
-                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap text-[11px] font-medium text-slate-500">
-                  <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
-                    <PenTool size={11} className="text-[#0F6659] shrink-0" />
-                    <span className="truncate">{loggedInAuditorName || "ระบุผู้ตรวจ"}</span>
-                  </span>
-                  <span className="flex items-center gap-1 shrink-0 text-slate-400">
-                    <Clock size={11} className="shrink-0" />
-                    <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </span>
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <div className="flex items-center gap-2.5 flex-wrap text-[11px] font-medium text-slate-500">
+                    <span className="flex items-center gap-1 min-w-0 max-w-[200px]">
+                      <PenTool size={11} className="text-[#0F6659] shrink-0" />
+                      <span className="truncate">{loggedInAuditorName || "ระบุผู้ตรวจ"}</span>
+                    </span>
+                    <span className="flex items-center gap-1 shrink-0 text-slate-400">
+                      <Clock size={11} className="shrink-0" />
+                      <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportDraftExcel}
+                    disabled={isExportingExcel}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+                    title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
+                  >
+                    {isExportingExcel ? (
+                      <Loader2 size={13} className="animate-spin text-[#0F6659]" />
+                    ) : (
+                      <FileSpreadsheet size={13} className="text-[#0F6659]" />
+                    )}
+                    <span>ออกรายงาน Excel</span>
+                  </button>
                 </div>
               </div>
 

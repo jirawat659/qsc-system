@@ -176,7 +176,7 @@ function estimateGridRows(grid) {
  * @param {Function} p.categoryOf  (q, sec) => "Product" | ...   ใช้ getQuestionCategory ของหน้าจอ
  * @param {object} p.header        ข้อความส่วนหัวที่หน้าจอประกอบไว้แล้ว
  */
-export function buildAuditReportModel({ record, sections, metaFields = [], passingScore = 85, categoryOf, header, categories = DEFAULT_CATEGORIES }) {
+export function buildAuditReportModel({ record, sections, metaFields = [], passingScore = 85, categoryOf, header, categories, categoryOrder }) {
   const questions = [];
   const outSections = (sections || []).map((sec, sIdx) => {
     const qs = (sec.questions || []).map(q => {
@@ -184,6 +184,7 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
       const grid = isGrid ? normalizeGrid(q) : null;
       const scored = !!q.isScored;
       const counted = scored && !q.isNa;
+      const cat = scored ? (categoryOf ? categoryOf(q, sec) : (q.category || "-")) : "-";
       const item = {
         num: q.num,
         text: q.text,
@@ -192,7 +193,7 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
         scored,
         given: counted ? Number(q.scoreGiven) || 0 : null,
         full: counted ? Number(q.fullScore) || 0 : null,
-        category: scored ? categoryOf(q, sec) : "-",
+        category: cat,
         note: scored ? (q.note || "") : extractComment(q.note),
         grid
       };
@@ -203,8 +204,62 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
     return { title: /^\d+[.)]/.test(t) ? t : `${sIdx + 1}. ${t}`, questions: qs };
   });
 
+  // 🌟 สรุปคะแนนรายหมวดแบบ Dynamic ตามข้อคำถามจริงในฟอร์ม (ไม่ hardcode 5 หมวดคงที่)
+  const scoredQuestions = questions.filter(q => q.scored && q.category && q.category !== "-");
+  const presentCatKeys = [];
+  scoredQuestions.forEach(q => {
+    if (!presentCatKeys.includes(q.category)) {
+      presentCatKeys.push(q.category);
+    }
+  });
+
+  // จัดลำดับหมวดหมู่ตาม categoryOrder ถ้ามี หรือตามลำดับมาตรฐานเริ่มต้น
+  let effectiveOrder = null;
+  const rawOrder = categoryOrder || record?.surveyForm?.categoryOrderJson || record?.categoryOrderJson || record?.surveyForm?.categories;
+  if (typeof rawOrder === "string") {
+    try {
+      const parsed = JSON.parse(rawOrder);
+      if (Array.isArray(parsed) && parsed.length > 0) effectiveOrder = parsed;
+    } catch (e) {}
+  } else if (Array.isArray(rawOrder) && rawOrder.length > 0) {
+    effectiveOrder = rawOrder;
+  }
+  if (!effectiveOrder) {
+    effectiveOrder = DEFAULT_CATEGORIES.map(c => c.key);
+  }
+
+  presentCatKeys.sort((a, b) => {
+    const idxA = effectiveOrder.indexOf(a);
+    const idxB = effectiveOrder.indexOf(b);
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b, "th");
+  });
+
+  const getCategoryLabel = (key) => {
+    const def = DEFAULT_CATEGORIES.find(c => c.key.toLowerCase() === String(key).toLowerCase());
+    if (def) return def.label;
+    return key;
+  };
+
+  const resolvedCategories = presentCatKeys.map(key => {
+    const custom = Array.isArray(categories) ? categories.find(c => (c.key || c.name || c) === key) : null;
+    const label = custom?.label || custom?.title || getCategoryLabel(key);
+    return { key, label };
+  });
+
+  // Fallback กรณีไม่มีข้อคิดคะแนนเลย ให้มี 1 แถวกันสูตร Excel error
+  if (resolvedCategories.length === 0) {
+    if (Array.isArray(categories) && categories.length > 0) {
+      categories.forEach(c => resolvedCategories.push(typeof c === "string" ? { key: c, label: getCategoryLabel(c) } : c));
+    } else {
+      resolvedCategories.push({ key: "General", label: "คะแนนทั่วไป" });
+    }
+  }
+
   // สรุปคะแนนรายหมวด (ค่าที่คำนวณไว้ใส่เป็น cached result ให้โปรแกรมที่ไม่คำนวณสูตรยังเห็นตัวเลข)
-  const catTotals = categories.map(c => {
+  const catTotals = resolvedCategories.map(c => {
     const own = questions.filter(q => q.scored && q.given !== null && q.category === c.key);
     return { ...c, given: own.reduce((s, q) => s + q.given, 0), full: own.reduce((s, q) => s + q.full, 0) };
   });
@@ -516,14 +571,18 @@ export function buildAuditReportWorkbook(ExcelJS, model, opts = {}) {
   box(ws, 3, 6, 3, 8, `วันที่ออกรายงาน: ${H.issuedAt}`, { size: 9, color: C.white, fill: C.teal, h: "right" });
   ws.getRow(2).height = 34; ws.getRow(3).height = 18;
 
-  box(ws, 6, 1, 6, 4, H.location, { size: 14, bold: true });
-  box(ws, 7, 1, 7, 4, H.brandType);
-  box(ws, 8, 1, 8, 4, `แบบฟอร์ม: ${H.form}`);
+  box(ws, 6, 1, 6, 4, H.location, { size: 14, bold: true, wrap: false });
+  box(ws, 7, 1, 7, 4, H.brandType, { wrap: false });
+  box(ws, 8, 1, 8, 4, `แบบฟอร์ม: ${H.form}`, { wrap: false });
   [["วันเวลาเริ่มตรวจ", H.startedAt], ["วันเวลาสิ้นสุดตรวจ", H.endedAt], ["ผู้ตรวจ", H.auditor], ["ผู้รับการตรวจ", H.auditee]].forEach(([k, v], i) => {
-    box(ws, 6 + i, 5, 6 + i, 6, k, { size: 9, color: C.muted });
-    box(ws, 6 + i, 7, 6 + i, 8, v, { bold: true });
+    box(ws, 6 + i, 5, 6 + i, 6, k, { size: 9, color: C.muted, wrap: false });
+    box(ws, 6 + i, 7, 6 + i, 8, v, { bold: true, wrap: false });
   });
-  ws.getRow(6).height = 24; ws.getRow(10).height = 7.5;
+  ws.getRow(6).height = 24;
+  ws.getRow(7).height = 20;
+  ws.getRow(8).height = 20;
+  ws.getRow(9).height = 20;
+  ws.getRow(10).height = 7.5;
 
   // กล่องคะแนนรวม
   const boxLbl = { size: 9, bold: true, fill: C.tealLight, h: "center", color: C.tealDark };
@@ -552,35 +611,35 @@ export function buildAuditReportWorkbook(ExcelJS, model, opts = {}) {
     const row = catFirst + i;
     const st = { size: 12, border: BOX, h: "center" };
     const p = c.full ? c.given / c.full : "-";
-    box(ws, row, 1, row, 1, i + 1, st);
-    box(ws, row, 2, row, 3, c.label, { ...st, h: "left" });
-    box(ws, row, 4, row, 4, formula(`SUMIFS(${rngD},${rngF},"${c.key}",${rngA},">0")`, c.given), st);
-    box(ws, row, 5, row, 5, formula(`SUMIFS(${rngE},${rngF},"${c.key}",${rngA},">0")`, c.full), st);
-    box(ws, row, 6, row, 6, formula(`IF(E${row}=0,"-",D${row}/E${row})`, p), { ...st, bold: true, numFmt: "0.00%" });
-    box(ws, row, 7, row, 8, formula(`IF(E${row}=0,"N/A",IF(F${row}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, c.full ? (p >= model.passing ? "ผ่าน" : "ไม่ผ่าน") : "N/A"), { ...st, bold: true });
+    box(ws, row, 1, row, 1, i + 1, { ...st, wrap: false });
+    box(ws, row, 2, row, 3, c.label, { ...st, h: "left", wrap: false });
+    box(ws, row, 4, row, 4, formula(`SUMIFS(${rngD},${rngF},"${c.key}",${rngA},">0")`, c.given), { ...st, wrap: false });
+    box(ws, row, 5, row, 5, formula(`SUMIFS(${rngE},${rngF},"${c.key}",${rngA},">0")`, c.full), { ...st, wrap: false });
+    box(ws, row, 6, row, 6, formula(`IF(E${row}=0,"-",D${row}/E${row})`, p), { ...st, bold: true, numFmt: "0.00%", wrap: false });
+    box(ws, row, 7, row, 8, formula(`IF(E${row}=0,"N/A",IF(F${row}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, c.full ? (p >= model.passing ? "ผ่าน" : "ไม่ผ่าน") : "N/A"), { ...st, bold: true, wrap: false });
     ws.getRow(row).height = 21.75;
   });
   const tt = { size: 12, bold: true, color: C.tealDark, fill: C.tealLight, h: "center", border: { top: medium, bottom: medium, left: thin, right: thin } };
-  box(ws, catTotal, 1, catTotal, 3, "คะแนนรวม", { ...tt, h: "right" });
-  box(ws, catTotal, 4, catTotal, 4, formula(`SUM(D${catFirst}:D${catLast})`, totals.given), tt);
-  box(ws, catTotal, 5, catTotal, 5, formula(`SUM(E${catFirst}:E${catLast})`, totals.full), tt);
-  box(ws, catTotal, 6, catTotal, 6, formula(`IF(E${catTotal}=0,"-",D${catTotal}/E${catTotal})`, pct), { ...tt, numFmt: "0.00%" });
-  box(ws, catTotal, 7, catTotal, 8, formula(`IF(E${catTotal}=0,"N/A",IF(F${catTotal}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, verdict === "ผ่านเกณฑ์" ? "ผ่าน" : "ไม่ผ่าน"), { ...tt, border: BOX });
+  box(ws, catTotal, 1, catTotal, 3, "คะแนนรวม", { ...tt, h: "right", wrap: false });
+  box(ws, catTotal, 4, catTotal, 4, formula(`SUM(D${catFirst}:D${catLast})`, totals.given), { ...tt, wrap: false });
+  box(ws, catTotal, 5, catTotal, 5, formula(`SUM(E${catFirst}:E${catLast})`, totals.full), { ...tt, wrap: false });
+  box(ws, catTotal, 6, catTotal, 6, formula(`IF(E${catTotal}=0,"-",D${catTotal}/E${catTotal})`, pct), { ...tt, numFmt: "0.00%", wrap: false });
+  box(ws, catTotal, 7, catTotal, 8, formula(`IF(E${catTotal}=0,"N/A",IF(F${catTotal}>=${model.passing},"ผ่าน","ไม่ผ่าน"))`, verdict === "ผ่านเกณฑ์" ? "ผ่าน" : "ไม่ผ่าน"), { ...tt, border: BOX, wrap: false });
   ws.getRow(catTotal).height = 21.75; ws.getRow(catTotal + 1).height = 7.5;
   const cf = (val, bg, fg) => ({ type: "cellIs", operator: "equal", formulae: [`"${val}"`], style: { font: { color: { argb: fg } }, fill: { type: "pattern", pattern: "solid", bgColor: { argb: bg } } } });
   ws.addConditionalFormatting({ ref: `G${catFirst}:H${catTotal}`, rules: [cf("ผ่าน", C.tealLight, C.tealDark), cf("ไม่ผ่าน", C.roseBg, C.rose), cf("N/A", C.slateBg, C.muted)] });
 
   // รายละเอียดการตรวจ (ป้าย/ค่า 2 ชุดต่อแถว)
-  box(ws, detailsHead, 1, detailsHead, NCOL, "รายละเอียดการตรวจ", { size: 12, bold: true, color: C.teal, border: { bottom: medium } });
+  box(ws, detailsHead, 1, detailsHead, NCOL, "รายละเอียดการตรวจ", { size: 12, bold: true, color: C.teal, border: { bottom: medium }, wrap: false });
   ws.getRow(detailsHead).height = 24;
   for (let i = 0; i < metaRows * 2; i += 2) {
     const row = detailsHead + 1 + i / 2;
     [[model.details[i], 1, 3], [model.details[i + 1], 5, 7]].forEach(([d, lc, vc]) => {
       const lEnd = lc === 1 ? 2 : 6, vEnd = lc === 1 ? 4 : 8;
-      box(ws, row, lc, row, lEnd, d?.label ?? null, { size: 9, color: C.muted, border: { bottom: thin } });
-      box(ws, row, vc, row, vEnd, d?.value ?? null, { bold: true, border: { bottom: thin } });
+      box(ws, row, lc, row, lEnd, d?.label ?? null, { size: 9, color: C.muted, border: { bottom: thin }, wrap: false });
+      box(ws, row, vc, row, vEnd, d?.value ?? null, { bold: true, border: { bottom: thin }, wrap: false });
     });
-    ws.getRow(row).height = rowHeightFor(Math.max(estimateLines(model.details[i]?.value, spanWidth(3, 4)), estimateLines(model.details[i + 1]?.value, spanWidth(7, 8))), 19.5);
+    ws.getRow(row).height = 20;
   }
 
   // วาดตารางข้อมูลในส่วนรายละเอียดการตรวจ (ถ้ามี)
@@ -651,8 +710,8 @@ export async function loadSignatureImage(url, toFullUrl = u => u) {
   } catch { return null; } // ลายเซ็นโหลดไม่ได้ → ปล่อยช่องว่างให้เซ็นด้วยมือ ไม่ทำให้ export ล้ม
 }
 
-export async function exportAuditReportToExcel({ record, sections, metaFields, passingScore, categoryOf, header, signatureUrls = {}, toFullUrl }) {
-  const model = buildAuditReportModel({ record, sections, metaFields, passingScore, categoryOf, header });
+export async function exportAuditReportToExcel({ record, sections, metaFields, passingScore, categoryOf, header, signatureUrls = {}, toFullUrl, categories, categoryOrder }) {
+  const model = buildAuditReportModel({ record, sections, metaFields, passingScore, categoryOf, header, categories, categoryOrder });
   const [{ default: ExcelJS }, auditorSig, auditeeSig] = await Promise.all([
     import("exceljs"),
     loadSignatureImage(signatureUrls.auditor, toFullUrl),
