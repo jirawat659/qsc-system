@@ -312,7 +312,7 @@ export default function TargetLocationTreeModal({
         <div className="p-5 sm:p-6 pb-3 border-b border-slate-100 flex flex-col gap-2">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-base sm:text-lg font-black text-slate-900 tracking-tight">
-              ขอบเขตสาขาเป้าหมายที่แบบฟอร์มจะใช้งานได้
+              เลือกเป้าหมายการใช้งาน (Target)
             </h3>
             <div className="flex items-center gap-3 shrink-0">
               <button

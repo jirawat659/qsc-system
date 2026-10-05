@@ -1723,7 +1723,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           {/* ชื่อแบบฟอร์ม */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
-              <span>ชื่อแบบฟอร์มการตรวจ (Form Title) {!isReadOnly && <span className="text-rose-500">*</span>}</span>
+              <span>ชื่อแบบฟอร์ม {!isReadOnly && <span className="text-rose-500">*</span>}</span>
               {formErrors.name && (
                 <span className="text-xs font-bold text-rose-600 animate-in fade-in flex items-center gap-1">
                   <AlertTriangle size={13} /> กรุณาระบุชื่อแบบฟอร์ม
@@ -1787,7 +1787,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             {/* ประเภทฟอร์ม (Category) */}
             <div className="flex-1 min-w-0">
               <label className="block text-xs sm:text-sm font-medium text-slate-700 mb-1.5 truncate">
-                ประเภทฟอร์ม (Category)
+                ประเภทฟอร์ม
               </label>
               <div className={`relative flex items-center border rounded-2xl transition-all shadow-xs min-h-[50px] px-3.5 sm:px-4 ${
                 isReadOnly ? "bg-slate-50/80 border-slate-200" : "bg-white border-slate-200 hover:border-slate-300 focus-within:border-[#0F6659] focus-within:ring-2 focus-within:ring-[#0F6659]/10"
@@ -1829,7 +1829,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           {/* แบรนด์และสาขาเป้าหมายที่แบบฟอร์มจะใช้งานได้ (Brand & Target Locations) */}
           <div className="min-w-0 relative">
             <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center justify-between">
-              <span>แบรนด์และสาขาเป้าหมายที่แบบฟอร์มจะใช้งานได้ (Form Target)</span>
+              <span>เป้าหมายการใช้งาน (Target)</span>
               <span className="text-xs text-slate-400 font-normal">
                 {brandIds.length === 0 && (targetingMode === "ALL_LOCATIONS" || targetLocationIds.length === 0)
                   ? "ทุกแบรนด์และทุกสาขา (Global)"
@@ -1892,8 +1892,8 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
           {/* คำอธิบายแบบฟอร์ม */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">
-              คำอธิบาย / วัตถุประสงค์การตรวจ
+            <label className="block text-sm font-bold text-slate-700 mb-1.5">
+              คำอธิบายแบบฟอร์ม
             </label>
             <input
               type="text"
