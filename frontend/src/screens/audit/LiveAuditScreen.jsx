@@ -16,6 +16,7 @@ import Section from "../../shared/Section";
 import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
+import MultiItemAuditCard from "../../modals/MultiItemAuditCard";
 import SwipeToast from "../../shared/SwipeToast";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
@@ -123,7 +124,7 @@ const QuestionCard = React.memo(function QuestionCard({
 }) {
   const isInfoSec = sec?.sectionType === "INFO";
   const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-  const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+  const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
 
   const isNa = answer === "na";
   const isScale = qType === "scale" || qType === "rating";
@@ -276,14 +277,27 @@ const QuestionCard = React.memo(function QuestionCard({
       {/* Answer Controls: Non-scored component vs YesNo vs Scale */}
       {isNonScored ? (
         <div className="pt-1">
-          <DynamicFieldRenderer
-            type={qType}
-            fieldConfig={q.fieldConfig || { options: q.options, unit: q.unit }}
-            value={answer}
-            onChange={(val) => onAnswerSelect(q.id, val)}
-            placeholder={q.placeholder || "ระบุข้อมูล..."}
-            auditorOptions={auditorOptions}
-          />
+          {qType === "multians" ? (
+            <MultiItemAuditCard
+              question={q}
+              value={answer}
+              onChange={(val) => onAnswerSelect(q.id, val)}
+              onPhotoUpload={(subItemId, files) => {
+                if (files && files[0]) {
+                  onUploadPhoto(q.id, files[0]);
+                }
+              }}
+            />
+          ) : (
+            <DynamicFieldRenderer
+              type={qType}
+              fieldConfig={q.fieldConfig || { options: q.options, unit: q.unit }}
+              value={answer}
+              onChange={(val) => onAnswerSelect(q.id, val)}
+              placeholder={q.placeholder || "ระบุข้อมูล..."}
+              auditorOptions={auditorOptions}
+            />
+          )}
         </div>
       ) : !isScale ? (
         <div className="grid grid-cols-3 gap-2">
@@ -2825,7 +2839,7 @@ export default function LiveAuditScreen({
       const item = (sec.items || []).find(i => i.id === questionId);
       if (item) {
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
-        const isNonScored = sec.sectionType === "INFO" || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isNonScored = sec.sectionType === "INFO" || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
         if (!isNonScored) {
           isScoredItem = true;
           if (qType === "scale" || qType === "rating") isScale = true;
@@ -2878,7 +2892,7 @@ export default function LiveAuditScreen({
       const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach(q => {
         const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
         if (isNonScored) return; // 🌟 ข้ามไม่คิดคะแนน
 
         const ans = answers[q.id];
@@ -2922,7 +2936,7 @@ export default function LiveAuditScreen({
       const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((q) => {
         const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
         if (isNonScored) return; // 🌟 ข้ามหมวดไม่คิดคะแนน
 
         const catName = getQuestionCategory(q, sec);
@@ -3036,7 +3050,7 @@ export default function LiveAuditScreen({
           title: sec.title || `หมวดที่ ${sIdx + 1}`,
           questions: (sec.items || []).map((q, qIdx) => {
             const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-            const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+            const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
             const isScored = !isNonScored;
             const ans = answers[q.id];
             const isNa = ans === "na";
@@ -3276,7 +3290,7 @@ export default function LiveAuditScreen({
       const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((item, qIdx) => {
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
 
         // 🌟 ถ้าเป็นข้อไม่คิดคะแนน: ตรวจเฉพาะข้อที่มีการกดตั้งค่าว่า "ต้องกรอก / บังคับกรอก" (required) เท่านั้น!
         const isItemRequired = Boolean(item.required || item.fieldConfig?.required);
@@ -3422,7 +3436,7 @@ export default function LiveAuditScreen({
       const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((item, qIdx) => {
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
 
         // 🌟 ข้อที่ไม่คิดคะแนน หรือจำนวนตัวเลข ไม่ต้องนำมาเชื่อมกับเงื่อนไขตกเกณฑ์ (< 3) เด็ดขาด
         if (isNonScored) return;
@@ -3533,7 +3547,7 @@ export default function LiveAuditScreen({
           const ans = answers[q.id];
           const isNa = (ans === "na");
           const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-          const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+          const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
 
           let isPassed = false;
           let scoreGiven = 0;

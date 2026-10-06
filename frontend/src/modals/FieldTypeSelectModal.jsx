@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  X, FileText, Hash, Table, ChevronDownSquare, CircleDot, CheckSquare, Calendar, Clock, UserCheck, Sparkles, CheckCircle2, Sliders
+  X, FileText, Hash, Table, ChevronDownSquare, CircleDot, CheckSquare, Calendar, Clock, UserCheck, Sparkles, CheckCircle2, Sliders, ListCheck
 } from "lucide-react";
 import ModalWrapper from "../shared/ModalWrapper";
 
@@ -20,13 +20,6 @@ export const ALL_FIELD_TYPES = [
     icon: Sliders,
     color: "teal",
     isScoredDefault: true
-  },
-  {
-    type: "grid",
-    label: "ตารางข้อมูล (Grid)",
-    desc: "ตารางแถวและคอลัมน์ การรวมยอดอัตโนมัติ",
-    icon: Table,
-    color: "emerald"
   },
   {
     type: "number",
@@ -82,6 +75,20 @@ export const ALL_FIELD_TYPES = [
     label: "ผู้ตรวจประเมิน (Auditor)",
     desc: "เลือกระบุรายชื่อผู้ตรวจประเมินจากระบบ",
     icon: UserCheck,
+    color: "emerald"
+  },
+  {
+    type: "grid",
+    label: "ตารางข้อมูล (Grid)",
+    desc: "ตารางแถวและคอลัมน์ การรวมยอดอัตโนมัติ",
+    icon: Table,
+    color: "emerald"
+  },
+  {
+    type: "multians",
+    label: "หลายคำตอบ (Multiple Answer)",
+    desc: "การตอบหลายคำตอบ",
+    icon: ListCheck,
     color: "emerald"
   }
 ];

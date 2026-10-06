@@ -12,6 +12,7 @@ import {
   Table,
   CheckSquare
 } from "lucide-react";
+import MultiItemAuditCard from "../modals/MultiItemAuditCard";
 
 /**
  * 🌟 DynamicFieldRenderer
@@ -22,14 +23,15 @@ import {
  *
  * Supported Types:
  * 1. "grid"     : Interactive table with rows, columns, auto-sum, and cell types (number, text, radio, checkbox)
- * 2. "number"   : Number input with [-] / [+] steppers and unit label
- * 3. "select"   : Dropdown selector
- * 4. "radio"    : Single-choice radio buttons
- * 5. "checkbox" : Multiple-choice checkboxes
- * 6. "text"     : Text input / textarea
- * 7. "date"     : Date picker
- * 8. "time"     : Time picker
- * 9. "auditor"  : Auditor selector
+ * 2. "multians" : Multi-criteria evaluation card
+ * 3. "number"   : Number input with [-] / [+] steppers and unit label
+ * 4. "select"   : Dropdown selector
+ * 5. "radio"    : Single-choice radio buttons
+ * 6. "checkbox" : Multiple-choice checkboxes
+ * 7. "text"     : Text input / textarea
+ * 8. "date"     : Date picker
+ * 9. "time"     : Time picker
+ * 10. "auditor" : Auditor selector
  */
 export default function DynamicFieldRenderer({
   type = "text",
@@ -42,6 +44,20 @@ export default function DynamicFieldRenderer({
   auditorOptions = []
 }) {
   const normType = String(type || "text").toLowerCase();
+
+  // ==========================================
+  // 0. MULTI-ANSWER EVALUATION (MULTIANS)
+  // ==========================================
+  if (normType === "multians") {
+    return (
+      <MultiItemAuditCard
+        question={{ fieldConfig }}
+        value={value}
+        onChange={onChange}
+        readOnly={readOnly}
+      />
+    );
+  }
 
   // ==========================================
   // 1. GRID / TABLE DATA

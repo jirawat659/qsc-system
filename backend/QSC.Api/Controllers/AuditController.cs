@@ -1010,7 +1010,7 @@ namespace QSC.Api.Controllers
         private const int MaxLiveAuditAgeDays = 3;
 
         private static readonly HashSet<string> NonScoredTypes = new(StringComparer.OrdinalIgnoreCase)
-        { "GRID", "NUMBER", "SELECT", "RADIO", "CHECKBOX", "DATE", "TIME", "AUDITOR", "TEXT" };
+        { "GRID", "NUMBER", "SELECT", "RADIO", "CHECKBOX", "DATE", "TIME", "AUDITOR", "TEXT", "MULTIANS" };
 
         private static bool IsScoredItem(SurveyItem item, double fullScore, HashSet<int>? infoSectionIds = null) =>
             SectionRules.IsScoredItem(item, fullScore, infoSectionIds);
