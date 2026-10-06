@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using QSC.Api.Data;
 using QSC.Api.Helpers;
 using QSC.Api.Models;
+using QSC.Api.Services;
 
 namespace QSC.Api.Controllers
 {
@@ -167,7 +168,7 @@ namespace QSC.Api.Controllers
                     totalScore = isSummary ? itemStats.GetValueOrDefault(f.Id).TotalScore : f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Where(i => i.IsActive).Sum(i => (int?)i.FullScore) ?? 0,
                     sections = isSummary ? null : f.Sections.OrderBy(s => s.OrderIndex).Select(s => {
                         string secKey = s.OrderIndex.ToString();
-                        string secType = secTypes.TryGetValue(secKey, out var st) ? st : (s.Items.Any(i => i.CategoryCode == "INFO" || (i.FullScore == 0 && i.QuestionType != "YESNO" && i.QuestionType != "SCALE")) ? "INFO" : "AUDIT");
+                        string secType = SectionRules.IsInfoSection(s, secTypes) ? "INFO" : "AUDIT";
                         return new
                         {
                             id = s.Id,
@@ -183,7 +184,7 @@ namespace QSC.Api.Controllers
                                 {
                                     try { parsedFc = JsonSerializer.Deserialize<object>(fcJson); } catch {}
                                 }
-                                bool isScored = secType != "INFO" && i.CategoryCode != "INFO" && i.FullScore > 0;
+                                bool isScored = secType != "INFO" && SectionRules.IsScoredItem(i, i.FullScore);
                                 return new
                                 {
                                     id = i.Id,
@@ -282,7 +283,7 @@ namespace QSC.Api.Controllers
                 totalScore = f.Sections.Where(s => s.IsActive).SelectMany(s => s.Items).Where(i => i.IsActive).Sum(i => (int?)i.FullScore) ?? 0,
                 sections = f.Sections.OrderBy(s => s.OrderIndex).Select(s => {
                     string secKey = s.OrderIndex.ToString();
-                    string secType = secTypes.TryGetValue(secKey, out var st) ? st : (s.Items.Any(i => i.CategoryCode == "INFO" || (i.FullScore == 0 && i.QuestionType != "YESNO" && i.QuestionType != "SCALE")) ? "INFO" : "AUDIT");
+                    string secType = SectionRules.IsInfoSection(s, secTypes) ? "INFO" : "AUDIT";
                     return new
                     {
                         id = s.Id,
@@ -298,7 +299,7 @@ namespace QSC.Api.Controllers
                             {
                                 try { parsedFc = JsonSerializer.Deserialize<object>(fcJson); } catch {}
                             }
-                            bool isScored = secType != "INFO" && i.CategoryCode != "INFO" && i.FullScore > 0;
+                            bool isScored = secType != "INFO" && SectionRules.IsScoredItem(i, i.FullScore);
                             return new
                             {
                                 id = i.Id,

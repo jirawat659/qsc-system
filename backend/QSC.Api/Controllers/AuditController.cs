@@ -8,6 +8,7 @@ using QSC.Api.Data;
 using QSC.Api.Models;
 using QSC.Api.Helpers;
 using QSC.Api.Hubs;
+using QSC.Api.Services;
 
 namespace QSC.Api.Controllers
 {
@@ -1011,10 +1012,8 @@ namespace QSC.Api.Controllers
         private static readonly HashSet<string> NonScoredTypes = new(StringComparer.OrdinalIgnoreCase)
         { "GRID", "NUMBER", "SELECT", "RADIO", "CHECKBOX", "DATE", "TIME", "AUDITOR", "TEXT" };
 
-        private static bool IsScoredItem(SurveyItem item, double fullScore) =>
-            fullScore > 0
-            && !string.Equals(item.CategoryCode, "INFO", StringComparison.OrdinalIgnoreCase)
-            && !NonScoredTypes.Contains((item.QuestionType ?? "YESNO").Trim());
+        private static bool IsScoredItem(SurveyItem item, double fullScore, HashSet<int>? infoSectionIds = null) =>
+            SectionRules.IsScoredItem(item, fullScore, infoSectionIds);
 
         // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
         //
@@ -1028,6 +1027,17 @@ namespace QSC.Api.Controllers
         {
             var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
 
+            // 🌟 แกะ MetadataConfigJson เพื่อตรวจสอบว่าหมวดไหนเป็น INFO (ไม่คิดคะแนน) โดยใช้ SectionRules
+            var infoSectionIds = new HashSet<int>();
+            var (_, sectionTypes, _, _) = FormController.UnpackFormMetadataWithLineage(form.MetadataConfigJson);
+            foreach (var sec in form.Sections)
+            {
+                if (SectionRules.IsInfoSection(sec, sectionTypes))
+                {
+                    infoSectionIds.Add(sec.Id);
+                }
+            }
+
             var seen = new HashSet<int>();
             foreach (var r in responses)
             {
@@ -1040,9 +1050,9 @@ namespace QSC.Api.Controllers
             if (requireComplete)
             {
                 var activeScoredItems = form.Sections
-                    .Where(s => s.IsActive)
+                    .Where(s => s.IsActive && !infoSectionIds.Contains(s.Id))
                     .SelectMany(s => s.Items)
-                    .Where(i => i.IsActive && IsScoredItem(i, i.FullScore) && !seen.Contains(i.Id))
+                    .Where(i => i.IsActive && IsScoredItem(i, i.FullScore, infoSectionIds) && !seen.Contains(i.Id))
                     .Select(i => i.QuestionText)
                     .Take(5)
                     .ToList();
@@ -1066,7 +1076,7 @@ namespace QSC.Api.Controllers
                     ? savedMax
                     : item.FullScore;
 
-                bool isNonScored = !IsScoredItem(item, fullScore);
+                bool isNonScored = !IsScoredItem(item, fullScore, infoSectionIds);
 
                 if (isNonScored)
                 {
