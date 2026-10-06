@@ -8,6 +8,7 @@ using QSC.Api.Data;
 using QSC.Api.Models;
 using QSC.Api.Helpers;
 using QSC.Api.Hubs;
+using QSC.Api.Services;
 
 namespace QSC.Api.Controllers
 {
@@ -1012,12 +1013,7 @@ namespace QSC.Api.Controllers
         { "GRID", "NUMBER", "SELECT", "RADIO", "CHECKBOX", "DATE", "TIME", "AUDITOR", "TEXT" };
 
         private static bool IsScoredItem(SurveyItem item, double fullScore, HashSet<int>? infoSectionIds = null) =>
-            fullScore > 0
-            && (infoSectionIds == null || !infoSectionIds.Contains(item.SurveySectionId))
-            && !string.Equals(item.CategoryCode, "INFO", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(item.CategoryName, "รายละเอียด", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(item.CategoryName, "ข้อมูลทั่วไป", StringComparison.OrdinalIgnoreCase)
-            && !NonScoredTypes.Contains((item.QuestionType ?? "YESNO").Trim());
+            SectionRules.IsScoredItem(item, fullScore, infoSectionIds);
 
         // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
         //
@@ -1031,34 +1027,12 @@ namespace QSC.Api.Controllers
         {
             var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
 
-            // 🌟 แกะ MetadataConfigJson เพื่อตรวจสอบว่าหมวดไหนเป็น INFO (ไม่คิดคะแนน)
+            // 🌟 แกะ MetadataConfigJson เพื่อตรวจสอบว่าหมวดไหนเป็น INFO (ไม่คิดคะแนน) โดยใช้ SectionRules
             var infoSectionIds = new HashSet<int>();
             var (_, sectionTypes, _, _) = FormController.UnpackFormMetadataWithLineage(form.MetadataConfigJson);
             foreach (var sec in form.Sections)
             {
-                string secKey = sec.OrderIndex.ToString();
-                bool isInfo = false;
-                if (sectionTypes.TryGetValue(secKey, out var st))
-                {
-                    isInfo = string.Equals(st, "INFO", StringComparison.OrdinalIgnoreCase);
-                }
-                else
-                {
-                    // Fallback สำหรับแบบฟอร์มเก่าที่ไม่มี sectionTypes:
-                    // ตรวจสอบจากชื่อหมวด หรือทุกข้อในหมวด (All) เป็นข้อไม่คิดคะแนน (ป้องกันการเหมารวมทั้งหมวดเมื่อมีแค่ช่องพิมพ์ข้อความ 1 ข้อ)
-                    isInfo = string.Equals(sec.Title?.Trim(), "รายละเอียด", StringComparison.OrdinalIgnoreCase)
-                             || string.Equals(sec.Title?.Trim(), "ข้อมูลทั่วไป", StringComparison.OrdinalIgnoreCase)
-                             || string.Equals(sec.Title?.Trim(), "INFO", StringComparison.OrdinalIgnoreCase)
-                             || (sec.Items.Any() && sec.Items.All(i =>
-                                    string.Equals(i.CategoryCode, "INFO", StringComparison.OrdinalIgnoreCase)
-                                    || string.Equals(i.CategoryName, "รายละเอียด", StringComparison.OrdinalIgnoreCase)
-                                    || string.Equals(i.CategoryName, "ข้อมูลทั่วไป", StringComparison.OrdinalIgnoreCase)
-                                    || (i.FullScore == 0 
-                                        && !string.Equals(i.QuestionType, "YESNO", StringComparison.OrdinalIgnoreCase) 
-                                        && !string.Equals(i.QuestionType, "SCALE", StringComparison.OrdinalIgnoreCase))));
-                }
-
-                if (isInfo)
+                if (SectionRules.IsInfoSection(sec, sectionTypes))
                 {
                     infoSectionIds.Add(sec.Id);
                 }
