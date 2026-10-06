@@ -1034,25 +1034,28 @@ namespace QSC.Api.Controllers
             // 🌟 แกะ MetadataConfigJson เพื่อตรวจสอบว่าหมวดไหนเป็น INFO (ไม่คิดคะแนน)
             var infoSectionIds = new HashSet<int>();
             var (_, sectionTypes, _, _) = FormController.UnpackFormMetadataWithLineage(form.MetadataConfigJson);
-            int secIdx = 1;
             foreach (var sec in form.Sections)
             {
-                string secKey = sec.OrderIndex > 0 ? sec.OrderIndex.ToString() : (secIdx++).ToString();
+                string secKey = sec.OrderIndex.ToString();
                 bool isInfo = false;
                 if (sectionTypes.TryGetValue(secKey, out var st))
                 {
                     isInfo = string.Equals(st, "INFO", StringComparison.OrdinalIgnoreCase);
                 }
-                else if (sectionTypes.TryGetValue(sec.OrderIndex.ToString(), out var st2))
-                {
-                    isInfo = string.Equals(st2, "INFO", StringComparison.OrdinalIgnoreCase);
-                }
                 else
                 {
-                    // Fallback ตามตรรกะใน FormController.cs และ Frontend
-                    isInfo = sec.Items.Any(i => i.CategoryCode == "INFO" || (i.FullScore == 0 && i.QuestionType != "YESNO" && i.QuestionType != "SCALE"))
-                             || string.Equals(sec.Title?.Trim(), "รายละเอียด", StringComparison.OrdinalIgnoreCase)
-                             || string.Equals(sec.Title?.Trim(), "ข้อมูลทั่วไป", StringComparison.OrdinalIgnoreCase);
+                    // Fallback สำหรับแบบฟอร์มเก่าที่ไม่มี sectionTypes:
+                    // ตรวจสอบจากชื่อหมวด หรือทุกข้อในหมวด (All) เป็นข้อไม่คิดคะแนน (ป้องกันการเหมารวมทั้งหมวดเมื่อมีแค่ช่องพิมพ์ข้อความ 1 ข้อ)
+                    isInfo = string.Equals(sec.Title?.Trim(), "รายละเอียด", StringComparison.OrdinalIgnoreCase)
+                             || string.Equals(sec.Title?.Trim(), "ข้อมูลทั่วไป", StringComparison.OrdinalIgnoreCase)
+                             || string.Equals(sec.Title?.Trim(), "INFO", StringComparison.OrdinalIgnoreCase)
+                             || (sec.Items.Any() && sec.Items.All(i =>
+                                    string.Equals(i.CategoryCode, "INFO", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(i.CategoryName, "รายละเอียด", StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(i.CategoryName, "ข้อมูลทั่วไป", StringComparison.OrdinalIgnoreCase)
+                                    || (i.FullScore == 0 
+                                        && !string.Equals(i.QuestionType, "YESNO", StringComparison.OrdinalIgnoreCase) 
+                                        && !string.Equals(i.QuestionType, "SCALE", StringComparison.OrdinalIgnoreCase))));
                 }
 
                 if (isInfo)
