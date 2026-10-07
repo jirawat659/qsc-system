@@ -888,7 +888,7 @@ namespace QSC.Api.Controllers
             try
             {
                 var relativeUrl = await UploadHelper.SaveAuditItemPhotoAsync(
-                    _env, _config, dto.Base64Data, dto.ScheduleId, dto.LocationCode, dto.SurveyItemId, 10 * 1024 * 1024);
+                    _env, _config, dto.Base64Data, dto.ScheduleId, dto.LocationCode, dto.SurveyItemId, 100 * 1024);
                 return Ok(new { url = relativeUrl });
             }
             catch (InvalidImageUploadException ex)
@@ -1527,7 +1527,7 @@ namespace QSC.Api.Controllers
                         {
                             if (string.IsNullOrWhiteSpace(imgUrl)) continue;
                             var savedImgUrl = await UploadHelper.SaveAuditItemPhotoAsync(
-                                _env, _config, imgUrl, validScheduleId, location.Code, computedResp.SurveyItemId, 10 * 1024 * 1024);
+                                _env, _config, imgUrl, validScheduleId, location.Code, computedResp.SurveyItemId, 100 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
                                 response.Images.Add(new AuditResponseImage
@@ -2517,7 +2517,7 @@ namespace QSC.Api.Controllers
                         {
                             if (string.IsNullOrWhiteSpace(imgUrl)) continue;
                             var savedImgUrl = await UploadHelper.SaveAuditItemPhotoAsync(
-                                _env, _config, imgUrl, record.AuditScheduleId, record.Location?.Code, computedResp.SurveyItemId, 10 * 1024 * 1024);
+                                _env, _config, imgUrl, record.AuditScheduleId, record.Location?.Code, computedResp.SurveyItemId, 100 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
                                 targetImageUrls.Add(savedImgUrl);

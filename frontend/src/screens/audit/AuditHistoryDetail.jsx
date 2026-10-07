@@ -2732,7 +2732,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                   <span>{isUploadingPhoto[q.surveyItemId] ? "กำลังอัปโหลด…" : "เพิ่มรูป"}</span>
                                   <input
                                     type="file"
-                                    accept="image/*"
+                                    accept="image/jpeg,image/png,image/webp,image/jpg"
                                     multiple
                                     className="hidden"
                                     disabled={isUploadingPhoto[q.surveyItemId]}

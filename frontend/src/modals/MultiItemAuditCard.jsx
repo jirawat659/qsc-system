@@ -227,7 +227,7 @@ export default function MultiItemAuditCard({
                             <span>แนบรูป (ถ้ามี)</span>
                             <input
                               type="file"
-                              accept="image/*"
+                              accept="image/jpeg,image/png,image/webp,image/jpg"
                               multiple
                               className="hidden"
                               onChange={(e) => {
