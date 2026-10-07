@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Authorization;
@@ -982,6 +983,7 @@ namespace QSC.Api.Controllers
             public string? AnswerValue { get; set; }
             public double? ScaleScore { get; set; }
             public string? Notes { get; set; }
+            public string? EditReason { get; set; } // 🌟 เหตุผลการแก้ไขเฉพาะข้อนี้
             public List<string> ImageUrls { get; set; } = new();
         }
 
@@ -997,6 +999,271 @@ namespace QSC.Api.Controllers
             public List<string> ImageUrls { get; set; } = new();
         }
 
+        public static class AuditScoring
+        {
+            /// <summary>
+            /// แกะ MetadataConfigJson เพื่อตรวจสอบว่าหมวดไหนเป็น INFO (ไม่คิดคะแนน)
+            /// </summary>
+            public static HashSet<int> BuildInfoSectionIds(SurveyForm form)
+            {
+                var infoSectionIds = new HashSet<int>();
+                var (_, sectionTypes, _, _) = FormController.UnpackFormMetadataWithLineage(form.MetadataConfigJson);
+                foreach (var sec in form.Sections)
+                {
+                    if (SectionRules.IsInfoSection(sec, sectionTypes))
+                    {
+                        infoSectionIds.Add(sec.Id);
+                    }
+                }
+                return infoSectionIds;
+            }
+
+            /// <summary>
+            /// คำนวณสรุปผลเปอร์เซ็นต์คะแนนและสถานะผ่าน/ไม่ผ่าน
+            /// - ปัดเศษทศนิยม 2 ตำแหน่งด้วย MidpointRounding.AwayFromZero
+            /// - เทียบเกณฑ์ผ่านด้วยค่าเปอร์เซ็นต์ที่ปัดเศษแล้ว (2 ตำแหน่ง)
+            /// - ถ้า maxScore <= 0 ถือว่า percentage = 0.0 และ isPassed = false
+            /// </summary>
+            public static (double Percentage, bool IsPassed) Finalize(double totalScore, double maxScore, bool hasCriticalDefect, double passingScore)
+            {
+                if (maxScore <= 0.0)
+                {
+                    return (0.0, false);
+                }
+                var raw = (totalScore / maxScore) * 100.0;
+                var pct = Math.Round(raw, 2, MidpointRounding.AwayFromZero);
+                bool isPassed = pct >= passingScore && !hasCriticalDefect;
+                return (pct, isPassed);
+            }
+
+            /// <summary>
+            /// แปลงคำตอบที่บันทึกไว้ใน AuditResponse (ซึ่งข้อมูลในอดีตไม่มี AnswerValue)
+            /// ให้ออกมาเป็นค่าคำตอบมาตรฐาน ("yes", "no", "na", "1".."5")
+            /// </summary>
+            public static string? ResolveStoredAnswer(AuditResponse r, SurveyItem? item)
+            {
+                // 1. ถ้ามี AnswerValue อยู่แล้ว ใช้เลย
+                if (!string.IsNullOrWhiteSpace(r.AnswerValue))
+                {
+                    return r.AnswerValue.Trim();
+                }
+
+                // 2. ถ้าเป็น N/A
+                if (r.IsNa)
+                {
+                    return "na";
+                }
+
+                var srcItem = item ?? r.SurveyItem;
+                string qType = (srcItem?.QuestionType ?? "YESNO").Trim().ToLowerInvariant();
+                double maxForItem = r.MaxScore ?? srcItem?.FullScore ?? 0.0;
+
+                // 3. ข้อที่ไม่คิดคะแนน (ไม่ใช่ YESNO/SCALE หรือคะแนนเต็ม 0) ไม่มีคำตอบให้เดา
+                if (maxForItem <= 0.0 || (qType != "yesno" && qType != "scale"))
+                {
+                    return null;
+                }
+
+                // 4. SCALE: ย้อนจากสัดส่วนคะแนน (ได้ค่า 1-5 เฉพาะเมื่อมีคะแนน > 0 ไม่เดาให้ข้อที่ได้ 0)
+                if (qType == "scale")
+                {
+                    if (r.ScoreGiven <= 0.0) return null;
+                    int scaleVal = Math.Clamp((int)Math.Round((r.ScoreGiven / maxForItem) * 5.0, MidpointRounding.AwayFromZero), 1, 5);
+                    return scaleVal.ToString();
+                }
+
+                // 5. YESNO
+                return r.IsPassed ? "yes" : "no";
+            }
+
+            /// <summary>
+            /// คำนวณคะแนนฝั่ง Server จาก DTO responses
+            /// - ปฏิเสธคำตอบที่ไม่ถูกต้องโดยโยน ArgumentException (ไม่เดาสุ่มหรือ fallback มั่ว)
+            /// - อ่านคำตอบจาก RawAnswer ?? AnswerValue เท่านั้น (ไม่เชื่อ IsPassed/ScoreGiven ที่ Client ส่งมา)
+            /// </summary>
+            public static (double TotalScore, double MaxScore, bool HasCriticalDefect, List<ComputedItemResponse> Responses, Dictionary<int, SurveyItem> AllItems) ComputeScoring(
+                SurveyForm form,
+                List<ResponseSubmitDto> responses,
+                IReadOnlyDictionary<int, double>? maxScoreByItem = null,
+                bool requireComplete = false)
+            {
+                var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
+                var infoSectionIds = BuildInfoSectionIds(form);
+
+                var seen = new HashSet<int>();
+                foreach (var r in responses)
+                {
+                    if (!allItems.ContainsKey(r.SurveyItemId))
+                        throw new ArgumentException($"พบข้อคำถามที่ไม่อยู่ในแบบฟอร์มนี้ (id {r.SurveyItemId})");
+                    if (!seen.Add(r.SurveyItemId))
+                        throw new ArgumentException($"พบคำตอบซ้ำของข้อคำถาม (id {r.SurveyItemId})");
+                }
+
+                if (requireComplete)
+                {
+                    var activeScoredItems = form.Sections
+                        .Where(s => s.IsActive && !infoSectionIds.Contains(s.Id))
+                        .SelectMany(s => s.Items)
+                        .Where(i => i.IsActive && SectionRules.IsScoredItem(i, i.FullScore, infoSectionIds) && !seen.Contains(i.Id))
+                        .Select(i => i.QuestionText)
+                        .Take(5)
+                        .ToList();
+
+                    if (activeScoredItems.Count > 0)
+                    {
+                        throw new ArgumentException("ยังไม่มีคำตอบของข้อ: " + string.Join(", ", activeScoredItems));
+                    }
+                }
+
+                double totalScore = 0.0;
+                double maxScore = 0.0;
+                bool hasCriticalDefect = false;
+                var processedResponses = new List<ComputedItemResponse>();
+
+                foreach (var respDto in responses)
+                {
+                    if (!allItems.TryGetValue(respDto.SurveyItemId, out var item)) continue;
+
+                    double fullScore = maxScoreByItem != null && maxScoreByItem.TryGetValue(item.Id, out var savedMax)
+                        ? savedMax
+                        : item.FullScore;
+
+                    bool isScored = SectionRules.IsScoredItem(item, fullScore, infoSectionIds);
+
+                    if (!isScored)
+                    {
+                        // ข้อที่ไม่คิดคะแนน (Non-scored / Info)
+                        string? rawAns = respDto.RawAnswer ?? respDto.AnswerValue;
+                        string? userComment = string.IsNullOrWhiteSpace(respDto.Notes) ? null : respDto.Notes.Trim();
+
+                        if (!string.IsNullOrWhiteSpace(userComment) && userComment.Contains("\n[หมายเหตุ]: "))
+                        {
+                            var parts = userComment.Split(new[] { "\n[หมายเหตุ]: " }, 2, StringSplitOptions.None);
+                            if (string.IsNullOrWhiteSpace(rawAns)) rawAns = parts[0].Trim();
+                            userComment = string.IsNullOrWhiteSpace(parts[1]) ? null : parts[1].Trim();
+                        }
+                        else if (!string.IsNullOrWhiteSpace(userComment) && !string.IsNullOrWhiteSpace(rawAns) && userComment == rawAns)
+                        {
+                            userComment = null;
+                        }
+
+                        processedResponses.Add(new ComputedItemResponse
+                        {
+                            SurveyItemId = respDto.SurveyItemId,
+                            ScoreGiven = 0.0,
+                            MaxScore = 0.0,
+                            IsPassed = true,
+                            IsNa = false,
+                            AnswerValue = rawAns,
+                            Notes = userComment,
+                            ImageUrls = respDto.ImageUrls ?? new List<string>()
+                        });
+                        continue;
+                    }
+
+                    // ข้อที่คิดคะแนน (Scored Item)
+                    string raw = (respDto.RawAnswer ?? respDto.AnswerValue ?? "").Trim().ToLowerInvariant();
+
+                    // ตรวจสอบคำตอบว่าง
+                    if (string.IsNullOrWhiteSpace(raw))
+                    {
+                        if (requireComplete)
+                        {
+                            throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' ยังไม่มีคำตอบ กรุณาตอบให้ครบทุกข้อ");
+                        }
+                        // ตอนแก้ไข: ถ้าส่งว่างมา ให้ข้ามข้อนี้ไป ไม่เขียนทับ
+                        continue;
+                    }
+
+                    bool isNa = raw == "na" || raw == "skip" || raw == "ข้าม";
+                    double scoreGiven = 0.0;
+                    bool isPassed = true;
+
+                    if (isNa)
+                    {
+                        isNa = true;
+                        scoreGiven = 0.0;
+                        isPassed = true;
+                    }
+                    else if (string.Equals(item.QuestionType, "SCALE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out double scaleVal))
+                        {
+                            throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) ได้รับค่าคำตอบที่ไม่ถูกต้อง: '{raw}' กรุณาระบุคะแนนระหว่าง 1 ถึง 5");
+                        }
+
+                        if (scaleVal < 1.0 || scaleVal > 5.0)
+                        {
+                            throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) คะแนนต้องอยู่ระหว่าง 1 ถึง 5 (ค่าที่ส่งมา: {scaleVal})");
+                        }
+
+                        scoreGiven = Math.Round((scaleVal / 5.0) * fullScore, 2, MidpointRounding.AwayFromZero);
+                        isPassed = scaleVal >= 3.0;
+
+                        maxScore += fullScore;
+                        totalScore += scoreGiven;
+
+                        if (item.IsCritical && !isPassed)
+                        {
+                            hasCriticalDefect = true;
+                        }
+                    }
+                    else
+                    {
+                        // YESNO
+                        bool isYes;
+                        if (raw == "no" || raw == "false" || raw == "0")
+                        {
+                            isYes = false;
+                        }
+                        else if (raw == "yes" || raw == "true" || raw == "1")
+                        {
+                            isYes = true;
+                        }
+                        else
+                        {
+                            throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' ได้รับค่าคำตอบที่ไม่ถูกต้อง: '{raw}' ต้องเป็น 'yes', 'no' หรือ 'na'");
+                        }
+
+                        scoreGiven = isYes ? fullScore : 0.0;
+                        isPassed = isYes;
+
+                        maxScore += fullScore;
+                        totalScore += scoreGiven;
+
+                        if (item.IsCritical && !isPassed)
+                        {
+                            hasCriticalDefect = true;
+                        }
+                    }
+
+                    string? scoredAnswer = isNa ? "na" : (string.Equals(item.QuestionType, "SCALE", StringComparison.OrdinalIgnoreCase) ? raw : (isPassed ? "yes" : "no"));
+                    string? scoredComment = string.IsNullOrWhiteSpace(respDto.Notes) ? null : respDto.Notes.Trim();
+                    if (!string.IsNullOrWhiteSpace(scoredComment) && scoredComment == scoredAnswer)
+                    {
+                        scoredComment = null;
+                    }
+
+                    processedResponses.Add(new ComputedItemResponse
+                    {
+                        SurveyItemId = respDto.SurveyItemId,
+                        ScoreGiven = scoreGiven,
+                        MaxScore = fullScore,
+                        IsPassed = isPassed,
+                        IsNa = isNa,
+                        AnswerValue = scoredAnswer,
+                        Notes = scoredComment,
+                        ImageUrls = respDto.ImageUrls ?? new List<string>()
+                    });
+                }
+
+                totalScore = Math.Round(totalScore, 2, MidpointRounding.AwayFromZero);
+                maxScore = Math.Round(maxScore, 2, MidpointRounding.AwayFromZero);
+
+                return (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems);
+            }
+        }
+
         private static string NormalizeAuditType(string? input)
         {
             if (string.IsNullOrWhiteSpace(input)) return "announced";
@@ -1007,220 +1274,11 @@ namespace QSC.Api.Controllers
             return input.Trim().Length > 20 ? input.Trim().Substring(0, 20) : input.Trim();
         }
 
+        private static DateTime ToUtcKind(DateTime d) =>
+            d.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : d.ToUniversalTime();
+
         private const int MaxLiveAuditAgeDays = 3;
 
-        private static readonly HashSet<string> NonScoredTypes = new(StringComparer.OrdinalIgnoreCase)
-        { "GRID", "NUMBER", "SELECT", "RADIO", "CHECKBOX", "DATE", "TIME", "AUDITOR", "TEXT", "MULTIANS" };
-
-        private static bool IsScoredItem(SurveyItem item, double fullScore, HashSet<int>? infoSectionIds = null) =>
-            SectionRules.IsScoredItem(item, fullScore, infoSectionIds);
-
-        // 🌟 คำนวณคะแนนฝั่ง Server เสมอ (ห้ามเชื่อคะแนนจาก client) — ใช้ร่วมกันทั้งตอนส่งครั้งแรกและตอนแก้ไข
-        //
-        // maxScoreByItem: คะแนนเต็มของข้อที่บันทึกไว้แล้ว (AuditResponse.MaxScore) ใช้ตอนแก้ไขงานเดิม
-        // เพื่อให้คิดคะแนนใหม่ด้วยคะแนนเต็ม ณ วันตรวจ ไม่ใช่คะแนนเต็มปัจจุบันของฟอร์ม — งานประวัติที่
-        // import มา ข้อเดียวกันมีคะแนนต่างกันตามยุค ถ้าใช้ SurveyItem.FullScore แก้แค่หมายเหตุ
-        // คะแนนรวม/ผ่าน-ไม่ผ่าน ก็เพี้ยนทันที ข้อที่ไม่มีใน dictionary (งานใหม่ หรือข้อที่เพิ่งเพิ่ม)
-        // ใช้ SurveyItem.FullScore ตามเดิม
-        private (double TotalScore, double MaxScore, bool HasCriticalDefect, List<ComputedItemResponse> Responses, Dictionary<int, SurveyItem> AllItems) ComputeScoring(
-            SurveyForm form, List<ResponseSubmitDto> responses, IReadOnlyDictionary<int, double>? maxScoreByItem = null, bool requireComplete = false)
-        {
-            var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
-
-            // 🌟 แกะ MetadataConfigJson เพื่อตรวจสอบว่าหมวดไหนเป็น INFO (ไม่คิดคะแนน) โดยใช้ SectionRules
-            var infoSectionIds = new HashSet<int>();
-            var (_, sectionTypes, _, _) = FormController.UnpackFormMetadataWithLineage(form.MetadataConfigJson);
-            foreach (var sec in form.Sections)
-            {
-                if (SectionRules.IsInfoSection(sec, sectionTypes))
-                {
-                    infoSectionIds.Add(sec.Id);
-                }
-            }
-
-            var seen = new HashSet<int>();
-            foreach (var r in responses)
-            {
-                if (!allItems.ContainsKey(r.SurveyItemId))
-                    throw new ArgumentException($"พบข้อคำถามที่ไม่อยู่ในแบบฟอร์มนี้ (id {r.SurveyItemId})");
-                if (!seen.Add(r.SurveyItemId))
-                    throw new ArgumentException($"พบคำตอบซ้ำของข้อคำถาม (id {r.SurveyItemId})");
-            }
-
-            if (requireComplete)
-            {
-                var activeScoredItems = form.Sections
-                    .Where(s => s.IsActive && !infoSectionIds.Contains(s.Id))
-                    .SelectMany(s => s.Items)
-                    .Where(i => i.IsActive && IsScoredItem(i, i.FullScore, infoSectionIds) && !seen.Contains(i.Id))
-                    .Select(i => i.QuestionText)
-                    .Take(5)
-                    .ToList();
-
-                if (activeScoredItems.Count > 0)
-                {
-                    throw new ArgumentException("ยังไม่มีคำตอบของข้อ: " + string.Join(", ", activeScoredItems));
-                }
-            }
-
-            double totalScore = 0.0;
-            double maxScore = 0.0;
-            bool hasCriticalDefect = false;
-            var processedResponses = new List<ComputedItemResponse>();
-
-            foreach (var respDto in responses)
-            {
-                if (!allItems.TryGetValue(respDto.SurveyItemId, out var item)) continue;
-
-                double fullScore = maxScoreByItem != null && maxScoreByItem.TryGetValue(item.Id, out var savedMax)
-                    ? savedMax
-                    : item.FullScore;
-
-                bool isNonScored = !IsScoredItem(item, fullScore, infoSectionIds);
-
-                if (isNonScored)
-                {
-                    // 🌟 ข้อที่ไม่คิดคะแนน (Non-scored/Info items):
-                    // ไม่นับรวมใน totalScore, ไม่เพิ่ม maxScore, ไม่ถือว่าตก (isPassed = true เสมอ),
-                    // ไม่ trigger critical defect, และไม่สร้างใบงาน CAP อัตโนมัติ
-                    string? rawAns = respDto.RawAnswer ?? respDto.AnswerValue;
-                    string? userComment = string.IsNullOrWhiteSpace(respDto.Notes) ? null : respDto.Notes.Trim();
-
-                    // แยกคำตอบและหมายเหตุ/คอมเม้นออกจากกันให้เป็นระบบ
-                    if (!string.IsNullOrWhiteSpace(userComment) && userComment.Contains("\n[หมายเหตุ]: "))
-                    {
-                        var parts = userComment.Split(new[] { "\n[หมายเหตุ]: " }, 2, StringSplitOptions.None);
-                        if (string.IsNullOrWhiteSpace(rawAns)) rawAns = parts[0].Trim();
-                        userComment = string.IsNullOrWhiteSpace(parts[1]) ? null : parts[1].Trim();
-                    }
-                    else if (!string.IsNullOrWhiteSpace(userComment) && !string.IsNullOrWhiteSpace(rawAns) && userComment == rawAns)
-                    {
-                        userComment = null;
-                    }
-                    else if (string.IsNullOrWhiteSpace(rawAns) && !string.IsNullOrWhiteSpace(userComment))
-                    {
-                        rawAns = userComment;
-                        userComment = null;
-                    }
-
-                    processedResponses.Add(new ComputedItemResponse
-                    {
-                        SurveyItemId = respDto.SurveyItemId,
-                        ScoreGiven = 0.0,
-                        MaxScore = 0.0,
-                        IsPassed = true,
-                        IsNa = false,
-                        AnswerValue = rawAns,
-                        Notes = userComment,
-                        ImageUrls = respDto.ImageUrls ?? new List<string>()
-                    });
-                    continue;
-                }
-
-                string raw = (respDto.RawAnswer ?? respDto.AnswerValue ?? (respDto.IsNa ? "na" : (respDto.IsPassed ? "yes" : "no"))).Trim().ToLower();
-                bool isNa = respDto.IsNa || raw == "na" || raw == "skip" || raw == "ข้าม";
-                double scoreGiven = 0.0;
-                bool isPassed = true;
-
-                if (isNa)
-                {
-                    isNa = true;
-                    scoreGiven = 0.0;
-                    isPassed = true;
-                }
-                else if (item.QuestionType?.ToLower() == "scale")
-                {
-                    double scaleVal = 0.0;
-                    if (double.TryParse(raw, out double parsedVal))
-                    {
-                        scaleVal = parsedVal;
-                    }
-                    else if (respDto.ScaleScore.HasValue)
-                    {
-                        scaleVal = respDto.ScaleScore.Value;
-                    }
-                    else if (fullScore > 0 && respDto.ScoreGiven > 0)
-                    {
-                        scaleVal = (respDto.ScoreGiven / fullScore) * 5.0;
-                    }
-                    else
-                    {
-                        throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) ได้รับค่าคำตอบที่ไม่ถูกต้อง: '{(string.IsNullOrWhiteSpace(raw) ? "(ว่าง)" : raw)}' กรุณาระบุคะแนนระหว่าง 1 ถึง 5");
-                    }
-
-                    if (scaleVal < 1.0 || scaleVal > 5.0)
-                    {
-                        throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' (Scale) คะแนนต้องอยู่ระหว่าง 1 ถึง 5 (ค่าที่ส่งมา: {scaleVal})");
-                    }
-
-                    scoreGiven = Math.Round((scaleVal / 5.0) * fullScore, 2);
-                    isPassed = scaleVal >= 3.0;
-
-                    maxScore += fullScore;
-                    totalScore += scoreGiven;
-
-                    if (item.IsCritical && !isPassed)
-                    {
-                        hasCriticalDefect = true;
-                    }
-                }
-                else
-                {
-                    bool isYes;
-                    if (raw == "no" || raw == "false" || raw == "0")
-                    {
-                        isYes = false;
-                    }
-                    else if (raw == "yes" || raw == "true" || raw == "1")
-                    {
-                        isYes = true;
-                    }
-                    else
-                    {
-                        // 🐛 FIX: this used to fall back to the client-supplied IsPassed flag,
-                        // which defeats the whole point of recomputing scores server-side
-                        // ("ห้ามเชื่อคะแนนจาก client" per the comment on ComputeScoring above).
-                        // A raw answer that isn't a recognized yes/no token is fail-closed
-                        // (treated as ไม่ผ่าน) instead of trusting the client's verdict.
-                        isYes = false;
-                    }
-
-                    scoreGiven = isYes ? fullScore : 0.0;
-                    isPassed = isYes;
-
-                    maxScore += fullScore;
-                    totalScore += scoreGiven;
-
-                    if (item.IsCritical && !isPassed)
-                    {
-                        hasCriticalDefect = true;
-                    }
-                }
-
-                string? scoredAnswer = respDto.RawAnswer ?? respDto.AnswerValue ?? (isNa ? "na" : (isPassed ? "yes" : "no"));
-                string? scoredComment = string.IsNullOrWhiteSpace(respDto.Notes) ? null : respDto.Notes.Trim();
-                if (!string.IsNullOrWhiteSpace(scoredComment) && scoredComment == scoredAnswer)
-                {
-                    scoredComment = null;
-                }
-
-                processedResponses.Add(new ComputedItemResponse
-                {
-                    SurveyItemId = respDto.SurveyItemId,
-                    ScoreGiven = scoreGiven,
-                    // เก็บทุกข้อรวม N/A — ผู้อ่านกรอง N/A ออกจากคะแนนเต็มเอง และถ้าภายหลังแก้ข้อ N/A
-                    // เป็นผ่าน/ไม่ผ่าน จะยังรู้คะแนนเต็ม ณ วันตรวจ
-                    MaxScore = fullScore,
-                    IsPassed = isPassed,
-                    IsNa = isNa,
-                    AnswerValue = scoredAnswer,
-                    Notes = scoredComment,
-                    ImageUrls = respDto.ImageUrls ?? new List<string>()
-                });
-            }
-
-            return (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems);
-        }
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
         [HttpPost]
@@ -1249,7 +1307,7 @@ namespace QSC.Api.Controllers
             (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
             try
             {
-                scoredResult = ComputeScoring(form, dto.Responses, null, requireComplete: true);
+                scoredResult = AuditScoring.ComputeScoring(form, dto.Responses, null, requireComplete: true);
             }
             catch (ArgumentException argEx)
             {
@@ -1257,8 +1315,7 @@ namespace QSC.Api.Controllers
             }
             var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = scoredResult;
 
-            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
-            bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
+            var (percentageScore, isOverallPassed) = AuditScoring.Finalize(totalScore, maxScore, hasCriticalDefect, form.PassingScore);
 
             // 🛡️ Ensure valid PrimaryAuditorId (Foreign Key Validation)
             int primaryAuditorId = currentUserId;
@@ -1812,6 +1869,7 @@ namespace QSC.Api.Controllers
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
+                passingScore = r.SurveyForm != null ? r.SurveyForm.PassingScore : 85.0,
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
@@ -1891,6 +1949,7 @@ namespace QSC.Api.Controllers
                     .ThenInclude(l => l!.LocationBrands)
                         .ThenInclude(lb => lb.Brand)
                 .Include(r => r.SurveyForm)
+                    .ThenInclude(f => f!.Sections)
                 .Include(r => r.PrimaryAuditor)
                 .Include(r => r.AuditeeUser)
                 .Include(r => r.Responses)
@@ -1915,6 +1974,8 @@ namespace QSC.Api.Controllers
             }
 
             var r = record;
+            var infoSectionIds = r.SurveyForm != null ? AuditScoring.BuildInfoSectionIds(r.SurveyForm) : new HashSet<int>();
+
             var result = new
             {
                 id = r.Id,
@@ -1938,7 +1999,8 @@ namespace QSC.Api.Controllers
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
-                passingScore = r.SurveyForm?.PassingScore,
+                passingScore = r.SurveyForm?.PassingScore ?? 0.0,
+                versionNumber = r.VersionNumber != null ? Convert.ToBase64String(r.VersionNumber) : null,
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
@@ -1965,36 +2027,41 @@ namespace QSC.Api.Controllers
                 responses = r.Responses?
                     .OrderBy(res => res.SurveyItem?.SurveySection?.OrderIndex ?? 0)
                     .ThenBy(res => res.SurveyItem?.OrderIndex ?? 0)
-                    .Select(res => new
+                    .Select(res =>
                     {
-                        id = res.Id,
-                        surveyItemId = res.SurveyItemId,
-                        questionText = res.SurveyItem?.QuestionText,
-                        questionType = res.SurveyItem?.QuestionType,
-                        // คะแนนเต็ม ณ วันตรวจ → ค่าปัจจุบันของฟอร์ม (คะแนนแยกหมวดในหน้ารายละเอียดคิดจากค่านี้)
-                        fullScore = res.MaxScore ?? res.SurveyItem?.FullScore,
-                        isCritical = res.SurveyItem?.IsCritical,
-                        orderIndex = res.SurveyItem?.OrderIndex,
-                        surveySectionId = res.SurveyItem?.SurveySectionId,
-                        sectionTitle = res.SurveyItem?.SurveySection?.Title,
-                        sectionOrderIndex = res.SurveyItem?.SurveySection?.OrderIndex,
-                        scoreGiven = res.ScoreGiven,
-                        isPassed = res.IsPassed,
-                        isNa = res.IsNa,
-                        answerValue = res.AnswerValue,
-                        rawAnswer = res.AnswerValue,
-                        notes = res.Notes,
-                        categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
-                        // หมวด ณ วันตรวจของคำตอบ — frontend (getQuestionCategory) อ่าน categoryCode ก่อน
-                        // surveyItem.categoryCode ซึ่งเป็นหมวดของคำถามยุคล่าสุด
-                        categoryCode = res.CategoryCode ?? res.SurveyItem?.CategoryCode,
-                        surveyItem = res.SurveyItem,
-                        images = res.Images?.Select(img => new
+                        double itemMaxScore = res.MaxScore ?? res.SurveyItem?.FullScore ?? 0.0;
+                        bool isItemScored = res.SurveyItem != null && SectionRules.IsScoredItem(res.SurveyItem, itemMaxScore, infoSectionIds);
+                        string? resolvedAns = AuditScoring.ResolveStoredAnswer(res, res.SurveyItem);
+
+                        return new
                         {
-                            id = img.Id,
-                            imageUrl = img.ImageUrl,
-                            uploadedAt = img.UploadedAt
-                        }).ToList()
+                            id = res.Id,
+                            surveyItemId = res.SurveyItemId,
+                            questionText = res.SurveyItem?.QuestionText,
+                            questionType = res.SurveyItem?.QuestionType,
+                            fullScore = itemMaxScore,
+                            isScored = isItemScored,
+                            isCritical = res.SurveyItem?.IsCritical,
+                            orderIndex = res.SurveyItem?.OrderIndex,
+                            surveySectionId = res.SurveyItem?.SurveySectionId,
+                            sectionTitle = res.SurveyItem?.SurveySection?.Title,
+                            sectionOrderIndex = res.SurveyItem?.SurveySection?.OrderIndex,
+                            scoreGiven = res.ScoreGiven,
+                            isPassed = res.IsPassed,
+                            isNa = res.IsNa,
+                            answerValue = resolvedAns,
+                            rawAnswer = resolvedAns,
+                            notes = res.Notes,
+                            categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
+                            categoryCode = res.CategoryCode ?? res.SurveyItem?.CategoryCode,
+                            surveyItem = res.SurveyItem,
+                            images = res.Images?.Select(img => new
+                            {
+                                id = img.Id,
+                                imageUrl = img.ImageUrl,
+                                uploadedAt = img.UploadedAt
+                            }).ToList()
+                        };
                     }).ToList()
             };
 
@@ -2009,17 +2076,23 @@ namespace QSC.Api.Controllers
             // เหตุผลการแก้ไข — บังคับกรอกทุกครั้ง ไม่งั้นแก้ไม่ได้
             public string Reason { get; set; } = string.Empty;
 
+            // Concurrency token (RowVersion)
+            public string? Version { get; set; }
+
+            public bool ClearStartGps { get; set; } = false;
+            public bool ClearEndGps { get; set; } = false;
+
             public int? AuditeeUserId { get; set; }
             public string? AuditeeNameText { get; set; }
             public int StaffCount { get; set; } = 0;
-            public string AuditType { get; set; } = "announced";
+            public string? AuditType { get; set; }
             public string? Notes { get; set; }
             public string? MetadataValuesJson { get; set; }
 
             // Start & End times
             public DateTime? StartedAt { get; set; }
             public DateTime? SubmittedAt { get; set; }
-            public DateTime? AuditDate { get; set; }
+            public DateTime? AuditDate { get; set; }  // ไม่ใช้แล้ว: ไม่อนุญาตให้แก้ AuditDate (แก้ได้เฉพาะ StartedAt / SubmittedAt)
 
             // Signatures
             public string? AuditorSignatureUrl { get; set; }
@@ -2061,10 +2134,29 @@ namespace QSC.Api.Controllers
                     .ThenInclude(l => l!.LocationBrands)
                 .Include(r => r.SurveyForm)
                 .Include(r => r.Responses)
+                    .ThenInclude(res => res.SurveyItem)
+                .Include(r => r.Responses)
                     .ThenInclude(res => res.Images)
                 .FirstOrDefaultAsync(r => r.Id == id);
 
             if (record == null) return NotFound();
+
+            // Concurrency check
+            if (string.IsNullOrWhiteSpace(dto.Version))
+            {
+                return BadRequest(new { message = "ไม่พบเลขเวอร์ชันของบันทึก กรุณาโหลดหน้าใหม่แล้วแก้ไขอีกครั้ง" });
+            }
+            if (!string.IsNullOrWhiteSpace(dto.Version))
+            {
+                try
+                {
+                    _context.Entry(record).Property(x => x.VersionNumber).OriginalValue = Convert.FromBase64String(dto.Version);
+                }
+                catch (FormatException)
+                {
+                    return BadRequest(new { message = "รูปแบบ VersionNumber ไม่ถูกต้อง" });
+                }
+            }
 
             // 3) เช็ค location/brand scope ตาม pattern เดียวกับ endpoint อื่นในระบบ
             if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId))
@@ -2088,20 +2180,65 @@ namespace QSC.Api.Controllers
 
             if (form == null) return NotFound(new { message = "ไม่พบแบบฟอร์มการตรวจที่ผูกกับบันทึกนี้" });
 
-            // 4) คำนวณคะแนนใหม่ทั้งชุดฝั่ง server (ใช้ helper เดียวกับตอนส่งครั้งแรก — ห้ามเชื่อคะแนนจาก client)
+            // 4) คำนวณคะแนนใหม่ทั้งชุดฝั่ง server โดยใช้ AuditScoring (ห้ามเชื่อคะแนนจาก client)
             //    ใช้คะแนนเต็ม ณ วันตรวจที่บันทึกไว้ (AuditResponse.MaxScore) ไม่ใช่คะแนนเต็มปัจจุบันของฟอร์ม
             //    — ไม่งั้นแก้งานประวัติแม้แค่หมายเหตุ คะแนนรวม/ผ่าน-ไม่ผ่านจะเพี้ยนจากระบบเดิม
+            var allItems = form.Sections.SelectMany(s => s.Items).ToDictionary(i => i.Id);
+
             var savedMaxByItem = record.Responses
                 .Where(r => r.MaxScore.HasValue)
                 .GroupBy(r => r.SurveyItemId)
                 .ToDictionary(g => g.Key, g => g.First().MaxScore!.Value);
 
+            // แยกข้อประวัติเดิมที่ไม่มีในโครงสร้างฟอร์มปัจจุบันแล้ว (Orphan items)
+            var orphanResponses = record.Responses.Where(r => !allItems.ContainsKey(r.SurveyItemId)).ToList();
+
             var submittedIds = dto.Responses.Select(r => r.SurveyItemId).ToHashSet();
-            var mergedResponses = dto.Responses.ToList();
-            foreach (var ex in record.Responses.Where(r => !submittedIds.Contains(r.SurveyItemId)))
+            var formResponsesToCompute = dto.Responses.Where(r => allItems.ContainsKey(r.SurveyItemId)).ToList();
+
+            // ข้อที่นับคะแนนไว้ตอนตรวจ แต่ไม่มีค่าคำตอบให้คำนวณใหม่ (ข้อมูลเก่า) — ใช้คะแนน snapshot เดิมรวมตรงๆ
+            // ไม่ให้หลุดจากผลรวมทั้งที่แถวคำตอบยังอยู่ และไม่เดาคำตอบขึ้นมาเอง
+            var infoIdsForMerge = AuditScoring.BuildInfoSectionIds(form);
+            var existingByItem = record.Responses.GroupBy(r => r.SurveyItemId).ToDictionary(g => g.Key, g => g.First());
+            var snapshotPassThrough = new List<AuditResponse>();
+
+            bool WasScoredAtAudit(AuditResponse ex)
             {
-                var raw = ex.AnswerValue ?? (ex.IsNa ? "na" : (ex.IsPassed ? "yes" : (ex.ScoreGiven > 0 ? ex.ScoreGiven.ToString() : "no")));
-                mergedResponses.Add(new ResponseSubmitDto
+                if (ex.IsNa) return false;
+                var it = allItems.GetValueOrDefault(ex.SurveyItemId) ?? ex.SurveyItem;
+                double mx = ex.MaxScore ?? it?.FullScore ?? 0.0;
+                return it != null && mx > 0.0 && SectionRules.IsScoredItem(it, mx, infoIdsForMerge);
+            }
+
+            // ข้อที่ client ส่งมาแต่ค่าคำตอบว่าง และมีคำตอบเดิมอยู่ = ไม่ได้แก้คำตอบ → ใช้ค่าเดิม
+            foreach (var d in formResponsesToCompute.ToList())
+            {
+                if (!string.IsNullOrWhiteSpace(d.RawAnswer ?? d.AnswerValue)) continue;
+                if (!existingByItem.TryGetValue(d.SurveyItemId, out var stored)) continue;
+
+                var storedRaw = AuditScoring.ResolveStoredAnswer(stored, allItems.GetValueOrDefault(stored.SurveyItemId) ?? stored.SurveyItem);
+                if (!string.IsNullOrWhiteSpace(storedRaw))
+                {
+                    d.RawAnswer = storedRaw;
+                    d.AnswerValue = storedRaw;
+                }
+                else if (WasScoredAtAudit(stored))
+                {
+                    snapshotPassThrough.Add(stored);
+                    formResponsesToCompute.Remove(d);
+                }
+            }
+
+            // รวมข้อเดิมในฟอร์มปัจจุบันที่ client ไม่ได้ส่งมา (ไม่มีการแก้ข้อนั้น) ด้วยคำตอบเดิม
+            foreach (var ex in record.Responses.Where(r => allItems.ContainsKey(r.SurveyItemId) && !submittedIds.Contains(r.SurveyItemId)))
+            {
+                var raw = AuditScoring.ResolveStoredAnswer(ex, allItems.GetValueOrDefault(ex.SurveyItemId) ?? ex.SurveyItem);
+                if (string.IsNullOrWhiteSpace(raw) && WasScoredAtAudit(ex))
+                {
+                    snapshotPassThrough.Add(ex);
+                    continue;
+                }
+                formResponsesToCompute.Add(new ResponseSubmitDto
                 {
                     SurveyItemId = ex.SurveyItemId,
                     RawAnswer = raw,
@@ -2114,18 +2251,32 @@ namespace QSC.Api.Controllers
                 });
             }
 
-            (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItems) scoredResult;
+            (double totalScore, double maxScore, bool hasCriticalDefect, List<ComputedItemResponse> processedResponses, Dictionary<int, SurveyItem> allItemsDict) scoredResult;
             try
             {
-                scoredResult = ComputeScoring(form, mergedResponses, savedMaxByItem);
+                scoredResult = AuditScoring.ComputeScoring(form, formResponsesToCompute, savedMaxByItem, requireComplete: false);
             }
             catch (ArgumentException argEx)
             {
                 return BadRequest(new { message = argEx.Message });
             }
-            var (totalScore, maxScore, hasCriticalDefect, processedResponses, allItems) = scoredResult;
-            double percentageScore = (maxScore > 0) ? Math.Round((totalScore / maxScore) * 100.0, 2) : 100.0;
-            bool isOverallPassed = (percentageScore >= form.PassingScore) && (!hasCriticalDefect);
+            var (formTotalScore, formMaxScore, formHasCritical, processedResponses, _) = scoredResult;
+
+            // รวบรวมคะแนน snapshot ของข้อประวัติที่ไม่อยู่ในฟอร์มปัจจุบันแล้ว (ไม่ลบ ไม่สูญหาย)
+            double orphanTotalScore = orphanResponses.Sum(o => o.ScoreGiven);
+            double orphanMaxScore = orphanResponses.Where(o => !o.IsNa).Sum(o => o.MaxScore ?? o.SurveyItem?.FullScore ?? 0.0);
+            bool orphanHasCritical = orphanResponses.Any(o => !o.IsNa && !o.IsPassed && (o.SurveyItem?.IsCritical ?? false));
+
+            // ข้อที่ไม่มีค่าคำตอบให้คำนวณใหม่ แต่เคยนับคะแนนไว้ — รวมคะแนน snapshot เดิม
+            double snapTotalScore = snapshotPassThrough.Sum(o => o.ScoreGiven);
+            double snapMaxScore = snapshotPassThrough.Sum(o => o.MaxScore ?? (allItems.GetValueOrDefault(o.SurveyItemId) ?? o.SurveyItem)?.FullScore ?? 0.0);
+            bool snapHasCritical = snapshotPassThrough.Any(o => !o.IsPassed && ((allItems.GetValueOrDefault(o.SurveyItemId) ?? o.SurveyItem)?.IsCritical ?? false));
+
+            double totalScore = Math.Round(formTotalScore + orphanTotalScore + snapTotalScore, 2, MidpointRounding.AwayFromZero);
+            double maxScore = Math.Round(formMaxScore + orphanMaxScore + snapMaxScore, 2, MidpointRounding.AwayFromZero);
+            bool hasCriticalDefect = formHasCritical || orphanHasCritical || snapHasCritical;
+
+            var (percentageScore, isOverallPassed) = AuditScoring.Finalize(totalScore, maxScore, hasCriticalDefect, form.PassingScore);
 
             // 1. เก็บคำตอบและข้อมูลเดิมไว้ทำ Item-Level Diff ก่อนเคลียร์
             var previousResponsesList = record.Responses.Select(r =>
@@ -2139,7 +2290,7 @@ namespace QSC.Api.Controllers
                     r.IsPassed,
                     r.ScoreGiven,
                     r.IsNa,
-                    AnswerValue = r.AnswerValue ?? "",
+                    AnswerValue = AuditScoring.ResolveStoredAnswer(r, matchedItem ?? r.SurveyItem) ?? "",
                     Notes = r.Notes ?? "",
                     ImageUrls = r.Images.Select(img => img.ImageUrl).ToList()
                 };
@@ -2162,12 +2313,16 @@ namespace QSC.Api.Controllers
 
                 if (isScoreDiff || isNoteDiff || isImageDiff || isAnswerDiff)
                 {
+                    var submittedResp = dto.Responses.FirstOrDefault(r => r.SurveyItemId == computedResp.SurveyItemId);
+                    var itemEditReason = submittedResp?.EditReason?.Trim();
                     allItems.TryGetValue(computedResp.SurveyItemId, out var itemMeta);
+
                     changedItems.Add(new
                     {
                         surveyItemId = computedResp.SurveyItemId,
                         questionText = prev?.QuestionText ?? itemMeta?.QuestionText ?? $"ข้อที่ {computedResp.SurveyItemId}",
                         sectionTitle = prev?.SectionTitle ?? itemMeta?.SurveySection?.Title ?? "รายการตรวจ",
+                        editReason = string.IsNullOrWhiteSpace(itemEditReason) ? null : itemEditReason,
                         before = prev != null ? new
                         {
                             isPassed = prev.IsPassed,
@@ -2216,16 +2371,23 @@ namespace QSC.Api.Controllers
                 percentageScore,
                 isPassed = isOverallPassed,
                 hasCriticalDefect,
-                auditType = dto.AuditType,
-                notes = dto.Notes ?? record.Notes,
+                auditType = string.IsNullOrWhiteSpace(dto.AuditType) ? record.AuditType : NormalizeAuditType(dto.AuditType),
+                notes = dto.Notes == null ? record.Notes : (string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes),
                 metadataValuesJson = dto.MetadataValuesJson ?? record.MetadataValuesJson,
                 startedAt = dto.StartedAt ?? record.StartedAt,
                 submittedAt = dto.SubmittedAt ?? record.SubmittedAt,
-                startLatitude = dto.StartLatitude,
-                startLongitude = dto.StartLongitude,
-                endLatitude = dto.EndLatitude,
-                endLongitude = dto.EndLongitude
+                startLatitude = dto.ClearStartGps ? null : (dto.StartLatitude ?? record.StartLatitude),
+                startLongitude = dto.ClearStartGps ? null : (dto.StartLongitude ?? record.StartLongitude),
+                endLatitude = dto.ClearEndGps ? null : (dto.EndLatitude ?? record.EndLatitude),
+                endLongitude = dto.ClearEndGps ? null : (dto.EndLongitude ?? record.EndLongitude)
             };
+
+            var effectiveStart = dto.StartedAt ?? record.StartedAt;
+            var effectiveEnd = dto.SubmittedAt ?? record.SubmittedAt;
+            if (effectiveStart.HasValue && effectiveEnd < effectiveStart.Value)
+            {
+                return BadRequest(new { message = "เวลาส่งผลตรวจต้องไม่ก่อนเวลาเริ่มตรวจ" });
+            }
 
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
@@ -2239,23 +2401,16 @@ namespace QSC.Api.Controllers
                 }
 
                 // อัปเดตค่าหลักของ record
-                record.AuditeeUserId = validAuditeeUserId;
-                if (dto.AuditeeNameText != null) record.AuditeeNameText = dto.AuditeeNameText;
-                record.AuditType = NormalizeAuditType(dto.AuditType);
-                if (dto.Notes != null) record.Notes = dto.Notes;
+                if (validAuditeeUserId.HasValue) record.AuditeeUserId = validAuditeeUserId.Value;
+                if (dto.AuditeeNameText != null) record.AuditeeNameText = string.IsNullOrWhiteSpace(dto.AuditeeNameText) ? null : dto.AuditeeNameText.Trim();
+                if (!string.IsNullOrWhiteSpace(dto.AuditType)) record.AuditType = NormalizeAuditType(dto.AuditType);
+                if (dto.Notes != null) record.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? null : dto.Notes;
                 if (dto.MetadataValuesJson != null) record.MetadataValuesJson = dto.MetadataValuesJson;
 
                 // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
-                if (dto.StartedAt.HasValue)
-                {
-                    record.StartedAt = dto.StartedAt.Value;
-                    record.AuditDate = dto.StartedAt.Value;
-                }
-                else if (dto.AuditDate.HasValue)
-                {
-                    record.AuditDate = dto.AuditDate.Value;
-                }
-                if (dto.SubmittedAt.HasValue) record.SubmittedAt = dto.SubmittedAt.Value;
+                // AuditDate ไม่แก้ไข — แก้ได้เฉพาะเวลาเริ่ม (StartedAt) และเวลาส่ง (SubmittedAt)
+                if (dto.StartedAt.HasValue) record.StartedAt = ToUtcKind(dto.StartedAt.Value);
+                if (dto.SubmittedAt.HasValue) record.SubmittedAt = ToUtcKind(dto.SubmittedAt.Value);
 
                 // ลายเซ็น (จำกัดขนาดไม่เกิน 2MB)
                 if (!string.IsNullOrWhiteSpace(dto.AuditorSignatureUrl))
@@ -2269,11 +2424,28 @@ namespace QSC.Api.Controllers
                         _env, _config, dto.AuditeeSignatureUrl, record.AuditScheduleId, record.Location?.Code, "auditee", 2 * 1024 * 1024);
                 }
 
-                // พิกัดสถานที่ (อนุญาตให้เป็น null ได้ หากไม่มี GPS หรือต้องการล้างค่า)
-                record.StartLatitude = dto.StartLatitude;
-                record.StartLongitude = dto.StartLongitude;
-                record.EndLatitude = dto.EndLatitude;
-                record.EndLongitude = dto.EndLongitude;
+                // พิกัดสถานที่ (รองรับการเคลียร์ค่าหรือบันทึกค่าใหม่)
+                if (dto.ClearStartGps)
+                {
+                    record.StartLatitude = null;
+                    record.StartLongitude = null;
+                }
+                else if (dto.StartLatitude.HasValue && dto.StartLongitude.HasValue)
+                {
+                    record.StartLatitude = dto.StartLatitude;
+                    record.StartLongitude = dto.StartLongitude;
+                }
+
+                if (dto.ClearEndGps)
+                {
+                    record.EndLatitude = null;
+                    record.EndLongitude = null;
+                }
+                else if (dto.EndLatitude.HasValue && dto.EndLongitude.HasValue)
+                {
+                    record.EndLatitude = dto.EndLatitude;
+                    record.EndLongitude = dto.EndLongitude;
+                }
 
                 record.TotalScore = totalScore;
                 record.MaxScore = maxScore;
@@ -2442,33 +2614,34 @@ namespace QSC.Api.Controllers
                         record.Responses.Add(response);
                     }
 
-                    // 🌟 4. จัดการ CAP แบบ Hybrid ตาม Logic เดิมที่มีอยู่แล้ว 100%
+                    // 🌟 4. จัดการ CAP แบบฉลาด: ลบ CAP ที่ไม่มีประวัติการพูดคุย/หลักฐาน + ป้องกันสร้างตั๋วซ้ำ
                     bool hasExistingOpenCap = false;
                     if (linkedCapsBySurveyItem.TryGetValue(computedResp.SurveyItemId, out var capsForThisItem))
                     {
                         bool isResolvedNow = computedResp.IsNa || computedResp.IsPassed;
-                        foreach (var cap in capsForThisItem)
+                        for (int i = capsForThisItem.Count - 1; i >= 0; i--)
                         {
+                            var cap = capsForThisItem[i];
                             bool isAlreadyDone = string.Equals(cap.Status, "CLOSED", StringComparison.OrdinalIgnoreCase)
                                 || string.Equals(cap.Status, "CANCELLED", StringComparison.OrdinalIgnoreCase);
 
                             if (isResolvedNow && !isAlreadyDone)
                             {
-                                // 👉 ตรวจสอบว่าสาขาเคยมีกิจกรรม/ส่งงานหรือยัง
-                                bool isUntouched = (cap.Images == null || !cap.Images.Any())
-                                    && (cap.Comments == null || !cap.Comments.Any())
-                                    && string.Equals(cap.Status, "OPEN", StringComparison.OrdinalIgnoreCase);
+                                // 🔍 ตรวจสอบว่ามีประวัติการพูดคุย (Comment จากผู้ใช้) หรือมีรูปภาพหลักฐานส่งมาแล้วหรือไม่
+                                bool hasChatHistory = cap.Comments != null && cap.Comments.Any(c => !string.IsNullOrWhiteSpace(c.Message) && !c.Message.StartsWith("[ระบบ]"));
+                                bool hasEvidenceImages = cap.Images != null && cap.Images.Any();
 
-                                if (isUntouched)
+                                if (!hasChatHistory && !hasEvidenceImages)
                                 {
-                                    // 🗑️ สาขายังไม่ได้แตะต้องเลย -> ลบออกทันที สะอาด 100%
+                                    // 🗑️ ลบ CAP ออกจากระบบทันที เพราะเป็นตั๋วว่างเปล่าที่ยังไม่มีการดำเนินการใด ๆ (เกิดจากการประเมินผิดพลาดตั้งแต่แรก)
                                     _context.CapTasks.Remove(cap);
+                                    capsForThisItem.RemoveAt(i);
                                     capTasksDeletedCount++;
                                     continue;
                                 }
                                 else
                                 {
-                                    // 🔒 สาขาเคยส่งรูปหรือแชทแล้ว -> เปลี่ยนเป็น CANCELLED เพื่อรักษาหลักฐาน
+                                    // 🔒 มีประวัติการสื่อสารหรือส่งหลักฐานแล้ว -> เก็บ Audit Trail โดยเปลี่ยนสถานะเป็น CANCELLED
                                     cap.AuditResponse = response;
                                     cap.Status = "CANCELLED";
                                     cap.ClosedAt = DateTime.UtcNow;
@@ -2497,9 +2670,18 @@ namespace QSC.Api.Controllers
                         }
                     }
 
-                    // 🆕 ถ้าแก้ไขแล้วพบว่าข้อนี้ "ไม่ผ่าน" และยังไม่มีงานแก้ไขที่เปิดอยู่ผูกอยู่เดิม
-                    // ให้สร้างงานแก้ไขใหม่อัตโนมัติ เหมือนตอน SubmitAudit
-                    if (!computedResp.IsNa && !computedResp.IsPassed && !hasExistingOpenCap)
+                    // 🆕 ถ้าแก้ไขแล้วพบว่าข้อนี้ "ไม่ผ่าน"
+                    // สร้าง CAP ใหม่อัตโนมัติเมื่อ:
+                    // 1. ตอนนี้ไม่ผ่าน (!computedResp.IsNa && !computedResp.IsPassed)
+                    // 2. ยังไม่มีงานแก้ไขที่เปิดอยู่ผูกอยู่เดิม (!hasExistingOpenCap)
+                    // 3. ป้องกันสร้างซ้ำ: ถ้าเดิมเคยไม่ผ่านอยู่แล้ว และเคยมี CAP ไปแล้ว (wasFail && hasAnyCap) ห้ามสร้างใหม่เด็ดขาด!
+                    //    (จะสร้างเฉพาะ: ผลเดิมเคยผ่าน/NA แล้วตอนนี้ตก หรือ ผลเดิมตกแต่เป็นงานประวัติเก่าที่ไม่เคยมี CAP มาก่อน)
+                    var prev = previousResponsesList.FirstOrDefault(p => p.SurveyItemId == computedResp.SurveyItemId);
+                    bool wasFail = prev != null && !prev.IsNa && !prev.IsPassed;
+                    bool nowFail = !computedResp.IsNa && !computedResp.IsPassed;
+                    bool hasAnyCap = capsForThisItem != null && capsForThisItem.Any();
+
+                    if (nowFail && !hasExistingOpenCap && !(wasFail && hasAnyCap))
                     {
                         var issueItem = itemMeta?.QuestionText ?? "ข้อบกพร่องมาตรฐาน";
                         var desc = !string.IsNullOrWhiteSpace(computedResp.Notes)
@@ -2522,35 +2704,16 @@ namespace QSC.Api.Controllers
                     }
                 }
 
-                // 🧹 5. ลบ AuditResponse ที่ไม่มีในแบบฟอร์มแล้วจริงๆ (ถ้ามี)
-                var orphanedResponses = record.Responses.Where(r => !allItems.ContainsKey(r.SurveyItemId)).ToList();
-                foreach (var orphan in orphanedResponses)
-                {
-                    if (linkedCapsBySurveyItem.TryGetValue(orphan.SurveyItemId, out var orphanCaps))
-                    {
-                        foreach (var cap in orphanCaps)
-                        {
-                            if ((cap.Images == null || !cap.Images.Any()) && (cap.Comments == null || !cap.Comments.Any()))
-                            {
-                                _context.CapTasks.Remove(cap);
-                                capTasksDeletedCount++;
-                            }
-                            else
-                            {
-                                cap.AuditResponseId = null;
-                                cap.Status = "CANCELLED";
-                                capTasksCancelledCount++;
-                            }
-                        }
-                    }
-                    _context.AuditResponses.Remove(orphan);
-                    record.Responses.Remove(orphan);
-                }
+                // 🌟 หมายเหตุ: ไม่ลบ orphan responses (ข้อประวัติเดิมที่ไม่อยู่ในโครงสร้างฟอร์มปัจจุบัน)
+                // เพื่อรักษาข้อมูลและประวัติการตรวจในอดีตให้ครบถ้วน 100%
 
                 if (newCapTasksToCreate.Any())
                 {
                     _context.CapTasks.AddRange(newCapTasksToCreate);
                 }
+
+                // สัมผัส UpdatedAt เสมอเพื่อให้ RowVersion (VersionNumber) ใน DB หมุน
+                _context.Entry(record).Property<DateTime?>("UpdatedAt").CurrentValue = DateTime.UtcNow;
 
                 _context.AuditRecordEditLogs.Add(new AuditRecordEditLog
                 {
@@ -2564,6 +2727,7 @@ namespace QSC.Api.Controllers
                         after = afterOverview,
                         changedItemsCount = changedItems.Count,
                         changedItems,
+                        orphanedResponsesRetained = orphanResponses.Count,
                         newCapTasksCreated = newCapTasksToCreate.Count,
                         capTasksDeleted = capTasksDeletedCount,
                         capTasksCancelled = capTasksCancelledCount

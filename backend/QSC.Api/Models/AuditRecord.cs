@@ -42,6 +42,7 @@ namespace QSC.Api.Models
         public bool IsBackdated { get; set; } = false;
         public DateTime? StartedAt { get; set; }
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
+        public byte[]? VersionNumber { get; set; }
 
         public List<AuditResponse> Responses { get; set; } = new();
     }

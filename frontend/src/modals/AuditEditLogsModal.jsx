@@ -214,7 +214,7 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                               {parseFloat(Number(beforeScore).toFixed(2))}%
                             </span>
                             <ArrowRight size={11} className="text-slate-400" />
-                            <span className={`font-black font-mono ${afterScore >= 85 ? 'text-emerald-700' : 'text-amber-700'}`}>
+                            <span className={`font-black font-mono ${afterPassed ? 'text-emerald-700' : 'text-amber-700'}`}>
                               {parseFloat(Number(afterScore).toFixed(2))}%
                             </span>
                           </div>
@@ -275,6 +275,12 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                                 const isScoreDiff = b.isPassed !== a.isPassed || b.scoreGiven !== a.scoreGiven || b.isNa !== a.isNa;
                                 const isNoteDiff = (b.notes || "").trim() !== (a.notes || "").trim();
                                 const isImgDiff = (b.imageUrls?.length || 0) !== (a.imageUrls?.length || 0);
+                                const isAnsDiff = (b.answerValue || "").trim() !== (a.answerValue || "").trim();
+                                const hasEditReason = Boolean(item.editReason && item.editReason.trim());
+
+                                // ซ่อนรายการที่ไม่มีการเปลี่ยนแปลงจริง (ดัก phantom diff จาก log เก่าที่ค้างในระบบ)
+                                const hasRealDiff = isScoreDiff || isNoteDiff || isImgDiff || hasEditReason || (Boolean(b.answerValue) && isAnsDiff);
+                                if (!hasRealDiff) return null;
 
                                 return (
                                   <div key={item.surveyItemId || itemIdx} className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2 text-xs">
@@ -299,9 +305,13 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                                           {b.isNa ? (
                                             <span className="font-bold text-slate-500">N/A</span>
                                           ) : b.isPassed ? (
-                                            <span className="font-bold text-emerald-600 flex items-center gap-1"><CheckCircle2 size={11} /> ผ่าน ({b.scoreGiven ?? 10} คะแนน)</span>
+                                            <span className="font-bold text-emerald-600 flex items-center gap-1">
+                                              <CheckCircle2 size={11} /> ผ่าน {b.scoreGiven !== undefined && b.scoreGiven !== null ? `(${b.scoreGiven} คะแนน)` : ""}
+                                            </span>
                                           ) : (
-                                            <span className="font-bold text-rose-500 flex items-center gap-1"><XCircle size={11} /> ตก ({b.scoreGiven ?? 0} คะแนน)</span>
+                                            <span className="font-bold text-rose-500 flex items-center gap-1">
+                                              <XCircle size={11} /> ตก {b.scoreGiven !== undefined && b.scoreGiven !== null ? `(${b.scoreGiven} คะแนน)` : ""}
+                                            </span>
                                           )}
                                         </div>
                                         <ArrowRight size={11} className="text-slate-400" />
@@ -309,11 +319,25 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                                           {a.isNa ? (
                                             <span className="font-bold text-slate-600">N/A</span>
                                           ) : a.isPassed ? (
-                                            <span className="font-bold text-emerald-700 flex items-center gap-1"><CheckCircle2 size={11} /> ผ่าน ({a.scoreGiven ?? 10} คะแนน)</span>
+                                            <span className="font-bold text-emerald-700 flex items-center gap-1">
+                                              <CheckCircle2 size={11} /> ผ่าน {a.scoreGiven !== undefined && a.scoreGiven !== null ? `(${a.scoreGiven} คะแนน)` : ""}
+                                            </span>
                                           ) : (
-                                            <span className="font-bold text-rose-600 flex items-center gap-1"><XCircle size={11} /> ตก ({a.scoreGiven ?? 0} คะแนน)</span>
+                                            <span className="font-bold text-rose-600 flex items-center gap-1">
+                                              <XCircle size={11} /> ตก {a.scoreGiven !== undefined && a.scoreGiven !== null ? `(${a.scoreGiven} คะแนน)` : ""}
+                                            </span>
                                           )}
                                         </div>
+                                      </div>
+                                    )}
+
+                                    {/* Answer Diff (สำหรับข้อที่ไม่คิดคะแนนหรือข้อที่เปลี่ยนคำตอบ) */}
+                                    {isAnsDiff && !isScoreDiff && (
+                                      <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                                        <span className="text-slate-400 font-bold">คำตอบ:</span>
+                                        <span className="line-through text-slate-400 font-medium">"{b.answerValue || "-"}"</span>
+                                        <ArrowRight size={11} className="text-slate-400" />
+                                        <span className="font-bold text-[#0F6659]">"{a.answerValue || "-"}"</span>
                                       </div>
                                     )}
 
@@ -329,6 +353,19 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                                         <div className="text-slate-800 font-semibold">
                                           <span className="text-[#0F6659] font-bold mr-1">{b.notes ? "ใหม่:" : "คอมเมนต์:"}</span>
                                           <span>"{a.notes || "-"}"</span>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* 🌟 Item Edit Reason (เหตุผลการปรับแก้ข้อนี้) */}
+                                    {item.editReason && (
+                                      <div className="p-2.5 rounded-lg bg-amber-50/90 border border-amber-200/90 text-[11px] space-y-1">
+                                        <div className="font-extrabold text-amber-900 flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                          <span>เหตุผลการปรับแก้ข้อนี้:</span>
+                                        </div>
+                                        <div className="font-medium text-amber-950 pl-2.5 break-words [overflow-wrap:anywhere]">
+                                          "{item.editReason}"
                                         </div>
                                       </div>
                                     )}

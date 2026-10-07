@@ -24,6 +24,7 @@ import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import signalRService from "../../services/signalrService";
 import SyncStatusPill from "../../shared/SyncStatusPill";
 import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
+import { isItemScored, computeScore } from "../../config/scoring";
 
 const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
@@ -124,7 +125,7 @@ const QuestionCard = React.memo(function QuestionCard({
 }) {
   const isInfoSec = sec?.sectionType === "INFO";
   const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-  const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
+  const isNonScored = !isItemScored({ ...q, sectionType: sec?.sectionType });
 
   const isNa = answer === "na";
   const isScale = qType === "scale" || qType === "rating";
@@ -134,7 +135,8 @@ const QuestionCard = React.memo(function QuestionCard({
   const hasPhoto = questionPhotos.length > 0;
   const isCommentRequired = isFailed;
   const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
-  const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * (q.fullScore || 10) : ((answer === "yes" || answer === true) ? (q.fullScore || 10) : 0)));
+  const itemFullScore = Number(q.fullScore ?? q.maxScore ?? 0);
+  const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * itemFullScore : ((answer === "yes" || answer === true) ? itemFullScore : 0)));
   const isAnswered = answer !== undefined && answer !== "" && answer !== null;
 
   return (
@@ -167,7 +169,7 @@ const QuestionCard = React.memo(function QuestionCard({
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
               )}
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
-                คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {q.fullScore || 10}
+                คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {itemFullScore}
               </span>
             </>
           )}
@@ -283,10 +285,11 @@ const QuestionCard = React.memo(function QuestionCard({
               value={answer}
               onChange={(val) => onAnswerSelect(q.id, val)}
               onPhotoUpload={(subItemId, files) => {
-                if (files && files[0]) {
-                  onUploadPhoto(q.id, files[0]);
+                if (onPhotoUpload && files) {
+                  onPhotoUpload(q.id, files);
                 }
               }}
+              onViewPhoto={onViewPhoto}
             />
           ) : (
             <DynamicFieldRenderer
@@ -1626,7 +1629,7 @@ export default function LiveAuditScreen({
       if (t === "announced") return "announced";
       return t;
     }
-    return "announced";
+    return "";
   });
 
   const [extraNote, setExtraNote] = useState(() => {
@@ -2839,8 +2842,8 @@ export default function LiveAuditScreen({
       const item = (sec.items || []).find(i => i.id === questionId);
       if (item) {
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
-        const isNonScored = sec.sectionType === "INFO" || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
-        if (!isNonScored) {
+        const isScored = isItemScored({ ...item, sectionType: sec.sectionType });
+        if (isScored) {
           isScoredItem = true;
           if (qType === "scale" || qType === "rating") isScale = true;
         }
@@ -2889,12 +2892,11 @@ export default function LiveAuditScreen({
     const failedQuestions = [];
 
     currentSections.forEach(sec => {
-      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach(q => {
-        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
-        if (isNonScored) return; // 🌟 ข้ามไม่คิดคะแนน
+        const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
+        if (!isScored) return; // 🌟 ข้ามไม่คิดคะแนน
 
+        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
         const ans = answers[q.id];
 
         if (ans === "na") {
@@ -2902,7 +2904,7 @@ export default function LiveAuditScreen({
           return;
         }
 
-        const fullScore = (q.fullScore || 10);
+        const fullScore = Number(q.fullScore ?? q.maxScore ?? 0);
         maxScore += fullScore;
 
         if (qType === "scale" || qType === "rating") {
@@ -2923,8 +2925,8 @@ export default function LiveAuditScreen({
       });
     });
 
-    const percentage = maxScore > 0 ? Number(((earnedScore / maxScore) * 100).toFixed(2)) : 100;
-    const isPassed = percentage >= passingScore && !hasCriticalDefect;
+    const percentage = maxScore > 0 ? Number(((earnedScore / maxScore) * 100).toFixed(2)) : 0;
+    const isPassed = maxScore > 0 && percentage >= passingScore && !hasCriticalDefect;
 
     return { earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, failedQuestions };
   }, [currentSections, answers, comments, passingScore]);
@@ -2933,11 +2935,11 @@ export default function LiveAuditScreen({
     const catMap = new Map();
 
     currentSections.forEach((sec) => {
-      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((q) => {
+        const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
+        if (!isScored) return; // 🌟 ข้ามหมวดไม่คิดคะแนน
+
         const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
-        if (isNonScored) return; // 🌟 ข้ามหมวดไม่คิดคะแนน
 
         const catName = getQuestionCategory(q, sec);
         if (!catMap.has(catName)) {
@@ -2963,7 +2965,7 @@ export default function LiveAuditScreen({
           return;
         }
 
-        const fullScore = q.fullScore || 10;
+        const fullScore = Number(q.fullScore ?? q.maxScore ?? 0);
         catData.maxScore += fullScore;
 
         if (qType === "scale" || qType === "rating") {
@@ -3049,12 +3051,11 @@ export default function LiveAuditScreen({
         return {
           title: sec.title || `หมวดที่ ${sIdx + 1}`,
           questions: (sec.items || []).map((q, qIdx) => {
-            const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-            const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
-            const isScored = !isNonScored;
+            const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
+            const isNonScored = !isScored;
             const ans = answers[q.id];
-            const isNa = ans === "na";
-            const fullScore = Number(q.fullScore) || 10;
+            const isNa = ans === "na" || ans === "skip";
+            const fullScore = Number(q.fullScore ?? q.maxScore ?? 0);
 
             let scoreGiven = null;
             let isPassed = false;
@@ -3152,6 +3153,11 @@ export default function LiveAuditScreen({
     }
   }, [isExportingExcel, selectedForm, currentSections, answers, comments, photos, activeMetadataFields, metadataValues, staffCount, auditType, unit, auditStartedAt, auditorName, loggedInAuditorName, auditeeSignName, matchedDraftRecord, scoreAnalysis, passingScore, auditorSignature, auditeeSignature, getQuestionCategory]);
 
+  const handleExportDraftExcelRef = useRef(handleExportDraftExcel);
+  useEffect(() => {
+    handleExportDraftExcelRef.current = handleExportDraftExcel;
+  }, [handleExportDraftExcel]);
+
   // 🌟 Sync subHeader to MainDashboard TopBar (สลับ Menu/Back เมื่อ Scroll)
   useEffect(() => {
     if (!setSubHeader) return;
@@ -3215,7 +3221,7 @@ export default function LiveAuditScreen({
             {step === "audit" && (
               <button
                 type="button"
-                onClick={handleExportDraftExcel}
+                onClick={() => handleExportDraftExcelRef.current && handleExportDraftExcelRef.current()}
                 disabled={isExportingExcel}
                 className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
                 title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
@@ -3282,22 +3288,34 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, activeSection, activeSectionAnsweredCount, activeSectionTotalCount, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel, handleExportDraftExcel]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel]);
 
   const checkUnansweredQuestions = () => {
     const unanswered = [];
     currentSections.forEach((sec, sIdx) => {
-      const isInfoSec = sec.sectionType === "INFO";
       (sec.items || []).forEach((item, qIdx) => {
-        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
-        const isNonScored = isInfoSec || item.isScored === false || Number(item.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
+        const itemWithSec = { ...item, sectionType: item.sectionType || sec.sectionType };
+        const isScored = isItemScored(itemWithSec);
 
         // 🌟 ถ้าเป็นข้อไม่คิดคะแนน: ตรวจเฉพาะข้อที่มีการกดตั้งค่าว่า "ต้องกรอก / บังคับกรอก" (required) เท่านั้น!
         const isItemRequired = Boolean(item.required || item.fieldConfig?.required);
-        if (isNonScored && !isItemRequired) return;
+        if (!isScored && !isItemRequired) return;
 
         const ans = answers[item.id];
-        const isAnswered = ans !== undefined && ans !== null && ans !== "";
+        const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
+
+        let isAnswered = false;
+        if (ans !== undefined && ans !== null && ans !== "") {
+          if (ans === "na" || ans === "skip") {
+            isAnswered = true;
+          } else if (qType === "scale" || qType === "rating") {
+            const num = Number(ans);
+            isAnswered = !isNaN(num) && num >= 1 && num <= 5;
+          } else {
+            isAnswered = true;
+          }
+        }
+
         if (!isAnswered) {
           unanswered.push({
             sectionIdx: sIdx,
@@ -3542,35 +3560,35 @@ export default function LiveAuditScreen({
 
       const responses = [];
       currentSections.forEach(sec => {
-        const isInfoSec = sec.sectionType === "INFO";
         (sec.items || []).forEach(q => {
           const ans = answers[q.id];
-          const isNa = (ans === "na");
+          const isNa = (ans === "na" || ans === "skip");
           const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-          const isNonScored = isInfoSec || q.isScored === false || Number(q.fullScore) === 0 || ["grid","number","select","radio","checkbox","text","date","time","auditor","multians"].includes(qType);
+          const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
 
-          let isPassed = false;
-          let scoreGiven = 0;
           let rawAnswer = "";
 
-          if (isNonScored) {
-            isPassed = true;
-            scoreGiven = 0;
+          if (!isScored) {
             rawAnswer = typeof ans === "object" ? JSON.stringify(ans) : (ans !== undefined && ans !== null ? String(ans) : "");
           } else if (isNa) {
-            isPassed = true;
-            scoreGiven = 0;
             rawAnswer = "na";
-          } else if (qType === "scale") {
+          } else if (qType === "scale" || qType === "rating") {
             const parsedNum = Number(ans);
-            const num = Number.isFinite(parsedNum) ? parsedNum : 0;
-            isPassed = num >= 3;
-            scoreGiven = Math.round(((num / 5) * (q.fullScore || 10)) * 100) / 100;
-            rawAnswer = String(num);
+            if (ans === undefined || ans === null || ans === "" || !Number.isFinite(parsedNum) || parsedNum < 1 || parsedNum > 5) {
+              // กรองข้อคิดคะแนนที่ยังไม่ตอบออกก่อนส่ง (ไม่เติม "0" หรือค่าเดาสุ่ม)
+              return;
+            }
+            rawAnswer = String(parsedNum);
           } else {
-            isPassed = (ans === "yes" || ans === true || ans === "true" || ans === 1);
-            scoreGiven = isPassed ? (q.fullScore || 10) : 0;
-            rawAnswer = isPassed ? "yes" : "no";
+            // YESNO
+            if (ans === "yes" || ans === true || ans === "true" || ans === 1) {
+              rawAnswer = "yes";
+            } else if (ans === "no" || ans === false || ans === "false" || ans === 0) {
+              rawAnswer = "no";
+            } else {
+              // กรองข้อคิดคะแนนที่ยังไม่ตอบออกก่อนส่ง (ไม่เติม "no" แทน)
+              return;
+            }
           }
 
           const rawPhotos = photos[q.id];
@@ -3582,10 +3600,6 @@ export default function LiveAuditScreen({
             surveyItemId: q.id,
             rawAnswer,
             answerValue: rawAnswer,
-            scaleScore: qType === "scale" ? (typeof ans === "number" ? ans : (!isNaN(Number(ans)) ? Number(ans) : 0)) : null,
-            scoreGiven,
-            isPassed,
-            isNa: isNonScored ? false : isNa,
             notes: comments[q.id] || "",
             imageUrls: itemPhotos
           });
@@ -4195,11 +4209,10 @@ export default function LiveAuditScreen({
         }
 
         if (field.id === "audit_type") {
-          let val = auditType || metadataValues["audit_type"] || metadataValues[field.id];
+          const val = auditType || metadataValues["audit_type"] || metadataValues[field.id];
           if (!val || (typeof val === "string" && !val.trim())) {
-            val = "announced";
-            setAuditType("announced");
-            setMetadataValues(prev => ({ ...prev, [field.id]: "ตามกำหนดการ", audit_type: "ตามกำหนดการ" }));
+            alert("กรุณาเลือกประเภทการตรวจ");
+            return;
           }
         }
 
@@ -4515,6 +4528,14 @@ export default function LiveAuditScreen({
                 const currentVal = metadataValues[field.id];
 
                 if (field.type === "grid" || field.type === "radio" || field.type === "checkbox" || field.type === "select") {
+                  const resolvedOptions = (field.options && field.options.length > 0)
+                    ? field.options
+                    : (field.fieldConfig?.options && field.fieldConfig.options.length > 0)
+                    ? field.fieldConfig.options
+                    : (field.id === "audit_type" ? ["ตามกำหนดการ", "นอกกำหนดการ", "ปลอมตัว"] : []);
+                  const resolvedVal = field.id === "audit_type"
+                    ? (currentVal || (auditType ? (auditType === "spot" ? "นอกกำหนดการ" : auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ") : ""))
+                    : currentVal;
                   return (
                     <div key={field.id} className="space-y-1.5">
                       <label className="text-xs font-extrabold text-slate-700 block">
@@ -4524,9 +4545,9 @@ export default function LiveAuditScreen({
                         type={field.type}
                         fieldConfig={{
                           ...(field.fieldConfig || {}),
-                          options: field.options || field.fieldConfig?.options || [],
+                          options: resolvedOptions,
                         }}
-                        value={currentVal}
+                        value={resolvedVal}
                         onChange={(newVal) => {
                           const next = { ...metadataValues, [field.id]: newVal };
                           setMetadataValues(next);
@@ -4534,7 +4555,7 @@ export default function LiveAuditScreen({
                             const raw = String(newVal || "").toLowerCase();
                             const mapped = raw.includes("ปลอม") || raw === "undercover" ? "undercover"
                               : raw.includes("นอก") || raw === "spot" || raw === "unannounced" ? "spot"
-                              : "announced";
+                              : (raw ? "announced" : "");
                             setAuditType(mapped);
                             scheduleActionSave({ metadataValues: next, auditType: mapped });
                           } else {
@@ -4580,7 +4601,9 @@ export default function LiveAuditScreen({
                 if (field.id === "audit_type") {
                   const opts = Array.isArray(field.options) && field.options.length > 0
                     ? field.options
-                    : ["ตามกำหนดการ", "นอกกำหนดการ", "ปลอมตัว"];
+                    : (field.fieldConfig?.options && field.fieldConfig.options.length > 0
+                    ? field.fieldConfig.options
+                    : ["ตามกำหนดการ", "นอกกำหนดการ", "ปลอมตัว"]);
                   return (
                     <div key={field.id}>
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
@@ -4588,15 +4611,17 @@ export default function LiveAuditScreen({
                       </label>
                       <div className="grid grid-cols-3 gap-2">
                         {opts.map(opt => {
-                          const key = opt.includes("นอก") ? "unannounced" : opt.includes("ปลอม") ? "undercover" : "announced";
-                          const isSelected = (auditType === key || auditType === opt);
+                          const key = opt.includes("นอก") ? "spot" : opt.includes("ปลอม") ? "undercover" : "announced";
+                          const isSelected = (auditType === key || auditType === opt || metadataValues[field.id] === opt);
                           return (
                             <button
                               key={opt}
                               type="button"
                               onClick={() => {
                                 setAuditType(key);
-                                scheduleActionSave({ auditType: key });
+                                const nextMeta = { ...metadataValues, [field.id]: opt, audit_type: opt };
+                                setMetadataValues(nextMeta);
+                                scheduleActionSave({ auditType: key, metadataValues: nextMeta });
                               }}
                               className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isSelected
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'

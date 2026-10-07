@@ -8,6 +8,7 @@ import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import FieldTypeSelectModal from "../../modals/FieldTypeSelectModal";
 import GridConfigModal, { CASH_AUDIT_PRESET } from "../../modals/GridConfigModal";
+import MultiAnsConfigModal from "../../modals/MultiAnsConfigModal";
 import TargetLocationTreeModal from "../../modals/TargetLocationTreeModal";
 import api from "../../config/api";
 import { DataContext } from "../../context/DataContext";
@@ -3599,6 +3600,17 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           initialConfig={gridModalTarget.initialConfig}
           initialTitle={gridModalTarget.initialTitle}
           onSave={handleSaveGridConfig}
+        />
+      )}
+
+      {/* 🌟 8.1 MULTIANS CONFIG MODAL (Multiple Answer Builder) */}
+      {multiAnsModalTarget && (
+        <MultiAnsConfigModal
+          isOpen={true}
+          onClose={() => setMultiAnsModalTarget(null)}
+          initialConfig={multiAnsModalTarget.initialConfig}
+          initialTitle={multiAnsModalTarget.initialTitle}
+          onSave={handleSaveMultiAnsConfig}
         />
       )}
 

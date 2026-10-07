@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useContext, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, Save, Loader2,
+  X, Edit3, CheckCircle2, XCircle, MinusCircle, AlertTriangle, AlertCircle, Save, Loader2,
   ArrowRight, MessageSquare, Users, FileText, Thermometer, Calendar, Clock,
   SlidersHorizontal, ChevronDown, Camera, Plus, MapPin, PenTool, RotateCcw,
   Navigation, CheckSquare, Trash2, ExternalLink, Check
@@ -13,195 +13,9 @@ import { DataContext } from "../context/DataContext";
 import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
 import DynamicFieldRenderer from "../shared/DynamicFieldRenderer";
 import { parseServerDate } from "../utils/formatters";
+import { computeScore, isItemScored } from "../config/scoring";
 
-// ✍️ Digital Signature Pad Modal (High-DPI Touch & Mouse)
-function SignaturePadModal({ title, initialSignatureUrl, onDone, onCancel }) {
-  const canvasRef = useRef(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [hasSigned, setHasSigned] = useState(Boolean(initialSignatureUrl));
-  const [isLoadingOldSignature, setIsLoadingOldSignature] = useState(Boolean(initialSignatureUrl));
-
-  useEffect(() => {
-    lockBodyScroll();
-    return () => {
-      unlockBodyScroll();
-    };
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.strokeStyle = "#0F6659";
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    // 🎨 Load existing / old signature onto canvas if present
-    if (initialSignatureUrl) {
-      setIsLoadingOldSignature(true);
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => {
-        if (!canvasRef.current) return;
-        const currentCtx = canvasRef.current.getContext("2d");
-        const padding = 16;
-        const availableW = Math.max(10, rect.width - (padding * 2));
-        const availableH = Math.max(10, rect.height - (padding * 2));
-        const imgW = img.naturalWidth || img.width || 1;
-        const imgH = img.naturalHeight || img.height || 1;
-        const scale = Math.min(availableW / imgW, availableH / imgH, 1);
-        const drawW = imgW * scale;
-        const drawH = imgH * scale;
-        const offsetX = (rect.width - drawW) / 2;
-        const offsetY = (rect.height - drawH) / 2;
-        currentCtx.drawImage(img, offsetX, offsetY, drawW, drawH);
-        setHasSigned(true);
-        setIsLoadingOldSignature(false);
-      };
-      img.onerror = () => {
-        setIsLoadingOldSignature(false);
-      };
-      img.src = getFullImageUrl(initialSignatureUrl);
-    }
-  }, [initialSignatureUrl]);
-
-  const getCoordinates = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    if (e.touches && e.touches[0]) {
-      return {
-        x: e.touches[0].clientX - rect.left,
-        y: e.touches[0].clientY - rect.top,
-      };
-    }
-    return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    };
-  };
-
-  const startDrawing = (e) => {
-    setIsDrawing(true);
-    const { x, y } = getCoordinates(e);
-    const ctx = canvasRef.current?.getContext("2d");
-    if (ctx) {
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-    }
-  };
-
-  const draw = (e) => {
-    if (!isDrawing) return;
-    const { x, y } = getCoordinates(e);
-    const ctx = canvasRef.current?.getContext("2d");
-    if (ctx) {
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      setHasSigned(true);
-    }
-  };
-
-  const stopDrawing = () => {
-    if (isDrawing) setIsDrawing(false);
-  };
-
-  const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, rect.width, rect.height);
-    setHasSigned(false);
-  };
-
-  const confirmSign = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !hasSigned) return;
-    try {
-      const dataUrl = canvas.toDataURL("image/png");
-      onDone(dataUrl);
-    } catch (e) {
-      console.warn("Canvas toDataURL failed, falling back to initial signature", e);
-      if (initialSignatureUrl) {
-        onDone(initialSignatureUrl);
-      }
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[100000] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-md bg-white rounded-3xl p-5 space-y-3.5 shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-150">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-          <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-            <PenTool size={16} className="text-[#0F6659]" />
-            <span>{title || "เซ็นชื่อลงในกรอบ"}</span>
-          </h3>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center cursor-pointer text-slate-500 transition-colors"
-          >
-            <X size={15} />
-          </button>
-        </div>
-
-        <div className="relative border-2 border-dashed border-slate-300 rounded-2xl bg-slate-50/50 overflow-hidden touch-none">
-          <canvas
-            ref={canvasRef}
-            onMouseDown={startDrawing}
-            onMouseMove={draw}
-            onMouseUp={stopDrawing}
-            onMouseLeave={stopDrawing}
-            onTouchStart={startDrawing}
-            onTouchMove={draw}
-            onTouchEnd={stopDrawing}
-            className="w-full h-52 cursor-crosshair block bg-white"
-          />
-          {isLoadingOldSignature && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/70 pointer-events-none text-slate-500 text-xs font-semibold gap-2">
-              <Loader2 size={16} className="animate-spin text-[#0F6659]" />
-              <span>กำลังโหลดลายเซ็นเดิม...</span>
-            </div>
-          )}
-          {!hasSigned && !isLoadingOldSignature && (
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium gap-1.5 select-none">
-              <Edit3 size={14} />
-              <span>ใช้นิ้วหรือเมาส์ลากเพื่อเซ็นชื่อ</span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2.5 pt-1">
-          <button
-            type="button"
-            onClick={clearCanvas}
-            className="flex-1 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-95"
-          >
-            <RotateCcw size={13} />
-            <span>ล้างลายเซ็น</span>
-          </button>
-          <button
-            type="button"
-            onClick={confirmSign}
-            disabled={!hasSigned || isLoadingOldSignature}
-            className="flex-1 py-2.5 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <CheckCircle2 size={14} />
-            <span>ยืนยันลายเซ็น</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import SignaturePadModal from "./SignaturePadModal";
 
 const toDatetimeLocal = (isoDateStr) => {
   if (!isoDateStr) return "";
@@ -619,11 +433,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         (sec.items || []).forEach((item, itemIdx) => {
           let res = resList.find(r => 
             (r.surveyItemId && Number(r.surveyItemId) === Number(item.id)) ||
-            (r.surveyItem?.id && Number(r.surveyItem.id) === Number(item.id)) ||
-            (r.questionText && item.questionText && r.questionText.trim().toLowerCase() === item.questionText.trim().toLowerCase()) ||
-            (r.questionText && item.text && r.questionText.trim().toLowerCase() === item.text.trim().toLowerCase()) ||
-            (r.surveyItem?.questionText && item.questionText && r.surveyItem.questionText.trim().toLowerCase() === item.questionText.trim().toLowerCase()) ||
-            (r.surveyItem?.questionText && item.text && r.surveyItem.questionText.trim().toLowerCase() === item.text.trim().toLowerCase())
+            (r.surveyItem?.id && Number(r.surveyItem.id) === Number(item.id))
           );
 
           res = res || {};
@@ -631,9 +441,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           const itemId = item.id || res.surveyItemId || res.surveyItem?.id || `item_${runningNum}`;
           const qText = item.questionText || item.text || res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${runningNum}`;
           const qType = (res.questionType || res.surveyItem?.questionType || item.questionType || item.type || "yesno").toLowerCase();
-          const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || item.fullScore || 10));
+          const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore ?? item.fullScore ?? 0));
           const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || item.isCritical || item.critical || false);
-          const isNonScored = (sec.sectionType === "INFO") || item.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+          const isNonScored = (sec.sectionType === "INFO") || item.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(qType);
 
           // 🌟 สกัดหรือคำนวณเลขข้อที่แท้จริง (เช่น "1.1", "1.2", "2.1")
           const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
@@ -641,6 +451,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           const computedNo = textMatch ? textMatch[1] : (singleMatch ? singleMatch[1] : (item.orderIndex || `${secIdx + 1}.${itemIdx + 1}`));
 
           itemsList.push({
+            id: itemId,
             runningNum: runningNum++,
             secIdx: secIdx,
             itemIdx: itemIdx,
@@ -667,9 +478,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       const itemId = res.surveyItemId || res.id || `item_${idx + 1}`;
       const qText = res.questionText || res.surveyItem?.questionText || `ข้อตรวจที่ ${idx + 1}`;
       const qType = (res.questionType || res.surveyItem?.questionType || "yesno").toLowerCase();
-      const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore || 10));
+      const fullScore = Number(res.fullScore !== undefined ? res.fullScore : (res.surveyItem?.fullScore ?? 0));
       const isCrit = res.isCritical !== undefined ? res.isCritical : (res.surveyItem?.isCritical || false);
-      const isNonScored = res.isScored === false || res.surveyItem?.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+      const isNonScored = res.isScored === false || res.surveyItem?.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(qType);
       const secTitle = res.surveyItem?.surveySection?.title || "รายการตรวจประเมิน";
 
       const textMatch = qText.match(/^(?:ข้อ\s*)?(\d+(?:\.\d+)+)/i);
@@ -677,6 +488,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       const computedNo = textMatch ? textMatch[1] : (singleMatch ? singleMatch[1] : String(idx + 1));
 
       return {
+        id: itemId,
         runningNum: idx + 1,
         questionNo: computedNo,
         surveyItemId: itemId,
@@ -729,8 +541,8 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
   const parseResponseAnswer = (q) => {
     const res = q.originalRes || {};
     const qType = (q.questionType || "yesno").toLowerCase();
-    const fullScore = Number(q.fullScore || 10);
-    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(qType);
+    const fullScore = Number(q.fullScore ?? 0);
+    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(qType);
 
     if (isNonScored) {
       let parsedImages = [];
@@ -764,6 +576,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         rawAnswer: rawAns,
         answerValue: rawAns,
         notes: noteVal,
+        editReason: "",
         imageUrls: parsedImages
       };
     }
@@ -828,6 +641,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       type: qType,
       scaleScore,
       notes: noteVal,
+      editReason: "",
       imageUrls: parsedImages
     };
   };
@@ -1104,7 +918,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setExpandedNotes((prev) => {
       const isCurrentlyOpen = prev[itemId] !== undefined
         ? prev[itemId]
-        : (isQuestionEdited(itemId) || !!(answersState[itemId]?.notes && answersState[itemId].notes.trim()));
+        : (isQuestionEdited(itemId) || !!(answersState[itemId]?.notes && answersState[itemId].notes.trim()) || !!(answersState[itemId]?.editReason && answersState[itemId].editReason.trim()));
       return { ...prev, [itemId]: !isCurrentlyOpen };
     });
   };
@@ -1143,38 +957,18 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     return (orig.notes || "").trim() !== (curr.notes || "").trim();
   };
 
-  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isAnswerEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId);
+  const isEditReasonEdited = (itemId) => {
+    const curr = answersState[itemId];
+    return !!(curr?.editReason && curr.editReason.trim());
+  };
+
+  const isQuestionEdited = (itemId) => isScoreEdited(itemId) || isAnswerEdited(itemId) || isPhotosEdited(itemId) || isNoteEdited(itemId) || isEditReasonEdited(itemId);
 
   const liveScoring = useMemo(() => {
-    let earned = 0;
-    let max = 0;
-    let hasCritFail = false;
-
-    checklistQuestions.forEach((q) => {
-      const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
-      if (isNonScored) return;
-
-      const state = answersState[q.surveyItemId];
-      if (!state) return;
-      const full = state.fullScore || 10;
-      if (state.isNa) return;
-
-      max += full;
-      if (state.type === "scale") {
-        earned += ((state.scaleScore || 5) / 5) * full;
-      } else {
-        if (state.isPassed) earned += full;
-      }
-
-      if (q.isCritical && !state.isPassed && !state.isNa) {
-        hasCritFail = true;
-      }
-    });
-
-    const percent = max > 0 ? Number(((earned / max) * 100).toFixed(2)) : 0;
-    const isPassed = percent >= (currentRecord?.surveyForm?.passingScore || 85) && !hasCritFail;
-
-    return { earned, max, percent, isPassed, hasCritFail };
+    const passing = currentRecord?.surveyForm?.passingScore !== undefined && currentRecord?.surveyForm?.passingScore !== null
+      ? Number(currentRecord.surveyForm.passingScore)
+      : Number(currentRecord?.passingScore || 85);
+    return computeScore(checklistQuestions, answersState, passing);
   }, [answersState, checklistQuestions, currentRecord]);
 
   const scrollToSection = (sectionId) => {
@@ -1212,12 +1006,42 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setAnswersState((prev) => {
       const current = prev[itemId] || { fullScore: 10, notes: "", imageUrls: [] };
       if (choice === "na") {
-        return { ...prev, [itemId]: { ...current, isNa: true, isPassed: false, scoreGiven: 0 } };
+        return {
+          ...prev,
+          [itemId]: {
+            ...current,
+            isNa: true,
+            isPassed: false,
+            scoreGiven: 0,
+            rawAnswer: "na",
+            answerValue: "na"
+          }
+        };
       }
       if (choice === "yes") {
-        return { ...prev, [itemId]: { ...current, isNa: false, isPassed: true, scoreGiven: current.fullScore } };
+        return {
+          ...prev,
+          [itemId]: {
+            ...current,
+            isNa: false,
+            isPassed: true,
+            scoreGiven: current.fullScore,
+            rawAnswer: "yes",
+            answerValue: "yes"
+          }
+        };
       }
-      return { ...prev, [itemId]: { ...current, isNa: false, isPassed: false, scoreGiven: 0 } };
+      return {
+        ...prev,
+        [itemId]: {
+          ...current,
+          isNa: false,
+          isPassed: false,
+          scoreGiven: 0,
+          rawAnswer: "no",
+          answerValue: "no"
+        }
+      };
     });
     setExpandedNotes(prev => ({ ...prev, [itemId]: true }));
   };
@@ -1232,7 +1056,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           isNa: false,
           isPassed: val >= 3,
           scaleScore: val,
-          scoreGiven: (val / 5) * current.fullScore
+          scoreGiven: (val / 5) * current.fullScore,
+          rawAnswer: String(val),
+          answerValue: String(val)
         }
       };
     });
@@ -1243,6 +1069,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     setAnswersState((prev) => ({
       ...prev,
       [itemId]: { ...prev[itemId], notes: val }
+    }));
+  };
+
+  const handleEditReasonChange = (itemId, val) => {
+    setAnswersState((prev) => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], editReason: val }
     }));
   };
 
@@ -1335,12 +1168,42 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       return;
     }
 
+    // 1. ตรวจสอบข้อที่ไม่ผ่าน (ต้องระบุบันทึกความเห็นของผู้ตรวจ ในกรอบสีแดง)
+    const invalidFailedItems = checklistQuestions.filter((q) => {
+      const itemId = q.surveyItemId;
+      if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(q.questionType)) return false;
+      const s = answersState[itemId];
+      if (!s || s.isNa) return false;
+      const isFailed = s.type === "scale" ? (s.scaleScore !== null && s.scaleScore !== undefined && s.scaleScore < 3) : (s.isPassed === false);
+      if (!isFailed) return false;
+      return !s.notes || !s.notes.trim();
+    });
+
+    if (invalidFailedItems.length > 0) {
+      setExpandedNotes((prev) => {
+        const next = { ...prev };
+        invalidFailedItems.forEach((q) => { next[q.surveyItemId] = true; });
+        return next;
+      });
+      setError(`กรุณาระบุบันทึกความเห็นของผู้ตรวจสำหรับข้อที่ไม่ผ่าน (${invalidFailedItems.length} ข้อ) ก่อนบันทึก`);
+      const firstInvalidId = invalidFailedItems[0].surveyItemId;
+      setTimeout(() => {
+        const el = document.getElementById(`note-input-${firstInvalidId}`);
+        if (el) {
+          el.focus();
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 50);
+      return;
+    }
+
+    // 2. ตรวจสอบข้อที่มีการปรับแก้คะแนน/ผลตรวจ (ต้องระบุเหตุผลการแก้ไข ในกรอบสีเขียว)
     const invalidEditedItems = checklistQuestions.filter((q) => {
       const itemId = q.surveyItemId;
-      if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType)) return false;
+      if (q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(q.questionType)) return false;
       if (!isScoreEdited(itemId)) return false;
-      const note = answersState[itemId]?.notes?.trim();
-      return !note;
+      const editReason = answersState[itemId]?.editReason?.trim();
+      return !editReason;
     });
 
     if (invalidEditedItems.length > 0) {
@@ -1349,10 +1212,10 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
         invalidEditedItems.forEach((q) => { next[q.surveyItemId] = true; });
         return next;
       });
-      setError(`กรุณาระบุคอมเมนต์สำหรับทุกข้อที่มีการแก้ไข (${invalidEditedItems.length} ข้อ) ก่อนบันทึก`);
+      setError(`กรุณาระบุเหตุผลการแก้ไขสำหรับทุกข้อที่มีการเปลี่ยนคะแนน/ผลตรวจ (${invalidEditedItems.length} ข้อ) ก่อนบันทึก`);
       const firstInvalidId = invalidEditedItems[0].surveyItemId;
       setTimeout(() => {
-        const el = document.getElementById(`note-input-${firstInvalidId}`);
+        const el = document.getElementById(`edit-reason-input-${firstInvalidId}`);
         if (el) {
           el.focus();
           el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1367,7 +1230,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     try {
       const payloadResponses = checklistQuestions.map((q) => {
         const s = answersState[q.surveyItemId] || parseResponseAnswer(q);
-        const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+        const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(q.questionType);
         const rawAns = isNonScored
           ? (s.rawAnswer || s.answerValue || (typeof s.value === "object" ? JSON.stringify(s.value) : String(s.value ?? "")))
           : (s.isNa ? "na" : (s.type === "scale" ? String(s.scaleScore) : (s.isPassed ? "yes" : "no")));
@@ -1379,6 +1242,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
           rawAnswer: rawAns,
           answerValue: rawAns,
           notes: s.notes && s.notes.trim() ? s.notes.trim() : null,
+          editReason: s.editReason && s.editReason.trim() ? s.editReason.trim() : null,
           imageUrls: s.imageUrls || []
         };
       });
@@ -1425,6 +1289,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       };
 
       const payload = {
+        version: currentRecord.versionNumber || null,
+        clearStartGps: !startLatitude && !startLongitude,
+        clearEndGps: !endLatitude && !endLongitude,
         reason: reason.trim(),
         auditeeUserId: currentRecord.auditeeUserId || null,
         auditeeNameText: auditeeNameText.trim() || null,
@@ -1447,7 +1314,11 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
       if (onSaveSuccess) onSaveSuccess(res.data);
       onClose();
     } catch (err) {
-      setError(err.response?.data?.message || "เกิดข้อผิดพลาดในการบันทึกการแก้ไข");
+      if (err.response?.status === 409) {
+        setError("ข้อมูลถูกแก้ไขโดยผู้อื่นไปแล้ว กรุณารีเฟรชหน้าจอเพื่อโหลดข้อมูลล่าสุด");
+      } else {
+        setError(err.response?.data?.message || "เกิดข้อผิดพลาดในการบันทึกการแก้ไข");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -2068,12 +1939,13 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                     const state = answersState[itemId] || parseResponseAnswer(q);
                     const qText = q.questionText;
                     const qNo = q.questionNo || `${secIdx + 1}.${qIdx + 1}`;
-                    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor"].includes(q.questionType);
+                    const isNonScored = q.isScored === false || ["grid","number","select","radio","checkbox","text","date","time","auditor", "multians"].includes(q.questionType);
                     const isCrit = !isNonScored && q.isCritical;
                     const isScoreChanged = isScoreEdited(itemId);
-                    const isEdited = isQuestionEdited(itemId);
-                    const isNoteMissing = isScoreChanged && (!state.notes || !state.notes.trim());
-                    const shouldShowNote = isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim());
+                    const isItemFailed = !isNonScored && !state.isNa && (state.type === "scale" ? (state.scaleScore !== null && state.scaleScore !== undefined && state.scaleScore < 3) : (state.isPassed === false));
+                    const isNoteMissing = isItemFailed && (!state.notes || !state.notes.trim());
+                    const isReasonMissing = !isNonScored && isScoreChanged && (!state.editReason || !state.editReason.trim());
+                    const shouldShowNote = isItemFailed || isEdited || !!expandedNotes[itemId] || !!(state.notes && state.notes.trim()) || !!(state.editReason && state.editReason.trim());
 
                     // แสดงข้อความคำถาม โดยตัด prefix เลขข้อที่ซ้ำออกเฉพาะกรณีที่มีข้อความคำถามจริงต่อท้าย
                     const displayQText = (() => {
@@ -2091,7 +1963,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                       <div 
                         key={itemId || qIdx}
                         className={`p-3.5 sm:p-4 rounded-2xl border transition-all shadow-2xs space-y-3 ${
-                          isNoteMissing
+                          isReasonMissing || isNoteMissing
                             ? 'border-rose-300 bg-rose-50/15 ring-1 ring-rose-400/20'
                             : isEdited 
                             ? 'border-[#0F6659]/60 bg-emerald-50/25 ring-1 ring-[#0F6659]/20' 
@@ -2121,16 +1993,16 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                               type="button"
                               onClick={() => toggleExpandNote(itemId)}
                               className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border active:scale-95 ${
-                                isNoteMissing
+                                isReasonMissing
                                   ? 'bg-rose-50 text-rose-700 border-rose-300'
                                   : shouldShowNote
                                   ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                   : 'bg-slate-50 hover:bg-emerald-50 text-slate-600 hover:text-[#0F6659] border-slate-200'
                               }`}
-                              title={shouldShowNote ? "ปิดแถบคอมเมนต์" : "เปิดแถบคอมเมนต์"}
+                              title={shouldShowNote ? "ปิดแถบคอมเมนต์ / เหตุผลการแก้ไข" : "เปิดแถบคอมเมนต์ / เหตุผลการแก้ไข"}
                             >
                               <MessageSquare size={13} />
-                              {state.notes && (
+                              {(state.notes || state.editReason) && (
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
                               )}
                             </button>
@@ -2290,31 +2162,58 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                           )}
                         </div>
 
-                        {/* กล่องคอมเมนต์/เหตุผลประจำข้อ */}
+                        {/* กล่องคอมเมนต์และเหตุผลประจำข้อ (แยกเป็น 2 ช่อง) */}
                         {shouldShowNote && (
-                          <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100 space-y-1.5">
-                            <div className="flex items-center justify-between gap-2">
+                          <div className="pt-2 animate-in fade-in slide-in-from-top-1 duration-150 border-t border-slate-100 space-y-2.5">
+                            {/* ช่องที่ 1: คอมเมนต์ (ตอนตรวจ) */}
+                            <div className="space-y-1">
                               <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700">
-                                <MessageSquare size={12} className={isScoreChanged ? "text-amber-600" : isEdited ? "text-[#0F6659]" : "text-slate-400"} />
-                                <span>{isScoreChanged ? "เหตุผลที่แก้ไข " : isEdited ? "คอมเมนต์ที่แก้ไข " : "คอมเมนต์ "}</span>
-                                {isScoreChanged && (
-                                  <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็น)</span>
+                                <MessageSquare size={12} className="text-[#0F6659]" />
+                                <span>คอมเมนต์ (ตอนตรวจ)</span>
+                                <span className="text-slate-400 font-normal text-[10px]">(หมายเหตุหน้างานเดิม)</span>
+                                {isItemFailed && (
+                                  <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็นเมื่อไม่ผ่าน)</span>
                                 )}
                               </div>
+                              <input
+                                id={`note-input-${itemId}`}
+                                type="text"
+                                value={state.notes || ""}
+                                onChange={(e) => handleNoteChange(itemId, e.target.value)}
+                                placeholder={isItemFailed ? "ระบุเหตุผล/ข้อบกพร่องที่ไม่ผ่าน (จำเป็น)..." : "พิมพ์หมายเหตุ / คอมเมนต์ที่พบตอนตรวจ..."}
+                                className={`w-full text-xs px-3.5 py-2 rounded-xl border font-sans outline-none transition-all shadow-2xs ${
+                                  isNoteMissing
+                                    ? 'border-rose-400 bg-rose-50/30 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-slate-800 placeholder:text-rose-400'
+                                    : 'border-slate-200 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20 text-slate-800 placeholder:text-slate-400'
+                                }`}
+                              />
                             </div>
-                            <input
-                              id={`note-input-${itemId}`}
-                              type="text"
-                              value={state.notes || ""}
-                              onChange={(e) => handleNoteChange(itemId, e.target.value)}
-                              placeholder={isScoreChanged ? "พิมพ์เหตุผลที่แก้ไขข้อนี้ (จำเป็นต้องระบุ)..." : "พิมพ์หมายเหตุ/คอมเมนต์เพิ่มเติม..."}
-                              className={`w-full text-xs px-3.5 py-2.5 rounded-xl border font-sans outline-none transition-all shadow-2xs ${
-                                isNoteMissing
-                                  ? 'border-rose-400 bg-rose-50/20 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-slate-800 placeholder:text-rose-400'
-                                  : 'border-emerald-300 bg-white focus:border-[#0F6659] focus:ring-2 focus:ring-[#0F6659]/20 text-slate-800 placeholder:text-slate-400'
-                              }`}
-                              autoFocus={isScoreChanged}
-                            />
+
+                            {/* ช่องที่ 2: เหตุผลการแก้ไข (เฉพาะข้อนี้) */}
+                            {(isScoreChanged || (state.editReason && state.editReason.trim())) && (
+                              <div className="space-y-1 animate-in fade-in duration-150">
+                                <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-800">
+                                  <AlertCircle size={12} className="text-amber-600" />
+                                  <span>เหตุผลการแก้ไข (เฉพาะข้อนี้)</span>
+                                  {isScoreChanged && !isNonScored && (
+                                    <span className="text-rose-600 font-extrabold text-[11px]">* (จำเป็นเมื่อเปลี่ยนผลตรวจ/คะแนน)</span>
+                                  )}
+                                </div>
+                                <input
+                                  id={`edit-reason-input-${itemId}`}
+                                  type="text"
+                                  value={state.editReason || ""}
+                                  onChange={(e) => handleEditReasonChange(itemId, e.target.value)}
+                                  placeholder="ระบุเหตุผลการแก้ไขเฉพาะข้อนี้ (เช่น เอกสารแนบเพิ่มเติม, ปรับตามหลักฐานใหม่)..."
+                                  className={`w-full text-xs px-3.5 py-2 rounded-xl border font-sans outline-none transition-all shadow-2xs ${
+                                    isReasonMissing
+                                      ? 'border-rose-400 bg-rose-50/30 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 text-slate-800 placeholder:text-rose-400'
+                                      : 'border-amber-300 bg-amber-50/20 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 text-slate-800 placeholder:text-slate-400'
+                                  }`}
+                                  autoFocus={isScoreChanged}
+                                />
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

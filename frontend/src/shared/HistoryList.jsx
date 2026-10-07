@@ -14,7 +14,7 @@ export default function HistoryList({ history, onSelect }) {
   return (
     <div className="flex flex-col gap-2.5">
       {history.map((h, i) => {
-        const isPassed = h.score >= 85;
+        const isPassed = h.isPassed !== undefined ? h.isPassed : (h.score >= (h.passingScore || 85));
         return (
           <button
             key={i}
