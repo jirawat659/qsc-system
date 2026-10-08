@@ -468,27 +468,29 @@ export default function MasterManagementScreen({ onBack }) {
 
     let initialPermIds = [];
     if (Array.isArray(r.permissionIds) && r.permissionIds.length > 0) {
-      initialPermIds = r.permissionIds;
+      initialPermIds = r.permissionIds
+        .map(id => parseInt(id, 10))
+        .filter(id => !isNaN(id) && id > 0);
     } else if (Array.isArray(r.rolePermissions) && r.rolePermissions.length > 0) {
       initialPermIds = r.rolePermissions
-        .map(rp => rp.permissionId || rp.permission?.id || rp.id)
-        .filter(Boolean);
+        .map(rp => parseInt(rp.permissionId || rp.permission?.id || rp.id, 10))
+        .filter(id => !isNaN(id) && id > 0);
     } else if (Array.isArray(r.permissions)) {
       initialPermIds = r.permissions.map(p => {
         if (typeof p === 'number') return p;
-        if (typeof p === 'object' && p !== null) return p.id;
+        if (typeof p === 'object' && p !== null) return parseInt(p.id, 10);
         // กรณี p เป็น string code เช่น "audit.edit" ให้หา ID จาก availablePermissions
         const matched = availablePermissions.find(ap => 
           ap.code === p || ap.name === p || String(ap.id) === String(p)
         );
         return matched ? matched.id : null;
-      }).filter(id => id != null);
+      }).filter(id => id != null && !isNaN(id) && id > 0);
     }
 
     setEditRoleForm({
       name: r.name || '',
       description: r.description || '',
-      permissionIds: (r.permissions || []).map(p => p.id)
+      permissionIds: initialPermIds
     });
   };
 
@@ -497,11 +499,15 @@ export default function MasterManagementScreen({ onBack }) {
     if (!editRole || !editRoleForm.name.trim()) return;
 
     try {
+      const validPermissionIds = (editRoleForm.permissionIds || [])
+        .map(id => parseInt(id, 10))
+        .filter(id => !isNaN(id) && id > 0);
+
       await api.put(`/role/${editRole.id}`, {
         code: editRole.code,
         name: editRoleForm.name,
         description: editRoleForm.description,
-        permissionIds: editRoleForm.permissionIds
+        permissionIds: validPermissionIds
       });
       showToast(`✓ บันทึกสิทธิ์บทบาท "${editRoleForm.name}" สำเร็จ`);
       setEditRole(null);
@@ -516,7 +522,14 @@ export default function MasterManagementScreen({ onBack }) {
     if (!roleForm.code || !roleForm.name) return;
 
     try {
-      await api.post('/role', roleForm);
+      const validPermissionIds = (roleForm.permissionIds || [])
+        .map(id => parseInt(id, 10))
+        .filter(id => !isNaN(id) && id > 0);
+
+      await api.post('/role', {
+        ...roleForm,
+        permissionIds: validPermissionIds
+      });
       showToast(`✓ สร้างบทบาทใหม่ "${roleForm.name}" สำเร็จ`);
       setShowAddRoleModal(false);
       setRoleForm({ code: '', name: '', description: '', permissionIds: [] });
@@ -527,11 +540,13 @@ export default function MasterManagementScreen({ onBack }) {
   };
 
   const togglePermissionForRole = (permId) => {
+    const numericId = parseInt(permId, 10);
+    if (isNaN(numericId)) return;
     setEditRoleForm(prev => {
-      const exists = prev.permissionIds.includes(permId);
+      const exists = prev.permissionIds.includes(numericId);
       return {
         ...prev,
-        permissionIds: exists ? prev.permissionIds.filter(id => id !== permId) : [...prev.permissionIds, permId]
+        permissionIds: exists ? prev.permissionIds.filter(id => id !== numericId) : [...prev.permissionIds, numericId]
       };
     });
   };
@@ -2508,7 +2523,7 @@ export default function MasterManagementScreen({ onBack }) {
                 <label className="block text-sm font-medium text-slate-600 mb-2">สิทธิ์การเข้าถึงโมดูล (Permissions Matrix):</label>
                 <div className="max-h-52 overflow-y-auto rounded-2xl border border-slate-200 p-2.5 space-y-2 bg-slate-50">
                   {sortedPermissions.map(p => {
-                    const isChecked = editRoleForm.permissionIds.includes(p.id) || (Array.isArray(editRole?.permissions) && editRole.permissions.includes(p.code));
+                    const isChecked = editRoleForm.permissionIds.includes(p.id);
                     return (
                       <button
                         type="button"

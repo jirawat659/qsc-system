@@ -312,7 +312,7 @@ namespace QSC.Api.Controllers
             public string Code { get; set; } = string.Empty;
             public string Name { get; set; } = string.Empty;
             public string? Description { get; set; }
-            public List<int> PermissionIds { get; set; } = new();
+            public List<int?> PermissionIds { get; set; } = new();
             public RoleNavConfigDto? NavConfig { get; set; }
             public string? NavConfigJson { get; set; }
         }
@@ -422,9 +422,15 @@ namespace QSC.Api.Controllers
             _context.Roles.Add(role);
             await _context.SaveChangesAsync();
 
-            if (dto.PermissionIds.Any())
+            var validCreatePermIds = (dto.PermissionIds ?? new List<int?>())
+                .Where(p => p.HasValue && p.Value > 0)
+                .Select(p => p!.Value)
+                .Distinct()
+                .ToList();
+
+            if (validCreatePermIds.Any())
             {
-                foreach (var permId in dto.PermissionIds)
+                foreach (var permId in validCreatePermIds)
                 {
                     _context.RolePermissions.Add(new RolePermission { RoleId = role.Id, PermissionId = permId });
                 }
@@ -460,9 +466,15 @@ namespace QSC.Api.Controllers
             var existingPerms = await _context.RolePermissions.Where(rp => rp.RoleId == id).ToListAsync();
             _context.RolePermissions.RemoveRange(existingPerms);
 
-            if (dto.PermissionIds.Any())
+            var validUpdatePermIds = (dto.PermissionIds ?? new List<int?>())
+                .Where(p => p.HasValue && p.Value > 0)
+                .Select(p => p!.Value)
+                .Distinct()
+                .ToList();
+
+            if (validUpdatePermIds.Any())
             {
-                foreach (var permId in dto.PermissionIds)
+                foreach (var permId in validUpdatePermIds)
                 {
                     _context.RolePermissions.Add(new RolePermission { RoleId = id, PermissionId = permId });
                 }

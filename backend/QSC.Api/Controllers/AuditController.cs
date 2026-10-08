@@ -2122,10 +2122,7 @@ namespace QSC.Api.Controllers
 
             // 1) สิทธิ์ audit.edit ต้องผูกกับ role แบบ dynamic ผ่านตาราง RolePermission
             //    (ไม่ hardcode [Authorize(Roles=...)] เพื่อให้ Admin ไปเปิด/ปิดให้ role ไหนก็ได้จากหน้า "บทบาทและสิทธิ์")
-            var hasEditPermission = await _context.RolePermissions
-                .Include(rp => rp.Role)
-                .Include(rp => rp.Permission)
-                .AnyAsync(rp => rp.Role!.Code == role && rp.Permission!.Code == "audit.edit");
+            var hasEditPermission = await UserScopeHelper.HasPermissionAsync(role, "audit.edit", _context);
             if (!hasEditPermission) return Forbid();
 
             // 2) บังคับกรอกเหตุผลเสมอ — ไม่มีเหตุผล = แก้ไม่ได้ (ไม่จำกัดเวลาที่แก้ไขได้)
