@@ -160,12 +160,12 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           questionText: i.questionText || i.text || i.title || "",
           type: rawType === "scale" ? "scale" : rawType === "yesno" ? "yesno" : rawType,
           questionType: i.questionType || (rawType === "scale" ? "SCALE" : isScored ? "YESNO" : rawType.toUpperCase()),
-          fullScore: isScored ? Number(i.fullScore !== undefined ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)) : 0,
+          fullScore: canBeScored ? Number(i.fullScore !== undefined && i.fullScore !== null ? i.fullScore : (i.maxScore !== undefined ? i.maxScore : 10)) : 0,
           isScored: isScored,
-          critical: isScored ? !!(i.isCritical !== undefined ? i.isCritical : i.critical) : false,
-          category: isScored ? cat : (i.category || "รายละเอียด"),
-          categoryName: isScored ? cat : (i.categoryName || "รายละเอียด"),
-          categoryCode: isScored ? (CATEGORY_CODE_MAP[cat] || "PD") : "INFO",
+          critical: canBeScored ? !!(i.isCritical !== undefined ? i.isCritical : i.critical) : false,
+          category: canBeScored ? cat : (i.category || "รายละเอียด"),
+          categoryName: canBeScored ? cat : (i.categoryName || "รายละเอียด"),
+          categoryCode: canBeScored ? (CATEGORY_CODE_MAP[cat] || "PD") : "INFO",
           fieldConfig: i.fieldConfig || i.fieldConfigJson ? (typeof i.fieldConfigJson === "string" ? JSON.parse(i.fieldConfigJson) : i.fieldConfig) : null
         };
       })
@@ -1147,78 +1147,54 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     }));
   };
 
-  // Update question score (supports numbers or '-' to disable scoring)
+  // Update question score (supports typing numbers or clearing while typing)
   const updateItemScore = (secIdx, itemId, newScore) => {
-    const strVal = String(newScore ?? "").trim();
-    if (strVal === "-" || strVal === "") {
-      setSections(prev => prev.map((sec, sIdx) => {
-        if (sIdx !== secIdx) return sec;
-        return {
-          ...sec,
-          items: (sec.items || []).map(i => {
-            if (i.id === itemId) {
-              return {
-                ...i,
-                fullScore: strVal,
-                isScored: false
-              };
-            }
-            return i;
-          })
-        };
-      }));
-      return;
-    }
+    // Strip non-numeric characters while keeping raw string for typing
+    const rawStr = String(newScore ?? "").trim().replace(/[^0-9]/g, "");
+    // If empty string, keep "" in state so user can backspace/clear without glitching
+    const val = rawStr === "" ? "" : parseInt(rawStr, 10);
 
-    const num = Number(strVal);
-    if (!isNaN(num)) {
-      setSections(prev => prev.map((sec, sIdx) => {
-        if (sIdx !== secIdx) return sec;
-        return {
-          ...sec,
-          items: (sec.items || []).map(i => {
-            if (i.id === itemId) {
-              return {
-                ...i,
-                fullScore: num,
-                maxScore: num,
-                isScored: num > 0
-              };
-            }
-            return i;
-          })
-        };
-      }));
-    }
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => {
+          if (i.id === itemId) {
+            return {
+              ...i,
+              fullScore: val,
+              maxScore: val === "" ? 0 : val,
+              isScored: val !== "" ? val > 0 : true
+            };
+          }
+          return i;
+        })
+      };
+    }));
   };
 
-  // On blur, handle '-' or empty
+  // On blur, normalize empty to 0
   const handleItemScoreBlur = (secIdx, itemId, currentVal) => {
-    const strVal = String(currentVal ?? "").trim();
-    if (strVal === "-" || strVal === "0") {
-      setSections(prev => prev.map((sec, sIdx) => {
-        if (sIdx !== secIdx) return sec;
-        return {
-          ...sec,
-          items: (sec.items || []).map(i => {
-            if (i.id === itemId) {
-              return {
-                ...i,
-                fullScore: 0,
-                maxScore: 0,
-                isScored: false
-              };
-            }
-            return i;
-          })
-        };
-      }));
-    } else if (strVal === "" || isNaN(Number(strVal))) {
-      updateItemScore(secIdx, itemId, 10);
-    } else {
-      const num = Math.max(0, Number(strVal));
-      updateItemScore(secIdx, itemId, num);
-    }
+    const rawStr = String(currentVal ?? "").trim().replace(/[^0-9]/g, "");
+    const num = rawStr === "" ? 0 : (parseInt(rawStr, 10) || 0);
+
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(i => {
+          if (i.id === itemId) {
+            return {
+              ...i,
+              fullScore: num,
+              maxScore: num,
+              isScored: num > 0
+            };
+          }
+          return i;
+        })
+      };
+    }));
   };
 
   // Update section title
@@ -1345,12 +1321,12 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   };
   const totalQuestions = useMemo(() => {
     return sections
-      .reduce((sum, s) => sum + (s.items || []).filter(i => (i.type === "yesno" || i.type === "scale") && i.isScored !== false && Number(i.fullScore) > 0).length, 0);
+      .reduce((sum, s) => sum + (s.items || []).filter(i => (i.type === "yesno" || i.type === "scale")).length, 0);
   }, [sections]);
 
   const totalInfoItems = useMemo(() => {
     return sections
-      .reduce((sum, s) => sum + (s.items || []).filter(i => i.type !== "yesno" && i.type !== "scale" || i.isScored === false || Number(i.fullScore) === 0).length, 0);
+      .reduce((sum, s) => sum + (s.items || []).filter(i => i.type !== "yesno" && i.type !== "scale").length, 0);
   }, [sections]);
 
   // Metadata field helpers
@@ -1656,19 +1632,20 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           weightPercent: 0,
           items: (sec.items || []).map((item, iIdx) => {
             const canBeScored = (item.type === "yesno" || item.type === "scale") && isScoringEnabled;
-            const isScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
+            const parsedScore = Math.max(0, Number(item.fullScore) || 0);
+            const isScored = canBeScored && item.isScored !== false && parsedScore > 0;
             const cat = NORMALIZE_CATEGORY(item.category || item.categoryName);
             return {
               id: typeof item.id === 'number' ? item.id : undefined,
               questionText: item.text || item.questionText || "",
-              questionType: isScored
+              questionType: canBeScored
                 ? ((item.type || item.questionType) === "scale" ? "SCALE" : "YESNO")
                 : (item.questionType || (item.type || "text").toUpperCase()),
-              fullScore: isScored ? (Number(item.fullScore) || 10) : 0,
+              fullScore: canBeScored ? parsedScore : 0,
               isScored: isScored,
               isCritical: isScored ? !!(item.critical || item.isCritical) : false,
-              categoryCode: isScored ? (CATEGORY_CODE_MAP[cat] || "PD") : "INFO",
-              categoryName: isScored ? cat : (item.categoryName || "รายละเอียด"),
+              categoryCode: canBeScored ? (CATEGORY_CODE_MAP[cat] || "PD") : "INFO",
+              categoryName: canBeScored ? cat : (item.categoryName || "รายละเอียด"),
               orderIndex: iIdx + 1,
               fieldConfigJson: item.fieldConfig ? JSON.stringify(item.fieldConfig) : (item.fieldConfigJson || null)
             };
@@ -2341,7 +2318,6 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(() => {
                           const canBeScored = (item.type === "yesno" || item.type === "scale") && isScoringEnabled;
-                          const isItemScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
 
                           if (!canBeScored) {
                             return (
@@ -2363,30 +2339,27 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                                 className={`flex items-center gap-1 border rounded-xl px-2 py-1 shadow-2xs transition-colors shrink-0 ${
                                   isReadOnly
                                     ? "bg-slate-50 border-slate-200"
-                                    : isItemScored
-                                    ? "bg-white border-slate-200 hover:border-[#0F6659] focus-within:border-[#0F6659]"
-                                    : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                                    : "bg-white border-slate-200 hover:border-[#0F6659] focus-within:border-[#0F6659]"
                                 }`}
                               >
                                 <span className="text-[11px] font-semibold text-slate-500">คะแนน:</span>
                                 <input
                                   type="text"
+                                  inputMode="numeric"
                                   disabled={isReadOnly}
-                                  value={!isItemScored ? "-" : (item.fullScore ?? 10)}
+                                  value={item.fullScore !== undefined && item.fullScore !== null ? item.fullScore : 10}
                                   onChange={(e) => updateItemScore(secIdx, item.id, e.target.value)}
                                   onBlur={(e) => handleItemScoreBlur(secIdx, item.id, e.target.value)}
                                   className={`w-8 text-xs font-bold text-center font-mono outline-none bg-transparent p-0 ${
                                     isReadOnly
                                       ? "text-slate-700 cursor-default"
-                                      : !isItemScored
-                                      ? "text-slate-400 cursor-text"
                                       : "text-[#0F6659] cursor-text"
                                   }`}
-                                  title={isReadOnly ? "คะแนนของข้อนี้" : "กำหนดคะแนน (ใส่ตัวเลข หรือพิมพ์ - เพื่อไม่คิดคะแนน)"}
+                                  title={isReadOnly ? "คะแนนของข้อนี้" : "กำหนดคะแนน (ใส่ตัวเลข)"}
                                 />
                               </div>
 
-                              {isItemScored && (
+                              {canBeScored && (
                                 isReadOnly ? (
                                   item.critical ? (
                                     <div className="px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1 bg-rose-50 text-rose-600 border border-rose-300 shrink-0">
@@ -2687,11 +2660,10 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                         })()}
                       </div>
 
-                      {/* Right: Category Selector (หมวดคะแนนของข้อนี้ - แสดงเฉพาะเมื่อคิดคะแนน) */}
+                      {/* Right: Category Selector (หมวดคะแนนของข้อนี้ - แสดงเฉพาะเมื่อเป็นคำถามที่คิดคะแนนได้) */}
                       {(() => {
                         const canBeScored = (item.type === "yesno" || item.type === "scale") && isScoringEnabled;
-                        const isItemScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
-                        if (!isItemScored) return null;
+                        if (!canBeScored) return null;
 
                         return (
                           <div className="flex items-center gap-1.5">
