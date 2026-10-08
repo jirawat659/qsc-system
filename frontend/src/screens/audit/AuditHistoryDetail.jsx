@@ -869,6 +869,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return allLocations.find(l => (currentRecord.locationId && l.id === currentRecord.locationId) || l.name === locationTitle || l.fullName === locationTitle);
   }, [allLocations, currentRecord.locationId, locationTitle]);
 
+  const locationCode = currentRecord.locationCode || matchedLocation?.code || currentRecord.location?.code || "";
+  const fullLocationName = locationCode ? `${locationCode} - ${locationTitle}` : locationTitle;
+
   const branchAddress = currentRecord.location?.address || matchedLocation?.address || "-";
   const startLat = currentRecord.startLatitude ?? null;
   const startLng = currentRecord.startLongitude ?? null;
@@ -2011,7 +2014,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
   const currentHeaderSubtitle = activeSection
     ? `ผ่าน (${activeSectionStats?.passedQ || 0}/${activeSectionStats?.totalQ || 0})`
-    : "รายละเอียดผลการตรวจ";
+    : (locationTitle && locationTitle !== "-" ? `${locationTitle}` : "รายละเอียดผลการตรวจ");
 
   const currentHeaderBadge = activeSection ? activeSectionIndex + 1 : null;
   const currentLeftActionType = (activeTab === "responses" && activeSectionIndex !== null) ? "menu" : "back";
@@ -2066,6 +2069,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
             {/* Score Text & Status Pill */}
             <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs sm:text-sm font-extrabold text-slate-800 mb-1 leading-snug">
+                <MapPin size={14} className="text-[#0F6659] shrink-0" />
+                <span className="truncate" title={fullLocationName}>{fullLocationName}</span>
+              </div>
               <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight leading-none">
                 {parseFloat(Number(displayScore).toFixed(2))}%
               </div>
@@ -2138,13 +2145,31 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         {/* Third Section: Metadata Cards (เดิมเป็นแถวเดียวกันแบบ divide-y + label กว้างคงที่ 64px
             ทำให้ค่าที่ยาว เช่น ชื่อฟอร์ม/ชื่อผู้ตรวจ ถูก truncate เป็น "..." บนจอมือถือแคบๆ
             เปลี่ยนเป็นการ์ดแยกทีละอัน ใช้ break-words แทน truncate จะได้ขึ้นบรรทัดใหม่แทนการตัดข้อความ) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mt-3.5 sm:mt-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mt-3.5 sm:mt-4">
+          {/* Card: สาขา / สถานที่ */}
+          <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
+              <MapPin size={16} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] text-slate-400 font-semibold">สาขา / สถานที่</div>
+              <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words" title={fullLocationName}>
+                {locationTitle}
+              </div>
+              {locationCode && (
+                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  รหัสสาขา: {locationCode}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Card: แบบฟอร์ม */}
           <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <FileText size={16} />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-[11px] text-slate-400 font-semibold">แบบฟอร์ม</div>
               <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words" title={formTitle}>
                 {formTitle}
@@ -2175,7 +2200,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
               <User size={16} />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-[11px] text-slate-400 font-semibold">ผู้ตรวจ</div>
               <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words" title={auditorName}>
                 {auditorName}
