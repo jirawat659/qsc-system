@@ -2284,6 +2284,7 @@ export default function LiveAuditScreen({
   const latestMapsRef = useRef({ answers: {}, photos: {}, comments: {}, metadataValues: {} });
   const lastSaveOkRef = useRef(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isLocalSaving, setIsLocalSaving] = useState(false);
   const [remoteConflictCount, setRemoteConflictCount] = useState(0);
   // true = ถ้าผู้ใช้ออกจากหน้านี้ด้วยวิธีอื่นที่ไม่ใช่ปุ่มย้อนกลับ (เช่น กดเมนูไปหน้าอื่น) ให้บันทึกให้ก่อนเพื่อกันข้อมูลหาย
   // ตั้งเป็น false ถ้าต้องการให้บันทึกด้วยปุ่มเท่านั้นจริงๆ
@@ -2531,7 +2532,7 @@ export default function LiveAuditScreen({
           startedAt: payload.startedAt,
           isNewAudit: isExplicitNewAudit
         }),
-        new Promise((resolve) => setTimeout(resolve, 520))
+        new Promise((resolve) => setTimeout(resolve, 350))
       ]);
 
       saveOk = true;
@@ -2658,12 +2659,22 @@ export default function LiveAuditScreen({
   }, []);
 
   const handleManualSave = useCallback(async () => {
-    if (isReadOnlyMode || !performSaveDraftRef.current) return;
+    if (isReadOnlyMode || isSavingRef.current || isLocalSaving || !performSaveDraftRef.current) return;
+
+    // 🌟 แสดงสปินเนอร์หมุนทันทีตั้งแต่กดปุ่ม โดยไม่ต้องรอรอบประมวลผลข้อมูลหรือเน็ตเวิร์ก
+    setIsLocalSaving(true);
+    setSyncStatus("saving");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
     const wasInFlight = isSavingRef.current;
     const queued = pendingSaveDataRef.current || {};
     pendingSaveDataRef.current = null;
 
-    await performSaveDraftRef.current(queued);
+    try {
+      await performSaveDraftRef.current(queued);
+    } finally {
+      setIsLocalSaving(false);
+    }
 
     // ถูกบล็อกหรือบันทึกไม่สำเร็จ → คืนข้อมูลที่ค้างไว้ ไม่ให้หายเงียบๆ
     if (!wasInFlight && !lastSaveOkRef.current) {
@@ -2671,7 +2682,7 @@ export default function LiveAuditScreen({
       setHasUnsavedChanges(true);
       setSyncStatus((prev) => (prev === "error" ? "error" : "unsaved"));
     }
-  }, [isReadOnlyMode]);
+  }, [isReadOnlyMode, isLocalSaving]);
 
   // 🌟 Auto-fetch the latest draft from server upon entering step === "audit"
   // ONLY if this is NOT a new audit (i.e. resuming an in-progress draft)
@@ -5629,40 +5640,45 @@ export default function LiveAuditScreen({
             </button>
 
             {/* 3. บันทึกแบบร่าง (แก้ไข = แผ่นดิสก์ / กำลังบันทึก = หมุนโหลด / บันทึกแล้ว = เช็คถูกในวงกลมตามรูป) */}
-            <button
-              type="button"
-              onClick={hasUnsavedChanges ? handleManualSave : undefined}
-              disabled={isReadOnlyMode || syncStatus === "saving" || !hasUnsavedChanges}
-              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-colors select-none border ${
-                isReadOnlyMode
-                  ? "bg-white text-slate-300 border-slate-200 cursor-not-allowed"
-                  : syncStatus === "saving"
-                  ? "bg-[#0F6659] text-white border-emerald-600 shadow-md cursor-wait"
-                  : hasUnsavedChanges
-                  ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 shadow-md cursor-pointer active:scale-95"
-                  : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-200 shadow-md cursor-default"
-              }`}
-              title={
-                isReadOnlyMode
-                  ? "โหมดดูอย่างเดียว (ปลดล็อกเพื่อแก้ไขและบันทึก)"
-                  : syncStatus === "saving"
-                  ? "กำลังบันทึกข้อมูล..."
-                  : hasUnsavedChanges
-                  ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
-                  : "บันทึกข้อมูลเรียบร้อยแล้ว"
-              }
-              aria-label="บันทึกแบบร่าง"
-            >
-              {isReadOnlyMode ? (
-                <Save size={20} strokeWidth={2.4} />
-              ) : syncStatus === "saving" ? (
-                <Loader2 size={20} className="animate-spin text-white" />
-              ) : hasUnsavedChanges ? (
-                <Save size={20} strokeWidth={2.4} />
-              ) : (
-                <CheckCircle2 size={22} strokeWidth={2.4} className="text-emerald-600" />
-              )}
-            </button>
+            {(() => {
+              const isSpinning = isLocalSaving || syncStatus === "saving";
+              return (
+                <button
+                  type="button"
+                  onClick={hasUnsavedChanges && !isSpinning ? handleManualSave : undefined}
+                  disabled={isReadOnlyMode || isSpinning || !hasUnsavedChanges}
+                  className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-colors select-none border touch-manipulation ${
+                    isReadOnlyMode
+                      ? "bg-white text-slate-300 border-slate-200 cursor-not-allowed"
+                      : isSpinning
+                      ? "bg-[#0F6659] text-white border-emerald-600 shadow-md cursor-wait"
+                      : hasUnsavedChanges
+                      ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 shadow-md cursor-pointer active:scale-95"
+                      : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-200 shadow-md cursor-default"
+                  }`}
+                  title={
+                    isReadOnlyMode
+                      ? "โหมดดูอย่างเดียว (ปลดล็อกเพื่อแก้ไขและบันทึก)"
+                      : isSpinning
+                      ? "กำลังบันทึกข้อมูล..."
+                      : hasUnsavedChanges
+                      ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
+                      : "บันทึกข้อมูลเรียบร้อยแล้ว"
+                  }
+                  aria-label="บันทึกแบบร่าง"
+                >
+                  {isReadOnlyMode ? (
+                    <Save size={20} strokeWidth={2.4} />
+                  ) : isSpinning ? (
+                    <Loader2 size={20} className="animate-spin text-white" />
+                  ) : hasUnsavedChanges ? (
+                    <Save size={20} strokeWidth={2.4} />
+                  ) : (
+                    <CheckCircle2 size={22} strokeWidth={2.4} className="text-emerald-600" />
+                  )}
+                </button>
+              );
+            })()}
 
             {/* 4. ส่งผลตรวจประเมิน (ย้ายมาจากปุ่มใหญ่เดิมในแท็บ 3) */}
             <button
