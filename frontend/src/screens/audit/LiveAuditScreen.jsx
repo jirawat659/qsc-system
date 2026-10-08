@@ -177,7 +177,13 @@ const QuestionCard = React.memo(function QuestionCard({
               {q.isCritical && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-red-100 text-red-800 border border-red-200">สำคัญ</span>
               )}
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-100">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${
+                isFailed
+                  ? "bg-rose-50 text-rose-700 border-rose-200"
+                  : isNa
+                  ? "bg-slate-100 text-slate-500 border-slate-200"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-100"
+              }`}>
                 คะแนน {isAnswered && !isNa ? scoreGiven : 0} / {itemFullScore}
               </span>
             </>

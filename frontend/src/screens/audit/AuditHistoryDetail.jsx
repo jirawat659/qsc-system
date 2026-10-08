@@ -2432,7 +2432,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                   ? "bg-slate-100 text-slate-500 border-slate-200"
                                   : isPass
                                   ? "bg-emerald-50 text-[#0F6659] border-emerald-200"
-                                  : "bg-red-50 text-red-700 border-red-300"
+                                  : "bg-rose-50 text-rose-700 border-rose-200"
                               } font-mono`}>
                                 <span>{isNa ? 0 : currentSc} / {full}</span>
                               </span>
