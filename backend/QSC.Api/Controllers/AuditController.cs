@@ -1278,8 +1278,6 @@ namespace QSC.Api.Controllers
         private static DateTime ToUtcKind(DateTime d) =>
             d.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : d.ToUniversalTime();
 
-        private const int MaxLiveAuditAgeDays = 3;
-
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
         [HttpPost]
