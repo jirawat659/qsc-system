@@ -333,7 +333,7 @@ namespace QSC.Api.Controllers
                     foreach (var url in dto.ImageUrls)
                     {
                         if (string.IsNullOrWhiteSpace(url)) continue;
-                        var savedUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, url, task.Id, "defect", 10 * 1024 * 1024);
+                        var savedUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, url, task.Id, "defect", 100 * 1024);
                         if (!string.IsNullOrWhiteSpace(savedUrl))
                         {
                             _context.CapTaskImages.Add(new CapTaskImage
@@ -421,7 +421,7 @@ namespace QSC.Api.Controllers
                     foreach (var url in dto.ImageUrls)
                     {
                         if (string.IsNullOrWhiteSpace(url)) continue;
-                        var savedUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, url, id, "fix", 10 * 1024 * 1024);
+                        var savedUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, url, id, "fix", 100 * 1024);
                         if (!string.IsNullOrWhiteSpace(savedUrl))
                         {
                             if (firstSavedImageUrl == null)
@@ -813,7 +813,7 @@ namespace QSC.Api.Controllers
             {
                 try
                 {
-                    processedImageUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, dto.ImageUrl, id, "chat", 10 * 1024 * 1024);
+                    processedImageUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, dto.ImageUrl, id, "chat", 100 * 1024);
                 }
                 catch (InvalidImageUploadException ex)
                 {
@@ -866,7 +866,7 @@ namespace QSC.Api.Controllers
 
             try
             {
-                var relativeUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, dto.Base64Data, dto.CapTaskId, dto.Prefix ?? "fix", 10 * 1024 * 1024);
+                var relativeUrl = await UploadHelper.SaveCapPhotoAsync(_env, _config, dto.Base64Data, dto.CapTaskId, dto.Prefix ?? "fix", 100 * 1024);
                 return Ok(new { url = relativeUrl });
             }
             catch (InvalidImageUploadException ex)

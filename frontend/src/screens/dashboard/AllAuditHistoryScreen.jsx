@@ -85,6 +85,13 @@ function buildCompletedLog(r, forms, activeLocations) {
   const formVersion = r.surveyFormVersion || r.surveyForm?.version || "";
   const brandNames = getBrandsForLoc(r.locationId, r.location, activeLocations);
   const unitCode = getCodeForLoc(r.locationId, r.location, activeLocations);
+  const matchedFormObj = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
+  const effectivePassingScore = r.passingScore !== undefined 
+    ? r.passingScore 
+    : (r.surveyForm?.passingScore !== undefined 
+        ? r.surveyForm.passingScore 
+        : (matchedFormObj?.passingScore ?? 85));
+  const isPassed = r.isPassed !== undefined ? r.isPassed : (score >= effectivePassingScore && !r.hasCriticalDefect);
 
   return {
     id: `completed-${r.id}`,
@@ -103,7 +110,10 @@ function buildCompletedLog(r, forms, activeLocations) {
     formName: formVal,
     formVersion: formVersion,
     auditType: (r.auditType === 'unannounced' || r.auditType === 'spot') ? "นอกกำหนดการ" : (r.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
-    status: r.isPassed ? "pass" : "fail",
+    status: isPassed ? "pass" : "fail",
+    isPassed: isPassed,
+    hasCriticalDefect: Boolean(r.hasCriticalDefect),
+    passingScore: effectivePassingScore,
     record: {
       ...r,
       unitName: branchName,
@@ -118,9 +128,10 @@ function buildCompletedLog(r, forms, activeLocations) {
       formName: formVal,
       surveyFormTitle: formVal,
       surveyFormVersion: formVersion,
-      status: r.isPassed ? "pass" : "fail",
-      isPassed: r.isPassed,
-      hasCriticalDefect: r.hasCriticalDefect
+      status: isPassed ? "pass" : "fail",
+      isPassed: isPassed,
+      hasCriticalDefect: Boolean(r.hasCriticalDefect),
+      passingScore: effectivePassingScore
     }
   };
 }
@@ -236,14 +247,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const sc = latest.percentageScore !== undefined ? latest.percentageScore : latest.score;
         if (sc !== undefined && sc !== null) {
           latestScore = Number(sc);
-          isPassed = latest.isPassed !== undefined ? latest.isPassed : (latestScore >= 85);
+          const effectivePassing = latest.passingScore !== undefined 
+            ? latest.passingScore 
+            : (latest.record?.passingScore !== undefined ? latest.record.passingScore : 85);
+          isPassed = latest.isPassed !== undefined 
+            ? latest.isPassed 
+            : (latest.record?.isPassed !== undefined ? latest.record.isPassed : (latestScore >= effectivePassing));
         }
       }
 
       // ถ้ายังไม่มีใน auditRecords ลองดู loc.lastScore
       if (latestScore === null && typeof loc.lastScore === 'number' && loc.lastScore > 0) {
         latestScore = Number(loc.lastScore);
-        isPassed = latestScore >= 85;
+        isPassed = loc.isPassed !== undefined ? loc.isPassed : (latestScore >= 85);
       }
 
       return {
@@ -568,9 +584,11 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         const statusKeywords = [];
         if (isCompleted) {
-          statusKeywords.push('ตรวจแล้ว', 'completed', 'เสร็จสิ้น', 'pass', 'ผ่าน');
-          if (l.status === 'pass' || (l.score !== null && l.score >= 85)) statusKeywords.push('ผ่านเกณฑ์', 'ผ่าน');
-          if (l.status === 'fail' || (l.score !== null && l.score < 85)) statusKeywords.push('ไม่ผ่าน', 'ตกเกณฑ์', 'ปรับปรุง', 'fail');
+          statusKeywords.push('ตรวจแล้ว', 'completed', 'เสร็จสิ้น');
+          const pScore = l.passingScore ?? 85;
+          const passed = l.isPassed !== undefined ? l.isPassed : (l.score !== null && l.score >= pScore);
+          if (l.status === 'pass' || passed) statusKeywords.push('ผ่านเกณฑ์', 'ผ่าน');
+          if (l.status === 'fail' || !passed) statusKeywords.push('ไม่ผ่าน', 'ตกเกณฑ์', 'ปรับปรุง', 'fail');
         } else if (isDraft) {
           statusKeywords.push('กำลังตรวจ', 'draft', 'ฉบับร่าง', 'ค้างตรวจ', 'ร่าง');
         } else if (isPending) {
@@ -608,9 +626,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
 
     if (filterCategory === "passed") {
-      list = list.filter(l => l.score >= 85);
+      list = list.filter(l => l.isPassed !== undefined ? l.isPassed : (l.score !== null && l.score >= (l.passingScore || 85)));
     } else if (filterCategory === "improve") {
-      list = list.filter(l => l.score < 85);
+      list = list.filter(l => l.isPassed !== undefined ? !l.isPassed : (l.score !== null && l.score < (l.passingScore || 85)));
     } else if (filterCategory === "bkk") {
       list = list.filter(l => (l.region || '').includes("กรุงเทพ"));
     } else if (filterCategory === "north") {
@@ -661,6 +679,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const dateFormatted = formatThaiAuditDate(rawDate);
         const auditorVal = r.primaryAuditor?.fullName || r.auditorName || r.auditor || "-";
         const formVal = r.surveyFormTitle || r.surveyForm?.title || r.form || "-";
+        const formId = r.surveyFormId || r.formId || r.surveyForm?.id;
+        const matchedFormObj = (forms || []).find(f => f.id === formId || String(f.id) === String(formId));
+        const effectivePassingScore = r.passingScore !== undefined 
+          ? r.passingScore 
+          : (r.surveyForm?.passingScore !== undefined 
+              ? r.surveyForm.passingScore 
+              : (matchedFormObj?.passingScore ?? 85));
+        const isPassed = r.isPassed !== undefined ? r.isPassed : (score >= effectivePassingScore && !r.hasCriticalDefect);
         return {
           id: r.id,
           date: dateFormatted,
@@ -672,9 +698,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           form: formVal,
           formName: formVal,
           auditType: r.auditType === 'followup' ? "ตรวจติดตามผล (Follow-up)" : "ตรวจมาตรฐานรอบปกติ (Announced)",
-          status: r.isPassed ? "pass" : "fail",
-          isPassed: r.isPassed,
+          status: isPassed ? "pass" : "fail",
+          isPassed: isPassed,
           hasCriticalDefect: r.hasCriticalDefect,
+          passingScore: effectivePassingScore,
           ...r
         };
       });
@@ -684,6 +711,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       const rawDate = lastAudit?.auditDate || lastAudit?.date || u.lastAuditDate || null;
       const timestamp = parseAuditTimestamp(rawDate, u.id);
       const lastScore = lastAudit ? lastAudit.score : (u.lastScore !== undefined ? u.lastScore : 0);
+      const isPassedBranch = lastAudit
+        ? (lastAudit.isPassed !== undefined ? lastAudit.isPassed : lastAudit.score >= (lastAudit.passingScore || 85))
+        : (u.isPassed !== undefined ? u.isPassed : (lastScore >= 85));
       const dateFormatted = rawDate ? (lastAudit?.date || formatThaiAuditDate(rawDate)) : "-";
       const locTypeName = u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "-";
 
@@ -699,6 +729,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         locationType: locTypeName,
         lastScore: lastScore,
         score: lastScore,
+        isPassed: isPassedBranch,
         lastAuditDate: rawDate,
         dateFormatted: dateFormatted,
         timestamp: timestamp,
@@ -707,7 +738,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         rawLocation: u
       };
     });
-  }, [activeLocations, auditRecords]);
+  }, [activeLocations, auditRecords, forms]);
 
   const filteredAndSortedBranches = useMemo(() => {
     let list = [...allBranches];
@@ -742,9 +773,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
     }
 
     if (filterCategory === "passed") {
-      list = list.filter(l => l.lastScore >= 85);
+      list = list.filter(l => l.isPassed !== undefined ? l.isPassed : (l.lastScore >= 85));
     } else if (filterCategory === "improve") {
-      list = list.filter(l => l.lastScore < 85);
+      list = list.filter(l => l.isPassed !== undefined ? !l.isPassed : (l.lastScore < 85));
     } else if (filterCategory === "bkk") {
       list = list.filter(l => (l.region || '').includes("กรุงเทพ"));
     } else if (filterCategory === "north") {
@@ -1080,8 +1111,13 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       {/* 📱 1. Mobile View (<768px): การ์ดเดี่ยวๆ ลอยบนพื้นหลัง สไตล์เดียวกับ FormsScreen */}
       <div className="block md:hidden space-y-3">
         {paginatedLogs.map((log, idx) => {
-          const isPassed = log.score >= 85;
-          const isCritical = log.score < 70;
+          const effectivePassing = log.passingScore !== undefined 
+            ? log.passingScore 
+            : (log.record?.passingScore !== undefined ? log.record.passingScore : 85);
+          const isPassed = log.isPassed !== undefined 
+            ? log.isPassed 
+            : (log.record?.isPassed !== undefined ? log.record.isPassed : (log.score >= effectivePassing));
+          const isCritical = Boolean(log.hasCriticalDefect || log.record?.hasCriticalDefect || (log.score !== null && log.score < (effectivePassing * 0.8)));
 
           let circleColor = "border-slate-200 text-slate-400 bg-slate-50";
           let scoreDisplay = "-";
@@ -1319,8 +1355,13 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             <tbody className="divide-y divide-slate-100 bg-white">
               {paginatedLogs.map((log, idx) => {
                 const rowNumber = (currentPage - 1) * pageSize + idx + 1;
-                const isPassed = log.score >= 85;
-                const isCritical = log.score < 70;
+                const effectivePassing = log.passingScore !== undefined 
+                  ? log.passingScore 
+                  : (log.record?.passingScore !== undefined ? log.record.passingScore : 85);
+                const isPassed = log.isPassed !== undefined 
+                  ? log.isPassed 
+                  : (log.record?.isPassed !== undefined ? log.record.isPassed : (log.score >= effectivePassing));
+                const isCritical = Boolean(log.hasCriticalDefect || log.record?.hasCriticalDefect || (log.score !== null && log.score < (effectivePassing * 0.8)));
 
                 let circleColor = "border-slate-200 text-slate-400 bg-slate-50";
                 let scoreDisplay = "-";

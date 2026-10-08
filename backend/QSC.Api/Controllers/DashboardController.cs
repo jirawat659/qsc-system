@@ -43,13 +43,13 @@ namespace QSC.Api.Controllers
             var periodAudits = await _context.AuditRecords
                 .AsNoTracking()
                 .Where(a => targetLocIds.Contains(a.LocationId) && a.AuditDate >= startUtc && a.AuditDate < endUtc)
-                .Select(a => new { a.Id, a.LocationId, a.PercentageScore, a.IsPassed, a.AuditDate })
+                .Select(a => new { a.Id, a.LocationId, a.PercentageScore, a.IsPassed, a.AuditDate, a.MaxScore })
                 .ToListAsync();
 
             var prevPeriodAudits = await _context.AuditRecords
                 .AsNoTracking()
                 .Where(a => targetLocIds.Contains(a.LocationId) && a.AuditDate >= prevStartUtc && a.AuditDate < prevEndUtc)
-                .Select(a => new { a.Id, a.LocationId, a.PercentageScore, a.IsPassed, a.AuditDate })
+                .Select(a => new { a.Id, a.LocationId, a.PercentageScore, a.IsPassed, a.AuditDate, a.MaxScore })
                 .ToListAsync();
 
             // 🌟 คำนวณตามคะแนนรอบล่าสุดของแต่ละสถานที่ในช่วงเวลานั้น (Latest Audit per Location)
@@ -68,11 +68,14 @@ namespace QSC.Api.Controllers
             int? inspectionDiff = (prevPeriodAudits.Count > 0 || periodAudits.Count > 0) ? (totalInspections - prevTotalInspections) : null;
 
             int auditedCount = latestAuditsByLoc.Count;
-            int passedCount = latestAuditsByLoc.Count(a => a.IsPassed);
-            double passRate = auditedCount > 0 ? Math.Round((double)passedCount / auditedCount * 100.0, 2) : 0.0;
-            double avgScore = latestAuditsByLoc.Any() ? Math.Round(latestAuditsByLoc.Average(a => a.PercentageScore), 2) : 0.0;
+            // คิดเฉพาะแบบฟอร์มที่มีการคิดคะแนน (MaxScore > 0) เพื่อไม่ให้ฟอร์มบันทึกข้อมูลทั่วไปดึงคะแนนและอัตราผ่านลง
+            var scoredLatestAudits = latestAuditsByLoc.Where(a => a.MaxScore > 0).ToList();
+            int passedCount = scoredLatestAudits.Count(a => a.IsPassed);
+            double passRate = scoredLatestAudits.Count > 0 ? R2((double)passedCount / scoredLatestAudits.Count * 100.0) : 0.0;
+            double avgScore = scoredLatestAudits.Any() ? R2(scoredLatestAudits.Average(a => a.PercentageScore)) : 0.0;
 
-            double? prevAvgScore = prevLatestAuditsByLoc.Any() ? Math.Round(prevLatestAuditsByLoc.Average(a => a.PercentageScore), 2) : null;
+            var prevScoredLatestAudits = prevLatestAuditsByLoc.Where(a => a.MaxScore > 0).ToList();
+            double? prevAvgScore = prevScoredLatestAudits.Any() ? R2(prevScoredLatestAudits.Average(a => a.PercentageScore)) : null;
             string? trendPercent = (prevAvgScore.HasValue && prevAvgScore.Value > 0)
                 ? (((avgScore - prevAvgScore.Value) / prevAvgScore.Value) * 100.0).ToString("0.##")
                 : null;
@@ -118,8 +121,9 @@ namespace QSC.Api.Controllers
             else if (allowedBrandIds != null)
                 auditQuery = auditQuery.Where(a => a.Location != null && a.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-            // 🌟 2. จัดอันดับ Top 5 สาขาที่มีผลการตรวจจริงในช่วงเวลาที่เลือก โดยเรียงจากคะแนนสูงสุด
+            // 🌟 2. จัดอันดับ Top 5 สาขาที่มีผลการตรวจจริงในช่วงเวลาที่เลือก โดยเรียงจากคะแนนสูงสุด (เฉพาะฟอร์มที่คิดคะแนน)
             var topInPeriod = await auditQuery
+                .Where(a => a.MaxScore > 0)
                 .GroupBy(a => new { a.LocationId, a.Location!.Code, a.Location.Name, a.Location.Region })
                 .Select(g => new
                 {
@@ -127,7 +131,7 @@ namespace QSC.Api.Controllers
                     Code = g.Key.Code,
                     Name = g.Key.Name,
                     Region = g.Key.Region,
-                    LastScore = Math.Round(g.OrderByDescending(a => a.AuditDate).Select(a => a.PercentageScore).FirstOrDefault(), 2),
+                    LastScore = Math.Round(g.OrderByDescending(a => a.AuditDate).Select(a => a.PercentageScore).FirstOrDefault(), 2), // รันใน SQL (ROUND ปัด away-from-zero อยู่แล้ว) ห้ามใช้ R2
                     AvgScore = Math.Round(g.Average(a => a.PercentageScore), 2),
                     AuditCount = g.Count(),
                     LastAuditDate = g.Max(a => a.AuditDate),
@@ -172,7 +176,7 @@ namespace QSC.Api.Controllers
             }
 
             var periodAudits = await auditQuery
-                .Select(a => new { a.Id, a.LocationId, a.AuditDate, a.PercentageScore, a.IsPassed })
+                .Select(a => new { a.Id, a.LocationId, a.AuditDate, a.PercentageScore, a.IsPassed, a.MaxScore })
                 .ToListAsync();
 
             var months = new List<object>();
@@ -196,8 +200,9 @@ namespace QSC.Api.Controllers
                     .Select(g => g.OrderByDescending(a => a.AuditDate).ThenByDescending(a => a.Id).First())
                     .ToList();
 
-                double? avg = latestMonthAudits.Any() ? Math.Round(latestMonthAudits.Average(a => a.PercentageScore), 2) : null;
-                double? passRate = latestMonthAudits.Any() ? Math.Round((double)latestMonthAudits.Count(a => a.IsPassed) / latestMonthAudits.Count * 100, 2) : null;
+                var scoredMonthAudits = latestMonthAudits.Where(a => a.MaxScore > 0).ToList();
+                double? avg = scoredMonthAudits.Any() ? R2(scoredMonthAudits.Average(a => a.PercentageScore)) : null;
+                double? passRate = scoredMonthAudits.Any() ? R2((double)scoredMonthAudits.Count(a => a.IsPassed) / scoredMonthAudits.Count * 100) : null;
                 var monthLabel = thaiMonths[targetMonthBkk.Month - 1] + " " + ((targetMonthBkk.Year + 543) % 100);
 
                 months.Add(new
@@ -227,7 +232,7 @@ namespace QSC.Api.Controllers
             var regionalScores = regionalRaw.Select(x => new
             {
                 x.region,
-                avgScore = x.avg.HasValue ? Math.Round(x.avg.Value, 2) : (double?)null,
+                avgScore = x.avg.HasValue ? R2(x.avg.Value) : (double?)null,
                 x.totalBranches,
                 x.auditedBranches
             }).ToList();
@@ -292,7 +297,10 @@ namespace QSC.Api.Controllers
                     // คะแนนเต็ม ณ วันตรวจก่อน (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) แล้วค่อยใช้ค่าปัจจุบันของฟอร์ม
                     FullScore = resp.MaxScore != null
                         ? resp.MaxScore.Value
-                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 0.0)
+                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 0.0),
+                    PassingScore = resp.AuditRecord != null && resp.AuditRecord.SurveyForm != null
+                        ? resp.AuditRecord.SurveyForm.PassingScore
+                        : 85.0
                 })
                 .Where(x => x.FullScore > 0)
                 .ToListAsync();
@@ -302,7 +310,8 @@ namespace QSC.Api.Controllers
                 {
                     NormalizedName = NormalizeCategoryName(d.CategoryName, d.CategoryCode),
                     d.ScoreGiven,
-                    d.FullScore
+                    d.FullScore,
+                    d.PassingScore
                 })
                 .Where(d => d.NormalizedName != "INFO" && d.NormalizedName != "รายละเอียด" && d.NormalizedName != "ข้อมูลทั่วไป")
                 .GroupBy(d => d.NormalizedName)
@@ -310,13 +319,14 @@ namespace QSC.Api.Controllers
                 {
                     var totalScoreGiven = g.Sum(x => x.ScoreGiven);
                     var totalFullScore = g.Sum(x => x.FullScore);
-                    var percentage = totalFullScore > 0 ? Math.Round((totalScoreGiven / totalFullScore) * 100.0, 2) : 0.0;
+                    var percentage = totalFullScore > 0 ? R2((totalScoreGiven / totalFullScore) * 100.0) : 0.0;
+                    var avgTarget = g.Any() ? R2(g.Average(x => x.PassingScore)) : 85.0;
 
                     return new
                     {
                         name = g.Key,
                         score = percentage,
-                        target = 85
+                        target = avgTarget
                     };
                 })
                 .OrderByDescending(c => c.score)
@@ -324,6 +334,8 @@ namespace QSC.Api.Controllers
 
             return Ok(categoryScores);
         }
+
+        private static double R2(double v) => Math.Round(v, 2, MidpointRounding.AwayFromZero);
 
         private static string NormalizeCategoryName(string? rawName, string? rawCode)
         {

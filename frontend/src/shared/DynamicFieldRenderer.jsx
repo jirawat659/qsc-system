@@ -12,24 +12,25 @@ import {
   Table,
   CheckSquare
 } from "lucide-react";
+import MultiItemAuditCard from "../modals/MultiItemAuditCard";
 
 /**
  * 🌟 DynamicFieldRenderer
  * Renders non-scored custom fields across:
  * - LiveAuditScreen (Conducting audit)
- * - AuditHistoryDetail (Read-only viewing)
- * - EditAuditRecordModal (Editing audit results)
+ * - AuditHistoryDetail (Read-only viewing and editing audit results)
  *
  * Supported Types:
  * 1. "grid"     : Interactive table with rows, columns, auto-sum, and cell types (number, text, radio, checkbox)
- * 2. "number"   : Number input with [-] / [+] steppers and unit label
- * 3. "select"   : Dropdown selector
- * 4. "radio"    : Single-choice radio buttons
- * 5. "checkbox" : Multiple-choice checkboxes
- * 6. "text"     : Text input / textarea
- * 7. "date"     : Date picker
- * 8. "time"     : Time picker
- * 9. "auditor"  : Auditor selector
+ * 2. "multians" : Multi-criteria evaluation card
+ * 3. "number"   : Number input with [-] / [+] steppers and unit label
+ * 4. "select"   : Dropdown selector
+ * 5. "radio"    : Single-choice radio buttons
+ * 6. "checkbox" : Multiple-choice checkboxes
+ * 7. "text"     : Text input / textarea
+ * 8. "date"     : Date picker
+ * 9. "time"     : Time picker
+ * 10. "auditor" : Auditor selector
  */
 export default function DynamicFieldRenderer({
   type = "text",
@@ -42,6 +43,20 @@ export default function DynamicFieldRenderer({
   auditorOptions = []
 }) {
   const normType = String(type || "text").toLowerCase();
+
+  // ==========================================
+  // 0. MULTI-ANSWER EVALUATION (MULTIANS)
+  // ==========================================
+  if (normType === "multians") {
+    return (
+      <MultiItemAuditCard
+        question={{ fieldConfig }}
+        value={value}
+        onChange={onChange}
+        readOnly={readOnly}
+      />
+    );
+  }
 
   // ==========================================
   // 1. GRID / TABLE DATA
@@ -134,7 +149,7 @@ export default function DynamicFieldRenderer({
                       return (
                         <td key={col.id || cIdx} className="py-2 px-3 text-center">
                           {readOnly ? (
-                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${isChecked ? "bg-emerald-600 text-white" : "text-slate-300"}`}>
+                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full ${isChecked ? "bg-slate-300 text-slate-800 font-bold" : "text-slate-300"}`}>
                               {isChecked ? "●" : "○"}
                             </span>
                           ) : (
@@ -159,7 +174,7 @@ export default function DynamicFieldRenderer({
                       return (
                         <td key={col.id || cIdx} className="py-2 px-3 text-center">
                           {readOnly ? (
-                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md ${isChecked ? "bg-emerald-600 text-white" : "text-slate-300"}`}>
+                            <span className={`inline-flex items-center justify-center w-5 h-5 rounded-md ${isChecked ? "bg-slate-300 text-slate-800 font-bold" : "text-slate-300"}`}>
                               {isChecked ? "✓" : "—"}
                             </span>
                           ) : (
@@ -327,7 +342,7 @@ export default function DynamicFieldRenderer({
 
     if (readOnly) {
       return (
-        <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[#0F6659] text-xs font-bold shadow-2xs">
+        <span className="inline-flex items-center px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold shadow-2xs">
           {currentVal || "—"}
         </span>
       );
@@ -361,8 +376,8 @@ export default function DynamicFieldRenderer({
 
     if (readOnly) {
       return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[#0F6659] text-xs font-bold shadow-2xs">
-          <span className="w-2 h-2 rounded-full bg-[#0F6659]" />
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold shadow-2xs">
+          <span className="w-2 h-2 rounded-full bg-slate-500" />
           <span>{currentVal || "—"}</span>
         </span>
       );
@@ -425,8 +440,8 @@ export default function DynamicFieldRenderer({
       return (
         <div className="flex flex-wrap items-center gap-1.5">
           {selectedList.map((opt, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[#0F6659] text-xs font-bold shadow-2xs">
-              <Check size={12} strokeWidth={3} />
+            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold shadow-2xs">
+              <Check size={12} strokeWidth={3} className="text-slate-500" />
               <span>{opt}</span>
             </span>
           ))}

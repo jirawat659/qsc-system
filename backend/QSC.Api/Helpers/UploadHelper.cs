@@ -148,8 +148,10 @@ namespace QSC.Api.Helpers
 
             if (bytes.Length > maxSizeBytes)
             {
-                var maxMb = Math.Round((double)maxSizeBytes / (1024 * 1024), 1);
-                throw new InvalidImageUploadException($"ไฟล์รูปภาพมีขนาดใหญ่เกิน {maxMb}MB กรุณาลดขนาดรูปแล้วลองใหม่อีกครั้ง");
+                var sizeText = maxSizeBytes >= 1024 * 1024
+                    ? $"{Math.Round((double)maxSizeBytes / (1024 * 1024), 1)}MB"
+                    : $"{Math.Round((double)maxSizeBytes / 1024)}KB";
+                throw new InvalidImageUploadException($"ไฟล์รูปภาพมีขนาดใหญ่เกิน {sizeText} กรุณาลดขนาดรูปแล้วลองใหม่อีกครั้ง");
             }
 
             if (!IsValidImageSignature(bytes, out var ext))
@@ -172,7 +174,7 @@ namespace QSC.Api.Helpers
         }
 
         /// <summary>
-        /// 📸 บันทึกรูปข้อตรวจ: uploads/{YYYY-MM-DD}/audit_{job}/audits/item_{itemId}_{random4}.webp
+        /// 📸 บันทึกรูปข้อตรวจ: uploads/{YYYY-MM-DD}/audit_{job}/audits/item_{itemId}_{random4}.webp (ด่าน 3: ไม่เกิน 2MB)
         /// </summary>
         public static async Task<string> SaveAuditItemPhotoAsync(
             IWebHostEnvironment env,
@@ -181,7 +183,7 @@ namespace QSC.Api.Helpers
             int? scheduleId,
             string? locationCode,
             int? surveyItemId,
-            long maxSizeBytes = 10 * 1024 * 1024)
+            long maxSizeBytes = 2 * 1024 * 1024)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
             if (!input.StartsWith("data:image/")) return input;
@@ -239,7 +241,7 @@ namespace QSC.Api.Helpers
             string? input,
             int? capTaskId,
             string prefix = "fix",
-            long maxSizeBytes = 10 * 1024 * 1024)
+            long maxSizeBytes = 100 * 1024)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
             if (!input.StartsWith("data:image/")) return input;

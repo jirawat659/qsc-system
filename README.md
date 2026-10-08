@@ -222,6 +222,8 @@ npm run dev
 
 ## 📚 7. เอกสารอ้างอิงทางเทคนิคเพิ่มเติม (Technical Documentation)
 
+- 📖 **[`SYSTEM_SPEC.md`](SYSTEM_SPEC.md)** — **เอกสารข้อกำหนดมาตรฐานระบบ (System Specification & Conventions)** มาตรฐานหมวดหมู่ (INFO/รายละเอียด), ประเภทข้อตรวจ, กฎ Strict ID Matching, สูตรคิดคะแนน, ระบบ Inline Editing, และแนวทางการพัฒนาระบบ
 - 📘 **[`DATA_DICTIONARY.md`](DATA_DICTIONARY.md)** — รายละเอียดโครงสร้างตารางทั้ง 25 ตาราง, ชนิดข้อมูล, Nullable, Default Values, Constraints, และคำอธิบายฟิลด์อย่างละเอียด
 - 🗺️ **[`DATABASE_ERD.md`](DATABASE_ERD.md)** — ไดอะแกรมความสัมพันธ์ฐานข้อมูลฉบับสมบูรณ์ (Mermaid Entity Relationship Diagram) พร้อมระบุกฎ Cascade Delete และ Indexing
 - 📊 **[`SYSTEM_FLOWCHARTS.md`](SYSTEM_FLOWCHARTS.md)** — แผนภาพผังงาน (Flowcharts) แสดงวงจรการทำงานของระบบ 7 Use Cases หลัก
+- 📁 **[`GUIDE.md`](GUIDE.md)** — คู่มือมาตรฐานโครงสร้างการจัดเก็บไฟล์ภาพ (File Storage Hierarchy & WebP Compression)

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useContext } from "react";
 import { createPortal } from "react-dom";
-import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Sliders, Store, Loader2, Table, Hash, Calendar, Clock, UserCheck, CircleDot, CheckSquare, ChevronDownSquare, Settings2, Calculator, Globe, ChevronRight } from "lucide-react";
+import { FileText, Plus, Trash2, Edit3, GripVertical, Check, X, AlertTriangle, ShieldAlert, ChevronDown, ChevronUp, Layers, CheckCircle2, Tag, SlidersHorizontal, Sliders, Store, Loader2, Table, Hash, Calendar, Clock, UserCheck, CircleDot, CheckSquare, ChevronDownSquare, Settings2, Calculator, Globe, ChevronRight, ListCheck } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import Header from "../../shared/Header";
@@ -8,6 +8,7 @@ import Section from "../../shared/Section";
 import ModalWrapper from "../../shared/ModalWrapper";
 import FieldTypeSelectModal from "../../modals/FieldTypeSelectModal";
 import GridConfigModal, { CASH_AUDIT_PRESET } from "../../modals/GridConfigModal";
+import MultiAnsConfigModal from "../../modals/MultiAnsConfigModal";
 import TargetLocationTreeModal from "../../modals/TargetLocationTreeModal";
 import api from "../../config/api";
 import { DataContext } from "../../context/DataContext";
@@ -90,6 +91,8 @@ export const getNonScoredFieldInfo = (type) => {
       return { label: "วันที่ (Date)", icon: Calendar, color: "amber" };
     case "time":
       return { label: "เวลา (Time)", icon: Clock, color: "orange" };
+    case "multians":
+      return { label: "หลายคำตอบ (Multiple Answer)", icon: ListCheck, color: "blue"};
     case "auditor":
       return { label: "ผู้ตรวจประเมิน (Auditor)", icon: UserCheck, color: "emerald" };
     default:
@@ -117,6 +120,8 @@ export const getQuestionPlaceholder = (type) => {
       return "ระบุข้อความคำถามสำหรับวันที่...";
     case "time":
       return "ระบุข้อความคำถามสำหรับเวลา / กะงาน...";
+    case "multians":
+      return "ระบุข้อความคำถามสำหรับคำถามหลายคำตอบ...";
     case "auditor":
       return "ระบุข้อความคำถามสำหรับผู้ตรวจประเมิน...";
     case "text":
@@ -375,10 +380,14 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   );
   const [passingScore, setPassingScore] = useState(() => {
     if (form && form.passingScore !== undefined && form.passingScore !== null) {
-      return Number(form.passingScore);
+      return form.passingScore === 0 ? "-" : Number(form.passingScore);
     }
     return 85;
   });
+
+  const isScoringEnabled = useMemo(() => {
+    return passingScore !== "-" && passingScore !== "0" && passingScore !== "" && Number(passingScore) > 0;
+  }, [passingScore]);
 
   const [categories, setCategories] = useState(() => {
     const filterScoringCats = (cats) => (cats || []).filter(c => c && c !== "รายละเอียด" && c !== "INFO");
@@ -456,6 +465,29 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
   const [fieldTypeModalTarget, setFieldTypeModalTarget] = useState(null); // { secIdx, itemId? }
   const [gridModalTarget, setGridModalTarget] = useState(null); // { secIdx, itemId, initialConfig, initialTitle }
+  const [multiAnsModalTarget, setMultiAnsModalTarget] = useState(null); // { secIdx, itemId, initialConfig, initialTitle }
+
+  const handleSaveMultiAnsConfig = ({ title, fieldConfig }) => {
+    if (!multiAnsModalTarget) return;
+    const { secIdx, itemId } = multiAnsModalTarget;
+
+    setSections(prev => prev.map((sec, sIdx) => {
+      if (sIdx !== secIdx) return sec;
+      return {
+        ...sec,
+        items: (sec.items || []).map(it => {
+          if (it.id !== itemId) return it;
+          return {
+            ...it,
+            text: title,
+            questionText: title,
+            fieldConfig
+          };
+        })
+      };
+    }));
+    setMultiAnsModalTarget(null);
+  };
 
   // Drag-to-reorder state and refs
   const itemRefs = useRef({});
@@ -568,7 +600,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
   const addItemToSection = (secIdx, fieldType = "yesno") => {
     const sec = sections[secIdx];
     const type = fieldType || "yesno";
-    const isScored = type === "yesno" || type === "scale";
+    const isScored = (type === "yesno" || type === "scale") && isScoringEnabled;
     const newId = "q_" + Date.now();
     const secTitle = sec?.title || "";
     const defaultCat = categories.find(c => secTitle.includes(c)) || categories[0] || DEFAULT_CATEGORIES[0];
@@ -577,6 +609,18 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
     if (type === "grid") {
       fieldConfig = JSON.parse(JSON.stringify(CASH_AUDIT_PRESET));
+    } else if (type === "multians") {
+      fieldConfig = {
+        criteria: [
+          { id: "decor", label: "การตกแต่ง", type: "yesno" },
+          { id: "taste", label: "รสชาติ", type: "yesno" }
+        ],
+        items: [
+          { id: "item_1", name: "Chocolate toast with strawberry" },
+          { id: "item_2", name: "Baby Shibuya" }
+        ],
+        allowAddItem: true // อนุญาตให้ผู้ตรวจกด + เพิ่มรายการหน้างานได้
+      };
     } else if (type === "number") {
       fieldConfig = { unit: "", placeholder: "0" };
     } else if (type === "select" || type === "radio" || type === "checkbox") {
@@ -737,7 +781,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     // B) If handling section item
     if (itemId) {
       // Switching type on existing item
-      const isNowScored = chosenType === "yesno" || chosenType === "scale";
+      const isNowScored = (chosenType === "yesno" || chosenType === "scale") && isScoringEnabled;
       setSections(prev => prev.map((sec, sIdx) => {
         if (sIdx !== secIdx) return sec;
         return {
@@ -747,6 +791,17 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
             let fieldConfig = it.fieldConfig || {};
             if (chosenType === "grid" && (!fieldConfig.columns || fieldConfig.columns.length === 0)) {
               fieldConfig = JSON.parse(JSON.stringify(CASH_AUDIT_PRESET));
+            } else if (chosenType === "multians" && (!fieldConfig.criteria || fieldConfig.criteria.length === 0)) {
+              fieldConfig = {
+                criteria: [
+                  { id: "decor", label: "การตกแต่ง", type: "yesno" },
+                  { id: "taste", label: "รสชาติ", type: "yesno" }
+                ],
+                items: [
+                  { id: "item_1", name: "รายการที่ 1" }
+                ],
+                allowAddItem: true
+              };
             } else if ((chosenType === "select" || chosenType === "radio" || chosenType === "checkbox") && !fieldConfig.options) {
               fieldConfig = { options: ["ตัวเลือกที่ 1", "ตัวเลือกที่ 2"] };
             } else if (chosenType === "number" && !fieldConfig.unit) {
@@ -1573,20 +1628,25 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
     });
 
     setIsSaving(true);
+
+    const cleanPassingScore = (passingScore === "-" || passingScore === "" || Number(passingScore) === 0)
+      ? 0 
+      : (Number(passingScore) || 85);
+
     const dto = {
       title: formName.trim(),
       locationTypeId: locationTypeId || 1,
       brandId: brandIds.length > 0 ? brandIds[0] : null,
       brandIds: brandIds.map(Number),
-      passingScore: Number(passingScore) || 85,
+      passingScore: cleanPassingScore,
       targetingMode: targetingMode || "ALL_LOCATIONS",
       targetLocationIds: (targetLocationIds || []).map(Number),
       version: form?.version || "v1.0",
       metadataConfigJson: JSON.stringify(cleanMetadataConfig),
       categoryOrderJson: JSON.stringify(categories),
       sections: sections.map((sec, sIdx) => {
-        const hasScored = (sec.items || []).some(i => (i.type === "yesno" || i.type === "scale") && i.isScored !== false && Number(i.fullScore) > 0);
-        const hasNonScored = (sec.items || []).some(i => (i.type !== "yesno" && i.type !== "scale") || i.isScored === false || Number(i.fullScore) === 0);
+        const hasScored = isScoringEnabled && (sec.items || []).some(i => (i.type === "yesno" || i.type === "scale") && i.isScored !== false && Number(i.fullScore) > 0);
+        const hasNonScored = !isScoringEnabled || (sec.items || []).some(i => (i.type !== "yesno" && i.type !== "scale") || i.isScored === false || Number(i.fullScore) === 0);
         const secType = (hasScored && hasNonScored) ? "MIXED" : (hasScored ? "AUDIT" : "INFO");
         return {
           id: typeof sec.id === 'number' ? sec.id : undefined,
@@ -1595,7 +1655,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           orderIndex: sIdx + 1,
           weightPercent: 0,
           items: (sec.items || []).map((item, iIdx) => {
-            const canBeScored = item.type === "yesno" || item.type === "scale";
+            const canBeScored = (item.type === "yesno" || item.type === "scale") && isScoringEnabled;
             const isScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
             const cat = NORMALIZE_CATEGORY(item.category || item.categoryName);
             return {
@@ -1760,26 +1820,34 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                 isReadOnly ? "bg-slate-50/80 border-slate-200" : "bg-white border-slate-200 focus-within:border-[#0F6659]"
               }`}>
                 <input
-                  type="number"
-                  min="1"
-                  max="100"
+                  type="text"
                   disabled={isReadOnly}
                   value={passingScore ?? 85}
                   onChange={(e) => {
-                    const val = e.target.value === '' ? '' : Math.min(100, Math.max(1, Number(e.target.value) || 0));
-                    setPassingScore(val);
+                    const val = e.target.value.trim();
+                    if (val === "-" || val === "0" || val === "") {
+                      setPassingScore(val);
+                    } else {
+                      const num = Number(val);
+                      if (!isNaN(num)) {
+                        setPassingScore(Math.min(100, Math.max(0, num)));
+                      }
+                    }
                   }}
                   onBlur={() => {
-                    if (!passingScore || passingScore < 1) setPassingScore(85);
+                    if (passingScore === "-" || passingScore === "0" || passingScore === 0) {
+                      setPassingScore("-");
+                    } else if (!passingScore || isNaN(Number(passingScore))) {
+                      setPassingScore(85);
+                    }
                   }}
-                  className={`w-8 sm:w-11 text-sm sm:text-base font-semibold outline-none font-mono text-left p-0 bg-transparent [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
+                  className={`w-10 sm:w-12 text-sm sm:text-base font-semibold outline-none font-mono text-left p-0 bg-transparent ${
                     isReadOnly ? "text-slate-700 cursor-default" : "text-slate-800 focus:text-emerald-950 cursor-text"
                   }`}
                   placeholder="85"
-                  required
                 />
                 <span className="text-[11px] sm:text-xs font-normal text-slate-400 select-none whitespace-nowrap">
-                  % ขึ้นไป
+                  {passingScore === "-" || passingScore === "0" || passingScore === 0 ? "ไม่คิดเกณฑ์" : "% ขึ้นไป"}
                 </span>
               </div>
             </div>
@@ -1963,117 +2031,119 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         ) : (
         <div className="space-y-6 animate-in fade-in duration-150">
           {/* 🌟 2.5. SCORING CATEGORIES MANAGER (ประเภทหมวดคะแนน) */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div>
-                  <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
-                    ประเภทหมวดคะแนน
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    กำหนดหมวดคะแนน นำไปใช้คำนวณสถิติแยกตามหมวด
-                  </p>
+          {isScoringEnabled && (
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div>
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-800">
+                      ประเภทหมวดคะแนน
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      กำหนดหมวดคะแนน นำไปใช้คำนวณสถิติแยกตามหมวด
+                    </p>
+                  </div>
                 </div>
+
+                <span className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-100 text-slate-700 self-start sm:self-auto font-mono">
+                  {categories.length} หมวดคะแนน
+                </span>
               </div>
 
-              <span className="text-xs font-bold px-3 py-1 rounded-xl bg-slate-100 text-slate-700 self-start sm:self-auto font-mono">
-                {categories.length} หมวดคะแนน
-              </span>
-            </div>
+              {/* Categories Orderly List (ตามแบบร่าง: จุด 6 จุด, ชื่อหมวด, จำนวนข้อ, ข้อ, ลบ) */}
+              <div className="space-y-2 pt-1">
+                {categories.map((cat, idx) => {
+                  const count = categoryCounts[cat] || 0;
+                  const isDragging = categoryDragUI?.cat === cat;
+                  const displaceY = categoryDragUI?.displace?.[cat] || 0;
+                  const translateY = isDragging ? categoryDragUI.deltaY : displaceY;
 
-            {/* Categories Orderly List (ตามแบบร่าง: จุด 6 จุด, ชื่อหมวด, จำนวนข้อ, ข้อ, ลบ) */}
-            <div className="space-y-2 pt-1">
-              {categories.map((cat, idx) => {
-                const count = categoryCounts[cat] || 0;
-                const isDragging = categoryDragUI?.cat === cat;
-                const displaceY = categoryDragUI?.displace?.[cat] || 0;
-                const translateY = isDragging ? categoryDragUI.deltaY : displaceY;
-
-                return (
-                  <div
-                    key={cat}
-                    ref={el => { categoryRefs.current[cat] = el; }}
-                    style={{
-                      transform: translateY ? `translateY(${translateY}px)` : 'none',
-                      zIndex: isDragging ? 50 : 1,
-                      willChange: categoryDragUI ? 'transform' : 'auto',
-                      transition: (isDragging || !categoryDragUI) ? 'none' : 'transform 0.18s cubic-bezier(0.2, 0, 0, 1)'
-                    }}
-                    className={`flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl bg-white border transition-all ${
-                      isDragging
-                        ? 'border-[#0F6659] shadow-lg ring-2 ring-[#0F6659]/20 bg-emerald-50/40'
-                        : 'border-slate-200 hover:border-emerald-300 shadow-2xs'
-                    }`}
-                  >
-                    {/* Left: จุด 6 จุด + ปุ่มเลื่อนขึ้น-ลง + ลำดับที่ + ชื่อหมวด */}
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {!isReadOnly && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          {/* จุด 6 จุด (Grip Handle) */}
-                          <div
-                            onPointerDown={(e) => handleCategoryPointerDown(e, cat)}
-                            className="cursor-grab active:cursor-grabbing p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors touch-none"
-                            title="ลากเพื่อจัดลำดับหมวดคะแนน"
-                          >
-                            <GripVertical size={16} />
+                  return (
+                    <div
+                      key={cat}
+                      ref={el => { categoryRefs.current[cat] = el; }}
+                      style={{
+                        transform: translateY ? `translateY(${translateY}px)` : 'none',
+                        zIndex: isDragging ? 50 : 1,
+                        willChange: categoryDragUI ? 'transform' : 'auto',
+                        transition: (isDragging || !categoryDragUI) ? 'none' : 'transform 0.18s cubic-bezier(0.2, 0, 0, 1)'
+                      }}
+                      className={`flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 rounded-2xl bg-white border transition-all ${
+                        isDragging
+                          ? 'border-[#0F6659] shadow-lg ring-2 ring-[#0F6659]/20 bg-emerald-50/40'
+                          : 'border-slate-200 hover:border-emerald-300 shadow-2xs'
+                      }`}
+                    >
+                      {/* Left: จุด 6 จุด + ปุ่มเลื่อนขึ้น-ลง + ลำดับที่ + ชื่อหมวด */}
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {!isReadOnly && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            {/* จุด 6 จุด (Grip Handle) */}
+                            <div
+                              onPointerDown={(e) => handleCategoryPointerDown(e, cat)}
+                              className="cursor-grab active:cursor-grabbing p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors touch-none"
+                              title="ลากเพื่อจัดลำดับหมวดคะแนน"
+                            >
+                              <GripVertical size={16} />
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                      {/* หมายเลขลำดับ (1, 2, 3...) */}
-                      <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono text-[11px] font-extrabold flex items-center justify-center shrink-0">
-                        {idx + 1}
-                      </span>
-
-                      {/* ชื่อหมวด */}
-                      <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">
-                        {getCategoryDisplay(cat)}
-                      </span>
-                    </div>
-
-                    {/* Right: จำนวนข้อ + ข้อ + ปุ่มลบ */}
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      <div className="flex items-center gap-1">
-                        <span className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono border ${
-                          count > 0 
-                            ? 'bg-emerald-50 text-[#0F6659] border-emerald-200' 
-                            : 'bg-slate-50 text-slate-400 border-slate-200'
-                        }`}>
-                          {count}
+                        {/* หมายเลขลำดับ (1, 2, 3...) */}
+                        <span className="w-5 h-5 rounded-md bg-slate-100 text-slate-600 font-mono text-[11px] font-extrabold flex items-center justify-center shrink-0">
+                          {idx + 1}
                         </span>
-                        <span className="text-xs font-semibold text-slate-500">ข้อ</span>
+
+                        {/* ชื่อหมวด */}
+                        <span className="text-xs sm:text-sm font-bold text-slate-800 truncate">
+                          {getCategoryDisplay(cat)}
+                        </span>
                       </div>
 
-                      {!isReadOnly && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (categories.length <= 1) {
-                              setWarningModal({
-                                isOpen: true,
-                                title: "ไม่สามารถลบหมวดคะแนนได้",
-                                message: "แบบฟอร์มต้องมีหมวดคะแนนอย่างน้อย 1 หมวด"
+                      {/* Right: จำนวนข้อ + ข้อ + ปุ่มลบ */}
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <div className="flex items-center gap-1">
+                          <span className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono border ${
+                            count > 0 
+                              ? 'bg-emerald-50 text-[#0F6659] border-emerald-200' 
+                              : 'bg-slate-50 text-slate-400 border-slate-200'
+                          }`}>
+                            {count}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500">ข้อ</span>
+                        </div>
+
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (categories.length <= 1) {
+                                setWarningModal({
+                                  isOpen: true,
+                                  title: "ไม่สามารถลบหมวดคะแนนได้",
+                                  message: "แบบฟอร์มต้องมีหมวดคะแนนอย่างน้อย 1 หมวด"
+                                });
+                                return;
+                              }
+                              setDeleteTarget({
+                                type: "scoringCategory",
+                                catName: cat,
+                                count
                               });
-                              return;
-                            }
-                            setDeleteTarget({
-                              type: "scoringCategory",
-                              catName: cat,
-                              count
-                            });
-                          }}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                          title={`ลบหมวดคะแนน "${cat}"`}
-                        >
-                          <X size={15} />
-                        </button>
-                      )}
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                            title={`ลบหมวดคะแนน "${cat}"`}
+                          >
+                            <X size={15} />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
       {/* 🌟 3. SECTIONS & QUESTIONS BUILDER */}
       <div className="space-y-4">
@@ -2270,17 +2340,17 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       {/* Right: Score Input + Critical Toggle + Delete */}
                       <div className="flex items-center gap-1.5 shrink-0">
                         {(() => {
-                          const canBeScored = item.type === "yesno" || item.type === "scale";
+                          const canBeScored = (item.type === "yesno" || item.type === "scale") && isScoringEnabled;
                           const isItemScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
 
                           if (!canBeScored) {
                             return (
                               <div
-                                className="flex items-center gap-1 border border-slate-200/70 rounded-xl px-2.5 py-1 bg-slate-100/80 shadow-2xs select-none"
-                                title="ฟิลด์ประเภทนี้ยังไม่มีระบบคิดคะแนน (คะแนนเป็น -)"
+                                className="flex items-center gap-1 border border-slate-200/70 rounded-xl px-2.5 py-1 bg-slate-100 text-slate-400 shadow-2xs select-none cursor-not-allowed opacity-75"
+                                title={!isScoringEnabled ? "แบบฟอร์มนี้ไม่คิดคะแนน" : "ประเภทคำถามนี้ไม่คิดคะแนน"}
                               >
                                 <span className="text-[11px] font-semibold text-slate-400">คะแนน:</span>
-                                <span className="w-6 text-xs font-black text-center font-mono text-slate-400 cursor-not-allowed">
+                                <span className="w-6 text-xs font-black text-center font-mono text-slate-400">
                                   -
                                 </span>
                               </div>
@@ -2476,6 +2546,58 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
                       </div>
                     )}
 
+                    {item.type === "multians" && (
+                      <div className="p-3.5 rounded-2xl bg-blue-50/40 border border-blue-200/80 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-blue-900">
+                              เกณฑ์ตรวจ ({item.fieldConfig?.criteria?.length || 0} เกณฑ์):
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {(item.fieldConfig?.criteria || []).map((crit) => (
+                                <span key={crit.id} className="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white border border-blue-200 text-blue-800 shadow-2xs">
+                                  {crit.label}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* แสดงรายการเมนูเริ่มต้น */}
+                        <div className="space-y-1.5 p-2.5 rounded-xl bg-white border border-blue-100">
+                          <span className="text-[11px] font-bold text-slate-500 block">
+                            รายการเมนูเริ่มต้น ({item.fieldConfig?.items?.length || 0} รายการ):
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(item.fieldConfig?.items || []).map((menuItem, mIdx) => (
+                              <span key={menuItem.id || mIdx} className="text-xs font-medium px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700">
+                                {mIdx + 1}. {menuItem.name}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* ปุ่มกดเปิด Modal แก้ไขโครงสร้าง */}
+                        {!isReadOnly && (
+                          <div className="flex justify-end pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setMultiAnsModalTarget({
+                                secIdx,
+                                itemId: item.id,
+                                initialConfig: item.fieldConfig,
+                                initialTitle: item.text || item.questionText || "หัวข้อการตรวจ"
+                              })}
+                              className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-blue-50 border border-blue-300 text-xs font-bold text-blue-800 flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-95"
+                            >
+                              <Settings2 size={13} />
+                              <span>แก้ไขเกณฑ์และรายการเมนู</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Number Unit Config */}
                     {item.type === "number" && (
                       <div className="flex items-center gap-2 pt-1">
@@ -2567,7 +2689,7 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
 
                       {/* Right: Category Selector (หมวดคะแนนของข้อนี้ - แสดงเฉพาะเมื่อคิดคะแนน) */}
                       {(() => {
-                        const canBeScored = item.type === "yesno" || item.type === "scale";
+                        const canBeScored = (item.type === "yesno" || item.type === "scale") && isScoringEnabled;
                         const isItemScored = canBeScored && item.isScored !== false && Number(item.fullScore) > 0;
                         if (!isItemScored) return null;
 
@@ -3478,6 +3600,17 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
           initialConfig={gridModalTarget.initialConfig}
           initialTitle={gridModalTarget.initialTitle}
           onSave={handleSaveGridConfig}
+        />
+      )}
+
+      {/* 🌟 8.1 MULTIANS CONFIG MODAL (Multiple Answer Builder) */}
+      {multiAnsModalTarget && (
+        <MultiAnsConfigModal
+          isOpen={true}
+          onClose={() => setMultiAnsModalTarget(null)}
+          initialConfig={multiAnsModalTarget.initialConfig}
+          initialTitle={multiAnsModalTarget.initialTitle}
+          onSave={handleSaveMultiAnsConfig}
         />
       )}
 

@@ -61,9 +61,43 @@ function extractTime(dateStr, timeStr) {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function extractTDS(record) {
-  if (record.waterQualityTds != null) return record.waterQualityTds;
-  if (record.tds != null) return record.tds;
+function parseMetadataJson(meta) {
+  if (!meta) return null;
+  if (typeof meta === "object") return meta;
+  try {
+    return JSON.parse(meta);
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeCatCode(code, name) {
+  const c = (code || "").toUpperCase().trim();
+  const n = (name || "").toUpperCase().trim();
+  if (c === "PD" || c === "QLT" || c.includes("PROD") || n.includes("PRODUCT") || n.includes("คุณภาพ") || n.includes("สินค้า")) return "PD";
+  if (c === "PC" || c === "OPS" || c.includes("PROC") || n.includes("PROCESS") || n.includes("ปฏิบัติ") || n.includes("การดำเนินงาน")) return "PC";
+  if (c === "S" || c === "SVC" || c.includes("SERV") || n.includes("SERVICE") || n.includes("บริการ")) return "S";
+  if (c === "C" || c === "CLN" || c.includes("CLEAN") || n.includes("CLEAN") || n.includes("สะอาด")) return "C";
+  if (c === "DM" || c === "DOC" || c.includes("DOC") || n.includes("DOCUMENT") || n.includes("เอกสาร")) return "DM";
+  return c;
+}
+
+export function extractTDS(record) {
+  if (record.waterQualityTds != null && record.waterQualityTds !== "") return record.waterQualityTds;
+  if (record.tds != null && record.tds !== "") return record.tds;
+  const meta = parseMetadataJson(record.metadataValuesJson || record.metadataValues);
+  if (meta) {
+    const val = meta.water_quality_tds ?? meta.waterQualityTds ?? meta.tds ?? meta["คุณภาพน้ำ"] ?? meta["TDS"];
+    if (val != null && val !== "") return val;
+    if (Array.isArray(meta._fields)) {
+      const match = meta._fields.find(f => {
+        const id = (f.id || "").toLowerCase();
+        const lbl = (f.label || "").toLowerCase();
+        return id.includes("tds") || id.includes("water") || lbl.includes("tds") || lbl.includes("คุณภาพน้ำ");
+      });
+      if (match?.value != null && match.value !== "") return match.value;
+    }
+  }
   if (record.notes) {
     const match = record.notes.match(/(\d+)\s*(?:TDS|\/ppm|ppm)/i);
     if (match) return parseInt(match[1], 10);
@@ -71,11 +105,30 @@ function extractTDS(record) {
   return "-";
 }
 
-function getCategoryScores(record) {
+export function extractTeamOnShift(record) {
+  if (record.teamOnShift != null && record.teamOnShift !== "") return record.teamOnShift;
+  if (record.shiftLeader != null && record.shiftLeader !== "") return record.shiftLeader;
+  const meta = parseMetadataJson(record.metadataValuesJson || record.metadataValues);
+  if (meta) {
+    const val = meta.team_on_shift ?? meta.teamOnShift ?? meta.on_shift ?? meta["ผู้เข้ากะ"] ?? meta["ทีมเข้ากะ"];
+    if (val != null && val !== "") return val;
+    if (Array.isArray(meta._fields)) {
+      const match = meta._fields.find(f => {
+        const id = (f.id || "").toLowerCase();
+        const lbl = (f.label || "").toLowerCase();
+        return id.includes("shift") || id.includes("team") || lbl.includes("shift") || lbl.includes("เข้ากะ") || lbl.includes("ทีม");
+      });
+      if (match?.value != null && match.value !== "") return match.value;
+    }
+  }
+  return "-";
+}
+
+export function getCategoryScores(record) {
   const catMap = { PD: [], PC: [], S: [], C: [], DM: [] };
   for (const res of record.responses || []) {
     if (res.isNa) continue;
-    const code = (res.categoryCode || "").toUpperCase();
+    const code = normalizeCatCode(res.categoryCode, res.categoryName);
     if (catMap[code]) {
       catMap[code].push({ given: res.scoreGiven ?? 0, full: res.fullScore ?? 0 });
     }
@@ -83,7 +136,14 @@ function getCategoryScores(record) {
   const result = {};
   for (const [cat, items] of Object.entries(catMap)) {
     if (items.length === 0) {
-      result[cat] = record[`score${cat}`] != null ? Math.round(record[`score${cat}`]) : "-";
+      const fallbackVal = record[`score${cat}`] ?? (
+        cat === "PD" ? (record.scoreQLT ?? record.scoreProduct) :
+        cat === "PC" ? (record.scoreOPS ?? record.scoreProcess) :
+        cat === "S"  ? (record.scoreSVC ?? record.scoreService) :
+        cat === "C"  ? (record.scoreCLN ?? record.scoreCleanliness) :
+        cat === "DM" ? (record.scoreDOC ?? record.scoreDocument) : null
+      );
+      result[cat] = fallbackVal != null ? Math.round(fallbackVal) : "-";
     } else {
       const totalFull = items.reduce((s, i) => s + i.full, 0);
       const totalGiven = items.reduce((s, i) => s + i.given, 0);
@@ -107,7 +167,12 @@ function buildSuffixMap(allRecords) {
   const byLoc = new Map();
   for (const r of allRecords) {
     if (!byLoc.has(r.locationId)) byLoc.set(r.locationId, []);
-    byLoc.get(r.locationId).push({ id: r.id, t: r._t, s: Math.round(r.percentageScore ?? r.score ?? 100) });
+    byLoc.get(r.locationId).push({
+      id: r.id,
+      t: r._t,
+      s: Math.round(r.percentageScore ?? r.score ?? 100),
+      passingScore: r.passingScore ?? 85
+    });
   }
   const map = new Map();
   for (const list of byLoc.values()) {
@@ -117,7 +182,13 @@ function buildSuffixMap(allRecords) {
       const s0 = cur.s;
       const s1 = list[i - 1].s;
       const s2 = i >= 2 ? list[i - 2].s : 100;
-      map.set(cur.id, s0 < 85 && s1 < 85 && s2 < 85 ? "(3)" : s0 < 85 && s1 < 85 ? "(2)" : "");
+      const pass0 = cur.passingScore ?? 85;
+      const pass1 = list[i - 1].passingScore ?? 85;
+      const pass2 = i >= 2 ? (list[i - 2].passingScore ?? 85) : 85;
+      const fail0 = s0 < pass0;
+      const fail1 = s1 < pass1;
+      const fail2 = s2 < pass2;
+      map.set(cur.id, fail0 && fail1 && fail2 ? "(3)" : fail0 && fail1 ? "(2)" : "");
     });
   }
   return map;
@@ -234,7 +305,7 @@ function buildAuditRecordSheet(records, suffixMap, isSorted = false) {
       branchName,
       formatThaiDateShort(r.auditDate),
       extractTime(r.auditDate, r.time),
-      r.teamOnShift || r.shiftLeader || "-",
+      extractTeamOnShift(r),
       extractTDS(r),
       cats.PD, cats.PC, cats.S, cats.C, cats.DM,
       Math.round(r.percentageScore ?? r.score ?? 0),
@@ -280,9 +351,10 @@ function buildGradingSheet(yearRecords, year) {
     }
   });
 
-  const calcAvg = arr => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+  const calcAvg = arr => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : "-";
   const branchList = Object.values(branchMap).map(b => ({
-    name: b.name, avgScore: calcAvg(b.scores),
+    name: b.name,
+    avgScore: b.scores.length > 0 ? Math.round(b.scores.reduce((a, b) => a + b, 0) / b.scores.length) : 0,
     PD: calcAvg(b.cats.PD), PC: calcAvg(b.cats.PC), S: calcAvg(b.cats.S), C: calcAvg(b.cats.C), DM: calcAvg(b.cats.DM)
   })).sort((a, b) => b.avgScore - a.avgScore);
 
@@ -363,17 +435,17 @@ function buildDefectSheet(records) {
   const aoa = [["No.", "Branch", "Date", "Team on Shift", "รายละเอียด/จำนวนรายการ"]];
   let count = 1;
   records.forEach(r => {
-    const defects = (r.responses || []).filter(res => res.isCritical || !res.isPassed);
+    const defects = (r.responses || []).filter(res => !res.isNa && res.isPassed === false);
     if (defects.length > 0) {
       defects.forEach(res => {
         aoa.push([
-          count++, r.locationName || r.locationCode || "-", formatThaiDateShort(r.auditDate), r.teamOnShift || r.shiftLeader || "-",
+          count++, r.locationName || r.locationCode || "-", formatThaiDateShort(r.auditDate), extractTeamOnShift(r),
           `${res.questionText || res.categoryName || "ข้อตรวจ"}: ${res.notes || "ไม่ผ่านเกณฑ์"}`
         ]);
       });
     } else if (r.hasCriticalDefect || (r.notes && r.notes.includes("Waste"))) {
       aoa.push([
-        count++, r.locationName || r.locationCode || "-", formatThaiDateShort(r.auditDate), r.teamOnShift || r.shiftLeader || "-",
+        count++, r.locationName || r.locationCode || "-", formatThaiDateShort(r.auditDate), extractTeamOnShift(r),
         r.notes || "พบข้อบกพร่องวิกฤต/สินค้าหมดอายุ"
       ]);
     }
