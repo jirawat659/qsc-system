@@ -5,7 +5,7 @@ import { Loader2, AlertCircle, CheckCircle2, Clock } from "lucide-react";
  * 🌟 SyncStatusPill - คอมโพเนนต์แสดงสถานะการบันทึกข้อมูลแบบ Animated Pill
  * รองรับการกดสลับแสดงผลระหว่างคำว่า 'Synced' กับเวลา 'HH:mm'
  *
- * @param {string} syncStatus - สถานะปัจจุบัน: "idle" | "saving" | "synced" | "error"
+ * @param {string} syncStatus - สถานะปัจจุบัน: "idle" | "unsaved" | "saving" | "synced" | "error"
  * @param {boolean} showSaveTime - สลับโหมดแสดงเวลา (true = แสดงเวลา, false = แสดง Synced)
  * @param {string} lastSavedTime - ข้อความเวลา เช่น "14:05"
  * @param {function} onToggle - ฟังก์ชันเมื่อคลิกปุ่ม
@@ -25,7 +25,7 @@ const SyncStatusPill = React.memo(function SyncStatusPill({
             type="button"
             onClick={onToggle}
             title={showSaveTime ? "แตะเพื่อดูสถานะ Synced" : "แตะเพื่อดูเวลาที่บันทึกล่าสุด"}
-            className={`relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold shrink-0 select-none cursor-pointer transition-all duration-200 active:scale-95 shadow-2xs hover:shadow-sm ${syncStatus === "saving"
+            className={`relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold shrink-0 select-none cursor-pointer transition-all duration-200 active:scale-95 shadow-2xs hover:shadow-sm ${syncStatus === "saving" || syncStatus === "unsaved"
                     ? "bg-amber-50 text-amber-700 border-amber-200"
                     : syncStatus === "error"
                         ? "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100"
@@ -36,6 +36,8 @@ const SyncStatusPill = React.memo(function SyncStatusPill({
             <span className="relative w-3.5 h-3.5 inline-grid place-items-center shrink-0">
                 {syncStatus === "saving" ? (
                     <Loader2 size={13} className="animate-spin text-amber-600" />
+                ) : syncStatus === "unsaved" ? (
+                    <AlertCircle size={13} className="text-amber-600" />
                 ) : syncStatus === "error" ? (
                     <AlertCircle size={13} className="text-rose-600" />
                 ) : (
@@ -62,6 +64,8 @@ const SyncStatusPill = React.memo(function SyncStatusPill({
             <span className="relative inline-grid grid-cols-[max-content] items-center leading-none">
                 {syncStatus === "saving" ? (
                     <span>กำลังบันทึก...</span>
+                ) : syncStatus === "unsaved" ? (
+                    <span>ยังไม่บันทึก</span>
                 ) : syncStatus === "error" ? (
                     <span>บันทึกไม่สำเร็จ</span>
                 ) : (

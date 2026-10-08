@@ -2156,12 +2156,14 @@ export default function LiveAuditScreen({
     );
     if (!ok) return;
 
-    // 1. 🛡️ Flush pending save first before migration starts!
+    // 1. 🛡️ เซิร์ฟเวอร์ย้ายเวอร์ชันจากแบบร่างที่บันทึกไว้ จึงต้องบันทึกข้อมูลที่ค้างอยู่ก่อนเริ่มย้าย
     if (autoSaveTimerRef.current) {
       clearTimeout(autoSaveTimerRef.current);
       autoSaveTimerRef.current = null;
     }
-    await performSaveDraft();
+    const queuedBeforeMigrate = pendingSaveDataRef.current || {};
+    pendingSaveDataRef.current = null;
+    await performSaveDraft(queuedBeforeMigrate);
     for (let i = 0; i < 20 && (isSavingRef.current || hasPendingSaveRef.current); i++) {
       await new Promise(r => setTimeout(r, 150));
     }
@@ -2271,23 +2273,67 @@ export default function LiveAuditScreen({
     }
   }, [syncStatus, step]);
 
+  // 🌟 โหมดบันทึกด้วยมือ: จดข้อที่เครื่องนี้แก้แล้วแต่ยังไม่กดบันทึก
+  // เพื่อให้ข้อมูลที่เครื่องอื่นบันทึกเข้ามาไม่ทับข้อที่ผู้ใช้เครื่องนี้กำลังแก้อยู่
+  const dirtyKeysRef = useRef({
+    answers: new Set(),
+    photos: new Set(),
+    comments: new Set(),
+    metadataValues: new Set()
+  });
+  const latestMapsRef = useRef({ answers: {}, photos: {}, comments: {}, metadataValues: {} });
+  const lastSaveOkRef = useRef(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [remoteConflictCount, setRemoteConflictCount] = useState(0);
+  // true = ถ้าผู้ใช้ออกจากหน้านี้ด้วยวิธีอื่นที่ไม่ใช่ปุ่มย้อนกลับ (เช่น กดเมนูไปหน้าอื่น) ให้บันทึกให้ก่อนเพื่อกันข้อมูลหาย
+  // ตั้งเป็น false ถ้าต้องการให้บันทึกด้วยปุ่มเท่านั้นจริงๆ
+  const saveOnLeaveSafetyNet = true;
+
+  useEffect(() => {
+    latestMapsRef.current = { answers, photos, comments, metadataValues };
+  });
+
+  const hasUnsavedLocalChanges = () => {
+    if (isDiscardingRef.current || isSubmittedSuccessRef.current) return false;
+    const pending = pendingSaveDataRef.current;
+    if (pending && Object.keys(pending).length > 0) return true;
+    return Object.values(dirtyKeysRef.current).some((set) => set.size > 0);
+  };
+
+  const discardLocalUnsaved = () => {
+    pendingSaveDataRef.current = null;
+    hasPendingSaveRef.current = false;
+    dirtyKeysRef.current = {
+      answers: new Set(),
+      photos: new Set(),
+      comments: new Set(),
+      metadataValues: new Set()
+    };
+    isAnswerModifiedRef.current = false;
+    setHasUnsavedChanges(false);
+  };
+
+  // ถามยืนยันก่อนออกจากหน้าตรวจ ถ้ายังมีข้อมูลที่ไม่ได้กดบันทึก (คืนค่า true = ออกได้)
+  const confirmLeaveIfUnsaved = () => {
+    if (!hasUnsavedLocalChanges()) return true;
+    const ok = window.confirm(
+      "มีข้อมูลที่ยังไม่ได้กดบันทึก ถ้าออกตอนนี้ข้อมูลส่วนนั้นจะหายไป\n\nกด OK เพื่อออกโดยไม่บันทึก หรือกด Cancel เพื่ออยู่ต่อแล้วกดปุ่มบันทึก"
+    );
+    if (!ok) return false;
+    discardLocalUnsaved();
+    return true;
+  };
+
   const handleDesktopBack = useCallback(() => {
     if (step === "select-form") {
       setStep("select-unit");
     } else if (step === "audit") {
       if (isResumeDraft || isFromAssignedPlan) {
-        if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
-          if (autoSaveTimerRef.current) {
-            clearTimeout(autoSaveTimerRef.current);
-            autoSaveTimerRef.current = null;
-          }
-          const queued = pendingSaveDataRef.current || {};
-          pendingSaveDataRef.current = null;
-          performSaveDraftRef.current(queued);
-        }
+        if (!confirmLeaveIfUnsaved()) return;
         if (onBackRef.current) onBackRef.current(true);
         return;
       }
+      if (!confirmLeaveIfUnsaved()) return;
       setStep("select-form");
     }
   }, [step, isResumeDraft, isFromAssignedPlan]);
@@ -2376,6 +2422,16 @@ export default function LiveAuditScreen({
     const currentSeq = ++saveSeqRef.current;
     try {
       setSyncStatus("saving");
+      lastSaveOkRef.current = false;
+      let saveOk = false;
+      // แยกชุด "ข้อที่แก้ค้าง" ที่กำลังจะถูกบันทึกออกมา ข้อที่แก้ระหว่างรอ request จะถูกจดเป็นชุดใหม่
+      const sentDirty = dirtyKeysRef.current;
+      dirtyKeysRef.current = {
+        answers: new Set(),
+        photos: new Set(),
+        comments: new Set(),
+        metadataValues: new Set()
+      };
       const currentAnswers = overrideData.answers !== undefined ? overrideData.answers : answers;
       const currentPhotos = overrideData.photos !== undefined ? overrideData.photos : photos;
       const currentComments = overrideData.comments !== undefined ? overrideData.comments : comments;
@@ -2474,6 +2530,9 @@ export default function LiveAuditScreen({
         isNewAudit: isExplicitNewAudit
       });
 
+      saveOk = true;
+      lastSaveOkRef.current = true;
+
       // 🌟 M2: ป้องกัน race condition ถ้ามี auto-save รอบใหม่กว่าถูกส่งออกไปแล้วขณะที่ request นี้กำลังเดินทาง
       if (currentSeq !== saveSeqRef.current) {
         return;
@@ -2489,9 +2548,13 @@ export default function LiveAuditScreen({
         }
       }
 
-      isAnswerModifiedRef.current = false;
+      // 🌟 ถ้าระหว่างรอ request มีการแก้เพิ่ม ให้ยังถือว่ามีข้อมูลที่ยังไม่บันทึก
+      const stillUnsaved = hasUnsavedLocalChanges();
+      isAnswerModifiedRef.current = stillUnsaved;
+      setHasUnsavedChanges(stillUnsaved);
       setLastSavedTime(currentTimeStr);
-      setSyncStatus("synced");
+      setSyncStatus(stillUnsaved ? "unsaved" : "synced");
+      if (!stillUnsaved) setRemoteConflictCount(0);
 
       const draftObj = {
         id: res?.data?.id || currDraftId,
@@ -2538,6 +2601,17 @@ export default function LiveAuditScreen({
       }
     } finally {
       isSavingRef.current = false;
+      if (!saveOk) {
+        // บันทึกไม่สำเร็จ/ถูกบล็อก → คืนรายการข้อที่แก้ค้างกลับไป เพื่อให้กดบันทึกซ้ำได้
+        let restored = false;
+        Object.keys(sentDirty).forEach((field) => {
+          sentDirty[field].forEach((k) => {
+            dirtyKeysRef.current[field].add(k);
+            restored = true;
+          });
+        });
+        if (restored) setHasUnsavedChanges(true);
+      }
       // 🌟 If changes arrived while the previous HTTP save was in-flight, save them immediately now
       if (hasPendingSaveRef.current) {
         hasPendingSaveRef.current = false;
@@ -2553,28 +2627,47 @@ export default function LiveAuditScreen({
     performSaveDraftRef.current = performSaveDraft;
   });
 
-  // 🌟 Action-based Debounced Save (800ms)
-  // Saves only when the user performs answer actions (answering questions, photos, comments, staff, etc.)
-  // Never saves when switching sections or pages
+  // 🌟 โหมดบันทึกด้วยมือ: เมื่อผู้ใช้ตอบ/แก้ไข ระบบ "จดว่ามีการแก้ไขค้าง" เท่านั้น ยังไม่ส่งไปเซิร์ฟเวอร์
+  // การบันทึกจริงเกิดเมื่อกดปุ่ม "บันทึก" (handleManualSave) → performSaveDraft → เซิร์ฟเวอร์กระจายให้ทุกเครื่องผ่าน SignalR เหมือนเดิม
   const scheduleActionSave = useCallback((overrideData = {}) => {
     isAnswerModifiedRef.current = true;
-    setSyncStatus("saving");
-    if (autoSaveTimerRef.current) {
-      clearTimeout(autoSaveTimerRef.current);
-    }
+
+    ['answers', 'photos', 'comments', 'metadataValues'].forEach((field) => {
+      if (overrideData[field] === undefined) return;
+      const prev = latestMapsRef.current[field] || {};
+      const next = overrideData[field] || {};
+      const dirty = dirtyKeysRef.current[field];
+      Object.keys(next).forEach((k) => {
+        if (JSON.stringify(next[k]) !== JSON.stringify(prev[k])) dirty.add(k);
+      });
+      Object.keys(prev).forEach((k) => {
+        if (!(k in next)) dirty.add(k);
+      });
+    });
+
     pendingSaveDataRef.current = {
       ...(pendingSaveDataRef.current || {}),
       ...overrideData
     };
-    autoSaveTimerRef.current = setTimeout(() => {
-      autoSaveTimerRef.current = null;
-      const queued = pendingSaveDataRef.current || {};
-      pendingSaveDataRef.current = null;
-      if (performSaveDraftRef.current) {
-        performSaveDraftRef.current(queued);
-      }
-    }, 800);
+    setHasUnsavedChanges(true);
+    setSyncStatus("unsaved");
   }, []);
+
+  const handleManualSave = useCallback(async () => {
+    if (isReadOnlyMode || !performSaveDraftRef.current) return;
+    const wasInFlight = isSavingRef.current;
+    const queued = pendingSaveDataRef.current || {};
+    pendingSaveDataRef.current = null;
+
+    await performSaveDraftRef.current(queued);
+
+    // ถูกบล็อกหรือบันทึกไม่สำเร็จ → คืนข้อมูลที่ค้างไว้ ไม่ให้หายเงียบๆ
+    if (!wasInFlight && !lastSaveOkRef.current) {
+      pendingSaveDataRef.current = { ...queued, ...(pendingSaveDataRef.current || {}) };
+      setHasUnsavedChanges(true);
+      setSyncStatus((prev) => (prev === "error" ? "error" : "unsaved"));
+    }
+  }, [isReadOnlyMode]);
 
   // 🌟 Auto-fetch the latest draft from server upon entering step === "audit"
   // ONLY if this is NOT a new audit (i.e. resuming an in-progress draft)
@@ -2746,57 +2839,66 @@ export default function LiveAuditScreen({
             ? JSON.parse(syncedDraft.draftPayloadJson)
             : syncedDraft.draftPayloadJson;
 
-          // Merge updates: replace state with server snapshot, preserving only local uncommitted changes if any
-          if (payload.answers !== undefined) {
-            const pendingAnswers = pendingSaveDataRef.current?.answers;
-            setAnswers(pendingAnswers ? { ...payload.answers, ...pendingAnswers } : (payload.answers || {}));
-          }
-          if (payload.photos !== undefined) {
-            const pendingPhotos = pendingSaveDataRef.current?.photos;
-            setPhotos(pendingPhotos ? { ...payload.photos, ...pendingPhotos } : (payload.photos || {}));
-          }
-          if (payload.comments !== undefined) {
-            const pendingComments = pendingSaveDataRef.current?.comments;
-            setComments(pendingComments ? { ...payload.comments, ...pendingComments } : (payload.comments || {}));
-          }
-          if (payload.staffCount !== undefined) {
-            setStaffCount(payload.staffCount);
-          }
-          if (payload.extraNote !== undefined) {
-            setExtraNote(payload.extraNote);
-          }
-          if (payload.metadataValues !== undefined) {
-            const pendingMeta = pendingSaveDataRef.current?.metadataValues;
-            setMetadataValues(pendingMeta ? { ...payload.metadataValues, ...pendingMeta } : (payload.metadataValues || {}));
-          }
-          if (payload.auditeeSignature !== undefined) {
-            setAuditeeSignature(payload.auditeeSignature || null);
-          }
-          if (payload.auditorSignature !== undefined) {
-            setAuditorSignature(payload.auditorSignature || null);
-          }
-          if (payload.auditeeSignName !== undefined) {
-            setAuditeeSignName(payload.auditeeSignName || "");
-          }
-          if (payload.isBackdated !== undefined) {
-            setIsBackdated(Boolean(payload.isBackdated));
-          }
-          if (payload.backdatedStartDate !== undefined) {
-            setBackdatedStartDate(payload.backdatedStartDate);
-          }
-          if (payload.backdatedEndDate !== undefined) {
-            setBackdatedEndDate(payload.backdatedEndDate);
-          }
-          if (payload.auditType) {
-            setAuditType(payload.auditType);
-          }
+          // 🌟 โหมดบันทึกด้วยมือ: ข้อมูลจากเครื่องอื่นเข้ามาแทนที่ทุกข้อ ยกเว้นข้อที่เครื่องนี้แก้ไว้แล้วยังไม่ได้กดบันทึก
+          let conflicts = 0;
+          const pend = pendingSaveDataRef.current || {};
+
+          const mergeMap = (field, remoteMap, setter) => {
+            const remote = remoteMap || {};
+            const dirty = dirtyKeysRef.current[field];
+            if (!dirty || dirty.size === 0) {
+              setter(remote);
+              return;
+            }
+            const local = latestMapsRef.current[field] || {};
+            const merged = { ...remote };
+            dirty.forEach((k) => {
+              if (k in local) {
+                if (k in remote && JSON.stringify(remote[k]) !== JSON.stringify(local[k])) conflicts++;
+                merged[k] = local[k];
+              } else {
+                if (k in remote) conflicts++;
+                delete merged[k];
+              }
+            });
+            setter(merged);
+            // ให้ข้อมูลที่จะถูกบันทึกครั้งถัดไปรวมข้อมูลจากเครื่องอื่นด้วย ไม่ใช่ภาพเก่า
+            if (pendingSaveDataRef.current && pendingSaveDataRef.current[field] !== undefined) {
+              pendingSaveDataRef.current[field] = merged;
+            }
+          };
+
+          const applyScalar = (field, remoteVal, setter) => {
+            if (pend[field] !== undefined) {
+              if (JSON.stringify(pend[field]) !== JSON.stringify(remoteVal)) conflicts++;
+              return;
+            }
+            setter(remoteVal);
+          };
+
+          if (payload.answers !== undefined) mergeMap('answers', payload.answers, setAnswers);
+          if (payload.photos !== undefined) mergeMap('photos', payload.photos, setPhotos);
+          if (payload.comments !== undefined) mergeMap('comments', payload.comments, setComments);
+          if (payload.metadataValues !== undefined) mergeMap('metadataValues', payload.metadataValues, setMetadataValues);
+
+          if (payload.staffCount !== undefined) applyScalar('staffCount', payload.staffCount, setStaffCount);
+          if (payload.extraNote !== undefined) applyScalar('extraNote', payload.extraNote, setExtraNote);
+          if (payload.auditeeSignature !== undefined) applyScalar('auditeeSignature', payload.auditeeSignature || null, setAuditeeSignature);
+          if (payload.auditorSignature !== undefined) applyScalar('auditorSignature', payload.auditorSignature || null, setAuditorSignature);
+          if (payload.auditeeSignName !== undefined) setAuditeeSignName(payload.auditeeSignName || "");
+          if (payload.isBackdated !== undefined) applyScalar('isBackdated', Boolean(payload.isBackdated), setIsBackdated);
+          if (payload.backdatedStartDate !== undefined) applyScalar('backdatedStartDate', payload.backdatedStartDate, setBackdatedStartDate);
+          if (payload.backdatedEndDate !== undefined) applyScalar('backdatedEndDate', payload.backdatedEndDate, setBackdatedEndDate);
+          if (payload.auditType) applyScalar('auditType', payload.auditType, setAuditType);
+
+          if (conflicts > 0) setRemoteConflictCount((c) => c + conflicts);
           const incomingTime = payload.savedAt ||
             (syncedDraft.updatedAt
               ? new Date(syncedDraft.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
               : new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
 
           setLastSavedTime(incomingTime); // 👈 อัปเดตเวลาบนปุ่ม Synced ของเครื่องนี้ทันที
-          setSyncStatus("synced");
+          setSyncStatus(hasUnsavedLocalChanges() ? "unsaved" : "synced");
         } catch (e) {
           console.warn("SignalR draft payload parse error:", e);
         }
@@ -2827,7 +2929,9 @@ export default function LiveAuditScreen({
   useEffect(() => {
     return () => {
       if (isDiscardingRef.current) return;
-      if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
+      // ตาข่ายนิรภัย: ออกจากหน้านี้ด้วยทางอื่น (เช่น กดเมนูไปหน้าอื่น) ทั้งที่ยังมีข้อมูลค้าง ให้บันทึกก่อนกันข้อมูลหาย
+      // (ถ้ากดปุ่มย้อนกลับแล้วเลือก "ออกโดยไม่บันทึก" ข้อมูลค้างจะถูกล้างไปแล้ว จึงไม่บันทึกตรงนี้)
+      if (saveOnLeaveSafetyNet && isAnswerModifiedRef.current && performSaveDraftRef.current) {
         if (autoSaveTimerRef.current) {
           clearTimeout(autoSaveTimerRef.current);
           autoSaveTimerRef.current = null;
@@ -2838,6 +2942,19 @@ export default function LiveAuditScreen({
       }
     };
   }, []);
+
+  // เตือนก่อนปิดแท็บ/รีเฟรช ถ้ายังมีข้อมูลที่ไม่ได้กดบันทึก
+  useEffect(() => {
+    if (step !== "audit") return;
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedLocalChanges()) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [step]);
 
   const paginatedBranchList = useMemo(() => {
     const start = (branchPage - 1) * branchPageSize;
@@ -3295,6 +3412,7 @@ export default function LiveAuditScreen({
         prev.showSaveTime === showSaveTime &&
         prev.lastSavedTime === lastSavedTime && 
         prev.syncStatus === syncStatus &&
+        prev.hasUnsavedChanges === hasUnsavedChanges &&
         prev.isExportingExcel === isExportingExcel &&
         prev.isReadOnlyMode === isReadOnlyMode
       ) {
@@ -3313,6 +3431,7 @@ export default function LiveAuditScreen({
         showSaveTime,
         lastSavedTime,
         syncStatus,
+        hasUnsavedChanges,
         isExportingExcel,
         isReadOnlyMode,
         action: (
@@ -3328,30 +3447,27 @@ export default function LiveAuditScreen({
               />
             )}
 
-            {/* ปุ่มล็อก / ปลดล็อกเพื่อแก้ไขตรวจต่อ */}
-            {/*{step === "audit" && (
-              isReadOnlyMode ? (
-                <button
-                  type="button"
-                  onClick={() => setIsReadOnlyMode(false)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white font-extrabold text-xs shadow-md shadow-amber-500/25 transition-all shrink-0 cursor-pointer"
-                  title="คลิกเพื่อปลดล็อกและแก้ไขผลตรวจต่อ"
-                >
-                  <Edit3 size={13} strokeWidth={2.5} />
-                  <span>แก้ไข</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsReadOnlyMode(true)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 font-bold text-xs border border-slate-200 transition-all shrink-0 cursor-pointer"
-                  title="คลิกเพื่อล็อกหน้าจอ (ดูอย่างเดียว)"
-                >
-                  <Lock size={12} strokeWidth={2.2} />
-                  <span>ล็อก</span>
-                </button>
-              )
-            )}*/}
+            {/* ปุ่มบันทึก: บันทึกแล้วข้อมูลจะแสดงให้ทุกเครื่องที่เปิดการตรวจนี้อยู่ */}
+            {step === "audit" && !isReadOnlyMode && (
+              <button
+                type="button"
+                onClick={handleManualSave}
+                disabled={syncStatus === "saving" || !hasUnsavedChanges}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-extrabold text-xs transition-all shrink-0 active:scale-95 ${
+                  hasUnsavedChanges && syncStatus !== "saving"
+                    ? "bg-[#0F6659] hover:bg-emerald-800 text-white shadow-md shadow-emerald-900/20 cursor-pointer"
+                    : "bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                }`}
+                title={hasUnsavedChanges ? "บันทึก และส่งข้อมูลให้ทุกเครื่องที่เปิดการตรวจนี้อยู่" : "ไม่มีข้อมูลที่ต้องบันทึก"}
+              >
+                {syncStatus === "saving" ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Save size={13} strokeWidth={2.5} />
+                )}
+                <span>{syncStatus === "saving" ? "กำลังบันทึก" : "บันทึก"}</span>
+              </button>
+            )}
 
             {/* ปุ่มฟอร์มใหม่เดิม */}
             {newerFormVersion && (
@@ -3382,16 +3498,8 @@ export default function LiveAuditScreen({
           if (step === "select-form") {
             setStep("select-unit");
           } else {
+            if (!confirmLeaveIfUnsaved()) return;
             if (isResumeDraft || isFromAssignedPlan) {
-              if (isAnswerModifiedRef.current && performSaveDraftRef.current) {
-                if (autoSaveTimerRef.current) {
-                  clearTimeout(autoSaveTimerRef.current);
-                  autoSaveTimerRef.current = null;
-                }
-                const queued = pendingSaveDataRef.current || {};
-                pendingSaveDataRef.current = null;
-                performSaveDraftRef.current(queued);
-              }
               if (onBackRef.current) onBackRef.current(true);
               return;
             }
@@ -3406,7 +3514,7 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel, isReadOnlyMode]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, hasUnsavedChanges, handleManualSave, isExportingExcel, isReadOnlyMode]);
 
   const checkUnansweredQuestions = () => {
     const unanswered = [];
@@ -5349,7 +5457,7 @@ export default function LiveAuditScreen({
                 </div>
               </div>
 
-              {isReadOnlyMode ? (
+              {isReadOnlyMode && (
                 <button
                   type="button"
                   onClick={() => setIsReadOnlyMode(false)}
@@ -5357,16 +5465,6 @@ export default function LiveAuditScreen({
                 >
                   <Edit3 size={18} strokeWidth={2.4} />
                   <span>ปลดล็อกเพื่อแก้ไข / ตรวจต่อ</span>
-                </button>
-              ) : (
-                <button
-                  id="audit-tab3-submit-btn"
-                  type="button"
-                  onClick={handleFinalSubmitTab3}
-                  className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 transition-all bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95 cursor-pointer"
-                >
-                  <CheckCircle2 size={18} />
-                  <span>บันทึกและส่งผลตรวจประเมิน</span>
                 </button>
               )}
 
@@ -5468,6 +5566,24 @@ export default function LiveAuditScreen({
           document.body
         )}
 
+        {/* 🌟 แถบแจ้งเตือนเมื่อมีเครื่องอื่นบันทึกทับข้อที่เรากำลังแก้ค้างอยู่ (ชนกัน) */}
+        {remoteConflictCount > 0 && typeof document !== "undefined" && createPortal(
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[99990] max-w-md w-[92vw] bg-amber-500 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={18} className="shrink-0" />
+              <span>มีข้อตรวจ {remoteConflictCount} ข้อ ที่เครื่องอื่นเพิ่งบันทึก (ระบบคงคำตอบที่คุณกำลังแก้อยู่ไว้)</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setRemoteConflictCount(0)}
+              className="shrink-0 px-2.5 py-1 rounded-lg bg-black/20 hover:bg-black/30 text-white text-xs cursor-pointer"
+            >
+              รับทราบ
+            </button>
+          </div>,
+          document.body
+        )}
+
         {/* REMOTE AUDIT SUBMITTED NOTIFICATION MODAL */}
         {remoteSubmittedInfo && typeof document !== 'undefined' && createPortal(
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200">
@@ -5506,7 +5622,7 @@ export default function LiveAuditScreen({
           document.body
         )}
 
-        {/* 🌟 ปุ่มลัดแบบไอคอนล้วน มุมขวาล่าง แสดงตลอดไม่ซ่อนในเมนู (เลื่อนขึ้นบนสุด / ล็อก-ปลดล็อก / ไปหน้าลงชื่อ & ส่งผลตรวจ) */}
+        {/* 🌟 ปุ่มลัดแบบไอคอนล้วน มุมขวาล่าง 4 ปุ่ม (เลื่อนขึ้น / ล็อก-ปลดล็อก / บันทึกแบบร่าง / ส่งผลตรวจ) */}
         {step === "audit" && typeof document !== "undefined" && createPortal(
           <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2.5 select-none">
             {/* 1. เลื่อนขึ้นบนสุด */}
@@ -5539,25 +5655,45 @@ export default function LiveAuditScreen({
               {isReadOnlyMode ? <Edit3 size={20} strokeWidth={2.4} /> : <Eye size={20} strokeWidth={2.4} />}
             </button>
 
-            {/* 3. ไปหน้าลงชื่อ & ส่งผลตรวจ */}
+            {/* 3. บันทึกแบบร่างด้วยตนเอง */}
             <button
               type="button"
-              onClick={() => {
-                setActiveTab(3);
-                setTimeout(() => {
-                  const submitEl = document.getElementById("audit-tab3-submit-btn");
-                  if (submitEl) {
-                    submitEl.scrollIntoView({ behavior: "smooth", block: "center" });
-                  } else {
-                    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-                    const mainEl = document.querySelector("main");
-                    if (mainEl) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
-                  }
-                }, 120);
-              }}
-              className="w-11 h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] text-white shadow-lg border border-emerald-600 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
-              title="ไปยังส่วนลงชื่อและส่งผลตรวจประเมิน (แท็บ 3)"
-              aria-label="ไปหน้าลงชื่อและส่งผลตรวจ"
+              onClick={handleManualSave}
+              disabled={isReadOnlyMode || syncStatus === "saving" || !hasUnsavedChanges}
+              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-90 border ${
+                !isReadOnlyMode && hasUnsavedChanges && syncStatus !== "saving"
+                  ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 ring-2 ring-emerald-400/40 cursor-pointer shadow-emerald-900/30"
+                  : "bg-white hover:bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
+              }`}
+              title={
+                isReadOnlyMode
+                  ? "โหมดดูอย่างเดียว (ปลดล็อกเพื่อแก้ไขและบันทึก)"
+                  : hasUnsavedChanges
+                  ? "บันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
+                  : "บันทึกแบบร่าง (ไม่มีข้อมูลค้างบันทึก)"
+              }
+              aria-label="บันทึกแบบร่าง"
+            >
+              {syncStatus === "saving" ? (
+                <Loader2 size={20} className="animate-spin text-emerald-600" />
+              ) : (
+                <Save size={20} strokeWidth={2.4} />
+              )}
+            </button>
+
+            {/* 4. ส่งผลตรวจประเมิน (ย้ายมาจากปุ่มใหญ่เดิมในแท็บ 3) */}
+            <button
+              id="audit-tab3-submit-btn"
+              type="button"
+              onClick={handleFinalSubmitTab3}
+              disabled={isReadOnlyMode}
+              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-90 border ${
+                isReadOnlyMode
+                  ? "bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed"
+                  : "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
+              }`}
+              title="บันทึกและส่งผลตรวจประเมิน"
+              aria-label="บันทึกและส่งผลตรวจประเมิน"
             >
               <Send size={20} strokeWidth={2.2} />
             </button>
