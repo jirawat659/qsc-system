@@ -2553,13 +2553,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               <button
                                 type="button"
                                 onClick={() => handleToggleYesNo(q.surveyItemId, "yes")}
-                                className={`py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95 ${
+                                className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
                                   isAnswered && !isNa && isPass
                                     ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-sm font-bold'
                                     : 'bg-white hover:bg-emerald-50 text-emerald-800 border-emerald-200 shadow-2xs'
                                 }`}
                               >
-                                <CheckCircle2 size={18} className={isAnswered && !isNa && isPass ? "text-white" : "text-emerald-600"} />
+                                <CheckCircle2 size={15} className={isAnswered && !isNa && isPass ? "text-white" : "text-emerald-600"} />
                                 <span>ผ่าน</span>
                               </button>
 
@@ -2567,13 +2567,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               <button
                                 type="button"
                                 onClick={() => handleToggleYesNo(q.surveyItemId, "no")}
-                                className={`py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95 ${
+                                className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
                                   isAnswered && !isNa && !isPass
                                     ? 'bg-rose-600 text-white border-rose-600 shadow-sm font-bold'
                                     : 'bg-white hover:bg-rose-50 text-rose-800 border-rose-200 shadow-2xs'
                                 }`}
                               >
-                                <XCircle size={18} className={isAnswered && !isNa && !isPass ? "text-white" : "text-rose-600"} />
+                                <XCircle size={15} className={isAnswered && !isNa && !isPass ? "text-white" : "text-rose-600"} />
                                 <span>ไม่ผ่าน</span>
                               </button>
 
@@ -2581,13 +2581,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                               <button
                                 type="button"
                                 onClick={() => handleToggleYesNo(q.surveyItemId, "na")}
-                                className={`py-2.5 sm:py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95 ${
+                                className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 ${
                                   isAnswered && isNa
                                     ? 'bg-slate-600 text-white border-slate-600 shadow-sm font-bold'
                                     : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-2xs'
                                 }`}
                               >
-                                <Minus size={18} className={isAnswered && isNa ? "text-white" : "text-slate-500"} />
+                                <Minus size={15} className={isAnswered && isNa ? "text-white" : "text-slate-500"} />
                                 <span>ข้าม</span>
                               </button>
                             </div>

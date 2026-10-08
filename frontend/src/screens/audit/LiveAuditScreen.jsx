@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Eye, Send } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -341,7 +341,7 @@ const QuestionCard = React.memo(function QuestionCard({
             type="button"
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "yes")}
-            className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+            className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
               answer === "yes" || answer === true
                 ? readOnly
                   ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
@@ -358,7 +358,7 @@ const QuestionCard = React.memo(function QuestionCard({
             type="button"
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "no")}
-            className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+            className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
               answer === "no" || answer === false
                 ? readOnly
                   ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
@@ -375,7 +375,7 @@ const QuestionCard = React.memo(function QuestionCard({
             type="button"
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "na")}
-            className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+            className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
               answer === "na"
                 ? readOnly
                   ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
@@ -385,7 +385,7 @@ const QuestionCard = React.memo(function QuestionCard({
                   : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 cursor-pointer'
             }`}
           >
-            <Minus size={18} className={readOnly && answer === "na" ? "text-slate-700" : ""} />
+            <Minus size={14} className={readOnly && answer === "na" ? "text-slate-700" : ""} />
             <span>ข้าม</span>
           </button>
         </div>
@@ -397,7 +397,7 @@ const QuestionCard = React.memo(function QuestionCard({
               type="button"
               disabled={readOnly}
               onClick={() => onAnswerSelect(q.id, n)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all border ${
+              className={`flex-1 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all border ${
                 answer === n
                   ? readOnly
                     ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
@@ -414,7 +414,7 @@ const QuestionCard = React.memo(function QuestionCard({
             type="button"
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "na")}
-            className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black transition-all border ${
+            className={`px-2 py-1.5 sm:py-2 rounded-xl flex items-center justify-center text-[10px] font-bold transition-all border ${
               answer === "na"
                 ? readOnly
                   ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
@@ -424,7 +424,7 @@ const QuestionCard = React.memo(function QuestionCard({
                   : 'bg-slate-50 text-slate-500 border-slate-200 cursor-pointer'
             }`}
           >
-            <Minus size={14} className={`mr-0.5 ${readOnly && answer === "na" ? "text-slate-700" : ""}`} /> N/A
+            <Minus size={12} className={`mr-0.5 ${readOnly && answer === "na" ? "text-slate-700" : ""}`} /> N/A
           </button>
         </div>
       )}
@@ -3329,7 +3329,7 @@ export default function LiveAuditScreen({
             )}
 
             {/* ปุ่มล็อก / ปลดล็อกเพื่อแก้ไขตรวจต่อ */}
-            {step === "audit" && (
+            {/*{step === "audit" && (
               isReadOnlyMode ? (
                 <button
                   type="button"
@@ -3348,10 +3348,10 @@ export default function LiveAuditScreen({
                   title="คลิกเพื่อล็อกหน้าจอ (ดูอย่างเดียว)"
                 >
                   <Lock size={12} strokeWidth={2.2} />
-                  <span className="hidden sm:inline">ล็อก</span>
+                  <span>ล็อก</span>
                 </button>
               )
-            )}
+            )}*/}
 
             {/* ปุ่มฟอร์มใหม่เดิม */}
             {newerFormVersion && (
@@ -4517,41 +4517,6 @@ export default function LiveAuditScreen({
             </div>
           </div>
 
-          {/* 🔒 กล่องแจ้งเตือนสถานะกำลังตรวจ (โหมดล็อกหน้าจอ - ดูอย่างเดียว) */}
-          {isReadOnlyMode && (
-            <div className="px-3 sm:px-4 mb-2">
-              <div className="rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 bg-gradient-to-r from-amber-50 to-orange-50/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3 animate-in fade-in duration-200">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0 shadow-2xs">
-                    <Lock size={18} strokeWidth={2.4} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs sm:text-sm font-black text-amber-950">
-                        สถานะ: กำลังตรวจ (ล็อกหน้าจออยู่)
-                      </span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200/70">
-                        ดูอย่างเดียว
-                      </span>
-                    </div>
-                    <p className="text-[11px] sm:text-xs text-amber-800/90 font-medium mt-0.5">
-                      หน้าจอถูกล็อกไว้เพื่อป้องกันการกดโดนคำตอบโดยไม่ได้ตั้งใจ กดปุ่ม &quot;แก้ไข&quot; เพื่อตรวจต่อ
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsReadOnlyMode(false)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm shadow-md shadow-amber-500/30 transition-all shrink-0 cursor-pointer"
-                  title="คลิกเพื่อปลดล็อกและตรวจต่อ"
-                >
-                  <Edit3 size={15} strokeWidth={2.4} />
-                  <span>แก้ไข / ตรวจต่อ</span>
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* 📊 Category Scores Breakdown Card */}
           {categoryBreakdown.length > 0 && (
             <div className="px-3 sm:px-4 mb-2">
@@ -5571,7 +5536,7 @@ export default function LiveAuditScreen({
               title={isReadOnlyMode ? "คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ" : "ล็อกหน้าจอ (ดูอย่างเดียว) ป้องกันการเผลอโดนคำตอบ"}
               aria-label={isReadOnlyMode ? "ปลดล็อกแก้ไข" : "ล็อกหน้าจอ"}
             >
-              {isReadOnlyMode ? <Unlock size={20} strokeWidth={2.4} /> : <Lock size={20} strokeWidth={2.4} />}
+              {isReadOnlyMode ? <Edit3 size={20} strokeWidth={2.4} /> : <Eye size={20} strokeWidth={2.4} />}
             </button>
 
             {/* 3. ไปหน้าลงชื่อ & ส่งผลตรวจ */}
@@ -5594,7 +5559,7 @@ export default function LiveAuditScreen({
               title="ไปยังส่วนลงชื่อและส่งผลตรวจประเมิน (แท็บ 3)"
               aria-label="ไปหน้าลงชื่อและส่งผลตรวจ"
             >
-              <PenTool size={20} strokeWidth={2.2} />
+              <Send size={20} strokeWidth={2.2} />
             </button>
           </div>,
           document.body
