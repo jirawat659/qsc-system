@@ -488,7 +488,7 @@ export default function MasterManagementScreen({ onBack }) {
     setEditRoleForm({
       name: r.name || '',
       description: r.description || '',
-      permissionIds: (r.permissions || []).map(p => p.id)
+      permissionIds: initialPermIds
     });
   };
 
