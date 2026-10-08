@@ -351,7 +351,7 @@ const QuestionCard = React.memo(function QuestionCard({
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
             }`}
           >
-            <CheckCircle2 size={18} className={readOnly && (answer === "yes" || answer === true) ? "text-slate-700" : ""} />
+            <CheckCircle2 size={14} className={readOnly && (answer === "yes" || answer === true) ? "text-slate-700" : ""} />
             <span>ผ่าน</span>
           </button>
           <button
@@ -368,7 +368,7 @@ const QuestionCard = React.memo(function QuestionCard({
                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
             }`}
           >
-            <XCircle size={18} className={readOnly && (answer === "no" || answer === false) ? "text-slate-700" : ""} />
+            <XCircle size={14} className={readOnly && (answer === "no" || answer === false) ? "text-slate-700" : ""} />
             <span>ไม่ผ่าน</span>
           </button>
           <button
@@ -1467,7 +1467,6 @@ export default function LiveAuditScreen({
     );
   });
   const hasInitializedLockRef = useRef(isReadOnlyMode);
-  const [isSpeedDialOpen, setIsSpeedDialOpen] = useState(false);
 
   const [branchPage, setBranchPage] = useState(1);
   const branchPageSize = 10;
@@ -5542,156 +5541,62 @@ export default function LiveAuditScreen({
           document.body
         )}
 
-        {/* 🌟 Floating Speed Dial Action Menu (ย้ายมามุมขวาล่าง เลื่อนบนสุด / ล็อก-แก้ไข / ออก Excel / ส่งผลตรวจ) */}
+        {/* 🌟 ปุ่มลัดแบบไอคอนล้วน มุมขวาล่าง แสดงตลอดไม่ซ่อนในเมนู (เลื่อนขึ้นบนสุด / ล็อก-ปลดล็อก / ไปหน้าลงชื่อ & ส่งผลตรวจ) */}
         {step === "audit" && typeof document !== "undefined" && createPortal(
-          <>
-            {/* พื้นหลังโปร่งใส แตะตรงไหนก็ได้เพื่อปิดเมนู */}
-            {isSpeedDialOpen && (
-              <div
-                className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1.5px] animate-in fade-in duration-200"
-                onClick={() => setIsSpeedDialOpen(false)}
-              />
-            )}
+          <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2.5 select-none">
+            {/* 1. เลื่อนขึ้นบนสุด */}
+            <button
+              type="button"
+              onClick={() => {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                const mainEl = document.querySelector("main");
+                if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-lg border border-slate-200 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
+              title="เลื่อนขึ้นบนสุดของหน้า"
+              aria-label="เลื่อนขึ้นบนสุดของหน้า"
+            >
+              <ChevronUp size={22} strokeWidth={2.5} />
+            </button>
 
-            <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2.5 select-none">
-              {/* รายการเมนูด่วนย่อย (คลี่ขึ้นเมื่อ isSpeedDialOpen = true) */}
-              {isSpeedDialOpen && (
-                <div className="flex flex-col items-end gap-2.5 mb-1 animate-in slide-in-from-bottom-3 fade-in duration-200">
-                  {/* 1. เลื่อนขึ้นบนสุด */}
-                  <div className="flex items-center gap-2 group">
-                    <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full shadow-md border border-slate-200/90 whitespace-nowrap">
-                      เลื่อนขึ้นบนสุด
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        window.scrollTo({ top: 0, behavior: "smooth" });
-                        const mainEl = document.querySelector("main");
-                        if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
-                        setIsSpeedDialOpen(false);
-                      }}
-                      className="w-10 h-10 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-md border border-slate-200 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
-                      title="เลื่อนขึ้นบนสุดของหน้า"
-                      aria-label="เลื่อนขึ้นบนสุดของหน้า"
-                    >
-                      <ChevronUp size={20} strokeWidth={2.5} />
-                    </button>
-                  </div>
+            {/* 2. สลับโหมดล็อก / ปลดล็อกแก้ไข */}
+            <button
+              type="button"
+              onClick={() => setIsReadOnlyMode(prev => !prev)}
+              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-transform active:scale-90 border ${
+                isReadOnlyMode
+                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
+                  : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
+              }`}
+              title={isReadOnlyMode ? "คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ" : "ล็อกหน้าจอ (ดูอย่างเดียว) ป้องกันการเผลอโดนคำตอบ"}
+              aria-label={isReadOnlyMode ? "ปลดล็อกแก้ไข" : "ล็อกหน้าจอ"}
+            >
+              {isReadOnlyMode ? <Unlock size={20} strokeWidth={2.4} /> : <Lock size={20} strokeWidth={2.4} />}
+            </button>
 
-                  {/* 2. สลับโหมดล็อก / ปลดล็อกแก้ไข */}
-                  <div className="flex items-center gap-2 group">
-                    <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-md border whitespace-nowrap ${
-                      isReadOnlyMode
-                        ? "bg-amber-100 text-amber-900 border-amber-300"
-                        : "bg-white/95 text-slate-800 border-slate-200/90"
-                    }`}>
-                      {isReadOnlyMode ? "ปลดล็อกเพื่อแก้ไข" : "ล็อกหน้าจอ (ดูอย่างเดียว)"}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsReadOnlyMode(prev => !prev);
-                        setIsSpeedDialOpen(false);
-                      }}
-                      className={`w-10 h-10 rounded-full shadow-md flex items-center justify-center cursor-pointer transition-transform active:scale-90 border ${
-                        isReadOnlyMode
-                          ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
-                          : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
-                      }`}
-                      title={isReadOnlyMode ? "คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ" : "คลิกเพื่อล็อกหน้าจอป้องกันการเผลอโดนคำตอบ"}
-                      aria-label={isReadOnlyMode ? "ปลดล็อกแก้ไข" : "ล็อกหน้าจอ"}
-                    >
-                      {isReadOnlyMode ? <Unlock size={18} strokeWidth={2.4} /> : <Lock size={18} strokeWidth={2.4} />}
-                    </button>
-                  </div>
-
-                  {/* 3. ออกรายงาน Excel */}
-                  <div className="flex items-center gap-2 group">
-                    <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full shadow-md border border-slate-200/90 whitespace-nowrap">
-                      ออกรายงาน Excel (แบบร่าง)
-                    </span>
-                    <button
-                      type="button"
-                      disabled={isExportingExcel}
-                      onClick={() => {
-                        setIsSpeedDialOpen(false);
-                        if (handleExportDraftExcelRef.current) {
-                          handleExportDraftExcelRef.current();
-                        }
-                      }}
-                      className="w-10 h-10 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] shadow-md border border-emerald-200 flex items-center justify-center cursor-pointer transition-transform active:scale-90 disabled:opacity-50"
-                      title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
-                      aria-label="ออกรายงาน Excel"
-                    >
-                      {isExportingExcel ? (
-                        <Loader2 size={18} className="animate-spin text-[#0F6659]" />
-                      ) : (
-                        <FileSpreadsheet size={18} strokeWidth={2.2} />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* 4. ไปหน้าลงชื่อ & ส่งผลตรวจ */}
-                  <div className="flex items-center gap-2 group">
-                    <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full shadow-md border border-slate-200/90 whitespace-nowrap">
-                      ไปหน้าลงชื่อ & ส่งผลตรวจ
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSpeedDialOpen(false);
-                        setActiveTab(3);
-                        setTimeout(() => {
-                          const submitEl = document.getElementById("audit-tab3-submit-btn");
-                          if (submitEl) {
-                            submitEl.scrollIntoView({ behavior: "smooth", block: "center" });
-                          } else {
-                            window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-                            const mainEl = document.querySelector("main");
-                            if (mainEl) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
-                          }
-                        }, 120);
-                      }}
-                      className="w-10 h-10 rounded-full bg-[#0F6659] hover:bg-[#0c5247] text-white shadow-md border border-emerald-600 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
-                      title="เลื่อนไปยังส่วนลงชื่อและส่งผลตรวจประเมิน (แท็บ 3)"
-                      aria-label="ไปหน้าส่งผลตรวจ"
-                    >
-                      <PenTool size={18} strokeWidth={2.2} />
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* 🌟 ปุ่ม FAB หลัก (Main Action Button) */}
-              <button
-                type="button"
-                onClick={() => setIsSpeedDialOpen(prev => !prev)}
-                className={`w-12 h-12 sm:w-13 sm:h-13 rounded-full flex items-center justify-center text-white shadow-xl transition-all duration-300 active:scale-90 cursor-pointer ${
-                  isSpeedDialOpen
-                    ? "bg-slate-800 hover:bg-slate-900 shadow-slate-900/40 ring-4 ring-slate-800/20"
-                    : isReadOnlyMode
-                      ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/40 ring-4 ring-amber-400/30"
-                      : "bg-[#0F6659] hover:bg-[#0c5247] shadow-[#0F6659]/40 ring-4 ring-[#0F6659]/20"
-                }`}
-                title={
-                  isSpeedDialOpen
-                    ? "ปิดเมนูด่วน"
-                    : isReadOnlyMode
-                      ? "หน้าจอล็อกอยู่ • แตะเพื่อเปิดเมนูด่วน / ปลดล็อก"
-                      : "เปิดเมนูด่วน (เลื่อนขึ้น, ล็อกหน้าจอ, Excel, ส่งผล)"
-                }
-                aria-label="เมนูด่วนการตรวจ"
-              >
-                {isSpeedDialOpen ? (
-                  <X size={24} strokeWidth={2.5} className="animate-in spin-in-90 duration-150" />
-                ) : isReadOnlyMode ? (
-                  <Lock size={22} strokeWidth={2.5} />
-                ) : (
-                  <Menu size={22} strokeWidth={2.5} />
-                )}
-              </button>
-            </div>
-          </>,
+            {/* 3. ไปหน้าลงชื่อ & ส่งผลตรวจ */}
+            <button
+              type="button"
+              onClick={() => {
+                setActiveTab(3);
+                setTimeout(() => {
+                  const submitEl = document.getElementById("audit-tab3-submit-btn");
+                  if (submitEl) {
+                    submitEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                  } else {
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+                    const mainEl = document.querySelector("main");
+                    if (mainEl) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
+                  }
+                }, 120);
+              }}
+              className="w-11 h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] text-white shadow-lg border border-emerald-600 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
+              title="ไปยังส่วนลงชื่อและส่งผลตรวจประเมิน (แท็บ 3)"
+              aria-label="ไปหน้าลงชื่อและส่งผลตรวจ"
+            >
+              <PenTool size={20} strokeWidth={2.2} />
+            </button>
+          </div>,
           document.body
         )}
 
