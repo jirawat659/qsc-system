@@ -9,6 +9,7 @@ import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
 import { formatThaiDate, formatThaiTime, parseServerDate } from "../../utils/formatters";
+import { generateReportNumber } from "../../utils/reportNumberHelper";
 import api, { getFullImageUrl } from "../../config/api";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { computeScore } from "../../config/scoring";
@@ -1648,6 +1649,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     handleSaveSuccess
   ]);
 
+  const effectiveCategoryOrder = useMemo(() => {
+    const rawOrder = matchedForm?.categoryOrderJson || currentRecord?.surveyForm?.categoryOrderJson || currentRecord?.categoryOrderJson || matchedForm?.categories || currentRecord?.surveyForm?.categories;
+    if (typeof rawOrder === "string") {
+      try {
+        const parsed = JSON.parse(rawOrder);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
+    } else if (Array.isArray(rawOrder) && rawOrder.length > 0) {
+      return rawOrder;
+    }
+    return CORE_CATEGORY_ORDER;
+  }, [matchedForm, currentRecord]);
+
   // 📊 Calculated Category Scores Breakdown (จัดกลุ่มตามหมวดหมู่คะแนน ไม่ใช่หมวดหมู่คำถาม)
   const categoryScores = useMemo(() => {
     const catMap = new Map();
@@ -1708,10 +1722,19 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       };
     });
 
-    // Sort according to CORE_CATEGORY_ORDER
+    const getOrderIdx = (title) => {
+      if (!title || !Array.isArray(effectiveCategoryOrder)) return -1;
+      const target = String(title).toLowerCase().trim();
+      return effectiveCategoryOrder.findIndex(item => {
+        const val = typeof item === "object" && item !== null ? (item.key || item.name || item.label || "") : String(item);
+        return val.toLowerCase().trim() === target;
+      });
+    };
+
+    // Sort according to effective category order
     categories.sort((a, b) => {
-      const idxA = CORE_CATEGORY_ORDER.indexOf(a.title);
-      const idxB = CORE_CATEGORY_ORDER.indexOf(b.title);
+      const idxA = getOrderIdx(a.title);
+      const idxB = getOrderIdx(b.title);
       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
       if (idxA !== -1) return -1;
       if (idxB !== -1) return 1;
@@ -1719,7 +1742,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     });
 
     return categories;
-  }, [formBreakdown, isEditing, editAnswersState]);
+  }, [formBreakdown, isEditing, editAnswersState, effectiveCategoryOrder]);
 
   // 📤 ส่งออกรายงานรายรอบตรวจเป็น Excel (ใช้ข้อมูลชุดเดียวกับที่แสดงบนหน้าจอ: formBreakdown / allDisplayMetadataFields)
   const [isExportingReport, setIsExportingReport] = useState(false);
@@ -1729,20 +1752,28 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     try {
       const recId = currentRecord?.id || record?.id;
       const typeName = matchedLocation?.locationType?.name || currentRecord.location?.locationType?.name || "-";
+      const officialReportNo = generateReportNumber({
+        id: recId,
+        brandNames: currentRecord.locationBrand,
+        unitCode: currentRecord.locationCode || matchedLocation?.code,
+        rawDate: currentRecord.auditDate || currentRecord.startedAt || currentRecord.createdAt,
+        isDraft: false
+      }) || `QSC-${String(recId || 0).padStart(6, "0")}`;
+
       await exportAuditReportToExcel({
         record: currentRecord,
         sections: formBreakdown,
         metaFields: allDisplayMetadataFields,
         passingScore,
         categoryOf: getQuestionCategory,
-        categoryOrder: currentRecord?.surveyForm?.categoryOrderJson || currentRecord?.categoryOrderJson || currentRecord?.surveyForm?.categories,
+        categoryOrder: effectiveCategoryOrder,
         toFullUrl: getFullImageUrl,
         signatureUrls: {
           auditor: currentRecord.auditorSignatureUrl || currentRecord.auditorSignature,
           auditee: currentRecord.auditeeSignatureUrl || currentRecord.auditeeSignature
         },
         header: {
-          reportNo: `QSC-${String(recId || 0).padStart(6, "0")}`,
+          reportNo: officialReportNo,
           issuedAt: formatBkk(new Date(), false).slice(0, 10),
           locationCode: currentRecord.locationCode || matchedLocation?.code || "",
           location: `${currentRecord.locationCode || matchedLocation?.code || ""} ${locationTitle}`.trim(),

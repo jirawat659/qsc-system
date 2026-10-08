@@ -228,9 +228,18 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
     effectiveOrder = DEFAULT_CATEGORIES.map(c => c.key);
   }
 
+  const getOrderIndex = (catKey) => {
+    if (!catKey || !Array.isArray(effectiveOrder)) return -1;
+    const target = String(catKey).toLowerCase().trim();
+    return effectiveOrder.findIndex(item => {
+      const val = typeof item === "object" && item !== null ? (item.key || item.name || item.label || "") : String(item);
+      return val.toLowerCase().trim() === target;
+    });
+  };
+
   presentCatKeys.sort((a, b) => {
-    const idxA = effectiveOrder.indexOf(a);
-    const idxB = effectiveOrder.indexOf(b);
+    const idxA = getOrderIndex(a);
+    const idxB = getOrderIndex(b);
     if (idxA !== -1 && idxB !== -1) return idxA - idxB;
     if (idxA !== -1) return -1;
     if (idxB !== -1) return 1;
