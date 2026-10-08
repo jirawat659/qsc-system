@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, ArrowUpDown, ArrowDown, ArrowUp, Download, X, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight } from "lucide-react";
+import { Search, ArrowUpDown, ArrowDown, ArrowUp, Download, X, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight, FileText } from "lucide-react";
 
 
 import { c, sans, mono } from "../../config/theme";
@@ -12,6 +12,7 @@ import BranchProfile from "./BranchProfile";
 import LiveAuditScreen from "../audit/LiveAuditScreen";
 import api from "../../config/api";
 import { parseAuditTimestamp, parseThaiMonthYearQuery } from "../../utils/formatters";
+import { generateReportNumber } from "../../utils/reportNumberHelper";
 
 // 🌟 ฟังก์ชันช่วยระดับโมดูล (เดิมเคยประกาศซ้ำในหลายจุดของ allLogs useMemo) — รับ forms/activeLocations
 // เป็นพารามิเตอร์ตรงๆ เพื่อให้เรียกใช้ซ้ำได้ทั้งใน allLogs useMemo และใน buildCompletedLog (โหมดค้นหาเดือน/ปี)
@@ -92,11 +93,19 @@ function buildCompletedLog(r, forms, activeLocations) {
         ? r.surveyForm.passingScore 
         : (matchedFormObj?.passingScore ?? 85));
   const isPassed = r.isPassed !== undefined ? r.isPassed : (score >= effectivePassingScore && !r.hasCriticalDefect);
+  const reportNo = generateReportNumber({
+    id: r.id,
+    brandNames: brandNames,
+    unitCode: unitCode,
+    rawDate: rawDate,
+    isDraft: false
+  });
 
   return {
     id: `completed-${r.id}`,
     originalId: r.id,
     type: 'completed',
+    reportNo: reportNo,
     unitName: branchName,
     unitFullName: branchFullName,
     unitCode: unitCode,
@@ -116,6 +125,7 @@ function buildCompletedLog(r, forms, activeLocations) {
     passingScore: effectivePassingScore,
     record: {
       ...r,
+      reportNo: reportNo,
       unitName: branchName,
       unitFullName: branchFullName,
       score: score,
@@ -377,11 +387,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         const brandNames = getBrandsForLoc(d.locationId, d.location, activeLocations);
         const unitCode = getCodeForLoc(d.locationId, d.location, activeLocations);
+        const reportNo = generateReportNumber({
+          id: d.id,
+          brandNames: brandNames,
+          unitCode: unitCode,
+          rawDate: rawDate,
+          isDraft: true
+        });
 
         logs.push({
           id: `draft-${d.id}`,
           originalId: d.id,
           type: 'draft',
+          reportNo: reportNo,
           unitName: branchName,
           unitFullName: branchFullName,
           unitCode: unitCode,
@@ -398,6 +416,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           progressText: `ตอบแล้ว ${answeredCount}${totalCount ? `/${totalCount}` : ''} ข้อ`,
           record: {
             ...d,
+            reportNo: reportNo,
             id: d.id,
             auditScheduleId: d.auditScheduleId || d.scheduleId || null,
             scheduleId: d.auditScheduleId || d.scheduleId || null,
@@ -463,10 +482,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
+          const reportNo = generateReportNumber({
+            id: s.id,
+            brandNames: brandNames,
+            unitCode: unitCode,
+            rawDate: rawDate,
+            isDraft: true
+          });
+
           logs.push({
             id: `schedule-progress-${s.id}`,
             originalId: s.id,
             type: 'draft',
+            reportNo: reportNo,
             unitName: branchName,
             unitFullName: branchFullName,
             unitCode: unitCode,
@@ -483,6 +511,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             progressText: "กำลังดำเนินการตรวจ",
             record: {
               ...s,
+              reportNo: reportNo,
               id: s.id,
               scheduleId: s.id,
               auditScheduleId: s.id,
@@ -619,6 +648,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           (l.formName && l.formName.toLowerCase().includes(q)) ||
           (l.auditType && l.auditType.toLowerCase().includes(q)) ||
           (l.progressText && l.progressText.toLowerCase().includes(q)) ||
+          (l.reportNo && l.reportNo.toLowerCase().includes(q)) ||
           matchStatus ||
           matchYear
         );
@@ -1195,10 +1225,23 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                     )}
                   </p>
                 )}
-                {log.region && log.region !== '-' && (
-                  <p className="text-[11px] text-slate-400 font-normal truncate">
-                    {log.region}
-                  </p>
+                {log.reportNo ? (
+                  <div className="pt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-mono text-[11px] font-bold border shadow-2xs ${
+                      log.type === 'draft'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200/90'
+                        : 'bg-slate-100 text-slate-700 border-slate-200/90'
+                    }`}>
+                      <FileText size={10} className={log.type === 'draft' ? 'text-amber-600 shrink-0' : 'text-[#0F6659] shrink-0'} />
+                      <span>{log.reportNo}</span>
+                    </span>
+                  </div>
+                ) : (
+                  log.region && log.region !== '-' && (
+                    <p className="text-[11px] text-slate-400 font-normal truncate">
+                      {log.region}
+                    </p>
+                  )
                 )}
               </div>
 
@@ -1430,8 +1473,16 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                           <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
                             <BranchTitle code={log.unitCode} name={log.unitName} />
                           </div>
-                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.region}>
-                            {log.region}
+                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.reportNo || log.region}>
+                            {log.reportNo ? (
+                              <span className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border shadow-2xs ${
+                                log.type === 'draft'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200/90'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200/90'
+                              }`}>
+                                {log.reportNo}
+                              </span>
+                            ) : log.region}
                           </div>
                         </div>
                       </div>
