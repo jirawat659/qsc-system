@@ -2284,6 +2284,26 @@ export default function LiveAuditScreen({
   const latestMapsRef = useRef({ answers: {}, photos: {}, comments: {}, metadataValues: {} });
   const lastSaveOkRef = useRef(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+  const justSavedTimerRef = useRef(null);
+  const [saveCheckIconType, setSaveCheckIconType] = useState(() => {
+    try {
+      return localStorage.getItem("qsc_save_check_icon_type") || "check";
+    } catch (e) {
+      return "check";
+    }
+  });
+
+  const toggleSaveCheckIconType = useCallback(() => {
+    setSaveCheckIconType((prev) => {
+      const next = prev === "check" ? "circle" : "check";
+      try {
+        localStorage.setItem("qsc_save_check_icon_type", next);
+      } catch (e) {}
+      return next;
+    });
+  }, []);
+
   const [remoteConflictCount, setRemoteConflictCount] = useState(0);
   // true = ถ้าผู้ใช้ออกจากหน้านี้ด้วยวิธีอื่นที่ไม่ใช่ปุ่มย้อนกลับ (เช่น กดเมนูไปหน้าอื่น) ให้บันทึกให้ก่อนเพื่อกันข้อมูลหาย
   // ตั้งเป็น false ถ้าต้องการให้บันทึกด้วยปุ่มเท่านั้นจริงๆ
@@ -2310,6 +2330,8 @@ export default function LiveAuditScreen({
       metadataValues: new Set()
     };
     isAnswerModifiedRef.current = false;
+    if (justSavedTimerRef.current) clearTimeout(justSavedTimerRef.current);
+    setJustSaved(false);
     setHasUnsavedChanges(false);
   };
 
@@ -2514,21 +2536,25 @@ export default function LiveAuditScreen({
       } catch (e) { }
 
       const isExplicitNewAudit = Boolean(preselectedPlan?.isNewAudit && !currDraftId);
-      const res = await api.put('/audit/draft', {
-        id: currDraftId,
-        locationId: currentUnit.id,
-        surveyFormId: currentForm.id,
-        auditorId: currentUser?.id ? Number(currentUser.id) : null,
-        auditScheduleId: currSchedId,
-        draftPayloadJson: draftPayloadJson,
-        currentSectionIdx: currentSectionIdx,
-        totalAnswered,
-        totalQuestions,
-        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
-        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
-        startedAt: payload.startedAt,
-        isNewAudit: isExplicitNewAudit
-      });
+      // 🌟 หน่วงเวลาอย่างน้อย ~520ms เพื่อให้ผู้ใช้เห็นจังหวะหมุนทำงานอย่างนุ่มนวล ไม่วาบหายทันที
+      const [res] = await Promise.all([
+        api.put('/audit/draft', {
+          id: currDraftId,
+          locationId: currentUnit.id,
+          surveyFormId: currentForm.id,
+          auditorId: currentUser?.id ? Number(currentUser.id) : null,
+          auditScheduleId: currSchedId,
+          draftPayloadJson: draftPayloadJson,
+          currentSectionIdx: currentSectionIdx,
+          totalAnswered,
+          totalQuestions,
+          startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
+          startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+          startedAt: payload.startedAt,
+          isNewAudit: isExplicitNewAudit
+        }),
+        new Promise((resolve) => setTimeout(resolve, 520))
+      ]);
 
       saveOk = true;
       lastSaveOkRef.current = true;
@@ -2554,7 +2580,14 @@ export default function LiveAuditScreen({
       setHasUnsavedChanges(stillUnsaved);
       setLastSavedTime(currentTimeStr);
       setSyncStatus(stillUnsaved ? "unsaved" : "synced");
-      if (!stillUnsaved) setRemoteConflictCount(0);
+      if (!stillUnsaved) {
+        setRemoteConflictCount(0);
+        setJustSaved(true);
+        if (justSavedTimerRef.current) clearTimeout(justSavedTimerRef.current);
+        justSavedTimerRef.current = setTimeout(() => {
+          setJustSaved(false);
+        }, 2600);
+      }
 
       const draftObj = {
         id: res?.data?.id || currDraftId,
@@ -2631,6 +2664,8 @@ export default function LiveAuditScreen({
   // การบันทึกจริงเกิดเมื่อกดปุ่ม "บันทึก" (handleManualSave) → performSaveDraft → เซิร์ฟเวอร์กระจายให้ทุกเครื่องผ่าน SignalR เหมือนเดิม
   const scheduleActionSave = useCallback((overrideData = {}) => {
     isAnswerModifiedRef.current = true;
+    if (justSavedTimerRef.current) clearTimeout(justSavedTimerRef.current);
+    setJustSaved(false);
 
     ['answers', 'photos', 'comments', 'metadataValues'].forEach((field) => {
       if (overrideData[field] === undefined) return;
@@ -5457,17 +5492,6 @@ export default function LiveAuditScreen({
                 </div>
               </div>
 
-              {isReadOnlyMode && (
-                <button
-                  type="button"
-                  onClick={() => setIsReadOnlyMode(false)}
-                  className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white shadow-xl shadow-amber-500/20 transition-all cursor-pointer"
-                >
-                  <Edit3 size={18} strokeWidth={2.4} />
-                  <span>ปลดล็อกเพื่อแก้ไข / ตรวจต่อ</span>
-                </button>
-              )}
-
               {hasUserAnswers && !isReadOnlyMode && (
                 <div className="text-center pt-2">
                   <button
@@ -5655,29 +5679,85 @@ export default function LiveAuditScreen({
               {isReadOnlyMode ? <Edit3 size={20} strokeWidth={2.4} /> : <Eye size={20} strokeWidth={2.4} />}
             </button>
 
-            {/* 3. บันทึกแบบร่างด้วยตนเอง */}
+            {/* 3. บันทึกแบบร่างด้วยตนเอง พร้อม Animation สถานะ (แก้ไข=แผ่นดิสก์ / กำลังบันทึก=หมุนโหลด / บันทึกแล้ว=ติ๊กถูก) */}
             <button
               type="button"
-              onClick={handleManualSave}
-              disabled={isReadOnlyMode || syncStatus === "saving" || !hasUnsavedChanges}
-              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-90 border ${
-                !isReadOnlyMode && hasUnsavedChanges && syncStatus !== "saving"
-                  ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 ring-2 ring-emerald-400/40 cursor-pointer shadow-emerald-900/30"
-                  : "bg-white hover:bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed"
+              onClick={hasUnsavedChanges ? handleManualSave : toggleSaveCheckIconType}
+              disabled={isReadOnlyMode || syncStatus === "saving"}
+              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all select-none border relative ${
+                isReadOnlyMode
+                  ? "bg-white text-slate-300 border-slate-200 cursor-not-allowed"
+                  : syncStatus === "saving"
+                  ? "bg-[#0F6659] text-white border-emerald-600 shadow-emerald-950/25 cursor-wait"
+                  : hasUnsavedChanges
+                  ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 ring-2 ring-emerald-400/50 shadow-emerald-950/25 animate-save-pulse cursor-pointer active:scale-90"
+                  : justSaved
+                  ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500 ring-2 ring-emerald-300 shadow-emerald-600/35 scale-105 animate-pop-bounce cursor-pointer active:scale-95"
+                  : "bg-white hover:bg-emerald-50 text-emerald-600 border border-emerald-200/90 shadow-md cursor-pointer transition-colors active:scale-90"
               }`}
               title={
                 isReadOnlyMode
                   ? "โหมดดูอย่างเดียว (ปลดล็อกเพื่อแก้ไขและบันทึก)"
+                  : syncStatus === "saving"
+                  ? "กำลังบันทึกข้อมูล..."
                   : hasUnsavedChanges
-                  ? "บันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
-                  : "บันทึกแบบร่าง (ไม่มีข้อมูลค้างบันทึก)"
+                  ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
+                  : justSaved
+                  ? "บันทึกข้อมูลเรียบร้อยแล้ว!"
+                  : saveCheckIconType === "check"
+                  ? "บันทึกเรียบร้อยแล้ว (ใช้ไอคอนรูปที่ 2 - คลิกเพื่อสลับเป็นรูปที่ 3)"
+                  : "บันทึกเรียบร้อยแล้ว (ใช้ไอคอนรูปที่ 3 - คลิกเพื่อสลับเป็นรูปที่ 2)"
               }
               aria-label="บันทึกแบบร่าง"
             >
-              {syncStatus === "saving" ? (
-                <Loader2 size={20} className="animate-spin text-emerald-600" />
-              ) : (
+              {/* จุดแจ้งเตือนสีส้มกระพริบเมื่อมีข้อมูลค้างบันทึก */}
+              {hasUnsavedChanges && !isReadOnlyMode && syncStatus !== "saving" && (
+                <>
+                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-400 border-2 border-white animate-ping pointer-events-none" />
+                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-500 border-2 border-white pointer-events-none" />
+                </>
+              )}
+
+              {/* ไอคอนตามสถานะ */}
+              {isReadOnlyMode ? (
                 <Save size={20} strokeWidth={2.4} />
+              ) : syncStatus === "saving" ? (
+                <Loader2 size={20} className="animate-spin text-white" />
+              ) : hasUnsavedChanges ? (
+                /* รูปที่ 1: แผ่นดิสก์เมื่อมีการแก้ไขค้างบันทึก */
+                <Save size={20} strokeWidth={2.4} className="animate-in zoom-in-75 duration-200" />
+              ) : (
+                /* เมื่อบันทึกเรียบร้อยแล้ว: เปลี่ยนจากแผ่นดิสก์สีเทามาเป็นรูปติ๊กถูก พร้อม Animation */
+                saveCheckIconType === "circle" ? (
+                  /* รูปที่ 3: ติ๊กถูกในวงกลม (Check in Circle) พร้อม SVG Draw Animation */
+                  <svg
+                    key={`circle-check-${justSaved ? "pop" : "idle"}`}
+                    className={`w-5.5 h-5.5 text-current ${justSaved ? "animate-pop-bounce text-white" : "text-emerald-600"}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="12" r="9" className={justSaved ? "animate-circle-draw" : ""} />
+                    <path d="M8 12.5l2.5 2.5L16 9" className={justSaved ? "animate-check-draw" : ""} />
+                  </svg>
+                ) : (
+                  /* รูปที่ 2: ติ๊กถูกเดี่ยว (Check) คมชัด สวยงาม เต็มวงกลม พร้อม SVG Draw Animation */
+                  <svg
+                    key={`plain-check-${justSaved ? "pop" : "idle"}`}
+                    className={`w-5.5 h-5.5 text-current ${justSaved ? "animate-pop-bounce text-white" : "text-emerald-600"}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M4 12l5 5L20 6" className={justSaved ? "animate-check-draw" : ""} />
+                  </svg>
+                )
               )}
             </button>
 
