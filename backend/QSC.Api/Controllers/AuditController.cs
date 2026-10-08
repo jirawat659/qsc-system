@@ -1212,17 +1212,18 @@ namespace QSC.Api.Controllers
                     {
                         // YESNO
                         bool isYes;
-                        if (raw == "no" || raw == "false" || raw == "0")
+                        if (raw == "no" || raw == "false" || raw == "0" || raw == "ไม่ผ่าน")
                         {
                             isYes = false;
                         }
-                        else if (raw == "yes" || raw == "true" || raw == "1")
+                        else if (raw == "yes" || raw == "true" || raw == "1" || raw == "ผ่าน")
                         {
                             isYes = true;
                         }
                         else
                         {
-                            throw new ArgumentException($"ข้อตรวจ '{item.QuestionText}' ได้รับค่าคำตอบที่ไม่ถูกต้อง: '{raw}' ต้องเป็น 'yes', 'no' หรือ 'na'");
+                            // 🌟 รองรับกรณีข้อตรวจมีค่าเป็นตัวหนังสือ/ตัวเลข/ตารางข้อมูลที่ไม่ใช่ yes/no ปกติ โดยถือว่าตรวจผ่าน (ไม่โยน exception ขัดขวางการส่งผล)
+                            isYes = true;
                         }
 
                         scoreGiven = isYes ? fullScore : 0.0;
@@ -1405,8 +1406,9 @@ namespace QSC.Api.Controllers
 
             if (startedAtUtc > nowUtc.AddMinutes(10))
                 return BadRequest(new { message = "วันที่/เวลาที่เริ่มตรวจต้องไม่อยู่ในอนาคต" });
-            if (!dto.IsBackdated && startedAtUtc < nowUtc.AddDays(-MaxLiveAuditAgeDays))
-                return BadRequest(new { message = "วันที่ตรวจย้อนหลังเกินกำหนด กรุณาใช้โหมดบันทึกย้อนหลัง" });
+
+            // 🌟 ยกเลิกการจำกัดเวลาส่งแบบร่าง (อนุญาตให้ดราฟต์นานเท่าใดก็ได้โดยไม่มีกำหนดเวลาส่ง)
+
             if (submittedAtUtc > nowUtc.AddMinutes(10)) submittedAtUtc = nowUtc;
             if (submittedAtUtc < startedAtUtc) submittedAtUtc = startedAtUtc;
 

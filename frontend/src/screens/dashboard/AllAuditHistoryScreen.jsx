@@ -1477,10 +1477,10 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                           </div>
                           <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.reportNo || log.region}>
                             {log.reportNo ? (
-                              <span className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border shadow-2xs ${
+                              <span className={`font-mono text-[11px] font-medium ${
                                 log.type === 'draft'
-                                  ? 'text-amber-800 border-amber-200/90'
-                                  : 'text-slate-700 border-slate-200/90'
+                                  ? 'text-amber-600/80'
+                                  : 'text-slate-400'
                               }`}>
                                 {log.reportNo}
                               </span>
