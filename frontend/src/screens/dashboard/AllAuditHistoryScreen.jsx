@@ -1200,21 +1200,23 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               }}
               className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs hover:border-[#0F6659] active:scale-[0.99] transition-all cursor-pointer space-y-2.5 group"
             >
-              {/* บรรทัดที่ 1: วงกลมคะแนน (ซ้าย) + ป้ายสถานะ (ขวา) */}
-              <div className="flex items-center justify-between">
-                <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono shadow-2xs shrink-0 ${circleColor}`}>
-                  {scoreDisplay}
+              {/* บรรทัดที่ 1: วงกลมคะแนน (ซ้าย) + ชื่อสาขา (ข้างคะแนน) + ป้ายสถานะ (ขวา) */}
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono shadow-2xs shrink-0 ${circleColor}`}>
+                    {scoreDisplay}
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900 leading-snug truncate group-hover:text-[#0F6659] transition-colors min-w-0" title={log.unitName}>
+                    <BranchTitle code={log.unitCode} name={log.unitName} />
+                  </h3>
                 </div>
                 <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
                   {statusText}
                 </span>
               </div>
 
-              {/* บรรทัดที่ 2: ชื่อสาขา (ตัวหนา) + แบบฟอร์มการตรวจ & เขต */}
+              {/* บรรทัดที่ 2: แบบฟอร์มการตรวจ & เลขที่รายงาน */}
               <div className="space-y-0.5">
-                <h3 className="text-sm font-bold text-slate-900 leading-snug break-words group-hover:text-[#0F6659] transition-colors">
-                  <BranchTitle code={log.unitCode} name={log.unitName} />
-                </h3>
                 {log.formName && (
                   <p className="text-xs text-slate-500 font-medium truncate">
                     {log.formName}
