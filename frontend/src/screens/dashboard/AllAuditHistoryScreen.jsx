@@ -1479,8 +1479,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                             {log.reportNo ? (
                               <span className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border shadow-2xs ${
                                 log.type === 'draft'
-                                  ? 'bg-amber-50 text-amber-800 border-amber-200/90'
-                                  : 'bg-slate-100 text-slate-700 border-slate-200/90'
+                                  ? 'text-amber-800 border-amber-200/90'
+                                  : 'text-slate-700 border-slate-200/90'
                               }`}>
                                 {log.reportNo}
                               </span>

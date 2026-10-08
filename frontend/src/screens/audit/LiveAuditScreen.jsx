@@ -1454,7 +1454,19 @@ export default function LiveAuditScreen({
     return "select-unit";
   });
   const [activeTab, setActiveTab] = useState(1);
-  const [isReadOnlyMode, setIsReadOnlyMode] = useState(false);
+  const [isReadOnlyMode, setIsReadOnlyMode] = useState(() => {
+    return Boolean(
+      !preselectedPlan?.isNewAudit && (
+        isResumeDraft ||
+        preselectedPlan?.isResume ||
+        preselectedPlan?.status === "in_progress" ||
+        preselectedPlan?.type === "draft" ||
+        Boolean(initialDraft) ||
+        Boolean(matchedDraftRecord)
+      )
+    );
+  });
+  const hasInitializedLockRef = useRef(isReadOnlyMode);
   const [isSpeedDialOpen, setIsSpeedDialOpen] = useState(false);
 
   const [branchPage, setBranchPage] = useState(1);
@@ -1983,6 +1995,10 @@ export default function LiveAuditScreen({
 
       hasHydratedDraftRef.current = true;
       hydratedFormIdRef.current = currentForm?.id || null;
+      if (!hasInitializedLockRef.current) {
+        hasInitializedLockRef.current = true;
+        setIsReadOnlyMode(true);
+      }
 
       const { answers: remappedAnswers, photos: remappedPhotos, comments: remappedComments, oldToNewIdMap } =
         remapDraftItemsToCurrentForm(parsedDraftPayload, currentForm);
@@ -2341,6 +2357,12 @@ export default function LiveAuditScreen({
       return;
     }
 
+    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกขณะอยู่ในโหมดล็อก (ดูอย่างเดียว)
+    if (isReadOnlyMode) {
+      setSyncStatus("idle");
+      return;
+    }
+
     // 🔒 Mutex: If a save is currently in-flight, queue this request so we never send concurrent PUT requests
     if (isSavingRef.current) {
       hasPendingSaveRef.current = true;
@@ -2598,6 +2620,10 @@ export default function LiveAuditScreen({
 
         // Hydrate only if answers on this device have not been modified yet
         if (!isAnswerModifiedRef.current && remote.draftPayloadJson) {
+          if (!hasInitializedLockRef.current) {
+            hasInitializedLockRef.current = true;
+            setIsReadOnlyMode(true);
+          }
           try {
             const payload = typeof remote.draftPayloadJson === "string"
               ? JSON.parse(remote.draftPayloadJson)
@@ -3301,6 +3327,31 @@ export default function LiveAuditScreen({
                 lastSavedTime={lastSavedTime}
                 onToggle={() => setShowSaveTime(prev => !prev)}
               />
+            )}
+
+            {/* ปุ่มล็อก / ปลดล็อกเพื่อแก้ไขตรวจต่อ */}
+            {step === "audit" && (
+              isReadOnlyMode ? (
+                <button
+                  type="button"
+                  onClick={() => setIsReadOnlyMode(false)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white font-extrabold text-xs shadow-md shadow-amber-500/25 transition-all shrink-0 cursor-pointer"
+                  title="คลิกเพื่อปลดล็อกและแก้ไขผลตรวจต่อ"
+                >
+                  <Edit3 size={13} strokeWidth={2.5} />
+                  <span>แก้ไข</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setIsReadOnlyMode(true)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 font-bold text-xs border border-slate-200 transition-all shrink-0 cursor-pointer"
+                  title="คลิกเพื่อล็อกหน้าจอ (ดูอย่างเดียว)"
+                >
+                  <Lock size={12} strokeWidth={2.2} />
+                  <span className="hidden sm:inline">ล็อก</span>
+                </button>
+              )
             )}
 
             {/* ปุ่มฟอร์มใหม่เดิม */}
@@ -4467,6 +4518,41 @@ export default function LiveAuditScreen({
             </div>
           </div>
 
+          {/* 🔒 กล่องแจ้งเตือนสถานะกำลังตรวจ (โหมดล็อกหน้าจอ - ดูอย่างเดียว) */}
+          {isReadOnlyMode && (
+            <div className="px-3 sm:px-4 mb-2">
+              <div className="rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 bg-gradient-to-r from-amber-50 to-orange-50/80 border border-amber-200/90 shadow-2xs flex items-center justify-between gap-3 animate-in fade-in duration-200">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0 shadow-2xs">
+                    <Lock size={18} strokeWidth={2.4} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs sm:text-sm font-black text-amber-950">
+                        สถานะ: กำลังตรวจ (ล็อกหน้าจออยู่)
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200/70">
+                        ดูอย่างเดียว
+                      </span>
+                    </div>
+                    <p className="text-[11px] sm:text-xs text-amber-800/90 font-medium mt-0.5">
+                      หน้าจอถูกล็อกไว้เพื่อป้องกันการกดโดนคำตอบโดยไม่ได้ตั้งใจ กดปุ่ม &quot;แก้ไข&quot; เพื่อตรวจต่อ
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsReadOnlyMode(false)}
+                  className="flex items-center gap-1.5 px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-xl sm:rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white font-extrabold text-xs sm:text-sm shadow-md shadow-amber-500/30 transition-all shrink-0 cursor-pointer"
+                  title="คลิกเพื่อปลดล็อกและตรวจต่อ"
+                >
+                  <Edit3 size={15} strokeWidth={2.4} />
+                  <span>แก้ไข / ตรวจต่อ</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 📊 Category Scores Breakdown Card */}
           {categoryBreakdown.length > 0 && (
             <div className="px-3 sm:px-4 mb-2">
@@ -5299,20 +5385,26 @@ export default function LiveAuditScreen({
                 </div>
               </div>
 
-              <button
-                id="audit-tab3-submit-btn"
-                type="button"
-                onClick={handleFinalSubmitTab3}
-                disabled={isReadOnlyMode}
-                className={`w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 transition-all ${
-                  isReadOnlyMode
-                    ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
-                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95"
-                }`}
-              >
-                <CheckCircle2 size={18} />
-                <span>{isReadOnlyMode ? "โหมดดูอย่างเดียว (ปลดล็อกก่อนส่งผล)" : "บันทึกและส่งผลตรวจประเมิน"}</span>
-              </button>
+              {isReadOnlyMode ? (
+                <button
+                  type="button"
+                  onClick={() => setIsReadOnlyMode(false)}
+                  className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 active:scale-95 text-white shadow-xl shadow-amber-500/20 transition-all cursor-pointer"
+                >
+                  <Edit3 size={18} strokeWidth={2.4} />
+                  <span>ปลดล็อกเพื่อแก้ไข / ตรวจต่อ</span>
+                </button>
+              ) : (
+                <button
+                  id="audit-tab3-submit-btn"
+                  type="button"
+                  onClick={handleFinalSubmitTab3}
+                  className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 transition-all bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95 cursor-pointer"
+                >
+                  <CheckCircle2 size={18} />
+                  <span>บันทึกและส่งผลตรวจประเมิน</span>
+                </button>
+              )}
 
               {hasUserAnswers && !isReadOnlyMode && (
                 <div className="text-center pt-2">
