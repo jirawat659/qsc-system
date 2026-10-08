@@ -2285,7 +2285,6 @@ export default function LiveAuditScreen({
   const lastSaveOkRef = useRef(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isLocalSaving, setIsLocalSaving] = useState(false);
-  const [remoteConflictCount, setRemoteConflictCount] = useState(0);
   // true = ถ้าผู้ใช้ออกจากหน้านี้ด้วยวิธีอื่นที่ไม่ใช่ปุ่มย้อนกลับ (เช่น กดเมนูไปหน้าอื่น) ให้บันทึกให้ก่อนเพื่อกันข้อมูลหาย
   // ตั้งเป็น false ถ้าต้องการให้บันทึกด้วยปุ่มเท่านั้นจริงๆ
   const saveOnLeaveSafetyNet = true;
@@ -2559,7 +2558,6 @@ export default function LiveAuditScreen({
       setHasUnsavedChanges(stillUnsaved);
       setLastSavedTime(currentTimeStr);
       setSyncStatus(stillUnsaved ? "unsaved" : "synced");
-      if (!stillUnsaved) setRemoteConflictCount(0);
 
       const draftObj = {
         id: res?.data?.id || currDraftId,
@@ -2850,70 +2848,56 @@ export default function LiveAuditScreen({
 
       if (syncedDraft.draftPayloadJson) {
         try {
+          if (isSavingRef.current) return;
+
           const payload = typeof syncedDraft.draftPayloadJson === "string"
             ? JSON.parse(syncedDraft.draftPayloadJson)
             : syncedDraft.draftPayloadJson;
 
-          // 🌟 โหมดบันทึกด้วยมือ: ข้อมูลจากเครื่องอื่นเข้ามาแทนที่ทุกข้อ ยกเว้นข้อที่เครื่องนี้แก้ไว้แล้วยังไม่ได้กดบันทึก
-          let conflicts = 0;
-          const pend = pendingSaveDataRef.current || {};
+          // 🌟 เมื่อมีเครื่องอื่นบันทึกเข้ามา ให้อัปเดตคำตอบและข้อมูลล่าสุดจากเซิร์ฟเวอร์ทันที ให้แก้ต่อได้เลย
+          const currentForm = selectedForm;
+          let incomingAnswers = payload.answers || {};
+          let incomingPhotos = payload.photos || {};
+          let incomingComments = payload.comments || {};
 
-          const mergeMap = (field, remoteMap, setter) => {
-            const remote = remoteMap || {};
-            const dirty = dirtyKeysRef.current[field];
-            if (!dirty || dirty.size === 0) {
-              setter(remote);
-              return;
-            }
-            const local = latestMapsRef.current[field] || {};
-            const merged = { ...remote };
-            dirty.forEach((k) => {
-              if (k in local) {
-                if (k in remote && JSON.stringify(remote[k]) !== JSON.stringify(local[k])) conflicts++;
-                merged[k] = local[k];
-              } else {
-                if (k in remote) conflicts++;
-                delete merged[k];
-              }
-            });
-            setter(merged);
-            // ให้ข้อมูลที่จะถูกบันทึกครั้งถัดไปรวมข้อมูลจากเครื่องอื่นด้วย ไม่ใช่ภาพเก่า
-            if (pendingSaveDataRef.current && pendingSaveDataRef.current[field] !== undefined) {
-              pendingSaveDataRef.current[field] = merged;
-            }
-          };
+          if (currentForm && Array.isArray(currentForm.sections) && currentForm.sections.length > 0) {
+            const remapped = remapDraftItemsToCurrentForm(payload, currentForm);
+            incomingAnswers = remapped.answers;
+            incomingPhotos = remapped.photos;
+            incomingComments = remapped.comments;
+          }
 
-          const applyScalar = (field, remoteVal, setter) => {
-            if (pend[field] !== undefined) {
-              if (JSON.stringify(pend[field]) !== JSON.stringify(remoteVal)) conflicts++;
-              return;
-            }
-            setter(remoteVal);
-          };
+          if (payload.answers !== undefined) setAnswers(incomingAnswers);
+          if (payload.photos !== undefined) setPhotos(incomingPhotos);
+          if (payload.comments !== undefined) setComments(incomingComments);
+          if (payload.metadataValues !== undefined) setMetadataValues(payload.metadataValues || {});
 
-          if (payload.answers !== undefined) mergeMap('answers', payload.answers, setAnswers);
-          if (payload.photos !== undefined) mergeMap('photos', payload.photos, setPhotos);
-          if (payload.comments !== undefined) mergeMap('comments', payload.comments, setComments);
-          if (payload.metadataValues !== undefined) mergeMap('metadataValues', payload.metadataValues, setMetadataValues);
-
-          if (payload.staffCount !== undefined) applyScalar('staffCount', payload.staffCount, setStaffCount);
-          if (payload.extraNote !== undefined) applyScalar('extraNote', payload.extraNote, setExtraNote);
-          if (payload.auditeeSignature !== undefined) applyScalar('auditeeSignature', payload.auditeeSignature || null, setAuditeeSignature);
-          if (payload.auditorSignature !== undefined) applyScalar('auditorSignature', payload.auditorSignature || null, setAuditorSignature);
+          if (payload.staffCount !== undefined) setStaffCount(payload.staffCount || "");
+          if (payload.extraNote !== undefined) setExtraNote(payload.extraNote || "");
+          if (payload.auditeeSignature !== undefined) setAuditeeSignature(payload.auditeeSignature || null);
+          if (payload.auditorSignature !== undefined) setAuditorSignature(payload.auditorSignature || null);
           if (payload.auditeeSignName !== undefined) setAuditeeSignName(payload.auditeeSignName || "");
-          if (payload.isBackdated !== undefined) applyScalar('isBackdated', Boolean(payload.isBackdated), setIsBackdated);
-          if (payload.backdatedStartDate !== undefined) applyScalar('backdatedStartDate', payload.backdatedStartDate, setBackdatedStartDate);
-          if (payload.backdatedEndDate !== undefined) applyScalar('backdatedEndDate', payload.backdatedEndDate, setBackdatedEndDate);
-          if (payload.auditType) applyScalar('auditType', payload.auditType, setAuditType);
+          if (payload.isBackdated !== undefined) setIsBackdated(Boolean(payload.isBackdated));
+          if (payload.backdatedStartDate !== undefined) setBackdatedStartDate(payload.backdatedStartDate || null);
+          if (payload.backdatedEndDate !== undefined) setBackdatedEndDate(payload.backdatedEndDate || null);
+          if (payload.auditType) setAuditType(payload.auditType);
 
-          if (conflicts > 0) setRemoteConflictCount((c) => c + conflicts);
+          dirtyKeysRef.current = {
+            answers: new Set(),
+            photos: new Set(),
+            comments: new Set(),
+            metadataValues: new Set()
+          };
+          pendingSaveDataRef.current = null;
+          setHasUnsavedChanges(false);
+
           const incomingTime = payload.savedAt ||
             (syncedDraft.updatedAt
               ? new Date(syncedDraft.updatedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
               : new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }));
 
-          setLastSavedTime(incomingTime); // 👈 อัปเดตเวลาบนปุ่ม Synced ของเครื่องนี้ทันที
-          setSyncStatus(hasUnsavedLocalChanges() ? "unsaved" : "synced");
+          setLastSavedTime(incomingTime);
+          setSyncStatus("synced");
         } catch (e) {
           console.warn("SignalR draft payload parse error:", e);
         }
@@ -5550,23 +5534,6 @@ export default function LiveAuditScreen({
           document.body
         )}
 
-        {/* 🌟 แถบแจ้งเตือนเมื่อมีเครื่องอื่นบันทึกทับข้อที่เรากำลังแก้ค้างอยู่ (ชนกัน) */}
-        {remoteConflictCount > 0 && typeof document !== "undefined" && createPortal(
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[99990] max-w-md w-[92vw] bg-amber-500 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center justify-between gap-3 text-xs sm:text-sm font-bold animate-in fade-in slide-in-from-top-4">
-            <div className="flex items-center gap-2">
-              <AlertCircle size={18} className="shrink-0" />
-              <span>มีข้อตรวจ {remoteConflictCount} ข้อ ที่เครื่องอื่นเพิ่งบันทึก (ระบบคงคำตอบที่คุณกำลังแก้อยู่ไว้)</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setRemoteConflictCount(0)}
-              className="shrink-0 px-2.5 py-1 rounded-lg bg-black/20 hover:bg-black/30 text-white text-xs cursor-pointer"
-            >
-              รับทราบ
-            </button>
-          </div>,
-          document.body
-        )}
 
         {/* REMOTE AUDIT SUBMITTED NOTIFICATION MODAL */}
         {remoteSubmittedInfo && typeof document !== 'undefined' && createPortal(
