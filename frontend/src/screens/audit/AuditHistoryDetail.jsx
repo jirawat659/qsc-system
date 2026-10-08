@@ -2145,25 +2145,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         {/* Third Section: Metadata Cards (เดิมเป็นแถวเดียวกันแบบ divide-y + label กว้างคงที่ 64px
             ทำให้ค่าที่ยาว เช่น ชื่อฟอร์ม/ชื่อผู้ตรวจ ถูก truncate เป็น "..." บนจอมือถือแคบๆ
             เปลี่ยนเป็นการ์ดแยกทีละอัน ใช้ break-words แทน truncate จะได้ขึ้นบรรทัดใหม่แทนการตัดข้อความ) */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mt-3.5 sm:mt-4">
-          {/* Card: สาขา / สถานที่ */}
-          <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
-            <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
-              <MapPin size={16} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] text-slate-400 font-semibold">สาขา / สถานที่</div>
-              <div className="text-xs sm:text-sm font-extrabold text-slate-800 leading-snug break-words" title={fullLocationName}>
-                {locationTitle}
-              </div>
-              {locationCode && (
-                <div className="text-[10px] text-slate-400 font-medium mt-0.5">
-                  รหัสสาขา: {locationCode}
-                </div>
-              )}
-            </div>
-          </div>
-
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 mt-3.5 sm:mt-4">
           {/* Card: แบบฟอร์ม */}
           <div className="rounded-2xl bg-[#F8FAF9] border border-slate-100/90 p-3 sm:p-3.5 flex items-start gap-2.5 shadow-2xs">
             <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#0F6659] flex items-center justify-center shrink-0 shadow-2xs">
