@@ -99,7 +99,7 @@ $RECYCLE.BIN/
 # ==========================================
 qsc-clean-source/
 *.zip
-!qsc-code.zip
+qsc-code.zip
 *.tar.gz
 *.rar
 *.7z
@@ -109,4 +109,12 @@ qsc-clean-source/
 # ==========================================
 .agent/
 .agents/
+
+# ==========================================
+# 🛑 Excluded Standalone / External Projects
+# ==========================================
+Login/
+mock-au-portal/
+qsc-webapp-main/
+
 

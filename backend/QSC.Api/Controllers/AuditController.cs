@@ -888,7 +888,7 @@ namespace QSC.Api.Controllers
             try
             {
                 var relativeUrl = await UploadHelper.SaveAuditItemPhotoAsync(
-                    _env, _config, dto.Base64Data, dto.ScheduleId, dto.LocationCode, dto.SurveyItemId, 100 * 1024);
+                    _env, _config, dto.Base64Data, dto.ScheduleId, dto.LocationCode, dto.SurveyItemId, 2 * 1024 * 1024);
                 return Ok(new { url = relativeUrl });
             }
             catch (InvalidImageUploadException ex)
@@ -1527,7 +1527,7 @@ namespace QSC.Api.Controllers
                         {
                             if (string.IsNullOrWhiteSpace(imgUrl)) continue;
                             var savedImgUrl = await UploadHelper.SaveAuditItemPhotoAsync(
-                                _env, _config, imgUrl, validScheduleId, location.Code, computedResp.SurveyItemId, 100 * 1024);
+                                _env, _config, imgUrl, validScheduleId, location.Code, computedResp.SurveyItemId, 2 * 1024 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
                                 response.Images.Add(new AuditResponseImage
@@ -1873,7 +1873,7 @@ namespace QSC.Api.Controllers
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
-                auditeeName = r.AuditeeUser?.FullName ?? r.AuditeeNameText ?? "ผู้จัดการสาขา",
+                auditeeName = !string.IsNullOrWhiteSpace(r.AuditeeNameText) ? r.AuditeeNameText.Trim() : (r.AuditeeUser?.FullName ?? "ผู้จัดการสาขา"),
                 auditDate = r.AuditDate,
                 totalScore = r.TotalScore,
                 maxScore = r.MaxScore,
@@ -1899,23 +1899,27 @@ namespace QSC.Api.Controllers
                     ? r.Responses?
                         .OrderBy(res => res.SurveyItem?.SurveySection?.OrderIndex ?? 0)
                         .ThenBy(res => res.SurveyItem?.OrderIndex ?? 0)
-                        .Select(res => new
+                        .Select(res =>
                         {
-                            surveyItemId = res.SurveyItemId,
-                            questionText = res.SurveyItem?.QuestionText,
-                            sectionTitle = res.SurveyItem?.SurveySection?.Title,
-                            // หมวด ณ วันตรวจของคำตอบก่อน (ระบบเดิมเคยย้ายข้อเดิมไปหมวดอื่นตามยุค) → หมวดของคำถาม
-                            categoryCode = res.CategoryCode ?? res.SurveyItem?.CategoryCode,
-                            categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
-                            // คะแนนเต็ม ณ วันตรวจ (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) → ค่าปัจจุบันของฟอร์ม
-                            fullScore = res.MaxScore ?? res.SurveyItem?.FullScore ?? 0,
-                            scoreGiven = res.ScoreGiven,
-                            isPassed = res.IsPassed,
-                            isNa = res.IsNa,
-                            isCritical = res.SurveyItem?.IsCritical ?? false,
-                            answerValue = res.AnswerValue,
-                            rawAnswer = res.AnswerValue,
-                            notes = res.Notes
+                            var resolvedAns = AuditScoring.ResolveStoredAnswer(res, res.SurveyItem);
+                            return new
+                            {
+                                surveyItemId = res.SurveyItemId,
+                                questionText = res.SurveyItem?.QuestionText,
+                                sectionTitle = res.SurveyItem?.SurveySection?.Title,
+                                // หมวด ณ วันตรวจของคำตอบก่อน (ระบบเดิมเคยย้ายข้อเดิมไปหมวดอื่นตามยุค) → หมวดของคำถาม
+                                categoryCode = res.CategoryCode ?? res.SurveyItem?.CategoryCode,
+                                categoryName = res.CategoryName ?? res.SurveyItem?.CategoryName ?? res.SurveyItem?.SurveySection?.Title ?? "ทั่วไป",
+                                // คะแนนเต็ม ณ วันตรวจ (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) → ค่าปัจจุบันของฟอร์ม
+                                fullScore = res.MaxScore ?? res.SurveyItem?.FullScore ?? 0,
+                                scoreGiven = res.ScoreGiven,
+                                isPassed = res.IsPassed,
+                                isNa = res.IsNa,
+                                isCritical = res.SurveyItem?.IsCritical ?? false,
+                                answerValue = resolvedAns,
+                                rawAnswer = resolvedAns,
+                                notes = res.Notes
+                            };
                         }).ToList()
                     : null
             });
@@ -1999,12 +2003,12 @@ namespace QSC.Api.Controllers
                 surveyFormId = r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
-                passingScore = r.SurveyForm?.PassingScore ?? 0.0,
+                passingScore = r.SurveyForm?.PassingScore ?? 85.0,
                 versionNumber = r.VersionNumber != null ? Convert.ToBase64String(r.VersionNumber) : null,
                 primaryAuditorId = r.PrimaryAuditorId,
                 auditorName = r.PrimaryAuditor?.FullName,
                 auditeeUserId = r.AuditeeUserId,
-                auditeeName = r.AuditeeUser?.FullName ?? r.AuditeeNameText ?? "ผู้จัดการสาขา",
+                auditeeName = !string.IsNullOrWhiteSpace(r.AuditeeNameText) ? r.AuditeeNameText.Trim() : (r.AuditeeUser?.FullName ?? "ผู้จัดการสาขา"),
                 auditDate = r.AuditDate,
                 totalScore = r.TotalScore,
                 maxScore = r.MaxScore,
@@ -2408,8 +2412,12 @@ namespace QSC.Api.Controllers
                 if (dto.MetadataValuesJson != null) record.MetadataValuesJson = dto.MetadataValuesJson;
 
                 // เวลาเริ่ม-สิ้นสุด (ผูก AuditDate และ StartedAt เข้าด้วยกัน)
-                // AuditDate ไม่แก้ไข — แก้ได้เฉพาะเวลาเริ่ม (StartedAt) และเวลาส่ง (SubmittedAt)
-                if (dto.StartedAt.HasValue) record.StartedAt = ToUtcKind(dto.StartedAt.Value);
+                if (dto.StartedAt.HasValue)
+                {
+                    var utcStarted = ToUtcKind(dto.StartedAt.Value);
+                    record.StartedAt = utcStarted;
+                    record.AuditDate = utcStarted;
+                }
                 if (dto.SubmittedAt.HasValue) record.SubmittedAt = ToUtcKind(dto.SubmittedAt.Value);
 
                 // ลายเซ็น (จำกัดขนาดไม่เกิน 2MB)
@@ -2517,7 +2525,7 @@ namespace QSC.Api.Controllers
                         {
                             if (string.IsNullOrWhiteSpace(imgUrl)) continue;
                             var savedImgUrl = await UploadHelper.SaveAuditItemPhotoAsync(
-                                _env, _config, imgUrl, record.AuditScheduleId, record.Location?.Code, computedResp.SurveyItemId, 100 * 1024);
+                                _env, _config, imgUrl, record.AuditScheduleId, record.Location?.Code, computedResp.SurveyItemId, 2 * 1024 * 1024);
                             if (!string.IsNullOrWhiteSpace(savedImgUrl))
                             {
                                 targetImageUrls.Add(savedImgUrl);

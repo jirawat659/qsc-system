@@ -593,6 +593,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const [editAuditType, setEditAuditType] = useState("announced");
   const [editStartedAt, setEditStartedAt] = useState("");
   const [editSubmittedAt, setEditSubmittedAt] = useState("");
+  const initialTimesRef = useRef({ started: "", submitted: "" });
   const [editMetadataValues, setEditMetadataValues] = useState({});
   const [editGeneralNotes, setEditGeneralNotes] = useState("");
   const [editAuditorSignature, setEditAuditorSignature] = useState(null);
@@ -1167,8 +1168,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     setInitialAnswersState(initialMap);
     setEditStaffCount(currentRecord.staffCount || 0);
     setEditAuditType(currentRecord.auditType || "announced");
-    setEditStartedAt(toDatetimeLocal(currentRecord.startedAt || currentRecord.auditDate || new Date().toISOString()));
-    setEditSubmittedAt(toDatetimeLocal(currentRecord.submittedAt || currentRecord.signedAt || currentRecord.auditDate || new Date().toISOString()));
+    const s0 = toDatetimeLocal(currentRecord.startedAt || currentRecord.auditDate || new Date().toISOString());
+    const e0 = toDatetimeLocal(currentRecord.submittedAt || currentRecord.signedAt || currentRecord.auditDate || new Date().toISOString());
+    initialTimesRef.current = { started: s0, submitted: e0 };
+    setEditStartedAt(s0);
+    setEditSubmittedAt(e0);
     setEditGeneralNotes(currentRecord.notes || "");
     setEditAuditorSignature(currentRecord.auditorSignatureUrl || currentRecord.auditorSignature || null);
     setEditAuditeeSignature(currentRecord.auditeeSignatureUrl || currentRecord.auditeeSignature || null);
@@ -1224,7 +1228,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
 
   const liveScoreData = useMemo(() => {
     if (!isEditing || Object.keys(editAnswersState).length === 0) return null;
-    return computeScore(allChecklistQuestions, editAnswersState, passingScore);
+    return computeScore(allChecklistQuestions, editAnswersState, passingScore, { includeUnansweredInMaxScore: false });
   }, [isEditing, editAnswersState, allChecklistQuestions, passingScore]);
 
   const displayScore = isEditing && liveScoreData ? liveScoreData.percentage : score;
@@ -1589,8 +1593,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         staffCount: finalStaffCount,
         auditType: finalAuditType,
         notes: editGeneralNotes ?? "", // สตริงว่าง = ล้างหมายเหตุ
-        startedAt: editStartedAt ? new Date(editStartedAt).toISOString() : undefined,
-        submittedAt: editSubmittedAt ? new Date(editSubmittedAt).toISOString() : undefined,
+        startedAt: editStartedAt && editStartedAt !== initialTimesRef.current.started
+          ? new Date(editStartedAt).toISOString() : undefined,
+        submittedAt: editSubmittedAt && editSubmittedAt !== initialTimesRef.current.submitted
+          ? new Date(editSubmittedAt).toISOString() : undefined,
         auditorSignatureUrl: editAuditorSignature || null,
         auditeeSignatureUrl: editAuditeeSignature || null,
         startLatitude: editStartLatitude ? parseFloat(editStartLatitude) : null,

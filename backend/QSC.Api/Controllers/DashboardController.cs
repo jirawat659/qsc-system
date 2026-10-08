@@ -297,7 +297,10 @@ namespace QSC.Api.Controllers
                     // คะแนนเต็ม ณ วันตรวจก่อน (งานประวัติข้อเดียวกันคะแนนต่างกันตามยุค) แล้วค่อยใช้ค่าปัจจุบันของฟอร์ม
                     FullScore = resp.MaxScore != null
                         ? resp.MaxScore.Value
-                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 0.0)
+                        : (resp.SurveyItem != null && resp.SurveyItem.FullScore > 0 ? resp.SurveyItem.FullScore : 0.0),
+                    PassingScore = resp.AuditRecord != null && resp.AuditRecord.SurveyForm != null
+                        ? resp.AuditRecord.SurveyForm.PassingScore
+                        : 85.0
                 })
                 .Where(x => x.FullScore > 0)
                 .ToListAsync();
@@ -307,7 +310,8 @@ namespace QSC.Api.Controllers
                 {
                     NormalizedName = NormalizeCategoryName(d.CategoryName, d.CategoryCode),
                     d.ScoreGiven,
-                    d.FullScore
+                    d.FullScore,
+                    d.PassingScore
                 })
                 .Where(d => d.NormalizedName != "INFO" && d.NormalizedName != "รายละเอียด" && d.NormalizedName != "ข้อมูลทั่วไป")
                 .GroupBy(d => d.NormalizedName)
@@ -316,12 +320,13 @@ namespace QSC.Api.Controllers
                     var totalScoreGiven = g.Sum(x => x.ScoreGiven);
                     var totalFullScore = g.Sum(x => x.FullScore);
                     var percentage = totalFullScore > 0 ? R2((totalScoreGiven / totalFullScore) * 100.0) : 0.0;
+                    var avgTarget = g.Any() ? R2(g.Average(x => x.PassingScore)) : 85.0;
 
                     return new
                     {
                         name = g.Key,
                         score = percentage,
-                        target = 85
+                        target = avgTarget
                     };
                 })
                 .OrderByDescending(c => c.score)

@@ -174,7 +174,7 @@ namespace QSC.Api.Helpers
         }
 
         /// <summary>
-        /// 📸 บันทึกรูปข้อตรวจ: uploads/{YYYY-MM-DD}/audit_{job}/audits/item_{itemId}_{random4}.webp (ด่าน 3: ไม่เกิน 100KB)
+        /// 📸 บันทึกรูปข้อตรวจ: uploads/{YYYY-MM-DD}/audit_{job}/audits/item_{itemId}_{random4}.webp (ด่าน 3: ไม่เกิน 2MB)
         /// </summary>
         public static async Task<string> SaveAuditItemPhotoAsync(
             IWebHostEnvironment env,
@@ -183,7 +183,7 @@ namespace QSC.Api.Helpers
             int? scheduleId,
             string? locationCode,
             int? surveyItemId,
-            long maxSizeBytes = 100 * 1024)
+            long maxSizeBytes = 2 * 1024 * 1024)
         {
             if (string.IsNullOrWhiteSpace(input)) return string.Empty;
             if (!input.StartsWith("data:image/")) return input;

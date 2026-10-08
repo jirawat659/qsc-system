@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -24,9 +24,9 @@ import { lockBodyScroll, unlockBodyScroll } from "../../utils/scrollLock";
 import signalRService from "../../services/signalrService";
 import SyncStatusPill from "../../shared/SyncStatusPill";
 import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
-import { isItemScored, computeScore } from "../../config/scoring";
+import { isItemScored, computeScore, round2 } from "../../config/scoring";
 
-const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
+const QuestionCommentInput = React.memo(({ initialValue, onChange, readOnly = false }) => {
   const [localValue, setLocalValue] = useState(initialValue || "");
   const onChangeRef = useRef(onChange);
 
@@ -39,26 +39,34 @@ const QuestionCommentInput = React.memo(({ initialValue, onChange }) => {
   }, [initialValue]);
 
   useEffect(() => {
+    if (readOnly) return;
     const handler = setTimeout(() => {
       if (localValue !== (initialValue || "")) {
         onChangeRef.current(localValue);
       }
     }, 500);
     return () => clearTimeout(handler);
-  }, [localValue, initialValue]);
+  }, [localValue, initialValue, readOnly]);
 
   return (
     <input
       type="text"
-      placeholder="ข้อคิดเห็น..."
+      placeholder={readOnly ? "ไม่มีข้อคิดเห็นเพิ่มเติม" : "ข้อคิดเห็น..."}
       value={localValue}
-      onChange={(e) => setLocalValue(e.target.value)}
+      readOnly={readOnly}
+      onChange={(e) => {
+        if (!readOnly) setLocalValue(e.target.value);
+      }}
       onBlur={() => {
-        if (localValue !== (initialValue || "")) {
+        if (!readOnly && localValue !== (initialValue || "")) {
           onChangeRef.current(localValue);
         }
       }}
-      className="w-full text-xs p-2.5 rounded-xl border border-slate-200 outline-none text-slate-800 focus:border-[#0F6659] bg-slate-50/80"
+      className={`w-full text-xs p-2.5 rounded-xl border outline-none text-slate-800 transition-all ${
+        readOnly
+          ? "bg-slate-100/90 border-slate-200 text-slate-600 cursor-default select-text"
+          : "bg-slate-50/80 border-slate-200 focus:border-[#0F6659] focus:bg-white"
+      }`}
     />
   );
 });
@@ -121,11 +129,12 @@ const QuestionCard = React.memo(function QuestionCard({
   onPhotoDelete,
   onToggleComment,
   onViewPhoto,
-  auditorOptions
+  auditorOptions,
+  readOnly = false
 }) {
   const isInfoSec = sec?.sectionType === "INFO";
   const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-  const isNonScored = !isItemScored({ ...q, sectionType: sec?.sectionType });
+  const isNonScored = !isItemScored({ ...q, sectionType: sec?.sectionType, sectionTitle: sec?.title });
 
   const isNa = answer === "na";
   const isScale = qType === "scale" || qType === "rating";
@@ -199,28 +208,40 @@ const QuestionCard = React.memo(function QuestionCard({
             >
               <MessageSquare size={16} className={(commentValue && commentValue.trim().length > 0) ? "fill-amber-400/40" : ""} />
             </button>
-            <label
-              className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
-                }`}
-              title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
-            >
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  onPhotoUpload(q.id, e.target.files);
-                  e.target.value = '';
-                }}
-              />
-              <Camera size={16} />
-              {hasPhoto && (
+            {!readOnly ? (
+              <label
+                className={`h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition-all border ${hasPhoto ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
+                  }`}
+                title="แนบรูปถ่าย (ถ่ายภาพ หรือ เลือกรูปจากคลังภาพในเครื่อง)"
+              >
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    onPhotoUpload(q.id, e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+                <Camera size={16} />
+                {hasPhoto && (
+                  <span className="text-[11px] font-black font-mono">
+                    {questionPhotos.length}
+                  </span>
+                )}
+              </label>
+            ) : hasPhoto ? (
+              <div
+                className="h-9 px-2.5 rounded-xl flex items-center justify-center gap-1.5 border bg-emerald-50 text-[#0F6659] border-emerald-200 select-none"
+                title="มีรูปถ่ายหลักฐาน"
+              >
+                <Camera size={16} />
                 <span className="text-[11px] font-black font-mono">
                   {questionPhotos.length}
                 </span>
-              )}
-            </label>
+              </div>
+            ) : null}
           </div>
         </div>
         <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug break-words [overflow-wrap:anywhere] ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
@@ -239,33 +260,37 @@ const QuestionCard = React.memo(function QuestionCard({
                 className="h-20 w-28 object-cover cursor-pointer hover:opacity-90 active:scale-95 transition-all"
                 title="คลิกเพื่อดูรูปภาพขนาดเต็ม"
               />
-              <button
-                type="button"
-                onClick={() => onPhotoDelete(q.id, imgIdx)}
-                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
-                title="ลบรูปภาพนี้"
-              >
-                ✕
-              </button>
+              {!readOnly && (
+                <button
+                  type="button"
+                  onClick={() => onPhotoDelete(q.id, imgIdx)}
+                  className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 hover:bg-rose-600 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer transition-all shadow-sm"
+                  title="ลบรูปภาพนี้"
+                >
+                  ✕
+                </button>
+              )}
               <span className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-bold font-mono">
                 #{imgIdx + 1}
               </span>
             </div>
           ))}
-          <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
-            <input
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                onPhotoUpload(q.id, e.target.files);
-                e.target.value = '';
-              }}
-            />
-            <Plus size={18} />
-            <span className="text-[10px] font-bold">เพิ่มรูป</span>
-          </label>
+          {!readOnly && (
+            <label className="h-20 w-20 shrink-0 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-emerald-700 cursor-pointer transition-all">
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  onPhotoUpload(q.id, e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              <Plus size={18} />
+              <span className="text-[10px] font-bold">เพิ่มรูป</span>
+            </label>
+          )}
         </div>
       )}
 
@@ -290,6 +315,7 @@ const QuestionCard = React.memo(function QuestionCard({
                 }
               }}
               onViewPhoto={onViewPhoto}
+              readOnly={readOnly}
             />
           ) : (
             <DynamicFieldRenderer
@@ -299,37 +325,111 @@ const QuestionCard = React.memo(function QuestionCard({
               onChange={(val) => onAnswerSelect(q.id, val)}
               placeholder={q.placeholder || "ระบุข้อมูล..."}
               auditorOptions={auditorOptions}
+              readOnly={readOnly}
             />
           )}
         </div>
       ) : !isScale ? (
-        <div className="grid grid-cols-3 gap-2">
-          <button type="button" onClick={() => onAnswerSelect(q.id, "yes")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "yes" || answer === true ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-            <CheckCircle2 size={18} /><span>ผ่าน</span>
+        <div className={`grid grid-cols-3 gap-2 ${readOnly ? 'pointer-events-none' : ''}`}>
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={() => onAnswerSelect(q.id, "yes")}
+            className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+              answer === "yes" || answer === true
+                ? readOnly
+                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                  : 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30'
+                : readOnly
+                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+            }`}
+          >
+            <CheckCircle2 size={18} className={readOnly && (answer === "yes" || answer === true) ? "text-slate-700" : ""} />
+            <span>ผ่าน</span>
           </button>
-          <button type="button" onClick={() => onAnswerSelect(q.id, "no")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "no" || answer === false ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-            <XCircle size={18} /><span>ไม่ผ่าน</span>
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={() => onAnswerSelect(q.id, "no")}
+            className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+              answer === "no" || answer === false
+                ? readOnly
+                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                  : 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30'
+                : readOnly
+                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+            }`}
+          >
+            <XCircle size={18} className={readOnly && (answer === "no" || answer === false) ? "text-slate-700" : ""} />
+            <span>ไม่ผ่าน</span>
           </button>
-          <button type="button" onClick={() => onAnswerSelect(q.id, "na")} className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border cursor-pointer transition-all flex flex-col items-center justify-center gap-1 ${answer === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
-            <Minus size={18} /><span>ข้าม</span>
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={() => onAnswerSelect(q.id, "na")}
+            className={`py-3 rounded-2xl text-[11px] sm:text-xs font-bold border transition-all flex flex-col items-center justify-center gap-1 ${
+              answer === "na"
+                ? readOnly
+                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                  : 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30'
+                : readOnly
+                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                  : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 cursor-pointer'
+            }`}
+          >
+            <Minus size={18} className={readOnly && answer === "na" ? "text-slate-700" : ""} />
+            <span>ข้าม</span>
           </button>
         </div>
       ) : (
-        <div className="flex gap-1.5 items-center">
+        <div className={`flex gap-1.5 items-center ${readOnly ? 'pointer-events-none' : ''}`}>
           {[5, 4, 3, 2, 1].map((n) => (
-            <button key={n} type="button" onClick={() => onAnswerSelect(q.id, n)} className={`flex-1 py-2.5 rounded-xl text-sm font-black cursor-pointer transition-all border ${answer === n ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30' : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
+            <button
+              key={n}
+              type="button"
+              disabled={readOnly}
+              onClick={() => onAnswerSelect(q.id, n)}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-black transition-all border ${
+                answer === n
+                  ? readOnly
+                    ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                    : 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30'
+                  : readOnly
+                    ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
               {n}
             </button>
           ))}
-          <button type="button" onClick={() => onAnswerSelect(q.id, "na")} className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black cursor-pointer transition-all border ${answer === "na" ? 'bg-slate-700 text-white border-slate-700 shadow-md' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-            <Minus size={14} className="mr-0.5" /> N/A
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={() => onAnswerSelect(q.id, "na")}
+            className={`px-2.5 py-2.5 rounded-xl flex items-center justify-center text-[10px] font-black transition-all border ${
+              answer === "na"
+                ? readOnly
+                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                  : 'bg-slate-700 text-white border-slate-700 shadow-md'
+                : readOnly
+                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                  : 'bg-slate-50 text-slate-500 border-slate-200 cursor-pointer'
+            }`}
+          >
+            <Minus size={14} className={`mr-0.5 ${readOnly && answer === "na" ? "text-slate-700" : ""}`} /> N/A
           </button>
         </div>
       )}
 
       {isCommentOpen && (
         <div className="mt-3">
-          <QuestionCommentInput initialValue={commentValue} onChange={(val) => onCommentChange(q.id, val)} />
+          <QuestionCommentInput
+            initialValue={commentValue}
+            onChange={(val) => onCommentChange(q.id, val)}
+            readOnly={readOnly}
+          />
         </div>
       )}
     </div>
@@ -529,7 +629,7 @@ function SignaturePadCanvas({ initialSignatureUrl, onDone, onCancel }) {
   );
 }
 
-function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม...", signatureUrl }) {
+function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeholderName = "ระบุชื่อผู้ลงนาม...", signatureUrl, readOnly = false }) {
   const [showModal, setShowModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const hasSigned = Boolean(signatureUrl);
@@ -541,7 +641,7 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
           <PenTool size={13} className="text-[#0F6659]" />
           <span>{label}</span>
         </label>
-        {hasSigned && (
+        {hasSigned && !readOnly && (
           <button
             type="button"
             onClick={() => onSignChange(null)}
@@ -555,8 +655,15 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
 
       <button
         type="button"
-        onClick={() => setShowModal(true)}
-        className="relative w-full border-2 border-dashed border-slate-300 rounded-2xl bg-white overflow-hidden hover:border-[#0F6659]/50 transition-colors shadow-2xs h-24 sm:h-28 flex items-center justify-center cursor-pointer"
+        disabled={readOnly}
+        onClick={() => {
+          if (!readOnly) setShowModal(true);
+        }}
+        className={`relative w-full border-2 border-dashed rounded-2xl bg-white overflow-hidden shadow-2xs h-24 sm:h-28 flex items-center justify-center transition-colors ${
+          readOnly
+            ? "border-slate-200 bg-slate-50/50 cursor-default"
+            : "border-slate-300 hover:border-[#0F6659]/50 cursor-pointer"
+        }`}
       >
         {isUploading ? (
           <div className="flex items-center justify-center gap-2 text-slate-500 text-xs font-semibold">
@@ -567,8 +674,14 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
           <img src={getFullImageUrl(signatureUrl)} alt={label} className="max-h-full max-w-full object-contain" />
         ) : (
           <div className="flex items-center justify-center text-slate-400 text-xs font-medium gap-1.5 select-none">
-            <Edit3 size={14} />
-            <span>แตะเพื่อเซ็นชื่อ</span>
+            {readOnly ? (
+              <span>(ยังไม่มีลายมือชื่อ)</span>
+            ) : (
+              <>
+                <Edit3 size={14} />
+                <span>แตะเพื่อเซ็นชื่อ</span>
+              </>
+            )}
           </div>
         )}
       </button>
@@ -577,9 +690,16 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         <input
           type="text"
           value={signatoryName || ''}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder={placeholderName}
-          className="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-semibold text-slate-800 outline-none focus:border-[#0F6659] shadow-2xs ios-zoom-fix-xs"
+          readOnly={readOnly}
+          onChange={(e) => {
+            if (!readOnly) onNameChange(e.target.value);
+          }}
+          placeholder={readOnly ? "(ไม่ได้ระบุชื่อผู้ลงนาม)" : placeholderName}
+          className={`w-full text-xs p-2.5 rounded-xl border outline-none font-semibold text-slate-800 shadow-2xs ios-zoom-fix-xs ${
+            readOnly
+              ? "bg-slate-100/90 border-slate-200 cursor-default text-slate-600"
+              : "border-slate-200 bg-white focus:border-[#0F6659]"
+          }`}
         />
       )}
 
@@ -1137,43 +1257,8 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
       unmatchedDraftKeys.push(String(k));
     }
   }
-
-  // 🌟 สำหรับกรณีที่มีการ Clone เวอร์ชันใหม่ของฟอร์มเดียวกัน ทำให้ ID ของข้อเลื่อนไปทั้งชุด (เช่น 5877-5896 -> 5897-5916)
-  if (unmatchedDraftKeys.length > 0 && currentItemsFlat.length > 0) {
-    unmatchedDraftKeys.sort((a, b) => {
-      const numA = Number(a);
-      const numB = Number(b);
-      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-      return a.localeCompare(b);
-    });
-
-    const numericKeys = unmatchedDraftKeys
-      .map(k => Number(k))
-      .filter(n => !isNaN(n))
-      .sort((a, b) => a - b);
-
-    const isAllNumeric = numericKeys.length === unmatchedDraftKeys.length;
-    const minOldId = isAllNumeric && numericKeys.length > 0 ? numericKeys[0] : null;
-    const maxOldId = isAllNumeric && numericKeys.length > 0 ? numericKeys[numericKeys.length - 1] : null;
-    const oldSpan = (minOldId !== null && maxOldId !== null) ? (maxOldId - minOldId + 1) : 0;
-
-    const usedNewIds = new Set(Object.values(oldToNewIdMap));
-
-    // กลยุทธ์ A: ถ้าช่วง ID เก่าเป็นช่วงตัวเลขออโต้รันที่พอดีกับช่วง index ของข้อปัจจุบัน (สำหรับ Clone Form เวอร์ชันใหม่ของแบบฟอร์มเดิม)
-    if (isAllNumeric && minOldId !== null && oldSpan <= currentItemsFlat.length) {
-      for (const oldNum of numericKeys) {
-        const targetIdx = oldNum - minOldId;
-        if (targetIdx >= 0 && targetIdx < currentItemsFlat.length) {
-          const targetItem = currentItemsFlat[targetIdx];
-          if (targetItem && !usedNewIds.has(String(targetItem.id))) {
-            oldToNewIdMap[String(oldNum)] = String(targetItem.id);
-            usedNewIds.add(String(targetItem.id));
-          }
-        }
-      }
-    }
-    // ⚠️ ลบกลยุทธ์ B (ที่สุ่มยัดคำตอบลงข้อว่างตามลำดับ) ทิ้งเด็ดขาด เพื่อป้องกันคำตอบไปสวมรอยข้ออื่น
-  }
+  // 🌟 จับคู่เฉพาะข้อที่มี ID เดิมตรงกัน หรือมี DNA lineageMapping 1:1 เท่านั้น
+  // ข้อที่ไม่มีการผูกไว้หรือถูกลบออกจากฟอร์มใหม่ จะไม่ถูกเดาลำดับสวมรอย เพื่อป้องกันคำตอบสลับข้อ 100%
 
   const resolveMappedKey = (key) => oldToNewIdMap[String(key)] || (currentItemIds.has(String(key)) ? String(key) : null);
 
@@ -1202,9 +1287,9 @@ export function remapDraftItemsToCurrentForm(draftPayload, form) {
   }
 
   return {
-    answers: Object.keys(mappedAnswers).length > 0 ? mappedAnswers : draftAnswers,
-    photos: Object.keys(mappedPhotos).length > 0 ? mappedPhotos : draftPhotos,
-    comments: Object.keys(mappedComments).length > 0 ? mappedComments : draftComments,
+    answers: mappedAnswers,
+    photos: mappedPhotos,
+    comments: mappedComments,
     oldToNewIdMap
   };
 }
@@ -1363,6 +1448,8 @@ export default function LiveAuditScreen({
     return "select-unit";
   });
   const [activeTab, setActiveTab] = useState(1);
+  const [isReadOnlyMode, setIsReadOnlyMode] = useState(false);
+  const [isSpeedDialOpen, setIsSpeedDialOpen] = useState(false);
 
   const [branchPage, setBranchPage] = useState(1);
   const branchPageSize = 10;
@@ -1487,7 +1574,7 @@ export default function LiveAuditScreen({
   }, [formList, effectiveDraftFormId, unit, getFormDetail]);
 
   const currentSections = selectedForm?.sections || [];
-  const passingScore = selectedForm?.passingScore || 85;
+  const passingScore = selectedForm?.passingScore ?? 85;
 
   // 🌟 forms จาก context เป็นแบบ summary (ไม่มี sections) — พอเลือกฟอร์มที่จะใช้ตรวจจริง
   // ต้องดึงคำถามเต็มมาก่อนเสมอ ไม่งั้นหน้าจอตรวจจะไม่มีคำถามให้ตอบ
@@ -2842,7 +2929,7 @@ export default function LiveAuditScreen({
       const item = (sec.items || []).find(i => i.id === questionId);
       if (item) {
         const qType = (item.questionType || item.type || "YESNO").toString().toLowerCase();
-        const isScored = isItemScored({ ...item, sectionType: sec.sectionType });
+        const isScored = isItemScored({ ...item, sectionType: sec.sectionType, sectionTitle: sec.title });
         if (isScored) {
           isScoredItem = true;
           if (qType === "scale" || qType === "rating") isScale = true;
@@ -2884,62 +2971,63 @@ export default function LiveAuditScreen({
     setOpenComments(prev => ({ ...prev, [questionId]: !currentlyOpen }));
   }, []);
 
-  const scoreAnalysis = useMemo(() => {
-    let earnedScore = 0;
-    let maxScore = 0;
-    let naCount = 0;
-    let hasCriticalDefect = false;
-    const failedQuestions = [];
-
+  const allAuditQuestions = useMemo(() => {
+    const list = [];
     currentSections.forEach(sec => {
       (sec.items || []).forEach(q => {
-        const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
-        if (!isScored) return; // 🌟 ข้ามไม่คิดคะแนน
-
-        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-        const ans = answers[q.id];
-
-        if (ans === "na") {
-          naCount++;
-          return;
-        }
-
-        const fullScore = Number(q.fullScore ?? q.maxScore ?? 0);
-        maxScore += fullScore;
-
-        if (qType === "scale" || qType === "rating") {
-          const num = Number(ans) || 0;
-          earnedScore += (num / 5) * fullScore;
-          if (num < 3 && ans !== undefined && ans !== "") {
-            failedQuestions.push({ ...q, sectionTitle: sec.title, note: comments[q.id] || `ได้คะแนนเพียง ${num}/5` });
-            if (q.isCritical) hasCriticalDefect = true;
-          }
-        } else {
-          if (ans === "yes" || ans === true) {
-            earnedScore += fullScore;
-          } else if (ans === "no" || ans === false) {
-            failedQuestions.push({ ...q, sectionTitle: sec.title, note: comments[q.id] || "ไม่ผ่านเกณฑ์มาตรฐาน" });
-            if (q.isCritical) hasCriticalDefect = true;
-          }
-        }
+        list.push({
+          ...q,
+          surveyItemId: q.id,
+          sectionType: q.sectionType || sec.sectionType,
+          sectionTitle: sec.title,
+        });
       });
     });
+    return list;
+  }, [currentSections]);
 
-    const percentage = maxScore > 0 ? Number(((earnedScore / maxScore) * 100).toFixed(2)) : 0;
-    const isPassed = maxScore > 0 && percentage >= passingScore && !hasCriticalDefect;
+  const scoreAnalysis = useMemo(() => {
+    const res = computeScore(allAuditQuestions, answers, passingScore, { includeUnansweredInMaxScore: true });
+    const failedQuestions = [];
 
-    return { earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, failedQuestions };
-  }, [currentSections, answers, comments, passingScore]);
+    allAuditQuestions.forEach(q => {
+      const itemRes = res.itemResults[q.id];
+      if (!itemRes || !itemRes.isScored || itemRes.isNa) return;
+      if (!itemRes.isPassed) {
+        const qType = (q.questionType || q.type || "YESNO").toString().toUpperCase();
+        let defaultNote = "ไม่ผ่านเกณฑ์มาตรฐาน";
+        if (itemRes.isUnanswered) {
+          defaultNote = "ยังไม่ได้ตอบ";
+        } else if (qType === "SCALE") {
+          defaultNote = `ได้คะแนนเพียง ${itemRes.answerValue || 0}/5`;
+        }
+        failedQuestions.push({
+          ...q,
+          sectionTitle: q.sectionTitle,
+          note: comments[q.id] || defaultNote
+        });
+      }
+    });
+
+    return {
+      earnedScore: res.totalScore,
+      maxScore: res.maxScore,
+      percentage: res.percentage,
+      isPassed: res.isPassed,
+      hasCriticalDefect: res.hasCriticalDefect,
+      naCount: res.naCount,
+      failedQuestions,
+      itemResults: res.itemResults
+    };
+  }, [allAuditQuestions, answers, comments, passingScore]);
 
   const categoryBreakdown = useMemo(() => {
     const catMap = new Map();
 
     currentSections.forEach((sec) => {
       (sec.items || []).forEach((q) => {
-        const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
-        if (!isScored) return; // 🌟 ข้ามหมวดไม่คิดคะแนน
-
-        const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+        const r = scoreAnalysis.itemResults?.[q.id];
+        if (!r || !r.isScored) return; // 🌟 ข้ามหมวด/ข้อไม่คิดคะแนน
 
         const catName = getQuestionCategory(q, sec);
         if (!catMap.has(catName)) {
@@ -2954,35 +3042,22 @@ export default function LiveAuditScreen({
 
         const catData = catMap.get(catName);
         catData.totalCount += 1;
+        if (!r.isUnanswered) catData.answeredCount += 1;
+        if (r.isNa) return;
 
-        const ans = answers[q.id];
-        const isAnswered = ans !== undefined && ans !== null && ans !== "";
-        if (isAnswered) {
-          catData.answeredCount += 1;
-        }
-
-        if (ans === "na") {
-          return;
-        }
-
-        const fullScore = Number(q.fullScore ?? q.maxScore ?? 0);
-        catData.maxScore += fullScore;
-
-        if (qType === "scale" || qType === "rating") {
-          const num = Number(ans) || 0;
-          catData.earnedScore += (num / 5) * fullScore;
-        } else {
-          if (ans === "yes" || ans === true) {
-            catData.earnedScore += fullScore;
-          }
-        }
+        catData.maxScore += r.maxScore;
+        catData.earnedScore += r.scoreGiven;
       });
     });
 
     const categories = Array.from(catMap.values()).map((cat) => {
-      const percentage = cat.maxScore > 0 ? Number(((cat.earnedScore / cat.maxScore) * 100).toFixed(2)) : 0;
+      const earned = round2(cat.earnedScore);
+      const max = round2(cat.maxScore);
+      const percentage = max > 0 ? round2((earned / max) * 100) : 0;
       return {
         ...cat,
+        earnedScore: earned,
+        maxScore: max,
         percentage,
       };
     });
@@ -3012,7 +3087,7 @@ export default function LiveAuditScreen({
     });
 
     return categories;
-  }, [currentSections, answers, selectedForm?.categoryOrderJson, selectedForm?.categories]);
+  }, [currentSections, scoreAnalysis, selectedForm?.categoryOrderJson, selectedForm?.categories, getQuestionCategory]);
 
   // 🌟 ส่งออกรายงาน Excel จากข้อมูลแบบร่าง ณ ปัจจุบันระหว่างตรวจ
   const [isExportingExcel, setIsExportingExcel] = useState(false);
@@ -3051,7 +3126,8 @@ export default function LiveAuditScreen({
         return {
           title: sec.title || `หมวดที่ ${sIdx + 1}`,
           questions: (sec.items || []).map((q, qIdx) => {
-            const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
+            const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
+            const isScored = isItemScored({ ...q, sectionType: sec.sectionType, sectionTitle: sec.title });
             const isNonScored = !isScored;
             const ans = answers[q.id];
             const isNa = ans === "na" || ans === "skip";
@@ -3060,12 +3136,13 @@ export default function LiveAuditScreen({
             let scoreGiven = null;
             let isPassed = false;
             if (isScored && !isNa && ans !== undefined && ans !== null && ans !== "") {
-              if (qType === "scale" || qType === "rating") {
+              if (qType === "scale") {
                 const num = Number(ans) || 0;
-                scoreGiven = (num / 5) * fullScore;
+                scoreGiven = round2((num / 5.0) * fullScore);
                 isPassed = num >= 3;
               } else {
-                const passed = ans === "yes" || ans === true;
+                const lowerAns = String(ans).toLowerCase();
+                const passed = lowerAns === "yes" || lowerAns === "true" || lowerAns === "1";
                 scoreGiven = passed ? fullScore : 0;
                 isPassed = passed;
               }
@@ -3135,7 +3212,7 @@ export default function LiveAuditScreen({
         record: draftRecord,
         sections: exportSections,
         metaFields: exportMetaFields,
-        passingScore: passingScore || 85,
+        passingScore: passingScore ?? 85,
         categoryOf: getQuestionCategory,
         categoryOrder: selectedForm?.categoryOrderJson || selectedForm?.categories,
         toFullUrl: getFullImageUrl,
@@ -3187,7 +3264,8 @@ export default function LiveAuditScreen({
         prev.showSaveTime === showSaveTime &&
         prev.lastSavedTime === lastSavedTime && 
         prev.syncStatus === syncStatus &&
-        prev.isExportingExcel === isExportingExcel
+        prev.isExportingExcel === isExportingExcel &&
+        prev.isReadOnlyMode === isReadOnlyMode
       ) {
         return prev;
       }
@@ -3205,8 +3283,10 @@ export default function LiveAuditScreen({
         lastSavedTime,
         syncStatus,
         isExportingExcel,
+        isReadOnlyMode,
         action: (
           <div className="flex items-center gap-1.5 sm:gap-2">
+
             {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (ตามรูปที่ 1) */}
             {step === "audit" && (
               <SyncStatusPill
@@ -3215,24 +3295,6 @@ export default function LiveAuditScreen({
                 lastSavedTime={lastSavedTime}
                 onToggle={() => setShowSaveTime(prev => !prev)}
               />
-            )}
-
-            {/* 🌟 ปุ่มออกรายงาน Excel (ข้อมูลแบบร่าง) - ซ่อนในมุมมองมือถือ แสดงเฉพาะบนแท็บเล็ต/เดสก์ท็อป */}
-            {step === "audit" && (
-              <button
-                type="button"
-                onClick={() => handleExportDraftExcelRef.current && handleExportDraftExcelRef.current()}
-                disabled={isExportingExcel}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
-              >
-                {isExportingExcel ? (
-                  <Loader2 size={13} className="animate-spin text-[#0F6659]" />
-                ) : (
-                  <FileSpreadsheet size={13} className="text-[#0F6659]" />
-                )}
-                <span className="hidden sm:inline">รายงาน Excel</span>
-              </button>
             )}
 
             {/* ปุ่มฟอร์มใหม่เดิม */}
@@ -3288,13 +3350,13 @@ export default function LiveAuditScreen({
         setSubHeader(prev => (prev?.title === title ? null : prev));
       }
     };
-  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel]);
+  }, [step, unit?.id, unit?.name, unit?.fullName, selectedForm?.id, selectedForm?.title, isResumeDraft, isFromAssignedPlan, isAuditHeaderScrolled, setSubHeader, activeTab, activeSectionIndex, newerFormVersion, isMigratingDraft, showSaveTime, lastSavedTime, syncStatus, isExportingExcel, isReadOnlyMode]);
 
   const checkUnansweredQuestions = () => {
     const unanswered = [];
     currentSections.forEach((sec, sIdx) => {
       (sec.items || []).forEach((item, qIdx) => {
-        const itemWithSec = { ...item, sectionType: item.sectionType || sec.sectionType };
+        const itemWithSec = { ...item, sectionType: item.sectionType || sec.sectionType, sectionTitle: sec.title };
         const isScored = isItemScored(itemWithSec);
 
         // 🌟 ถ้าเป็นข้อไม่คิดคะแนน: ตรวจเฉพาะข้อที่มีการกดตั้งค่าว่า "ต้องกรอก / บังคับกรอก" (required) เท่านั้น!
@@ -3564,7 +3626,7 @@ export default function LiveAuditScreen({
           const ans = answers[q.id];
           const isNa = (ans === "na" || ans === "skip");
           const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
-          const isScored = isItemScored({ ...q, sectionType: sec.sectionType });
+          const isScored = isItemScored({ ...q, sectionType: sec.sectionType, sectionTitle: sec.title });
 
           let rawAnswer = "";
 
@@ -3572,7 +3634,7 @@ export default function LiveAuditScreen({
             rawAnswer = typeof ans === "object" ? JSON.stringify(ans) : (ans !== undefined && ans !== null ? String(ans) : "");
           } else if (isNa) {
             rawAnswer = "na";
-          } else if (qType === "scale" || qType === "rating") {
+          } else if (qType === "scale") {
             const parsedNum = Number(ans);
             if (ans === undefined || ans === null || ans === "" || !Number.isFinite(parsedNum) || parsedNum < 1 || parsedNum > 5) {
               // กรองข้อคิดคะแนนที่ยังไม่ตอบออกก่อนส่ง (ไม่เติม "0" หรือค่าเดาสุ่ม)
@@ -4158,7 +4220,7 @@ export default function LiveAuditScreen({
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <span className="text-xs font-extrabold px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
-                      เกณฑ์ผ่าน {f.passingScore || 85}%
+                      เกณฑ์ผ่าน {f.passingScore ?? 85}%
                     </span>
                     <span className="text-xs font-bold text-slate-400">
                       {f.sectionCount !== undefined && f.sectionCount !== null ? f.sectionCount : (f.sections || []).length} หมวดการตรวจ
@@ -4378,20 +4440,6 @@ export default function LiveAuditScreen({
                       <span>เริ่ม {new Date(auditStartedAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}</span>
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleExportDraftExcel}
-                    disabled={isExportingExcel}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] border border-emerald-200/90 text-xs font-bold shadow-2xs hover:shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-                    title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
-                  >
-                    {isExportingExcel ? (
-                      <Loader2 size={13} className="animate-spin text-[#0F6659]" />
-                    ) : (
-                      <FileSpreadsheet size={13} className="text-[#0F6659]" />
-                    )}
-                    <span>ออกรายงาน Excel</span>
-                  </button>
                 </div>
               </div>
 
@@ -4548,7 +4596,9 @@ export default function LiveAuditScreen({
                           options: resolvedOptions,
                         }}
                         value={resolvedVal}
+                        readOnly={isReadOnlyMode}
                         onChange={(newVal) => {
+                          if (isReadOnlyMode) return;
                           const next = { ...metadataValues, [field.id]: newVal };
                           setMetadataValues(next);
                           if (field.id === "audit_type" || field.id === "auditType") {
@@ -4577,13 +4627,17 @@ export default function LiveAuditScreen({
                       <div className="relative">
                         <select
                           value={currentVal}
+                          disabled={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const val = e.target.value;
                             const next = { ...metadataValues, [field.id]: val };
                             setMetadataValues(next);
                             scheduleActionSave({ metadataValues: next });
                           }}
-                          className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                          className={`w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl border outline-none font-medium sm:font-semibold text-slate-700 shadow-xs appearance-none truncate transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 border-slate-200 cursor-default opacity-80' : 'bg-slate-50 border-slate-200 focus:border-[#0F6659] focus:bg-white cursor-pointer'
+                          }`}
                         >
                           <option value="">-- เลือกผู้ตรวจ --</option>
                           {auditorOptions.map(u => (
@@ -4617,15 +4671,23 @@ export default function LiveAuditScreen({
                             <button
                               key={opt}
                               type="button"
+                              disabled={isReadOnlyMode}
                               onClick={() => {
+                                if (isReadOnlyMode) return;
                                 setAuditType(key);
                                 const nextMeta = { ...metadataValues, [field.id]: opt, audit_type: opt };
                                 setMetadataValues(nextMeta);
                                 scheduleActionSave({ auditType: key, metadataValues: nextMeta });
                               }}
-                              className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer ${isSelected
-                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all ${
+                                isReadOnlyMode ? 'pointer-events-none' : 'cursor-pointer'
+                              } ${isSelected
+                                  ? isReadOnlyMode
+                                    ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                                    : 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                  : isReadOnlyMode
+                                    ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                             >
                               {opt}
@@ -4649,14 +4711,18 @@ export default function LiveAuditScreen({
                           type="number"
                           min="0"
                           value={currentStaffVal}
+                          readOnly={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const val = e.target.value;
                             setStaffCount(val);
                             const nextMeta = { ...metadataValues, staff_count: val };
                             setMetadataValues(nextMeta);
                             scheduleActionSave({ staffCount: val, metadataValues: nextMeta });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white text-slate-800 focus:border-[#0F6659] shadow-2xs"
+                          className={`w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold shadow-2xs transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 text-slate-600 cursor-default' : 'bg-white text-slate-800 focus:border-[#0F6659]'
+                          }`}
                           placeholder={field.placeholder || "ระบุจำนวน (คน)"}
                         />
                         <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
@@ -4679,13 +4745,17 @@ export default function LiveAuditScreen({
                           min={field.min !== undefined ? field.min : 0}
                           max={field.max !== undefined ? field.max : 999999}
                           value={currentVal ?? ""}
+                          readOnly={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const next = { ...metadataValues, [field.id]: e.target.value };
                             setMetadataValues(next);
                             scheduleActionSave({ metadataValues: next });
                           }}
                           placeholder={field.placeholder || `ระบุตัวเลข${field.unit ? ` (${field.unit})` : ''}`}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs"
+                          className={`w-full text-xs sm:text-sm py-2.5 px-3 pr-14 rounded-xl border border-slate-200 outline-none font-medium sm:font-bold shadow-2xs transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 text-slate-600 cursor-default' : 'bg-white focus:border-[#0F6659]'
+                          }`}
                         />
                         {field.unit && (
                           <div className="absolute right-2 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-xs font-bold text-slate-600 select-none pointer-events-none">
@@ -4708,13 +4778,17 @@ export default function LiveAuditScreen({
                         <input
                           type="date"
                           value={currentVal || ""}
+                          disabled={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const val = e.target.value;
                             const next = { ...metadataValues, [field.id]: val };
                             setMetadataValues(next);
                             scheduleActionSave({ metadataValues: next });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                          className={`w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold shadow-2xs text-slate-800 min-h-[48px] transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 cursor-default opacity-80' : 'bg-white focus:border-[#0F6659] cursor-pointer'
+                          }`}
                         />
                         <Calendar size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
                         {!currentVal && (
@@ -4738,13 +4812,17 @@ export default function LiveAuditScreen({
                         <input
                           type="time"
                           value={currentVal || ""}
+                          disabled={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const val = e.target.value;
                             const next = { ...metadataValues, [field.id]: val };
                             setMetadataValues(next);
                             scheduleActionSave({ metadataValues: next });
                           }}
-                          className="w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold bg-white focus:border-[#0F6659] shadow-2xs text-slate-800 min-h-[48px] cursor-pointer"
+                          className={`w-full text-xs sm:text-sm py-3 px-3.5 pr-10 rounded-2xl border border-slate-200 outline-none font-medium sm:font-bold shadow-2xs text-slate-800 min-h-[48px] transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 cursor-default opacity-80' : 'bg-white focus:border-[#0F6659] cursor-pointer'
+                          }`}
                         />
                         <Clock size={18} className="absolute right-3.5 text-[#0F6659] pointer-events-none shrink-0" />
                         {!currentVal && (
@@ -4771,14 +4849,22 @@ export default function LiveAuditScreen({
                             <button
                               key={opt}
                               type="button"
+                              disabled={isReadOnlyMode}
                               onClick={() => {
+                                if (isReadOnlyMode) return;
                                 const next = { ...metadataValues, [field.id]: opt };
                                 setMetadataValues(next);
                                 scheduleActionSave({ metadataValues: next });
                               }}
-                              className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${currentVal === opt
-                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                              className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
+                                isReadOnlyMode ? 'pointer-events-none' : 'cursor-pointer'
+                              } ${currentVal === opt
+                                  ? isReadOnlyMode
+                                    ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
+                                    : 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
+                                  : isReadOnlyMode
+                                    ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
+                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                             >
                               {opt}
@@ -4789,13 +4875,17 @@ export default function LiveAuditScreen({
                         <div className="relative">
                           <select
                             value={currentVal || ""}
+                            disabled={isReadOnlyMode}
                             onChange={(e) => {
+                              if (isReadOnlyMode) return;
                               const val = e.target.value;
                               const next = { ...metadataValues, [field.id]: val };
                               setMetadataValues(next);
                               scheduleActionSave({ metadataValues: next });
                             }}
-                            className="w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl bg-slate-50 border border-slate-200 outline-none font-medium sm:font-semibold text-slate-700 focus:border-[#0F6659] focus:bg-white transition-all shadow-xs cursor-pointer appearance-none truncate"
+                            className={`w-full text-xs sm:text-sm pl-4 pr-10 py-3 min-h-[50px] rounded-2xl border outline-none font-medium sm:font-semibold text-slate-700 shadow-xs appearance-none truncate transition-all ${
+                              isReadOnlyMode ? 'bg-slate-100/90 border-slate-200 cursor-default opacity-80' : 'bg-slate-50 border-slate-200 focus:border-[#0F6659] focus:bg-white cursor-pointer'
+                            }`}
                           >
                             <option value="">-- เลือก --</option>
                             {opts.map(opt => (
@@ -4823,12 +4913,16 @@ export default function LiveAuditScreen({
                       </div>
                       <button
                         type="button"
+                        disabled={isReadOnlyMode}
                         onClick={() => {
+                          if (isReadOnlyMode) return;
                           const next = { ...metadataValues, [field.id]: !isTrue };
                           setMetadataValues(next);
                           scheduleActionSave({ metadataValues: next });
                         }}
-                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${isTrue
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                          isReadOnlyMode ? 'cursor-default opacity-60' : 'cursor-pointer'
+                        } ${isTrue
                             ? 'bg-[#0F6659] text-white shadow-2xs'
                             : 'bg-slate-200 text-slate-600'
                           }`}
@@ -4847,7 +4941,9 @@ export default function LiveAuditScreen({
                     <textarea
                       rows={2}
                       value={currentVal || ""}
+                      readOnly={isReadOnlyMode}
                       onChange={(e) => {
+                        if (isReadOnlyMode) return;
                         const val = e.target.value;
                         const next = { ...metadataValues, [field.id]: val };
                         setMetadataValues(next);
@@ -4858,8 +4954,10 @@ export default function LiveAuditScreen({
                         e.target.style.height = "auto";
                         e.target.style.height = `${Math.max(56, e.target.scrollHeight)}px`;
                       }}
-                      placeholder={field.placeholder || "กรอกข้อความหรือหมายเหตุ..."}
-                      className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[46px]"
+                      placeholder={isReadOnlyMode ? "(ไม่มีข้อความ)" : (field.placeholder || "กรอกข้อความหรือหมายเหตุ...")}
+                      className={`w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-xl border border-slate-200 outline-none font-medium shadow-2xs resize-y min-h-[46px] transition-all ${
+                        isReadOnlyMode ? 'bg-slate-100/90 text-slate-600 cursor-default' : 'bg-white focus:border-[#0F6659]'
+                      }`}
                     />
                   </div>
                 );
@@ -4882,7 +4980,9 @@ export default function LiveAuditScreen({
                   </div>
                   <button
                     type="button"
+                    disabled={isReadOnlyMode}
                     onClick={() => {
+                      if (isReadOnlyMode) return;
                       const next = !isBackdated;
                       setIsBackdated(next);
                       if (next && (!backdatedStartDate || !backdatedEndDate)) {
@@ -4901,8 +5001,12 @@ export default function LiveAuditScreen({
                         scheduleActionSave({ isBackdated: next });
                       }
                     }}
-                    className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all cursor-pointer min-h-[38px] flex items-center justify-center shrink-0 active:scale-95 ${
-                      isBackdated ? "bg-[#0F6659] text-white shadow-sm hover:bg-[#0B4E44]" : "bg-slate-200 hover:bg-slate-300 text-slate-700"
+                    className={`px-4 py-2 rounded-2xl text-xs sm:text-sm font-black transition-all min-h-[38px] flex items-center justify-center shrink-0 ${
+                      isReadOnlyMode
+                        ? "bg-slate-200 text-slate-400 cursor-default opacity-60"
+                        : isBackdated
+                          ? "bg-[#0F6659] text-white shadow-sm hover:bg-[#0B4E44] active:scale-95 cursor-pointer"
+                          : "bg-slate-200 hover:bg-slate-300 text-slate-700 active:scale-95 cursor-pointer"
                     }`}
                   >
                     {isBackdated ? "เปิด" : "ปิด"}
@@ -4920,12 +5024,16 @@ export default function LiveAuditScreen({
                         <input
                           type="datetime-local"
                           value={backdatedStartDate}
+                          disabled={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const val = e.target.value;
                             setBackdatedStartDate(val);
                             scheduleActionSave({ backdatedStartDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
+                          className={`w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold shadow-2xs min-h-[44px] transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 text-slate-600 cursor-default opacity-80' : 'bg-white text-slate-800 focus:border-[#0F6659] cursor-pointer'
+                          }`}
                         />
                         <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedStartDate && (
@@ -4944,12 +5052,16 @@ export default function LiveAuditScreen({
                         <input
                           type="datetime-local"
                           value={backdatedEndDate}
+                          disabled={isReadOnlyMode}
                           onChange={(e) => {
+                            if (isReadOnlyMode) return;
                             const val = e.target.value;
                             setBackdatedEndDate(val);
                             scheduleActionSave({ backdatedEndDate: val });
                           }}
-                          className="w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold text-slate-800 focus:border-[#0F6659] shadow-2xs min-h-[44px] cursor-pointer"
+                          className={`w-full text-xs sm:text-sm py-2.5 px-3.5 pr-10 rounded-xl border border-slate-200 outline-none font-medium sm:font-semibold shadow-2xs min-h-[44px] transition-all ${
+                            isReadOnlyMode ? 'bg-slate-100/90 text-slate-600 cursor-default opacity-80' : 'bg-white text-slate-800 focus:border-[#0F6659] cursor-pointer'
+                          }`}
                         />
                         <Calendar size={16} className="absolute right-3 text-[#0F6659] pointer-events-none shrink-0" />
                         {!backdatedEndDate && (
@@ -4970,7 +5082,7 @@ export default function LiveAuditScreen({
               >
                 ไปที่รายการตรวจทั้งหมด <ChevronRight size={16} />
               </button>
-              {hasUserAnswers && (
+              {hasUserAnswers && !isReadOnlyMode && (
                 <div className="text-center pt-2">
                   <button
                     type="button"
@@ -5064,6 +5176,7 @@ export default function LiveAuditScreen({
                         onToggleComment={handleToggleComment}
                         onViewPhoto={setPreviewImageUrl}
                         auditorOptions={auditorOptions}
+                        readOnly={isReadOnlyMode}
                       />
                     ))}
                   </div>
@@ -5075,7 +5188,7 @@ export default function LiveAuditScreen({
                   ไปที่สรุปและลงชื่อ <ChevronRight size={16} />
                 </button>
               </div>
-              {hasUserAnswers && (
+              {hasUserAnswers && !isReadOnlyMode && (
                 <div className="text-center pt-2">
                   <button
                     type="button"
@@ -5111,7 +5224,9 @@ export default function LiveAuditScreen({
                   <textarea
                     rows={4}
                     value={extraNote}
+                    readOnly={isReadOnlyMode}
                     onChange={(e) => {
+                      if (isReadOnlyMode) return;
                       const val = e.target.value;
                       setExtraNote(val);
                       scheduleActionSave({ extraNote: val });
@@ -5120,8 +5235,12 @@ export default function LiveAuditScreen({
                       e.target.style.height = "auto";
                       e.target.style.height = `${Math.max(96, e.target.scrollHeight)}px`;
                     }}
-                    placeholder="พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ..."
-                    className="w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-2xl border border-slate-200 outline-none font-medium bg-slate-50/50 focus:bg-white focus:border-[#0F6659] shadow-2xs resize-y min-h-[96px] text-slate-800 leading-relaxed transition-all"
+                    placeholder={isReadOnlyMode ? "(ไม่มีข้อคิดเห็น/ข้อเสนอแนะเพิ่มเติม)" : "พิมพ์สรุปผลการตรวจประเมิน ข้อเสนอแนะ..."}
+                    className={`w-full text-xs sm:text-sm placeholder:text-xs sm:placeholder:text-sm p-3.5 rounded-2xl border border-slate-200 outline-none font-medium shadow-2xs resize-y min-h-[96px] text-slate-800 leading-relaxed transition-all ${
+                      isReadOnlyMode
+                        ? "bg-slate-100/90 text-slate-600 cursor-default"
+                        : "bg-slate-50/50 focus:bg-white focus:border-[#0F6659]"
+                    }`}
                   />
                 </div>
               </div>
@@ -5131,19 +5250,23 @@ export default function LiveAuditScreen({
                   label={`1. ผู้รับการตรวจ (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
                   onSignChange={(sig) => {
+                    if (isReadOnlyMode) return;
                     setAuditeeSignature(sig);
                     scheduleActionSave({ auditeeSignature: sig });
                   }}
                   signatureUrl={auditeeSignature}
+                  readOnly={isReadOnlyMode}
                 />
 
                 <SignaturePad
                   label={`2. ผู้ตรวจประเมิน (${loggedInAuditorName || auditorName || defaultAuditorName})`}
                   onSignChange={(sig) => {
+                    if (isReadOnlyMode) return;
                     setAuditorSignature(sig);
                     scheduleActionSave({ auditorSignature: sig });
                   }}
                   signatureUrl={auditorSignature}
+                  readOnly={isReadOnlyMode}
                 />
               </div>
 
@@ -5157,7 +5280,7 @@ export default function LiveAuditScreen({
                 <div className="space-y-2 text-xs font-medium text-slate-600">
                   <div className="flex justify-between">
                     <span>คะแนนที่ได้</span>
-                    <span className="font-bold text-slate-900">{scoreAnalysis.earnedScore.toFixed(1)} / {scoreAnalysis.maxScore}</span>
+                    <span className="font-bold text-slate-900">{parseFloat(Number(scoreAnalysis.earnedScore).toFixed(2))} / {parseFloat(Number(scoreAnalysis.maxScore).toFixed(2))}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>ข้อที่ข้าม (N/A)</span>
@@ -5171,15 +5294,21 @@ export default function LiveAuditScreen({
               </div>
 
               <button
+                id="audit-tab3-submit-btn"
                 type="button"
                 onClick={handleFinalSubmitTab3}
-                className="w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95 flex items-center justify-center gap-2 transition-all"
+                disabled={isReadOnlyMode}
+                className={`w-full py-4 rounded-3xl text-sm sm:text-base font-extrabold flex items-center justify-center gap-2 transition-all ${
+                  isReadOnlyMode
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+                    : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xl shadow-emerald-600/20 active:scale-95"
+                }`}
               >
                 <CheckCircle2 size={18} />
-                บันทึกและส่งผลตรวจประเมิน
+                <span>{isReadOnlyMode ? "โหมดดูอย่างเดียว (ปลดล็อกก่อนส่งผล)" : "บันทึกและส่งผลตรวจประเมิน"}</span>
               </button>
 
-              {hasUserAnswers && (
+              {hasUserAnswers && !isReadOnlyMode && (
                 <div className="text-center pt-2">
                   <button
                     type="button"
@@ -5315,25 +5444,156 @@ export default function LiveAuditScreen({
           document.body
         )}
 
-        {/* 🌟 Floating Scroll-to-Top Button (ล็อคตรงกับ viewport ผ่าน createPortal ขนาดกะทัดรัด สีเรียบกลืนกับหน้าจอ) */}
-        {typeof document !== "undefined" && createPortal(
-          <button
-            type="button"
-            onClick={() => {
-              window.scrollTo({ top: 0, behavior: "smooth" });
-              const mainEl = document.querySelector('main');
-              if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            aria-label="เลื่อนขึ้นบนสุดของหน้า"
-            title="เลื่อนขึ้นบนสุดของหน้า"
-            className={`fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-40 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] active:bg-[#093e36] text-white shadow-lg shadow-[#0F6659]/30 border border-emerald-600/30 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 ${
-              isAuditHeaderScrolled
-                ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
-                : "opacity-0 translate-y-3 scale-75 pointer-events-none"
-            }`}
-          >
-            <ChevronUp size={20} strokeWidth={2.8} />
-          </button>,
+        {/* 🌟 Floating Speed Dial Action Menu (ย้ายมามุมขวาล่าง เลื่อนบนสุด / ล็อก-แก้ไข / ออก Excel / ส่งผลตรวจ) */}
+        {step === "audit" && typeof document !== "undefined" && createPortal(
+          <>
+            {/* พื้นหลังโปร่งใส แตะตรงไหนก็ได้เพื่อปิดเมนู */}
+            {isSpeedDialOpen && (
+              <div
+                className="fixed inset-0 z-40 bg-black/30 backdrop-blur-[1.5px] animate-in fade-in duration-200"
+                onClick={() => setIsSpeedDialOpen(false)}
+              />
+            )}
+
+            <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2.5 select-none">
+              {/* รายการเมนูด่วนย่อย (คลี่ขึ้นเมื่อ isSpeedDialOpen = true) */}
+              {isSpeedDialOpen && (
+                <div className="flex flex-col items-end gap-2.5 mb-1 animate-in slide-in-from-bottom-3 fade-in duration-200">
+                  {/* 1. เลื่อนขึ้นบนสุด */}
+                  <div className="flex items-center gap-2 group">
+                    <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full shadow-md border border-slate-200/90 whitespace-nowrap">
+                      เลื่อนขึ้นบนสุด
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                        const mainEl = document.querySelector("main");
+                        if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+                        setIsSpeedDialOpen(false);
+                      }}
+                      className="w-10 h-10 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-md border border-slate-200 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
+                      title="เลื่อนขึ้นบนสุดของหน้า"
+                      aria-label="เลื่อนขึ้นบนสุดของหน้า"
+                    >
+                      <ChevronUp size={20} strokeWidth={2.5} />
+                    </button>
+                  </div>
+
+                  {/* 2. สลับโหมดล็อก / ปลดล็อกแก้ไข */}
+                  <div className="flex items-center gap-2 group">
+                    <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-md border whitespace-nowrap ${
+                      isReadOnlyMode
+                        ? "bg-amber-100 text-amber-900 border-amber-300"
+                        : "bg-white/95 text-slate-800 border-slate-200/90"
+                    }`}>
+                      {isReadOnlyMode ? "ปลดล็อกเพื่อแก้ไข" : "ล็อกหน้าจอ (ดูอย่างเดียว)"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsReadOnlyMode(prev => !prev);
+                        setIsSpeedDialOpen(false);
+                      }}
+                      className={`w-10 h-10 rounded-full shadow-md flex items-center justify-center cursor-pointer transition-transform active:scale-90 border ${
+                        isReadOnlyMode
+                          ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
+                          : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
+                      }`}
+                      title={isReadOnlyMode ? "คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ" : "คลิกเพื่อล็อกหน้าจอป้องกันการเผลอโดนคำตอบ"}
+                      aria-label={isReadOnlyMode ? "ปลดล็อกแก้ไข" : "ล็อกหน้าจอ"}
+                    >
+                      {isReadOnlyMode ? <Unlock size={18} strokeWidth={2.4} /> : <Lock size={18} strokeWidth={2.4} />}
+                    </button>
+                  </div>
+
+                  {/* 3. ออกรายงาน Excel */}
+                  <div className="flex items-center gap-2 group">
+                    <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full shadow-md border border-slate-200/90 whitespace-nowrap">
+                      ออกรายงาน Excel (แบบร่าง)
+                    </span>
+                    <button
+                      type="button"
+                      disabled={isExportingExcel}
+                      onClick={() => {
+                        setIsSpeedDialOpen(false);
+                        if (handleExportDraftExcelRef.current) {
+                          handleExportDraftExcelRef.current();
+                        }
+                      }}
+                      className="w-10 h-10 rounded-full bg-emerald-50 hover:bg-emerald-100 text-[#0F6659] shadow-md border border-emerald-200 flex items-center justify-center cursor-pointer transition-transform active:scale-90 disabled:opacity-50"
+                      title="ออกรายงานผลตรวจเป็น Excel (ข้อมูลแบบร่าง ณ ปัจจุบัน)"
+                      aria-label="ออกรายงาน Excel"
+                    >
+                      {isExportingExcel ? (
+                        <Loader2 size={18} className="animate-spin text-[#0F6659]" />
+                      ) : (
+                        <FileSpreadsheet size={18} strokeWidth={2.2} />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* 4. ไปหน้าลงชื่อ & ส่งผลตรวจ */}
+                  <div className="flex items-center gap-2 group">
+                    <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full shadow-md border border-slate-200/90 whitespace-nowrap">
+                      ไปหน้าลงชื่อ & ส่งผลตรวจ
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSpeedDialOpen(false);
+                        setActiveTab(3);
+                        setTimeout(() => {
+                          const submitEl = document.getElementById("audit-tab3-submit-btn");
+                          if (submitEl) {
+                            submitEl.scrollIntoView({ behavior: "smooth", block: "center" });
+                          } else {
+                            window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+                            const mainEl = document.querySelector("main");
+                            if (mainEl) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
+                          }
+                        }, 120);
+                      }}
+                      className="w-10 h-10 rounded-full bg-[#0F6659] hover:bg-[#0c5247] text-white shadow-md border border-emerald-600 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
+                      title="เลื่อนไปยังส่วนลงชื่อและส่งผลตรวจประเมิน (แท็บ 3)"
+                      aria-label="ไปหน้าส่งผลตรวจ"
+                    >
+                      <PenTool size={18} strokeWidth={2.2} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 🌟 ปุ่ม FAB หลัก (Main Action Button) */}
+              <button
+                type="button"
+                onClick={() => setIsSpeedDialOpen(prev => !prev)}
+                className={`w-12 h-12 sm:w-13 sm:h-13 rounded-full flex items-center justify-center text-white shadow-xl transition-all duration-300 active:scale-90 cursor-pointer ${
+                  isSpeedDialOpen
+                    ? "bg-slate-800 hover:bg-slate-900 shadow-slate-900/40 ring-4 ring-slate-800/20"
+                    : isReadOnlyMode
+                      ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/40 ring-4 ring-amber-400/30"
+                      : "bg-[#0F6659] hover:bg-[#0c5247] shadow-[#0F6659]/40 ring-4 ring-[#0F6659]/20"
+                }`}
+                title={
+                  isSpeedDialOpen
+                    ? "ปิดเมนูด่วน"
+                    : isReadOnlyMode
+                      ? "หน้าจอล็อกอยู่ • แตะเพื่อเปิดเมนูด่วน / ปลดล็อก"
+                      : "เปิดเมนูด่วน (เลื่อนขึ้น, ล็อกหน้าจอ, Excel, ส่งผล)"
+                }
+                aria-label="เมนูด่วนการตรวจ"
+              >
+                {isSpeedDialOpen ? (
+                  <X size={24} strokeWidth={2.5} className="animate-in spin-in-90 duration-150" />
+                ) : isReadOnlyMode ? (
+                  <Lock size={22} strokeWidth={2.5} />
+                ) : (
+                  <Menu size={22} strokeWidth={2.5} />
+                )}
+              </button>
+            </div>
+          </>,
           document.body
         )}
 

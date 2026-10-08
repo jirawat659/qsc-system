@@ -1,11 +1,35 @@
 // 🗜️ Client-side Image Compression & Validation Helper (Optimized for Text Clarity)
 
 export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024; // 🛑 ด่าน 1: ขนาดไฟล์ต้นฉบับก่อนบีบอัดไม่เกิน 5MB
+// 🛑 ด่าน 1: ขนาดไฟล์ต้นฉบับก่อนบีบอัด (รูปจากมือถือรุ่นใหม่ใหญ่ได้ถึงหลายสิบ MB จึงตั้งไว้ 25MB)
+export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024;
 export const MAX_SIGNATURE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
 
-// 🛑 ด่าน 2: เพดานไฟล์หลังบีบอัดไม่เกิน 90KB (ขนาดจริงส่วนใหญ่จะอยู่ที่ประมาณ 45KB - 65KB)
+// 🛑 ด่าน 2: เพดานไฟล์หลังบีบอัด 90KB (server จำกัด 100KB เผื่อไว้ให้)
 export const TARGET_MAX_PHOTO_SIZE_BYTES = 90 * 1024;
+
+// ด้านที่สั้นที่สุดที่ยอมลดลงไปได้ ถ้าบีบแล้วยังไม่ถึงเพดาน (ยังอ่านตัวหนังสือได้)
+const MIN_LONG_SIDE = 640;
+
+/**
+ * เบราว์เซอร์นี้เข้ารหัส WebP จาก canvas ได้จริงหรือไม่
+ * (Safari / iPhone เข้ารหัสไม่ได้ และจะคืนเป็น PNG ขนาดใหญ่แทนโดยไม่แจ้ง)
+ */
+const SUPPORTS_WEBP_ENCODE = (() => {
+  try {
+    if (typeof document === 'undefined') return false;
+    return document.createElement('canvas').toDataURL('image/webp').startsWith('data:image/webp');
+  } catch {
+    return false;
+  }
+})();
+
+/** ขนาดจริง (ไบต์) ของข้อมูลใน data URL แบบ base64 */
+const bytesOf = (dataUrl) => {
+  const b64 = dataUrl.split(',')[1] || '';
+  const pad = b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - pad;
+};
 
 /**
  * ตรวจสอบความถูกต้องของไฟล์รูปภาพก่อนทำการบีบอัดหรือส่งเซิร์ฟเวอร์
@@ -40,14 +64,17 @@ export const validateImageFile = (file, maxSizeBytes = MAX_PHOTO_SIZE_BYTES, all
 };
 
 /**
- * บีบอัดรูปภาพฝั่ง Client ก่อนอัปโหลด (One-Pass Architecture)
- * ล็อกความละเอียดด้านยาวที่ 1200px เพื่อให้อ่านตัวหนังสือและเอกสารได้คมชัด
+ * บีบอัดรูปภาพฝั่ง Client ก่อนอัปโหลด
+ * - ย่อด้านยาวไม่เกิน maxWidth/maxHeight (ค่าเริ่มต้น 1200px) พร้อมรักษาสัดส่วน
+ * - ใช้ WebP ถ้าเบราว์เซอร์เข้ารหัสได้ ไม่เช่นนั้นใช้ JPEG (เช่น Safari / iPhone)
+ * - ถ้ายังเกินเพดาน: ลดคุณภาพก่อน แล้วค่อยลดขนาดภาพลงทีละ 15% จนผ่านเพดาน
+ * - ถ้าบีบจนสุดแล้วยังเกิน จะ reject พร้อมข้อความที่อ่านรู้เรื่อง (ไม่ส่งไฟล์ใหญ่ออกไป)
  * @param {File} file
  * @param {number} maxWidth ความกว้างสูงสุด (ค่าเริ่มต้น 1200px)
  * @param {number} maxHeight ความสูงสูงสุด (ค่าเริ่มต้น 1200px)
- * @param {number} initialQuality คุณภาพ WebP (ค่าเริ่มต้น 0.65)
- * @param {number} maxTargetBytes เพดานขนาดไฟล์สูงสุด (ค่าเริ่มต้น 100KB)
- * @returns {Promise<string>} Base64 Data URL (WebP)
+ * @param {number} initialQuality คุณภาพเริ่มต้น (ค่าเริ่มต้น 0.65)
+ * @param {number} maxTargetBytes เพดานขนาดไฟล์สูงสุด (ค่าเริ่มต้น 90KB)
+ * @returns {Promise<string>} Base64 Data URL (WebP หรือ JPEG)
  */
 export const compressImageFile = (
   file,
@@ -66,9 +93,9 @@ export const compressImageFile = (
     const img = new Image();
     img.src = objectUrl;
 
-    img.onerror = (err) => {
+    img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      reject(err);
+      reject(new Error("อ่านไฟล์รูปภาพไม่ได้ กรุณาเลือกรูปใหม่"));
     };
 
     img.onload = () => {
@@ -77,7 +104,7 @@ export const compressImageFile = (
       let width = img.width;
       let height = img.height;
 
-      // ล็อกด้านที่ยาวที่สุด (Max Dimension) ไม่ให้เกิน 1200px พร้อมรักษาสัดส่วนภาพเดิม
+      // ล็อกด้านที่ยาวที่สุดไม่ให้เกิน 1200px พร้อมรักษาสัดส่วนภาพเดิม
       if (width > height) {
         if (width > maxWidth) {
           height = Math.round((height * maxWidth) / width);
@@ -90,60 +117,54 @@ export const compressImageFile = (
         }
       }
 
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
+      const format = SUPPORTS_WEBP_ENCODE ? "image/webp" : "image/jpeg";
+      const qualities = [initialQuality, 0.5, 0.38];
 
-      // เพิ่มความคมชัดระดับสูง ป้องกันไม่ให้เส้นขอบฟอนต์แตกหรือขาด
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
+      let w = width;
+      let h = height;
 
-      // เติมพื้นหลังสีขาวรองรับภาพ PNG โปร่งแสง
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
 
-      // 🌟 บังคับแปลงและบันทึกเป็น WebP เท่านั้น
-      let format = "image/webp";
-      try {
-        const testExport = canvas.toDataURL("image/webp");
-        if (testExport && testExport.startsWith("data:image/webp")) {
-          format = "image/webp";
+        // ภาพคมชัด ป้องกันเส้นขอบฟอนต์แตกหรือขาด
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
+        // เติมพื้นหลังสีขาว (รองรับ PNG โปร่งแสง และ JPEG ที่ไม่มีช่องโปร่งใส)
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+
+        for (const q of qualities) {
+          const dataUrl = canvas.toDataURL(format, q);
+
+          // ตรวจว่าเบราว์เซอร์ให้ฟอร์แมตที่ขอจริง (ไม่ใช่ PNG ที่ถูกสลับให้เงียบๆ)
+          if (!dataUrl.startsWith(`data:${format}`)) {
+            return reject(new Error("เบราว์เซอร์นี้บีบอัดรูปภาพไม่ได้ กรุณาลองใช้เบราว์เซอร์อื่น"));
+          }
+
+          const size = bytesOf(dataUrl);
+          if (size <= maxTargetBytes) {
+            console.log(
+              `🗜️ [ImageCompressor] ${(size / 1024).toFixed(1)} KB ` +
+              `(Format: ${format}, Quality: ${q}, ขนาด: ${w}x${h}px)`
+            );
+            return resolve(dataUrl);
+          }
         }
-      } catch (e) {
-        format = "image/webp";
+
+        // ยังใหญ่เกินเพดาน → ลดขนาดด้านยาวลง 15% แล้วลองใหม่ (หยุดเมื่อเล็กจนอ่านยาก)
+        if (Math.max(w, h) <= MIN_LONG_SIDE) break;
+        w = Math.max(1, Math.round(w * 0.85));
+        h = Math.max(1, Math.round(h * 0.85));
       }
 
-      const getByteSize = (dataUrl) => {
-        const base64Str = dataUrl.split(",")[1] || dataUrl;
-        return Math.round((base64Str.length * 3) / 4);
-      };
-
-      // รอบที่ 1: บีบอัดรอบเดียวจบด้วยค่ามาตรฐาน (Quality 0.65)
-      let quality = initialQuality;
-      let dataUrl = canvas.toDataURL(format, quality);
-
-      // รอบที่ 2 (Safeguard): กรณีภาพมี Noise สูงจนเกิน 90KB ให้บีบซ้ำรอบเดียวที่ Quality 0.50
-      // (ยังคงขนาด 1200px ไว้เพื่อให้อ่านตัวหนังสือออก ไม่ลดสเกล Canvas)
-      if (getByteSize(dataUrl) > maxTargetBytes) {
-        quality = 0.50;
-        dataUrl = canvas.toDataURL(format, quality);
-      }
-
-      // รอบที่ 3 (Ultimate Safeguard): หากยังเกิน 90KB ปรับเป็น Quality 0.38
-      if (getByteSize(dataUrl) > maxTargetBytes) {
-        quality = 0.38;
-        dataUrl = canvas.toDataURL(format, quality);
-      }
-
-      const finalSizeKb = (getByteSize(dataUrl) / 1024).toFixed(1);
-      console.log(
-        `🗜️ [ImageCompressor] ขนาดหลังบีบอัด: ${finalSizeKb} KB ` +
-        `(Format: ${format}, Quality: ${quality}, ขนาด: ${canvas.width}x${canvas.height}px)`
-      );
-
-      resolve(dataUrl);
+      reject(new Error(
+        `บีบอัดรูปให้ไม่เกิน ${Math.round(maxTargetBytes / 1024)}KB ไม่ได้ กรุณาถ่ายรูปใหม่ในที่ที่สว่างขึ้น`
+      ));
     };
   });
 };

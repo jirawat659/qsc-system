@@ -16,10 +16,13 @@ export function round2(num) {
  */
 export function isItemScored(item) {
   if (!item) return false;
-  if (String(item.sectionType || '').toUpperCase() === 'INFO') return false;
+  // 🌟 ถ้า API หรือฟอร์มคำนวณ isScored มาให้แล้ว (จาก server) ให้ถือเป็นค่าหลัก
   if (typeof item.isScored === 'boolean') {
     return item.isScored;
   }
+  if (String(item.sectionType || '').toUpperCase() === 'INFO') return false;
+  const secTitle = String(item.sectionTitle || item.sectionName || '').trim();
+  if (secTitle === 'รายละเอียด' || secTitle === 'ข้อมูลทั่วไป' || secTitle.toUpperCase() === 'INFO') return false;
   const full = Number(item.fullScore ?? item.maxScore ?? 0);
   if (full <= 0) return false;
   const qType = String(item.questionType || item.type || 'YESNO').trim().toUpperCase();
@@ -58,11 +61,15 @@ export function extractAnswerValue(ans) {
  * @param {Array} items รายการคำถามทั้งหมด
  * @param {Object} answersMap ออบเจกต์เก็บคำตอบ key คือ item.id
  * @param {number} passingScore เกณฑ์คะแนนผ่าน (เช่น 85 หรือ 0)
- * @returns {Object} { totalScore, maxScore, percentage, isPassed, hasCriticalDefect, itemResults, categoryStats }
+ * @param {Object} options ตัวเลือกเพิ่มเติม { includeUnansweredInMaxScore = false }
+ * @returns {Object} { totalScore, earnedScore, maxScore, percentage, isPassed, hasCriticalDefect, naCount, itemResults, categoryStats }
  */
-export function computeScore(items = [], answersMap = {}, passingScore = 0) {
+export function computeScore(items = [], answersMap = {}, passingScore = 0, options = {}) {
+  // 🌟 ค่าเริ่มต้นเป็น false (ตรงกับ server และหน้าแก้ไข) หน้าตรวจสดส่ง true อย่างชัดเจน
+  const { includeUnansweredInMaxScore = false } = options;
   let totalScore = 0;
   let maxScore = 0;
+  let naCount = 0;
   let hasCriticalDefect = false;
   const itemResults = {};
   const categoryStats = {};
@@ -104,9 +111,12 @@ export function computeScore(items = [], answersMap = {}, passingScore = 0) {
       continue;
     }
 
-    // ข้อคิดคะแนน
+    // ข้อคิดคะแนน: ถ้ายังไม่ได้ตอบ
     if (rawVal === '') {
-      // ยังไม่ได้ตอบ
+      if (includeUnansweredInMaxScore) {
+        maxScore += full;
+        categoryStats[catCode].maxScore += full;
+      }
       itemResults[itemId] = {
         scoreGiven: 0,
         maxScore: full,
@@ -126,10 +136,11 @@ export function computeScore(items = [], answersMap = {}, passingScore = 0) {
     let isPassed = true;
 
     if (isNa) {
+      naCount++;
       scoreGiven = 0;
       isPassed = true;
-      // N/A ไม่บวก maxScore
-    } else if (String(item.questionType || '').toUpperCase() === 'SCALE') {
+      // N/A ไม่บวก maxScore (ตัดออกทั้งตัวตั้งและตัวหารตามมาตรฐาน)
+    } else if (String(item.questionType || item.type || '').toUpperCase() === 'SCALE') {
       const scaleNum = Number(rawVal);
       if (!isNaN(scaleNum) && scaleNum >= 1 && scaleNum <= 5) {
         scoreGiven = round2((scaleNum / 5.0) * full);
@@ -143,13 +154,18 @@ export function computeScore(items = [], answersMap = {}, passingScore = 0) {
           hasCriticalDefect = true;
         }
       } else {
-        // ค่า scale ไม่ถูกต้อง: ไม่นับคะแนน และไม่ถือว่าผ่าน (server จะปฏิเสธค่านี้)
+        // ค่า scale ไม่ถูกต้อง: จัดอยู่ในกลุ่มเดียวกับยังไม่ได้ตอบ
+        if (includeUnansweredInMaxScore) {
+          maxScore += full;
+          categoryStats[catCode].maxScore += full;
+        }
         itemResults[itemId] = {
           scoreGiven: 0,
           maxScore: full,
           isPassed: false,
           isNa: false,
           isScored: true,
+          isUnanswered: true,
           isInvalid: true,
           answerValue: rawVal
         };
@@ -199,6 +215,7 @@ export function computeScore(items = [], answersMap = {}, passingScore = 0) {
 
   return {
     totalScore,
+    earnedScore: totalScore,
     earned: totalScore,
     maxScore,
     max: maxScore,
@@ -207,6 +224,7 @@ export function computeScore(items = [], answersMap = {}, passingScore = 0) {
     isPassed,
     hasCriticalDefect,
     hasCritFail: hasCriticalDefect,
+    naCount,
     itemResults,
     categoryStats
   };

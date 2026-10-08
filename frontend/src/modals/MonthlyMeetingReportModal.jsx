@@ -7,6 +7,7 @@ import { DataContext } from "../context/DataContext";
 import ModalWrapper from "../shared/ModalWrapper";
 import api from "../config/api";
 import { parseServerDate } from "../utils/formatters";
+import { getCategoryScores, extractTeamOnShift } from "../utils/exportToExcel";
 
 const THAI_MONTHS_FULL = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -43,29 +44,6 @@ function extractTime(dateStr, timeStr) {
   return !d || isNaN(d.getTime()) ? "-" : d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
 }
 
-function getCategoryScores(record) {
-  const catMap = { PD: [], PC: [], S: [], C: [], DM: [] };
-  const responses = record.responses || [];
-  for (const res of responses) {
-    if (res.isNa) continue;
-    const code = (res.categoryCode || "").toUpperCase();
-    if (catMap[code]) {
-      catMap[code].push({ given: res.scoreGiven ?? 0, full: res.fullScore ?? 0 });
-    }
-  }
-  const result = {};
-  for (const [cat, items] of Object.entries(catMap)) {
-    if (items.length === 0) {
-      result[cat] = record[`score${cat}`] != null ? Math.round(record[`score${cat}`]) : "-";
-    } else {
-      const totalFull = items.reduce((s, i) => s + i.full, 0);
-      const totalGiven = items.reduce((s, i) => s + i.given, 0);
-      result[cat] = totalFull > 0 ? Math.round((totalGiven / totalFull) * 100) : "-";
-    }
-  }
-  return result;
-}
-
 function getBranchFailSuffix(locationId, allRecords, auditDate) {
   if (!locationId || !allRecords || allRecords.length === 0) return "";
   const targetDate = new Date(auditDate || new Date());
@@ -77,9 +55,12 @@ function getBranchFailSuffix(locationId, allRecords, auditDate) {
   const s0 = Math.round(history[0]?.percentageScore ?? history[0]?.score ?? 100);
   const s1 = Math.round(history[1]?.percentageScore ?? history[1]?.score ?? 100);
   const s2 = history[2] ? Math.round(history[2]?.percentageScore ?? history[2]?.score ?? 100) : 100;
+  const pass0 = history[0]?.passingScore ?? 85;
+  const pass1 = history[1]?.passingScore ?? 85;
+  const pass2 = history[2]?.passingScore ?? 85;
 
-  if (s0 < 85 && s1 < 85 && s2 < 85) return "(3)";
-  if (s0 < 85 && s1 < 85) return "(2)";
+  if (s0 < pass0 && s1 < pass1 && s2 < pass2) return "(3)";
+  if (s0 < pass0 && s1 < pass1) return "(2)";
   return "";
 }
 
@@ -329,7 +310,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
           `${r.locationCode || r.locationName || "-"}${suffix}`,
           formatThaiDateShort(r.auditDate),
           extractTime(r.auditDate, r.time),
-          r.teamOnShift || r.shiftLeader || "-",
+          extractTeamOnShift(r),
           cats.PD, cats.PC, cats.S, cats.C, cats.DM,
           Math.round(r.percentageScore ?? 0),
           r.inspectorName || r.auditorName || "-"
