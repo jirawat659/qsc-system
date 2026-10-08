@@ -2041,7 +2041,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                         </div>
 
                         {/* คำถาม */}
-                        <div className="text-xs sm:text-sm font-bold text-slate-800 leading-relaxed break-words [overflow-wrap:anywhere]">
+                        <div className={`text-xs sm:text-sm font-bold leading-relaxed break-words [overflow-wrap:anywhere] ${
+                          isItemFailed ? 'text-red-700' : 'text-slate-800'
+                        }`}>
                           {displayQText}
                         </div>
 

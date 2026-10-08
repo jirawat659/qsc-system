@@ -2347,19 +2347,29 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                 ? (q.scaleScore ? q.scaleScore >= 3 : (currentSc >= (full * 0.6))) 
                                 : true));
 
+                    const isFail = isAnswered && !isNa && !isNonScored && !isPass;
+
                     return (
                       <div 
                         key={q.id} 
-                        className="p-4 rounded-2xl border border-slate-200 bg-white shadow-2xs space-y-3 transition-all hover:border-slate-300"
+                        className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                          isFail
+                            ? 'border-red-200 bg-red-50/15 shadow-2xs hover:border-red-300'
+                            : 'border-slate-200 bg-white shadow-2xs hover:border-slate-300'
+                        }`}
                       >
                         {/* Question Header & Score Badge at Top Right */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                            <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                            <span className={`w-6 h-6 rounded-full font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5 ${
+                              isFail ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-slate-100 text-slate-700'
+                            }`}>
                               {q.num}
                             </span>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm sm:text-base font-bold text-slate-900 leading-snug break-words [overflow-wrap:anywhere]">
+                              <div className={`text-sm sm:text-base font-bold leading-snug break-words [overflow-wrap:anywhere] ${
+                                isFail ? 'text-red-700' : 'text-slate-900'
+                              }`}>
                                 {q.text}
                               </div>
                               <div className="flex items-center gap-1.5 flex-wrap mt-1">

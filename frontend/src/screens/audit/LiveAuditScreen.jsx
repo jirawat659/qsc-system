@@ -162,7 +162,7 @@ const QuestionCard = React.memo(function QuestionCard({
     >
       <div className="mb-3">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="text-[11px] font-black text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
+          <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-md ${isFailed ? "text-red-700 bg-red-100" : "text-slate-500 bg-slate-100"}`}>
             {isNonScored ? `รายการที่ ${q.orderIndex || idx + 1}` : `ข้อ ${q.orderIndex || idx + 1}`}
           </span>
           {isNonScored ? (
@@ -244,7 +244,7 @@ const QuestionCard = React.memo(function QuestionCard({
             ) : null}
           </div>
         </div>
-        <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug break-words [overflow-wrap:anywhere] ${isNa ? "text-slate-400 line-through" : "text-slate-800"}`}>
+        <h4 className={`w-full text-sm sm:text-base font-semibold leading-snug break-words [overflow-wrap:anywhere] ${isNa ? "text-slate-400 line-through" : isFailed ? "text-red-700 font-bold" : "text-slate-800"}`}>
           {q.questionText || q.text}
         </h4>
       </div>
