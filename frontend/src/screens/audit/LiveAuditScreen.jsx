@@ -336,7 +336,7 @@ const QuestionCard = React.memo(function QuestionCard({
           )}
         </div>
       ) : !isScale ? (
-        <div className={`grid grid-cols-3 gap-2 ${readOnly ? 'pointer-events-none select-none' : ''}`}>
+        <div className={`grid grid-cols-3 gap-2 ${readOnly ? 'pointer-events-none select-none opacity-70' : ''}`}>
           <button
             type="button"
             disabled={readOnly}
@@ -378,7 +378,7 @@ const QuestionCard = React.memo(function QuestionCard({
           </button>
         </div>
       ) : (
-        <div className={`flex gap-1.5 items-center ${readOnly ? 'pointer-events-none select-none' : ''}`}>
+        <div className={`flex gap-1.5 items-center ${readOnly ? 'pointer-events-none select-none opacity-70' : ''}`}>
           {[5, 4, 3, 2, 1].map((n) => (
             <button
               key={n}
@@ -4786,7 +4786,7 @@ export default function LiveAuditScreen({
                       <label className="text-xs font-extrabold text-slate-700 block mb-1.5">
                         {field.label} {field.required && <span className="text-rose-500">*</span>}
                       </label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className={`grid grid-cols-3 gap-2 ${isReadOnlyMode ? 'pointer-events-none select-none opacity-70' : ''}`}>
                         {opts.map(opt => {
                           const key = opt.includes("นอก") ? "spot" : opt.includes("ปลอม") ? "undercover" : "announced";
                           const isSelected = (auditType === key || auditType === opt || metadataValues[field.id] === opt);
@@ -4963,7 +4963,7 @@ export default function LiveAuditScreen({
                         {field.label} {field.required && <span className="text-rose-500">*</span>}
                       </label>
                       {isSmall ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div className={`grid grid-cols-2 sm:grid-cols-3 gap-2 ${isReadOnlyMode ? 'pointer-events-none select-none opacity-70' : ''}`}>
                           {opts.map((opt) => (
                             <button
                               key={opt}

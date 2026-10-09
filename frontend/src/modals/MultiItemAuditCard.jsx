@@ -141,7 +141,7 @@ export default function MultiItemAuditCard({
                           {crit.label}
                         </label>
 
-                        <div className="grid grid-cols-2 gap-2.5">
+                        <div className={`grid grid-cols-2 gap-2.5 ${readOnly ? 'pointer-events-none select-none opacity-70' : ''}`}>
                           {/* ปุ่ม ผ่าน */}
                           <button
                             type="button"
