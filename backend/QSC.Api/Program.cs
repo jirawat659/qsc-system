@@ -117,6 +117,7 @@ builder.Services.AddSignalR(options =>
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
+builder.Services.AddScoped<QSC.Api.Services.IActivityLogger, QSC.Api.Services.ActivityLogger>();
 
 // 6. Rate Limiting for AI Endpoints
 builder.Services.AddRateLimiter(options =>

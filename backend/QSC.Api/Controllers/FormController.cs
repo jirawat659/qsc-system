@@ -16,11 +16,13 @@ namespace QSC.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly ILogger<FormController> _logger;
+        private readonly IActivityLogger _activityLogger;
 
-        public FormController(AppDbContext context, ILogger<FormController> logger)
+        public FormController(AppDbContext context, ILogger<FormController> logger, IActivityLogger activityLogger)
         {
             _context = context;
             _logger = logger;
+            _activityLogger = activityLogger;
         }
 
         [HttpGet]
@@ -81,6 +83,7 @@ namespace QSC.Api.Controllers
             var formIds = forms.Select(f => f.Id).ToList();
 
             var auditCounts = formIds.Count == 0 ? new Dictionary<int, int>() : await _context.AuditRecords
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Where(a => formIds.Contains(a.SurveyFormId))
                 .GroupBy(a => a.SurveyFormId)
@@ -236,7 +239,7 @@ namespace QSC.Api.Controllers
 
             if (f == null) return NotFound();
 
-            var auditCount = await _context.AuditRecords.AsNoTracking().CountAsync(a => a.SurveyFormId == id);
+            var auditCount = await _context.AuditRecords.IgnoreQueryFilters().AsNoTracking().CountAsync(a => a.SurveyFormId == id);
             var draftCount = await _context.AuditDrafts.AsNoTracking().CountAsync(d => d.SurveyFormId == id);
             // 🌟 เลี่ยง .ToLower() ใน WHERE เพราะบังคับให้ DB ทำ Full Table Scan แทนที่จะใช้
             // index (Status, ScheduledDate) — จุดเดียวกับที่แก้ไปแล้วใน GetForms ด้านบน
@@ -671,6 +674,12 @@ namespace QSC.Api.Controllers
                     await _context.SaveChangesAsync();
                 }
 
+                if (currentUserId.HasValue)
+                {
+                    _activityLogger.Add(currentUserId.Value, "FORM_CREATE", "SurveyForm", form.Id);
+                    await _context.SaveChangesAsync();
+                }
+
                 await transaction.CommitAsync();
                 return CreatedAtAction(nameof(GetForm), new { id = form.Id }, new { message = "สร้างแบบฟอร์มสำเร็จ", formId = form.Id });
             }
@@ -710,6 +719,8 @@ namespace QSC.Api.Controllers
                 }
             }
 
+            var (currentUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
@@ -725,7 +736,7 @@ namespace QSC.Api.Controllers
                 // 1. มีผลการตรวจประเมินจริงแล้ว (AuditRecords)
                 // 2. มีแบบร่างการตรวจค้างอยู่ (AuditDrafts)
                 // 3. มีการตรวจที่กำลังดำเนินการอยู่ (AuditSchedules status: in_progress)
-                bool hasAudits = await _context.AuditRecords.AnyAsync(r => r.SurveyFormId == id);
+                bool hasAudits = await _context.AuditRecords.IgnoreQueryFilters().AnyAsync(r => r.SurveyFormId == id);
                 bool hasDrafts = await _context.AuditDrafts.AnyAsync(d => d.SurveyFormId == id);
                 bool hasActiveAudits = await _context.AuditSchedules.AnyAsync(s => s.SurveyFormId == id && (s.Status == "in_progress" || s.Status == "IN_PROGRESS"));
 
@@ -868,6 +879,9 @@ namespace QSC.Api.Controllers
                         }
                         await _context.SaveChangesAsync();
                     }
+
+                    _activityLogger.Add(currentUserId, "FORM_EDIT", "SurveyForm", form.Id);
+                    await _context.SaveChangesAsync();
 
                     await transaction.CommitAsync();
                     return Ok(new {
@@ -1058,6 +1072,9 @@ namespace QSC.Api.Controllers
                         await _context.SaveChangesAsync();
                     }
 
+                    _activityLogger.Add(currentUserId, "FORM_EDIT", "SurveyForm", newVersionForm.Id);
+                    await _context.SaveChangesAsync();
+
                     await transaction.CommitAsync();
                     return Ok(new {
                         message = $"แบบฟอร์มนี้มีการตรวจหรือแบบร่างใช้งานอยู่ จึงสร้างเป็นเวอร์ชันใหม่ ({newVersionForm.Version}) สำเร็จเพื่อรักษาประวัติเดิม",
@@ -1185,6 +1202,9 @@ namespace QSC.Api.Controllers
                     await _context.SaveChangesAsync();
                 }
 
+                _activityLogger.Add(currentUserId, "FORM_DUPLICATE", "SurveyForm", newForm.Id);
+                await _context.SaveChangesAsync();
+
                 await transaction.CommitAsync();
 
                 return Ok(new
@@ -1210,7 +1230,9 @@ namespace QSC.Api.Controllers
             var form = await _context.SurveyForms.FindAsync(id);
             if (form == null) return NotFound();
 
+            var (currentUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             form.IsActive = false; // Soft delete
+            _activityLogger.Add(currentUserId, "FORM_DELETE", "SurveyForm", form.Id);
             await _context.SaveChangesAsync();
             return NoContent();
         }

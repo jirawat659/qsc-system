@@ -887,6 +887,7 @@ namespace QSC.Api.Services
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(user, _context);
 
             var record = await _context.AuditRecords
+                .IgnoreQueryFilters()
                 .Include(r => r.Location)
                     .ThenInclude(l => l!.LocationBrands)
                 .Include(r => r.Responses)
@@ -1038,7 +1039,7 @@ namespace QSC.Api.Services
         {
             try
             {
-                var record = await _context.AuditRecords.FirstOrDefaultAsync(r => r.Id == auditRecordId);
+                var record = await _context.AuditRecords.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == auditRecordId);
                 if (record == null) return;
                 record.AiAnalysisJson = JsonSerializer.Serialize(result);
                 record.AiAnalysisGeneratedAt = DateTime.UtcNow;

@@ -46,6 +46,9 @@ namespace QSC.Api.Data
         public DbSet<CapTaskImage> CapTaskImages => Set<CapTaskImage>();
         public DbSet<CapTaskComment> CapTaskComments => Set<CapTaskComment>();
 
+        // Domain 7: Activity Logs (1)
+        public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -229,6 +232,47 @@ namespace QSC.Api.Data
 
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(ar => ar.DocumentNo);
+
+            modelBuilder.Entity<AuditRecord>()
+                .Property(ar => ar.Status)
+                .HasMaxLength(20)
+                .HasDefaultValue("SUBMITTED")
+                .IsRequired();
+
+            modelBuilder.Entity<AuditRecord>()
+                .HasIndex(ar => ar.Status);
+
+            modelBuilder.Entity<AuditRecord>()
+                .Property(ar => ar.ReopenReason);
+
+            modelBuilder.Entity<AuditRecord>()
+                .HasOne(ar => ar.ReopenedFromRecord)
+                .WithMany()
+                .HasForeignKey(ar => ar.ReopenedFromRecordId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AuditRecord>()
+                .HasQueryFilter(ar => ar.Status == "SUBMITTED");
+
+            modelBuilder.Entity<AuditDraft>()
+                .HasOne(d => d.ReopenedFromRecord)
+                .WithMany()
+                .HasForeignKey(d => d.ReopenedFromRecordId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<ActivityLog>(entity =>
+            {
+                entity.Property(a => a.Action)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(a => a.EntityType)
+                    .HasMaxLength(50);
+
+                entity.HasIndex(a => new { a.UserId, a.OccurredAt });
+                entity.HasIndex(a => new { a.EntityType, a.EntityId });
+                entity.HasIndex(a => a.OccurredAt);
+            });
 
             modelBuilder.Entity<AuditScheduleAuditor>()
                 .HasIndex(asa => asa.AuditorId);

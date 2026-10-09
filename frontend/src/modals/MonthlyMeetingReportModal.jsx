@@ -290,6 +290,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       return;
     }
     setIsExportingExcel(true);
+    api.post('/activity/export', { action: 'EXPORT_MONTHLY_EXCEL' }).catch(() => {});
     try {
       const wb = XLSX.utils.book_new();
 

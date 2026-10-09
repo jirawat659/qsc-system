@@ -15,10 +15,12 @@ namespace QSC.Api.Controllers
     public class ScheduleController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Services.IActivityLogger _activityLogger;
 
-        public ScheduleController(AppDbContext context)
+        public ScheduleController(AppDbContext context, Services.IActivityLogger activityLogger)
         {
             _context = context;
+            _activityLogger = activityLogger;
         }
 
         public class ScheduleSaveDto
@@ -322,6 +324,8 @@ namespace QSC.Api.Controllers
                 }
             }
 
+            _activityLogger.Add(currentUserId, "SCHEDULE_CREATE", "AuditSchedule", schedule.Id, schedule.LocationId);
+
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
@@ -401,6 +405,9 @@ namespace QSC.Api.Controllers
                 }
             }
 
+            var (updateUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(updateUserId, "SCHEDULE_EDIT", "AuditSchedule", schedule.Id, schedule.LocationId);
+
             await _context.SaveChangesAsync();
             return Ok(schedule);
         }
@@ -427,6 +434,9 @@ namespace QSC.Api.Controllers
                 cap.FollowUpStatus = "PENDING";
                 cap.FollowUpScheduleId = null;
             }
+
+            var (deleteUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(deleteUserId, "SCHEDULE_DELETE", "AuditSchedule", schedule.Id, schedule.LocationId);
 
             _context.AuditSchedules.Remove(schedule);
             await _context.SaveChangesAsync();

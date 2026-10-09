@@ -384,10 +384,15 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const unitCode = getCodeForLoc(d.locationId, d.location, activeLocations);
         const reportNo = d.documentNo || null;
 
+        const isReopenedDraft = Boolean(d.reopenedFromRecordId || d.ReopenedFromRecordId);
+        const reopenedFromRecordId = d.reopenedFromRecordId || d.ReopenedFromRecordId || null;
+
         logs.push({
           id: `draft-${d.id}`,
           originalId: d.id,
           type: 'draft',
+          isReopenedDraft: isReopenedDraft,
+          reopenedFromRecordId: reopenedFromRecordId,
           reportNo: reportNo,
           documentNo: reportNo,
           unitName: branchName,
@@ -403,12 +408,16 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           formName: formVal,
           auditType: (d.auditType === 'unannounced' || d.auditType === 'spot') ? "นอกกำหนดการ" : (d.auditType === 'undercover' ? "ปลอมตัว" : "ตามกำหนดการ"),
           status: "draft",
-          progressText: `ตอบแล้ว ${answeredCount}${totalCount ? `/${totalCount}` : ''} ข้อ`,
+          progressText: isReopenedDraft
+            ? `ย้อนสถานะผลตรวจ · ตอบแล้ว ${answeredCount}${totalCount ? `/${totalCount}` : ''} ข้อ`
+            : `ตอบแล้ว ${answeredCount}${totalCount ? `/${totalCount}` : ''} ข้อ`,
           record: {
             ...d,
             reportNo: reportNo,
             documentNo: reportNo,
             id: d.id,
+            reopenedFromRecordId: reopenedFromRecordId,
+            isReopenedDraft: isReopenedDraft,
             auditScheduleId: d.auditScheduleId || d.scheduleId || null,
             scheduleId: d.auditScheduleId || d.scheduleId || null,
             locationId: d.locationId,
@@ -606,6 +615,9 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           if (l.status === 'fail' || !passed) statusKeywords.push('ไม่ผ่าน', 'ตกเกณฑ์', 'ปรับปรุง', 'fail');
         } else if (isDraft) {
           statusKeywords.push('กำลังตรวจ', 'draft', 'ฉบับร่าง', 'ค้างตรวจ', 'ร่าง');
+          if (l.isReopenedDraft) {
+            statusKeywords.push('ย้อนสถานะ', 'reopen', 'reopened', 'ย้อน');
+          }
         } else if (isPending) {
           statusKeywords.push('ยังไม่ตรวจ', 'pending', 'schedule', 'รอดำเนินการ', 'ตามกำหนดการ', 'นัดหมาย');
         }
@@ -913,6 +925,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         unitName={selectedAuditLog.unitName}
         record={selectedAuditLog.record}
         onBack={() => setSelectedAuditLog(null)}
+        onResumeDraft={handleTriggerResume}
       />
     );
   }
@@ -1159,8 +1172,13 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           } else if (log.type === 'draft') {
             circleColor = "border-slate-200 text-slate-400 bg-slate-50";
             scoreDisplay = "-";
-            statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
-            statusText = "กำลังตรวจ";
+            if (log.isReopenedDraft) {
+              statusBadge = "bg-amber-100 text-amber-900 border border-amber-300";
+              statusText = "ย้อนสถานะ";
+            } else {
+              statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
+              statusText = "กำลังตรวจ";
+            }
           } else if (log.type === 'schedule') {
             circleColor = "border-slate-200 text-slate-400 bg-slate-50";
             scoreDisplay = "-";
@@ -1179,7 +1197,18 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                     setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
                   }
                 } else if (log.type === 'draft') {
-                  handleTriggerResume(log.record);
+                  if (log.isReopenedDraft && log.reopenedFromRecordId) {
+                    setSelectedAuditLog({
+                      unitName: log.unitFullName,
+                      record: {
+                        id: log.reopenedFromRecordId,
+                        reopenedDraftId: log.originalId,
+                        reopenedDraftDocumentNo: log.documentNo
+                      }
+                    });
+                  } else {
+                    handleTriggerResume(log.record);
+                  }
                 } else if (log.type === 'schedule') {
                   handleTriggerAudit(log.record);
                 }
@@ -1254,16 +1283,48 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
               {/* บรรทัดที่ 4: ลิงก์ Action ตัวเล็ก ไม่แย่งสายตา */}
               <div className="pt-2 border-t border-slate-100/80 flex items-center justify-end">
-                <span className="text-xs text-slate-400 group-hover:text-[#0F6659] font-medium flex items-center gap-0.5 transition-colors">
-                  <span>
-                    {log.type === 'completed'
-                      ? 'ดูรายงาน'
-                      : log.type === 'draft'
-                      ? 'ตรวจต่อ'
-                      : 'เริ่มตรวจ'}
+                {log.isReopenedDraft ? (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedAuditLog({
+                          unitName: log.unitFullName,
+                          record: {
+                            id: log.reopenedFromRecordId,
+                            reopenedDraftId: log.originalId,
+                            reopenedDraftDocumentNo: log.documentNo
+                          }
+                        });
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                    >
+                      ดูผลตรวจเดิม
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTriggerResume(log.record);
+                      }}
+                      className="px-2.5 py-1 rounded-xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold shadow-2xs transition-all cursor-pointer"
+                    >
+                      ตรวจต่อ
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs text-slate-400 group-hover:text-[#0F6659] font-medium flex items-center gap-0.5 transition-colors">
+                    <span>
+                      {log.type === 'completed'
+                        ? 'ดูรายงาน'
+                        : log.type === 'draft'
+                        ? 'ตรวจต่อ'
+                        : 'เริ่มตรวจ'}
+                    </span>
+                    <ChevronRight size={13} />
                   </span>
-                  <ChevronRight size={13} />
-                </span>
+                )}
               </div>
             </div>
           );
@@ -1423,8 +1484,13 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                   
                   statusText = isCritical ? "วิกฤต" : isPassed ? "ผ่านเกณฑ์" : "ต้องปรับปรุง";
                 } else if (log.type === 'draft') {
-                  statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
-                  statusText = "กำลังตรวจ";
+                  if (log.isReopenedDraft) {
+                    statusBadge = "bg-amber-100 text-amber-900 border border-amber-300";
+                    statusText = "ย้อนสถานะ";
+                  } else {
+                    statusBadge = "bg-amber-100 text-amber-800 border border-amber-200";
+                    statusText = "กำลังตรวจ";
+                  }
                 } else if (log.type === 'schedule') {
                   statusBadge = "bg-slate-100 text-slate-600 border border-slate-200";
                   statusText = "ยังไม่ตรวจ";
@@ -1441,7 +1507,18 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                           setSelectedAuditLog({ unitName: log.unitFullName, record: log.record });
                         }
                       } else if (log.type === 'draft') {
-                        handleTriggerResume(log.record);
+                        if (log.isReopenedDraft && log.reopenedFromRecordId) {
+                          setSelectedAuditLog({
+                            unitName: log.unitFullName,
+                            record: {
+                              id: log.reopenedFromRecordId,
+                              reopenedDraftId: log.originalId,
+                              reopenedDraftDocumentNo: log.documentNo
+                            }
+                          });
+                        } else {
+                          handleTriggerResume(log.record);
+                        }
                       } else if (log.type === 'schedule') {
                         handleTriggerAudit(log.record);
                       }
@@ -1525,10 +1602,23 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
                     {/* 6. สถานะ */}
                     <td className="py-3.5 px-4 text-center overflow-hidden">
-                      <div className="flex items-center justify-center">
+                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
                         <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
                           {statusText}
                         </span>
+                        {log.isReopenedDraft && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleTriggerResume(log.record);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-[#0F6659] hover:bg-[#0c5247] text-white text-[11px] font-bold shadow-2xs transition-all cursor-pointer whitespace-nowrap"
+                            title="ตรวจต่อในแบบร่าง"
+                          >
+                            ตรวจต่อ
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

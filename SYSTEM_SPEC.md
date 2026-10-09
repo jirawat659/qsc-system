@@ -17,11 +17,13 @@
 3. [กฎเหล็กการจับคู่แบบฟอร์มและเวอร์ชัน (Strict ID Matching Rule)](#3-กฎเหล็กการจับคู่แบบฟอร์มและเวอร์ชัน-strict-id-matching-rule)
 4. [มาตรฐานการคิดคะแนนและความถูกต้อง (Fair Scoring Engine)](#4-มาตรฐานการคิดคะแนนและความถูกต้อง-fair-scoring-engine)
 5. [มาตรฐานหน้าจอและระบบแก้ไขผลตรวจ (Audit Inline Editing & Audit Trail)](#5-มาตรฐานหน้าจอและระบบแก้ไขผลตรวจ-audit-inline-editing--audit-trail)
+   - [5.4 มาตรฐานการย้อนสถานะผลตรวจเป็นแบบร่าง (Audit Reopen to Draft)](#54-มาตรฐานการย้อนสถานะผลตรวจเป็นแบบร่าง-audit-reopen-to-draft-)
 6. [มาตรฐานงานแก้ไขข้อบกพร่อง (CAP - Corrective Action Plan)](#6-มาตรฐานงานแก้ไขข้อบกพร่อง-cap---corrective-action-plan)
 7. [มาตรฐานการจัดการพิกัดและระยะทาง (Location & GPS Standards)](#7-มาตรฐานการจัดการพิกัดและระยะทาง-location--gps-standards)
 8. [มาตรฐานบทบาทและสิทธิ์ผู้ใช้งาน (Roles & RBAC Standards)](#8-มาตรฐานบทบาทและสิทธิ์ผู้ใช้งาน-roles--rbac-standards)
-9. [มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์ (Tech Stack & Storage Standards)](#9-มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์-tech-stack--storage-standards)
-10. [Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)](#10-checklist-สำหรับการพัฒนาฟีเจอร์ใหม่-developer-checklist)
+9. [มาตรฐานบันทึกประวัติการใช้งานระบบ (System Activity Log Standards)](#9-มาตรฐานบันทึกประวัติการใช้งานระบบ-system-activity-log-standards-)
+10. [มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์ (Tech Stack & Storage Standards)](#10-มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์-tech-stack--storage-standards)
+11. [Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)](#11-checklist-สำหรับการพัฒนาฟีเจอร์ใหม่-developer-checklist)
 
 ---
 
@@ -171,6 +173,38 @@ const matchedForm = useMemo(() => {
 - ส่ง `version` ไปกับ Payload ทุกครั้งเพื่อทำ Optimistic Concurrency Control
 - Backend บันทึกลงตาราง `AUDIT_EDIT_LOGS` เก็บประวัติ: ใครแก้, แก้เมื่อใด, เหตุผลคืออะไร, ค่าเดิมคืออะไร, ค่าใหม่คืออะไร
 
+### 5.4 มาตรฐานการย้อนสถานะผลตรวจเป็นแบบร่าง (Audit Reopen to Draft) 🔄
+ระบบรองรับการย้อนสถานะผลตรวจที่ส่งแล้ว (`SUBMITTED`) กลับมาเป็นแบบร่าง (`AuditDraft`) เพื่อให้ผู้ตรวจสามารถแก้ไข ปรับปรุงคะแนน หรือตรวจซ่อมแซมได้ โดยยังคงรักษาข้อมูลเดิมและประวัติความโปร่งใสไว้ครบถ้วน:
+
+#### 1. สถานะของรอบการตรวจ (`AuditRecord.Status`):
+| สถานะ (`Status`) | ความหมาย | พฤติกรรมในระบบ |
+| :---: | :--- | :--- |
+| **`SUBMITTED`** | ผลการตรวจเสร็จสมบูรณ์ (สถานะปกติ) | นับคะแนนในแดชบอร์ด, รายงาน, สถิติคะแนนล่าสุดของสาขา (`LastScore`), และสามารถแก้ไขได้ (หากมีสิทธิ์ `audit.edit`) |
+| **`REOPENED`** | ผลตรวจเดิมที่ถูกย้อนสถานะเป็นแบบร่างแล้ว | **ถูกซ่อนอัตโนมัติด้วย Global Query Filter** (`Status == "SUBMITTED"`), **ไม่ถูกนำไปคิดคะแนน** ในแดชบอร์ด/รายงาน/สถิติต่างๆ, **ห้ามแก้ไขและห้ามลบเด็ดขาด (ตอบ 409 Conflict)**, และจะคงสถานะเป็น `REOPENED` ตลอดไปแม้ส่งผลตรวจใหม่แล้ว |
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT: เริ่มตรวจ / บันทึกแบบร่าง
+    DRAFT --> SUBMITTED: ส่งผลตรวจสมบูรณ์ (Submit Audit)
+    SUBMITTED --> REOPENED: ย้อนสถานะผลตรวจ (Reopen Audit)
+    REOPENED --> DRAFT: คัดลอกข้อมูลทั้งหมดเป็นแบบร่างใหม่
+    DRAFT --> SUBMITTED_NEW: ตรวจและส่งผลใหม่ (ID ใหม่ ผูก ReopenedFromRecordId)
+    DRAFT --> SUBMITTED: กดยกเลิกแบบร่าง (Discard Draft) -> ผลเดิมคืนสถานะ SUBMITTED
+```
+
+#### 2. กฎและเงื่อนไขการย้อนสถานะ (Reopen Business Rules):
+1. **สิทธิ์ในการย้อนสถานะ:** ผู้ใช้ต้องมีสิทธิ์ **`audit.reopen`** หรือมีบทบาทเป็น **`ADMIN`** (ผู้ตรวจทั่วไปจะไม่มีสิทธิ์นี้โดยค่าเริ่มต้น)
+2. **ขอบเขตการย้อน:** ย้อนได้เฉพาะผลตรวจที่อยู่ในสถานะ **`SUBMITTED`** เท่านั้น (ไม่สามารถย้อนผลที่ถูก `REOPENED` ซ้ำได้)
+3. **การบังคับระบุเหตุผล:** ต้องระบุ **"เหตุผลในการย้อนสถานะ" (`reopenReason`)** ความยาว 1–500 ตัวอักษรเสมอ
+4. **ความสมบูรณ์ของข้อมูล:** การย้อนสถานะจะคัดลอกข้อมูลเดิมทั้งหมด (คำตอบ, คะแนน, หมายเหตุ, รูปภาพ, ลายเซ็นทั้งสองฝ่าย, พิกัด GPS) ไปสร้างเป็น `AuditDraft` ใหม่ โดยไม่สูญหาย
+5. **ความเป็นเจ้าของแบบร่าง:** แบบร่างใหม่ที่ได้จะถูกกำหนดให้เป็นของผู้ตรวจหลักเดิม (`PrimaryAuditorId`)
+6. **การยกเลิก/ทิ้งแบบร่างจากการย้อน (Discard Draft Reversion):** หากผู้ตรวจกดทิ้งแบบร่าง (`DELETE /api/audit/draft`) ที่มี `ReopenedFromRecordId` ระบบจะ **คืนสถานะผลตรวจเดิมกลับเป็น `SUBMITTED`** ทันที, คืนสถานะตารางงานเป็น `completed`, คำนวณสถิติสาขาใหม่, และบันทึกประวัติ `AUDIT_REOPEN_CANCEL`
+7. **ผลตรวจใหม่จากการย้อน:** เมื่อตรวจและส่งผลใหม่จากแบบร่างที่ย้อนมา ผลใหม่จะได้รับสถานะ `SUBMITTED` ปกติ (รหัสเอกสารและ ID ใหม่) พร้อมเก็บ `ReopenedFromRecordId` ชี้ไปยังผลเดิม
+8. **การจัดการ CAP ตอนส่งผลใหม่:**
+   - ข้อตรวจที่ยังคงไม่ผ่าน และมีงาน CAP เดิมค้างอยู่ $\rightarrow$ ย้าย Foreign Key มาผูกกับผลตรวจรอบใหม่
+   - ข้อตรวจที่เปลี่ยนเป็นผ่านแล้ว $\rightarrow$ ยกเลิกงาน CAP (หากไม่มีแชท/รูป ให้ Hard Delete แต่ถ้ามีแชท/รูปแล้วให้ปรับเป็น `CANCELLED`)
+   - งาน CAP ที่ปิดแล้ว (`CLOSED` หรือ `CANCELLED`) จะไม่ถูกแตะต้อง
+
 ---
 
 ## 6. มาตรฐานงานแก้ไขข้อบกพร่อง (CAP - Corrective Action Plan)
@@ -237,16 +271,92 @@ stateDiagram-v2
   - `'ALL'` = เข้าถึงได้ทุกแบรนด์ในเครือ
   - `'SPECIFIC'` = เข้าถึงได้เฉพาะแบรนด์ที่มีบันทึกในตาราง `USER_BRANDS`
 
+### 8.3 สิทธิ์ในระบบมาตรฐาน (Permission Codes & Definitions) 🛡️
+ระบบ QSC ใช้ระบบ Role-Based Access Control (RBAC) ควบคู่กับสิทธิ์รายฟังก์ชัน โดยรหัสสิทธิ์มาตรฐานทั้งหมดถูกกำหนดไว้ใน [`DatabaseSeeder.cs`](backend/QSC.Api/Data/DatabaseSeeder.cs):
+
+| รหัสสิทธิ์ (`Code`) | ชื่อสิทธิ์ภาษาไทย | หมวดหมู่ | คำอธิบายและการนำไปใช้ |
+| :--- | :--- | :---: | :--- |
+| **`audit.view`** | ดูผลการตรวจ | Audit | เข้าถึงหน้าประวัติและรายละเอียดผลการตรวจ |
+| **`audit.create`** | ทำการตรวจประเมิน | Audit | เริ่มตรวจสดและบันทึกแบบร่าง |
+| **`audit.edit`** | แก้ไขผลการตรวจ | Audit | เข้าสู่โหมดแก้ไขผลตรวจ (Inline Edit) และปรับคะแนนผลตรวจ `SUBMITTED` |
+| **`audit.reopen`** 🌟 | ย้อนสถานะผลตรวจเป็นแบบร่าง | Audit | สิทธิ์ย้อนสถานะผลตรวจที่ส่งแล้วกลับเป็นแบบร่างพร้อมระบุเหตุผล (ADMIN ได้รับอัตโนมัติ) |
+| **`audit.delete`** | ลบผลการตรวจ | Audit | สิทธิ์ในการลบผลการตรวจออกจากระบบ |
+| **`activity.view`** 🌟 | ดูประวัติการใช้งานระบบ | System | เข้าถึงประวัติและบันทึกการกระทำ (Activity Log) ของระบบ (ADMIN ได้รับอัตโนมัติ) |
+| **`cap.view`** | ดูงาน CAP | CAP | เข้าดูรายการงานแก้ไขข้อบกพร่องและห้องแชท |
+| **`cap.manage`** | จัดการงาน CAP | CAP | อนุมัติ ปฏิเสธ หรือเปลี่ยนสถานะงานแก้ไขข้อบกพร่อง |
+| **`schedule.view`** | ดูตารางงานตรวจ | Schedule | ดูปฏิทินและรายการตารางงานตรวจ |
+| **`schedule.manage`**| จัดการตารางงานตรวจ | Schedule | สร้าง แก้ไข มอบหมายผู้ตรวจ และลบตารางงานตรวจ |
+| **`form.view`** | ดูแบบฟอร์ม | Master | ดูรายการและรายละเอียดข้อตรวจในแบบฟอร์ม |
+| **`form.manage`** | จัดการแบบฟอร์ม | Master | สร้าง แก้ไข โคลนเวอร์ชัน และลบแบบฟอร์ม |
+| **`master.manage`** | จัดการข้อมูลหลัก | Master | จัดการสาขา แบรนด์ ประเภทสาขา และผู้ใช้งาน |
+
 ---
 
-## 9. มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์ (Tech Stack & Storage Standards)
+## 9. มาตรฐานบันทึกประวัติการใช้งานระบบ (System Activity Log Standards) 📜
 
-### 9.1 เทคโนโลยีหลักของระบบ
+เพื่อความโปร่งใส ความถูกต้อง และการตรวจสอบย้อนหลัง (Audit Trail) ครอบคลุมการทำงานทั้งระบบ ระบบ QSC มีตาราง **`ActivityLogs`** สำหรับบันทึกเหตุการณ์สำคัญแบบ Append-Only (ไม่มี Foreign Key เพื่อความยืดหยุ่นและป้องกันข้อผิดพลาดเวลาลบข้อมูลหลัก):
+
+### 9.1 โครงสร้างตาราง `ActivityLogs`
+| ฟิลด์ | ชนิดข้อมูล | คำอธิบาย |
+| :--- | :--- | :--- |
+| **`Id`** | `bigint` (Identity PK) | รหัสบันทึกลำดับ |
+| **`OccurredAt`** | `datetime2` (UTC) | เวลาที่เกิดเหตุการณ์ (UTC เสมอ) |
+| **`UserId`** | `int` | รหัสผู้ใช้งานที่กระทำการ |
+| **`Action`** | `nvarchar(50)` | รหัสการกระทำมาตรฐาน (ดูข้อ 9.2) |
+| **`EntityType`** | `nvarchar(50)` (Nullable) | ชนิด Entity ที่เกี่ยวข้อง (เช่น `AuditRecord`, `User`, `SurveyForm`) |
+| **`EntityId`** | `int` (Nullable) | รหัส ID ของ Entity ที่เกี่ยวข้อง |
+| **`LocationId`** | `int` (Nullable) | รหัสสาขาที่เกี่ยวข้อง (สำหรับฟิลเตอร์ตามสาขา) |
+
+**ดัชนี (Indexes):** `(UserId, OccurredAt)`, `(EntityType, EntityId)`, `OccurredAt`
+
+### 9.2 รหัสการกระทำมาตรฐาน (Activity Action Codes)
+| หมวดหมู่ | รหัสการกระทำ (`Action`) | คำอธิบาย | ชนิด Entity |
+| :--- | :--- | :--- | :--- |
+| **การตรวจประเมิน** | `LOGIN` | เข้าสู่ระบบสำเร็จ | `User` |
+| | `AUDIT_START` | เริ่มต้นการตรวจรอบใหม่ (สร้างแบบร่าง) | `AuditDraft` |
+| | `AUDIT_SUBMIT` | ส่งผลการตรวจสมบูรณ์ | `AuditRecord` |
+| | `AUDIT_EDIT` | แก้ไขข้อมูลหรือคะแนนผลตรวจ | `AuditRecord` |
+| | `AUDIT_REOPEN` | ย้อนสถานะผลตรวจเป็นแบบร่าง | `AuditRecord` |
+| | `AUDIT_REOPEN_CANCEL` | ยกเลิก/ทิ้งแบบร่างที่มาจากการย้อนสถานะ | `AuditRecord` |
+| | `AUDIT_DELETE` | ลบผลการตรวจ | `AuditRecord` |
+| **การส่งออกรายงาน** | `EXPORT_AUDIT_EXCEL` | ส่งออกรายงานผลตรวจรายครั้ง (Excel) | `AuditRecord` |
+| | `EXPORT_MONTHLY_EXCEL` | ส่งออกรายงานสรุปประจำเดือน (Excel 6 ชีท) | `AuditRecord` |
+| **ตารางงาน** | `SCHEDULE_CREATE` | สร้างตารางตรวจ | `AuditSchedule` |
+| | `SCHEDULE_EDIT` | แก้ไขตารางตรวจ | `AuditSchedule` |
+| | `SCHEDULE_DELETE` | ลบตารางตรวจ | `AuditSchedule` |
+| **แบบฟอร์ม** | `FORM_CREATE` | สร้างแบบฟอร์มใหม่ | `SurveyForm` |
+| | `FORM_EDIT` | แก้ไขแบบฟอร์ม (แก้ไขตรง หรือโคลนเวอร์ชัน) | `SurveyForm` |
+| | `FORM_DUPLICATE` | คัดลอกแบบฟอร์ม | `SurveyForm` |
+| | `FORM_DELETE` | ลบแบบฟอร์ม | `SurveyForm` |
+| **ผู้ใช้งาน & บทบาท** | `USER_CREATE` | สร้างผู้ใช้งานใหม่ | `User` |
+| | `USER_EDIT` | แก้ไขข้อมูลผู้ใช้ | `User` |
+| | `USER_DISABLE` | ระงับการใช้งานผู้ใช้ (ปิดใช้งาน) | `User` |
+| | `ROLE_CREATE` | สร้างบทบาทใหม่ | `Role` |
+| | `ROLE_EDIT_PERMISSION`| ปรับเปลี่ยนชุดสิทธิ์ของบทบาท | `Role` |
+| | `ROLE_EDIT_MENU` | ปรับแต่งเมนูนำทางของบทบาท | `Role` |
+| **สาขา & แบรนด์** | `LOCATION_CREATE` | สร้างสาขาใหม่ | `Location` |
+| | `LOCATION_EDIT` | แก้ไขข้อมูลสาขา / ซิงค์แบรนด์ | `Location` |
+| | `LOCATION_DISABLE` | ระงับการใช้งานสาขา | `Location` |
+| | `LOCATION_TYPE_CREATE`| สร้างประเภทสาขาใหม่ | `LocationType` |
+| | `LOCATION_TYPE_EDIT` | แก้ไขประเภทสาขา | `LocationType` |
+| | `BRAND_CREATE` | สร้างแบรนด์ใหม่ | `Brand` |
+| | `BRAND_EDIT` | แก้ไขข้อมูลแบรนด์ | `Brand` |
+| | `BRAND_DISABLE` | ระงับการใช้งานแบรนด์ | `Brand` |
+
+> 💡 **หมายเหตุการบันทึก:**
+> - กลุ่มสำคัญ (ตรวจ/ย้อน/แก้/ลบ/ผู้ใช้/บทบาท/ฟอร์ม): ใช้ `_activityLogger.Add(...)` บันทึกใน Transaction เดียวกับการกระทำหลัก หากบันทึกไม่ได้จะ Rollback ทั้งชุด
+> - กลุ่มทั่วไป (`LOGIN`, `AUDIT_START`, `EXPORT_*`): ใช้ `_activityLogger.LogAsync(...)` แบบกลืน Error เพื่อไม่ให้กระทบการทำงานหลักของผู้ใช้
+
+---
+
+## 10. มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์ (Tech Stack & Storage Standards)
+
+### 10.1 เทคโนโลยีหลักของระบบ
 - **Frontend:** React 19 + Vite 8 + Tailwind CSS v4 (Emerald Corporate `#0F6659`) + Lucide Icons + Recharts + Leaflet
 - **Backend:** ASP.NET Core Web API (C# .NET) + Entity Framework Core + SignalR
 - **Database:** Microsoft SQL Server (`QSCDB`) / Code-first migration
 
-### 9.2 มาตรฐานโฟลเดอร์จัดเก็บรูปภาพ (File Storage Hierarchy)
+### 10.2 มาตรฐานโฟลเดอร์จัดเก็บรูปภาพ (File Storage Hierarchy)
 อ้างอิงตาม [`GUIDE.md`](GUIDE.md):
 ```text
 uploads/
@@ -260,7 +370,7 @@ uploads/
 
 ---
 
-## 10. Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)
+## 11. Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)
 
 ก่อนเปิด Pull Request หรือ Deploy ฟีเจอร์ใหม่ ให้ตรวจสอบตามรายการด้านล่าง:
 
@@ -268,10 +378,12 @@ uploads/
 - [ ] **ประเภทข้อตรวจที่คิดคะแนน:** ข้อตรวจที่นำมาคิดคะแนนมีเฉพาะ **`YESNO`** และ **`SCALE`** เท่านั้นหรือไม่? (ประเภท **`MULTI_ANS`**, **`GRID`**, **`text`**, **`number`** ฯลฯ ต้องไม่นำมาคิดคะแนน / `isScored = false`)
 - [ ] **การจับคู่ฟอร์ม:** ได้จับคู่ฟอร์มด้วย `id` หรือ `surveyFormId` ตรงกันเป๊ะ (ไม่ใช่จับคู่ด้วยชื่อ) หรือไม่?
 - [ ] **การคิดคะแนน:** ข้อ N/A ถูกหักออกจากคะแนนเต็มหรือไม่? และหากมีข้อ Critical ตก ได้ตัดสินให้ไม่ผ่านทันทีหรือไม่?
+- [ ] **สถานะ REOPENED:** รอบตรวจที่ถูกย้อนสถานะ (`REOPENED`) จะต้องถูกซ่อนจากรายงาน/คะแนน/แดชบอร์ดด้วย Global Query Filter และห้ามแก้ไขหรือลบเด็ดขาด (ตอบ 409) หรือไม่?
 - [ ] **การแก้ไขผลตรวจ:** หากมีการเปลี่ยนคะแนน ได้บังคับให้ระบุ `editReason` หรือไม่?
+- [ ] **ActivityLog:** การกระทำสำคัญ (สร้าง/แก้/ลบ Master Data, ส่งตรวจ, ย้อนสถานะ) ได้ถูกบันทึกลง ActivityLog ด้วยรหัส Action ที่ถูกต้องหรือไม่?
 - [ ] **UI & Styling:** ปฏิบัติตาม Fresh Mint / Emerald Palette (`#0F6659`) และใช้ Tailwind คลาสที่ถูกต้องหรือไม่?
 - [ ] **การทดสอบ Build:** ฝั่ง Frontend รัน `npm run build` ผ่าน 0 errors และ Backend รัน `dotnet build -t:Compile` ผ่าน 0 errors หรือไม่?
-- [ ] **การปรับปรุง Spec:** หากมีประเภทคำถามใหม่, รหัสหมวดใหม่, หรือเงื่อนไขใหม่ ได้มาเพิ่มในเอกสาร `SYSTEM_SPEC.md` นี้แล้วหรือยัง?
+- [ ] **การปรับปรุง Spec:** หากมีประเภทคำถามใหม่, รหัสหมวดใหม่, สิทธิ์ใหม่, หรือเงื่อนไขใหม่ ได้มาเพิ่มในเอกสาร `SYSTEM_SPEC.md` นี้แล้วหรือยัง?
 
 ---
 

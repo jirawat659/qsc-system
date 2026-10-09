@@ -52,6 +52,7 @@ namespace QSC.Api.Controllers
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var query = _context.CapTasks
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .Include(t => t.Location)
                 .Include(t => t.Assignee)
@@ -172,6 +173,7 @@ namespace QSC.Api.Controllers
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var task = await _context.CapTasks
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .AsSplitQuery()
                 .Include(t => t.Location)

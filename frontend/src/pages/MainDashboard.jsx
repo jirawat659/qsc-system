@@ -479,13 +479,20 @@ export default function MainDashboard({ onLogout }) {
       loadMoreCapTasks(true);
     }, 180000);
 
-    // 📡 Real-time SignalR Event: รีเฟรชข้อมูลอัตโนมัติเฉพาะเมื่อมีผลตรวจใหม่เข้ามาจริงๆ
+    // 📡 Real-time SignalR Event: รีเฟรชข้อมูลอัตโนมัติเมื่อมีผลตรวจใหม่หรือย้อนสถานะผลตรวจ
     let isMounted = true;
     let unsubscribeAudit = null;
+    let unsubscribeAuditReopened = null;
     signalRService.getConnection()
       .then(() => {
         if (!isMounted) return;
         unsubscribeAudit = signalRService.onAuditCreated(() => {
+          if (!isMounted) return;
+          refreshData(true);
+          resyncAuditRecords();
+          loadMoreCapTasks(true);
+        });
+        unsubscribeAuditReopened = signalRService.onAuditReopened(() => {
           if (!isMounted) return;
           refreshData(true);
           resyncAuditRecords();
@@ -500,6 +507,7 @@ export default function MainDashboard({ onLogout }) {
       window.removeEventListener('focus', handleFocus);
       clearInterval(interval);
       if (unsubscribeAudit) unsubscribeAudit();
+      if (unsubscribeAuditReopened) unsubscribeAuditReopened();
     };
   }, []);
 

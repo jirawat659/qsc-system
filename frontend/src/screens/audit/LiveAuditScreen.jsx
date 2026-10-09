@@ -1345,6 +1345,14 @@ export default function LiveAuditScreen({
     return null;
   }, [matchedDraftRecord]);
 
+  const reopenedFromRecordId = useMemo(() => {
+    return matchedDraftRecord?.reopenedFromRecordId 
+      || preselectedPlan?.reopenedFromRecordId 
+      || initialDraft?.reopenedFromRecordId
+      || parsedDraftPayload?.reopenedFromRecordId
+      || null;
+  }, [matchedDraftRecord, preselectedPlan, initialDraft, parsedDraftPayload]);
+
   const isResumeDraft = Boolean(
     !preselectedPlan?.isNewAudit &&
     (preselectedPlan?.isResume || Boolean(matchedDraftRecord)) &&
@@ -2364,6 +2372,16 @@ export default function LiveAuditScreen({
   const lastSaveOkRef = useRef(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isLocalSaving, setIsLocalSaving] = useState(false);
+  const [isSaveSuccess, setIsSaveSuccess] = useState(false);
+  const saveSuccessTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+      }
+    };
+  }, []);
   // true = ถ้าผู้ใช้ออกจากหน้านี้ด้วยวิธีอื่นที่ไม่ใช่ปุ่มย้อนกลับ (เช่น กดเมนูไปหน้าอื่น) ให้บันทึกให้ก่อนเพื่อกันข้อมูลหาย
   // ตั้งเป็น false ถ้าต้องการให้บันทึกด้วยปุ่มเท่านั้นจริงๆ
   const saveOnLeaveSafetyNet = true;
@@ -2471,45 +2489,41 @@ export default function LiveAuditScreen({
   const performSaveDraft = async (overrideData = {}) => {
     if (isDiscardingRef.current) {
       setSyncStatus("idle");
-      return;
+      return false;
     }
 
-    // 🛡️ ป้องกันไม่ให้บันทึกทับก่อนที่ข้อมูลร่างเดิมจะถูก hydrate เข้าสู่ state
     if (isResumeDraft && !hasHydratedDraftRef.current) {
       setSyncStatus("idle");
-      return;
+      return false;
     }
 
-    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกทับขณะกำลังกดย้ายฟอร์มใหม่
     if (isMigratingDraft || isMigratingDraftRef.current) {
       setSyncStatus("idle");
-      return;
+      return false;
     }
 
-    // 🛡️ ป้องกันไม่ให้ auto-save บันทึกขณะอยู่ในโหมดล็อก (ดูอย่างเดียว)
     if (isReadOnlyMode) {
       setSyncStatus("idle");
-      return;
+      return true;
     }
 
-    // 🔒 Mutex: If a save is currently in-flight, queue this request so we never send concurrent PUT requests
     if (isSavingRef.current) {
       hasPendingSaveRef.current = true;
       pendingSaveDataRef.current = {
         ...(pendingSaveDataRef.current || {}),
         ...overrideData
       };
-      return;
+      return true;
     }
 
     isSavingRef.current = true;
     const currentSeq = ++saveSeqRef.current;
+    let saveOk = false;
+    let sentDirty = null;
     try {
       setSyncStatus("saving");
       lastSaveOkRef.current = false;
-      let saveOk = false;
-      // แยกชุด "ข้อที่แก้ค้าง" ที่กำลังจะถูกบันทึกออกมา ข้อที่แก้ระหว่างรอ request จะถูกจดเป็นชุดใหม่
-      const sentDirty = dirtyKeysRef.current;
+      sentDirty = dirtyKeysRef.current;
       dirtyKeysRef.current = {
         answers: new Set(),
         photos: new Set(),
@@ -2536,7 +2550,7 @@ export default function LiveAuditScreen({
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
         setSyncStatus("idle");
-        return;
+        return false;
       }
 
       const totalAnswered = Object.keys(currentAnswers).length;
@@ -2545,12 +2559,13 @@ export default function LiveAuditScreen({
       const hasPhotos = Object.keys(currentPhotos || {}).length > 0;
       const hasAnyData = totalAnswered > 0 || hasMetadata || hasComments || hasPhotos || currentIsBackdated || currentStaffCount || currentExtraNote || currentAuditeeSignature || currentAuditorSignature;
 
+      // 🌟 ถ้าไม่มีข้อมูลต้องแก้อยู่แล้ว ให้ถือว่าบันทึกสำเร็จ (พร้อมสลับโหมดล็อก)
       if (!hasAnyData && !isAnswerModifiedRef.current) {
-        setSyncStatus("idle");
-        return;
+        lastSaveOkRef.current = true;
+        setSyncStatus("synced");
+        return true;
       }
 
-      // 🌟 อัปโหลดรูปที่ยังอยู่ในเครื่องก่อน แล้วค่อยสร้าง payload (ห้ามให้ base64 หลุดเข้า draft / localStorage)
       if (hasPendingPhotos(currentPhotos)) {
         const resolved = await resolvePendingPhotos(currentPhotos);
         if (!resolved.ok) {
@@ -2560,7 +2575,6 @@ export default function LiveAuditScreen({
         currentPhotos = resolved.map;
       }
 
-      // 🌟 อัปโหลดลายเซ็นที่ยังอยู่ในเครื่องก่อน แล้วค่อยสร้าง payload (ห้ามให้ base64 หลุดเข้า draft / localStorage)
       if (hasPendingSignatures(currentAuditeeSignature, currentAuditorSignature)) {
         const sigResolved = await resolvePendingSignatures(currentAuditeeSignature, currentAuditorSignature);
         if (!sigResolved.ok) {
@@ -2619,7 +2633,6 @@ export default function LiveAuditScreen({
       } catch (e) { }
 
       const isExplicitNewAudit = Boolean(preselectedPlan?.isNewAudit && !currDraftId);
-      // 🌟 หน่วงเวลาอย่างน้อย ~520ms เพื่อให้ผู้ใช้เห็นจังหวะหมุนทำงานอย่างนุ่มนวล ไม่วาบหายทันที
       const [res] = await Promise.all([
         api.put('/audit/draft', {
           id: currDraftId,
@@ -2634,7 +2647,8 @@ export default function LiveAuditScreen({
           startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
           startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
           startedAt: payload.startedAt,
-          isNewAudit: isExplicitNewAudit
+          isNewAudit: isExplicitNewAudit,
+          reopenedFromRecordId: reopenedFromRecordId
         }),
         new Promise((resolve) => setTimeout(resolve, 350))
       ]);
@@ -2642,9 +2656,8 @@ export default function LiveAuditScreen({
       saveOk = true;
       lastSaveOkRef.current = true;
 
-      // 🌟 M2: ป้องกัน race condition ถ้ามี auto-save รอบใหม่กว่าถูกส่งออกไปแล้วขณะที่ request นี้กำลังเดินทาง
       if (currentSeq !== saveSeqRef.current) {
-        return;
+        return true;
       }
 
       if (res?.data?.id) {
@@ -2657,84 +2670,32 @@ export default function LiveAuditScreen({
         }
       }
 
-      // 🌟 ถ้าระหว่างรอ request มีการแก้เพิ่ม ให้ยังถือว่ามีข้อมูลที่ยังไม่บันทึก
       const stillUnsaved = hasUnsavedLocalChanges();
-      {
-        const sentMaps = { answers: currentAnswers, photos: currentPhotos, comments: currentComments, metadataValues: currentMetadataValues };
-        Object.keys(sentDirty).forEach((field) => {
-          sentDirty[field].forEach((k) => {
-            if (dirtyKeysRef.current[field].has(k)) {
-              const sv = sentMaps[field] || {};
-              originalsRef.current[field][k] = (k in sv) ? sv[k] : ABSENT;
-            } else {
-              delete originalsRef.current[field][k];
-            }
-          });
-        });
-        if (!stillUnsaved) originalsRef.current.extras = {};
-      }
       isAnswerModifiedRef.current = stillUnsaved;
       setHasUnsavedChanges(stillUnsaved);
       setLastSavedTime(currentTimeStr);
       setSyncStatus(stillUnsaved ? "unsaved" : "synced");
 
-      const draftObj = {
-        id: res?.data?.id || currDraftId,
-        auditScheduleId: currSchedId,
-        surveyFormId: currentForm.id,
-        totalAnswered,
-        totalQuestions,
-        unit: currentUnit,
-        formId: currentForm.id,
-        sectionIdx: currentSectionIdx,
-        answers: currentAnswers,
-        photos: currentPhotos,
-        comments: currentComments,
-        staffCount: currentStaffCount,
-        auditorName: currentAuditorName,
-        auditType: currentAuditType,
-        extraNote: currentExtraNote,
-        metadataValues: currentMetadataValues,
-        isBackdated: currentIsBackdated,
-        backdatedStartDate: currentBackdatedStartDate,
-        backdatedEndDate: currentBackdatedEndDate,
-        auditeeSignature: currentAuditeeSignature,
-        auditorSignature: currentAuditorSignature,
-        auditeeSignName: currentAuditeeSignName,
-        locationId: currentUnit.id,
-        locationName: currentUnit.name,
-        locationFullName: currentUnit.fullName,
-        surveyFormTitle: currentForm.title,
-        draftPayloadJson: draftPayloadJson,
-        totalAnswered,
-        totalQuestions,
-        savedAt: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })
-      };
-
-      if (onSaveDraft) onSaveDraft(draftObj);
+      if (onSaveDraft) onSaveDraft({ ...payload, id: res?.data?.id || currDraftId });
+      return true;
     } catch (err) {
+      console.error("Save draft API error:", err);
       if (currentSeq === saveSeqRef.current) {
         setSyncStatus("error");
       }
-      if (err.response?.status === 409) {
-        // 409 Conflict: draft was updated/migrated from another device or session
-        console.warn("Draft version conflict (409):", err.response?.data?.message);
-        if (refreshData) refreshData();
-      }
+      return false;
     } finally {
       isSavingRef.current = false;
-      if (!saveOk) {
-        // บันทึกไม่สำเร็จ/ถูกบล็อก → คืนรายการข้อที่แก้ค้างกลับไป เพื่อให้กดบันทึกซ้ำได้
+      if (!saveOk && sentDirty) {
         let restored = false;
         Object.keys(sentDirty).forEach((field) => {
-          sentDirty[field].forEach((k) => {
-            dirtyKeysRef.current[field].add(k);
+          (sentDirty[field] || []).forEach((k) => {
+            dirtyKeysRef.current[field]?.add(k);
             restored = true;
           });
         });
         if (restored) setHasUnsavedChanges(true);
       }
-      // 🌟 If changes arrived while the previous HTTP save was in-flight, save them immediately now
       if (hasPendingSaveRef.current) {
         hasPendingSaveRef.current = false;
         const queuedData = pendingSaveDataRef.current || {};
@@ -2791,33 +2752,44 @@ export default function LiveAuditScreen({
   }, []);
 
   const handleManualSave = useCallback(async () => {
-    if (isReadOnlyMode || isSavingRef.current || isLocalSaving || !performSaveDraftRef.current) return;
+    if (isReadOnlyMode || isSavingRef.current || isLocalSaving || isSaveSuccess || !performSaveDraftRef.current) return;
 
-    // 🌟 แสดงสปินเนอร์หมุนทันทีตั้งแต่กดปุ่ม โดยไม่ต้องรอรอบประมวลผลข้อมูลหรือเน็ตเวิร์ก
     setIsLocalSaving(true);
     setSyncStatus("saving");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 30));
 
-    const wasInFlight = isSavingRef.current;
     const queued = pendingSaveDataRef.current || {};
     pendingSaveDataRef.current = null;
 
+    let isSuccess = false;
     try {
-      await performSaveDraftRef.current(queued);
+      const res = await performSaveDraftRef.current(queued);
+      isSuccess = Boolean(res || lastSaveOkRef.current);
+    } catch (err) {
+      console.error("handleManualSave error:", err);
+      isSuccess = false;
     } finally {
       setIsLocalSaving(false);
     }
 
-    // ถูกบล็อกหรือบันทึกไม่สำเร็จ → คืนข้อมูลที่ค้างไว้ ไม่ให้หายเงียบๆ
-    if (!wasInFlight && !lastSaveOkRef.current) {
+    if (isSuccess) {
+      // 🌟 เซฟสำเร็จ -> แสดงไอคอนวงกลมเช็คถูก (CheckCircle2) 800ms แล้วสลับเป็นโหมดล็อก
+      setSyncStatus("synced");
+      setIsSaveSuccess(true);
+      if (saveSuccessTimerRef.current) {
+        clearTimeout(saveSuccessTimerRef.current);
+      }
+      saveSuccessTimerRef.current = setTimeout(() => {
+        setIsSaveSuccess(false);
+        setIsReadOnlyMode(true); // สลับเป็นโหมดล็อค
+      }, 800);
+    } else {
       pendingSaveDataRef.current = { ...queued, ...(pendingSaveDataRef.current || {}) };
       setHasUnsavedChanges(true);
-      setSyncStatus((prev) => (prev === "error" ? "error" : "unsaved"));
-    } else if (lastSaveOkRef.current) {
-      // 🌟 บันทึกสำเร็จ → สลับกลับเป็นโหมดล็อก (ดูอย่างเดียว) อัตโนมัติ
-      setIsReadOnlyMode(true);
+      setSyncStatus("error");
+      setEditHintMsg("บันทึกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
     }
-  }, [isReadOnlyMode, isLocalSaving]);
+  }, [isReadOnlyMode, isLocalSaving, isSaveSuccess]);
 
   // 🌟 รายการที่จะหายถ้ากดยกเลิกการแก้ไข (เทียบ "ค่าเดิมก่อนแก้" กับค่าปัจจุบัน)
   const buildCancelEditList = () => {
@@ -2896,6 +2868,8 @@ export default function LiveAuditScreen({
   };
 
   const handleRequestCancelEdit = () => {
+    if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+    setIsSaveSuccess(false);
     const list = hasUnsavedLocalChanges() ? buildCancelEditList() : [];
     if (list.length === 0) {
       discardLocalUnsaved();
@@ -2907,6 +2881,8 @@ export default function LiveAuditScreen({
   };
 
   const handleConfirmCancelEdit = () => {
+    if (saveSuccessTimerRef.current) clearTimeout(saveSuccessTimerRef.current);
+    setIsSaveSuccess(false);
     const snap = {
       answers: { ...originalsRef.current.answers },
       photos: { ...originalsRef.current.photos },
@@ -4122,6 +4098,7 @@ export default function LiveAuditScreen({
         auditDate: effectiveStartedAt,
         startedAt: effectiveStartedAt,
         submittedAt: effectiveSubmittedAt,
+        reopenedFromRecordId: reopenedFromRecordId,
         responses
       };
 
@@ -4765,6 +4742,22 @@ export default function LiveAuditScreen({
         )}
         {/* 🌟 กล่องยุบ-ขยายการ์ดสรุปคะแนนด้านบน เมื่อ scroll */}
         <div className="space-y-2 mb-2">
+          {reopenedFromRecordId && (
+            <div className="px-3 sm:px-4 pt-2">
+              <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 shadow-2xs flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <RotateCcw className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div className="min-w-0 text-xs">
+                    <span className="font-bold text-amber-950">แบบร่างจากการย้อนสถานะผลตรวจ</span>
+                    <span className="text-amber-800 ml-1.5">(รหัสผลตรวจเดิม <span className="font-mono font-bold">#{reopenedFromRecordId}</span>)</span>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 shrink-0">
+                  หากทิ้งร่างจะคืนสถานะเดิม
+                </span>
+              </div>
+            </div>
+          )}
           {/* Top Summary & Live Score Card */}
           <div className="pt-2.5 pb-2 px-3 sm:px-4">
             <div className="bg-white rounded-3xl p-3.5 sm:p-4 border border-slate-200 shadow-2xs flex items-center justify-between gap-3 sm:gap-4">
@@ -4779,6 +4772,12 @@ export default function LiveAuditScreen({
                     <ChevronLeft size={18} />
                   </button>
                   <h2 className="text-sm sm:text-base font-black text-slate-900 leading-tight truncate">{unit?.fullName || unit?.name}</h2>
+                  {reopenedFromRecordId && (
+                    <span className="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-bold border border-amber-300">
+                      <RotateCcw size={10} />
+                      <span>ย้อนจาก #{reopenedFromRecordId}</span>
+                    </span>
+                  )}
                   {/*{syncStatus !== "idle" && (
                     syncStatus === "saving" ? (
                       <span className="inline-flex shrink-0 items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[10px] font-bold text-amber-700 animate-pulse">
@@ -5882,7 +5881,7 @@ export default function LiveAuditScreen({
                 const mainEl = document.querySelector("main");
                 if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
               }}
-              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-xl border border-slate-200/80 flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 ${
+              className={`w-14 h-14 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-xl border border-slate-200/80 flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 ${
                 isAuditHeaderScrolled
                   ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
                   : "opacity-0 scale-75 translate-y-3 pointer-events-none"
@@ -5890,65 +5889,57 @@ export default function LiveAuditScreen({
               title="เลื่อนขึ้นบนสุดของหน้า"
               aria-label="เลื่อนขึ้นบนสุดของหน้า"
             >
-              <ChevronUp size={24} strokeWidth={2.6} />
+              <ChevronUp size={34} strokeWidth={2.8} />
             </button>
 
             {/* 2. แถวล่าง: ปุ่มซ้าย (ปลดล็อกแก้ไข หรือ ยกเลิก) คู่กับ ปุ่มขวา (ส่งผลตรวจ หรือ บันทึก) */}
             <div className="flex items-center gap-3">
-              {/* 2.1 ฝั่งซ้าย: สลับระหว่างปุ่มปลดล็อกแก้ไข (โหมดดู) และปุ่มยกเลิกการแก้ไข (โหมดแก้ไขเมื่อมีการเปลี่ยนแปลงข้อมูล) */}
-              <div
-                className={`shrink-0 transition-all duration-300 ease-out ${
-                  isReadOnlyMode || hasUnsavedChanges
-                    ? "w-12 sm:w-14 opacity-100 scale-100"
-                    : "w-0 -mr-3 opacity-0 scale-50 pointer-events-none overflow-hidden"
-                }`}
-              >
-                <div className="relative w-12 h-12 sm:w-14 sm:h-14">
-                  {/* ปุ่มยกเลิกการแก้ไข (แสดงเฉพาะโหมดแก้ไขและมีการแก้ไขข้อมูล) */}
-                  <div
-                    className={`absolute inset-0 transition-all duration-300 ease-out ${
-                      !isReadOnlyMode && hasUnsavedChanges
-                        ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
-                        : "opacity-0 scale-75 -rotate-12 pointer-events-none"
-                    }`}
+              {/* 2.1 ฝั่งซ้าย: สลับระหว่างปุ่มปลดล็อกแก้ไข (โหมดดู) และปุ่มยกเลิกการแก้ไข (โหมดแก้ไขตลอด) */}
+              <div className="relative w-14 h-14 sm:w-14 sm:h-14 shrink-0">
+                {/* ปุ่มยกเลิกการแก้ไข (แสดงในโหมดแก้ไขตลอด) */}
+                <div
+                  className={`absolute inset-0 transition-all duration-300 ease-out ${
+                    !isReadOnlyMode
+                      ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
+                      : "opacity-0 scale-75 -rotate-12 pointer-events-none"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={handleRequestCancelEdit}
+                    tabIndex={!isReadOnlyMode ? 0 : -1}
+                    className="w-14 h-14 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-rose-50 text-rose-600 shadow-xl border border-rose-200 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90"
+                    title="ยกเลิกการแก้ไข (กลับเป็นข้อมูลที่บันทึกล่าสุด)"
+                    aria-label="ยกเลิกการแก้ไข"
                   >
-                    <button
-                      type="button"
-                      onClick={handleRequestCancelEdit}
-                      tabIndex={!isReadOnlyMode && hasUnsavedChanges ? 0 : -1}
-                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-rose-50 text-rose-600 shadow-xl border border-rose-200 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90"
-                      title="ยกเลิกการแก้ไข (กลับเป็นข้อมูลที่บันทึกล่าสุด)"
-                      aria-label="ยกเลิกการแก้ไข"
-                    >
-                      <X size={24} strokeWidth={2.6} />
-                    </button>
-                  </div>
+                    <X size={28} strokeWidth={2.8} />
+                  </button>
+                </div>
 
-                  {/* ปุ่มปลดล็อกแก้ไข (แสดงในโหมดล็อก) */}
-                  <div
-                    className={`absolute inset-0 transition-all duration-300 ease-out ${
-                      isReadOnlyMode
-                        ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
-                        : "opacity-0 scale-75 rotate-12 pointer-events-none"
-                    }`}
+                {/* ปุ่มปลดล็อกแก้ไข (แสดงในโหมดล็อก) */}
+                <div
+                  className={`absolute inset-0 transition-all duration-300 ease-out ${
+                    isReadOnlyMode
+                      ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
+                      : "opacity-0 scale-75 rotate-12 pointer-events-none"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setIsReadOnlyMode(false)}
+                    tabIndex={isReadOnlyMode ? 0 : -1}
+                    className="w-14 h-14 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 border bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
+                    title="คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ"
+                    aria-label="ปลดล็อกแก้ไข"
                   >
-                    <button
-                      type="button"
-                      onClick={() => setIsReadOnlyMode(false)}
-                      tabIndex={isReadOnlyMode ? 0 : -1}
-                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 border bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
-                      title="คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ"
-                      aria-label="ปลดล็อกแก้ไข"
-                    >
-                      <Edit3 size={22} strokeWidth={2.4} />
-                    </button>
-                  </div>
+                    <Edit3 size={22} strokeWidth={2.6} />
+                  </button>
                 </div>
               </div>
 
               {/* ฝั่งขวา: Container สลับอย่างสมูทระหว่างปุ่มบันทึกแบบร่าง (หน้าแก้ไข) และปุ่มส่ง (หน้าล็อก) */}
-              <div className="relative w-12 h-12 sm:w-14 sm:h-14 shrink-0">
-                {/* 2.2 ปุ่มบันทึกแบบร่าง (แสดงในหน้าแก้ไข) */}
+              <div className="relative w-14 h-14 sm:w-14 sm:h-14 shrink-0">
+                {/* 2.2 ปุ่มบันทึกแบบร่าง (แสดงในหน้าแก้ไขตลอด) */}
                 <div
                   className={`absolute inset-0 transition-all duration-300 ease-out ${
                     !isReadOnlyMode
@@ -5957,25 +5948,27 @@ export default function LiveAuditScreen({
                   }`}
                 >
                   {(() => {
-                    const isSpinning = isLocalSaving || syncStatus === "saving";
+                    const isSpinning = (isLocalSaving || syncStatus === "saving") && !isSaveSuccess;
                     return (
                       <button
                         type="button"
-                        onClick={!isSpinning ? (hasUnsavedChanges ? handleManualSave : () => setIsReadOnlyMode(true)) : undefined}
-                        disabled={isSpinning}
-                        className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 select-none border touch-manipulation active:scale-95 cursor-pointer ${
+                        onClick={!isSpinning && !isSaveSuccess ? handleManualSave : undefined}
+                        disabled={isSpinning || isSaveSuccess}
+                        className={`w-14 h-14 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 select-none border touch-manipulation active:scale-95 cursor-pointer shadow-md ${
                           isSpinning
-                            ? "bg-[#0F6659] text-white border-emerald-600 shadow-md cursor-wait"
-                            : hasUnsavedChanges
-                            ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 shadow-md"
-                            : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-200/80 shadow-md"
+                            ? "cursor-wait opacity-90 bg-[#0F6659] text-white border-emerald-600"
+                            : isSaveSuccess
+                            ? "bg-white text-emerald-600 border-emerald-300 ring-4 ring-emerald-500/20 shadow-lg scale-105"
+                            : "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600"
                         }`}
                         title={
                           isSpinning
                             ? "กำลังบันทึกข้อมูล..."
+                            : isSaveSuccess
+                            ? "บันทึกเรียบร้อยแล้ว!"
                             : hasUnsavedChanges
                             ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
-                            : "บันทึกข้อมูลเรียบร้อยแล้ว (คลิกเพื่อกลับสู่โหมดดู)"
+                            : "บันทึกข้อมูลแล้ว (คลิกเพื่อบันทึกและสลับสู่โหมดดู)"
                         }
                         aria-label="บันทึกแบบร่าง"
                       >
@@ -5986,18 +5979,18 @@ export default function LiveAuditScreen({
                               isSpinning ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
                             }`}
                           />
-                          <Save
-                            size={22}
-                            strokeWidth={2.4}
-                            className={`col-start-1 row-start-1 transition-all duration-200 ${
-                              !isSpinning && hasUnsavedChanges ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
-                            }`}
-                          />
                           <CheckCircle2
                             size={24}
                             strokeWidth={2.4}
                             className={`col-start-1 row-start-1 text-emerald-600 transition-all duration-200 ${
-                              !isSpinning && !hasUnsavedChanges ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                              !isSpinning && isSaveSuccess ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                            }`}
+                          />
+                          <Save
+                            size={22}
+                            strokeWidth={2.4}
+                            className={`col-start-1 row-start-1 text-white transition-all duration-200 ${
+                              !isSpinning && !isSaveSuccess ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
                             }`}
                           />
                         </span>
@@ -6018,7 +6011,7 @@ export default function LiveAuditScreen({
                     id="audit-tab3-submit-btn"
                     type="button"
                     onClick={handleFinalSubmitTab3}
-                    className="w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 active:scale-90 border bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
+                    className="w-14 h-14 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 active:scale-90 border bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
                     title="บันทึกและส่งผลตรวจประเมิน"
                     aria-label="บันทึกและส่งผลตรวจประเมิน"
                   >

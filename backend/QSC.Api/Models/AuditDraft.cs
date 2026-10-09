@@ -23,6 +23,8 @@ namespace QSC.Api.Models
         public DateTime? StartedAt { get; set; }
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
         public string? DocumentNo { get; set; }
+        public int? ReopenedFromRecordId { get; set; }
+        public AuditRecord? ReopenedFromRecord { get; set; }
 
         [NotMapped]
         public bool IsFormOutdated { get; set; } = false;

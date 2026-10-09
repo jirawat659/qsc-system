@@ -42,6 +42,7 @@ namespace QSC.Api.Data
             EnsureLocationTypes(context);
             EnsureAdminUser(context);
             EnsureDocumentNumbers(context);
+            EnsureColumnLengths(context);
         }
 
         // ==========================================================
@@ -212,7 +213,9 @@ namespace QSC.Api.Data
         // ==========================================================
         private static readonly (string Code, string Name, string Module)[] PermissionDefs =
         {
+            ("activity.view",       "ดูประวัติกิจกรรมการใช้งานระบบ",                "System"),
             ("audit.edit",          "แก้ไขการตรวจบันทึกที่ส่งแล้ว พร้อมระบุเหตุผล", "Audit"),
+            ("audit.reopen",        "ย้อนสถานะผลตรวจที่ส่งแล้วกลับเป็นแบบร่าง",     "Audit"),
             ("audit.start",         "เริ่มทำการตรวจประเมิน",                        "Audit"),
             ("audit.submit",        "ส่งผลการตรวจและลงนาม",                         "Audit"),
             ("cap.approve",         "ตรวจสอบและอนุมัติปิดงาน CAP (QA)",             "CAP"),
@@ -464,6 +467,29 @@ namespace QSC.Api.Data
             catch (Exception ex)
             {
                 Console.WriteLine($"[DatabaseSeeder] ไม่สามารถอัปเดต DocumentNo ย้อนหลังได้: {ex.Message}");
+            }
+        }
+
+        private static void EnsureColumnLengths(AppDbContext context)
+        {
+            try
+            {
+                // ขยาย ReopenReason เป็น nvarchar(max) เพื่อไม่จำกัดตัวอักษรและไม่จองพื้นที่ล่วงหน้า
+                context.Database.ExecuteSqlRaw(@"
+                    IF EXISTS (
+                        SELECT 1 FROM sys.columns 
+                        WHERE object_id = OBJECT_ID('AuditRecords') 
+                          AND name = 'ReopenReason' 
+                          AND max_length > 0
+                    )
+                    BEGIN
+                        ALTER TABLE [AuditRecords] ALTER COLUMN [ReopenReason] nvarchar(max) NULL;
+                    END
+                ");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] EnsureColumnLengths warning: {ex.Message}");
             }
         }
     }

@@ -19,12 +19,14 @@ namespace QSC.Api.Controllers
         private readonly AppDbContext _context;
         private readonly IConfiguration _config;
         private readonly LoginRateLimiterService _rateLimiter;
+        private readonly IActivityLogger _activityLogger;
 
-        public AuthController(AppDbContext context, IConfiguration config, LoginRateLimiterService rateLimiter)
+        public AuthController(AppDbContext context, IConfiguration config, LoginRateLimiterService rateLimiter, IActivityLogger activityLogger)
         {
             _context = context;
             _config = config;
             _rateLimiter = rateLimiter;
+            _activityLogger = activityLogger;
         }
 
         private string GetClientIp()
@@ -195,6 +197,8 @@ namespace QSC.Api.Controllers
             var navConfigJson = !string.IsNullOrWhiteSpace(user.Role?.NavConfigJson)
                 ? user.Role.NavConfigJson
                 : RoleNavHelper.Serialize(navConfig);
+
+            await _activityLogger.LogAsync(user.Id, "LOGIN", "User", user.Id);
 
             return Ok(new
             {

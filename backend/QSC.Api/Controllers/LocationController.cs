@@ -14,10 +14,12 @@ namespace QSC.Api.Controllers
     public class LocationController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Services.IActivityLogger _activityLogger;
 
-        public LocationController(AppDbContext context)
+        public LocationController(AppDbContext context, Services.IActivityLogger activityLogger)
         {
             _context = context;
+            _activityLogger = activityLogger;
         }
 
         [HttpGet]
@@ -143,6 +145,11 @@ namespace QSC.Api.Controllers
             location.CreatedAt = DateTime.UtcNow;
             _context.Locations.Add(location);
             await _context.SaveChangesAsync();
+
+            var (createUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(createUserId, "LOCATION_CREATE", "Location", location.Id, location.Id);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(GetLocation), new { id = location.Id }, location);
         }
 
@@ -166,6 +173,9 @@ namespace QSC.Api.Controllers
             existing.Phone = location.Phone;
             existing.IsActive = location.IsActive;
 
+            var (editUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(editUserId, "LOCATION_EDIT", "Location", existing.Id, existing.Id);
+
             await _context.SaveChangesAsync();
             return Ok(existing);
         }
@@ -178,6 +188,10 @@ namespace QSC.Api.Controllers
             if (location == null) return NotFound();
 
             location.IsActive = false; // Soft delete
+
+            var (deleteUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(deleteUserId, "LOCATION_DISABLE", "Location", location.Id, location.Id);
+
             await _context.SaveChangesAsync();
             return NoContent();
         }
@@ -215,6 +229,9 @@ namespace QSC.Api.Controllers
             };
             _context.LocationBrands.Add(newLink);
 
+            var (bindUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(bindUserId, "LOCATION_EDIT", "Location", id, id);
+
             await _context.SaveChangesAsync();
 
             return Ok(newLink);
@@ -229,6 +246,10 @@ namespace QSC.Api.Controllers
             if (link == null) return NotFound(new { message = "ไม่พบการผูกแบรนด์นี้กับสถานที่นี้" });
 
             _context.LocationBrands.Remove(link);
+
+            var (unbindUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(unbindUserId, "LOCATION_EDIT", "Location", id, id);
+
             await _context.SaveChangesAsync();
 
             return NoContent();
@@ -270,6 +291,9 @@ namespace QSC.Api.Controllers
             if (toRemove.Any()) _context.LocationBrands.RemoveRange(toRemove);
             if (toAdd.Any()) _context.LocationBrands.AddRange(toAdd);
 
+            var (syncUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(syncUserId, "LOCATION_EDIT", "Location", id, id);
+
             await _context.SaveChangesAsync();
             return Ok(new { message = "บันทึกการผูกแบรนด์สำเร็จ", count = targetBrandIds.Count });
         }
@@ -281,10 +305,12 @@ namespace QSC.Api.Controllers
     public class LocationTypeController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Services.IActivityLogger _activityLogger;
 
-        public LocationTypeController(AppDbContext context)
+        public LocationTypeController(AppDbContext context, Services.IActivityLogger activityLogger)
         {
             _context = context;
+            _activityLogger = activityLogger;
         }
 
         [HttpGet]
@@ -304,6 +330,11 @@ namespace QSC.Api.Controllers
         {
             _context.LocationTypes.Add(type);
             await _context.SaveChangesAsync();
+
+            var (createUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(createUserId, "LOCATION_TYPE_CREATE", "LocationType", type.Id);
+            await _context.SaveChangesAsync();
+
             return Ok(type);
         }
 
@@ -320,6 +351,9 @@ namespace QSC.Api.Controllers
             existing.Description = type.Description;
             existing.IsActive = type.IsActive;
 
+            var (editUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(editUserId, "LOCATION_TYPE_EDIT", "LocationType", existing.Id);
+
             await _context.SaveChangesAsync();
             return Ok(existing);
         }
@@ -331,10 +365,12 @@ namespace QSC.Api.Controllers
     public class BrandController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Services.IActivityLogger _activityLogger;
 
-        public BrandController(AppDbContext context)
+        public BrandController(AppDbContext context, Services.IActivityLogger activityLogger)
         {
             _context = context;
+            _activityLogger = activityLogger;
         }
 
         public class UpsertBrandDto
@@ -409,6 +445,10 @@ namespace QSC.Api.Controllers
             _context.Brands.Add(brand);
             await _context.SaveChangesAsync();
 
+            var (createUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(createUserId, "BRAND_CREATE", "Brand", brand.Id);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(GetBrand), new { id = brand.Id }, brand);
         }
 
@@ -441,6 +481,9 @@ namespace QSC.Api.Controllers
             existing.Description = dto.Description?.Trim();
             existing.IsActive = dto.IsActive;
 
+            var (editUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(editUserId, "BRAND_EDIT", "Brand", existing.Id);
+
             await _context.SaveChangesAsync();
             return Ok(existing);
         }
@@ -454,6 +497,10 @@ namespace QSC.Api.Controllers
 
             // Soft delete: ปิดการใช้งานแบรนด์ เพื่อรักษาประวัติการตรวจและความสัมพันธ์ในอดีตไม่ให้สูญหาย
             brand.IsActive = false;
+
+            var (deleteUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(deleteUserId, "BRAND_DISABLE", "Brand", brand.Id);
+
             await _context.SaveChangesAsync();
             return NoContent();
         }

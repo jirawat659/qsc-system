@@ -166,11 +166,14 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                 const afterStarted = after.StartedAt ?? after.startedAt;
                 const isTimeChanged = beforeStarted && afterStarted && beforeStarted !== afterStarted;
 
+                const isReopenLog = summary?.action === "REOPEN" || (log.reason && log.reason.includes("[ย้อนสถานะผลตรวจ]"));
+                const cleanReason = (log.reason || "").replace(/^\[ย้อนสถานะผลตรวจ\]\s*/, "");
+
                 return (
                   <div key={log.id || idx} className="relative group animate-in fade-in slide-in-from-bottom-2 duration-300">
                     {/* Timeline Node Icon */}
                     <div className="absolute -left-6 top-1 w-5 h-5 rounded-full bg-white border-2 border-[#0F6659] flex items-center justify-center shadow-xs">
-                      <div className="w-2 h-2 rounded-full bg-[#0F6659]" />
+                      <div className={`w-2 h-2 rounded-full ${isReopenLog ? 'bg-amber-500' : 'bg-[#0F6659]'}`} />
                     </div>
 
                     {/* Card */}
@@ -178,9 +181,15 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                       {/* Meta Header */}
                       <div className="flex items-start justify-between gap-2 flex-wrap text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] font-bold text-[11px] border border-emerald-200 font-mono">
-                            แก้ไขครั้งที่ {logs.length - idx}
-                          </span>
+                          {isReopenLog ? (
+                            <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 font-bold text-[11px] border border-amber-300">
+                              ย้อนสถานะผลตรวจ
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] font-bold text-[11px] border border-emerald-200 font-mono">
+                              แก้ไขครั้งที่ {logs.length - idx}
+                            </span>
+                          )}
                           <div className="flex items-center gap-1 font-bold text-slate-800">
                             <User size={13} className="text-slate-400" />
                             <span>{log.editedByName || "ผู้ใช้งาน"}</span>
@@ -197,11 +206,16 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
                       <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700 space-y-1">
                         <div className="text-[10.5px] font-bold text-amber-900 flex items-center gap-1">
                           <MessageSquare size={12} className="text-amber-700" />
-                          <span>เหตุผลในการแก้ไข:</span>
+                          <span>{isReopenLog ? "เหตุผลในการย้อนสถานะ:" : "เหตุผลในการแก้ไข:"}</span>
                         </div>
                         <div className="font-semibold text-slate-800 leading-relaxed pl-4">
-                          "{log.reason}"
+                          "{cleanReason}"
                         </div>
+                        {summary?.draftDocumentNo && (
+                          <div className="text-[11px] text-amber-800 font-medium pl-4 pt-1">
+                            สร้างแบบร่างเพื่อตรวจต่อ: <span className="font-mono font-bold text-amber-950">{summary.draftDocumentNo}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* Overview Badges (Score, Pass/Fail, Time) */}

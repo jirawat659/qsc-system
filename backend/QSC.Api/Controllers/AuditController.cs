@@ -23,14 +23,16 @@ namespace QSC.Api.Controllers
         private readonly ILogger<AuditController> _logger;
         private readonly IHubContext<CapChatHub> _hubContext;
         private readonly IConfiguration _config;
+        private readonly IActivityLogger _activityLogger;
 
-        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext, IConfiguration config)
+        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext, IConfiguration config, IActivityLogger activityLogger)
         {
             _context = context;
             _env = env;
             _logger = logger;
             _hubContext = hubContext;
             _config = config;
+            _activityLogger = activityLogger;
         }
 
         private static bool IsValidImageSignature(byte[] bytes)
@@ -204,6 +206,7 @@ namespace QSC.Api.Controllers
             public double? StartLongitude { get; set; }
             public DateTime? StartedAt { get; set; }
             public bool IsNewAudit { get; set; } = false;
+            public int? ReopenedFromRecordId { get; set; }
         }
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
@@ -355,6 +358,7 @@ namespace QSC.Api.Controllers
                         SurveyFormId = effectiveFormId,
                         AuditorId = effectiveAuditorId,
                         AuditScheduleId = effectiveScheduleId,
+                        ReopenedFromRecordId = dto.ReopenedFromRecordId,
                         DraftPayloadJson = dto.DraftPayloadJson ?? "{}",
                         CurrentSectionIdx = dto.CurrentSectionIdx,
                         TotalAnswered = dto.TotalAnswered,
@@ -371,6 +375,10 @@ namespace QSC.Api.Controllers
                     if (string.IsNullOrWhiteSpace(draft.DocumentNo) && !string.IsNullOrWhiteSpace(draftDocNo))
                     {
                         draft.DocumentNo = draftDocNo;
+                    }
+                    if (dto.ReopenedFromRecordId.HasValue && !draft.ReopenedFromRecordId.HasValue)
+                    {
+                        draft.ReopenedFromRecordId = dto.ReopenedFromRecordId;
                     }
                     // 🛡️ GUARD: If the draft in database has already been migrated to a newer form version
                     // than the one the client is trying to save, reject this save with 409 Conflict!
@@ -444,6 +452,17 @@ namespace QSC.Api.Controllers
                 if (!saved)
                 {
                     return Conflict(new { message = "บันทึกแบบร่างไม่สำเร็จเนื่องจากมีการแก้ไขพร้อมกัน กรุณาลองใหม่อีกครั้ง" });
+                }
+
+                // 🌟 Log AUDIT_START when draft is first created (skip if reopened from record)
+                if (draft != null && !draft.ReopenedFromRecordId.HasValue)
+                {
+                    bool alreadyLoggedStart = await _context.ActivityLogs
+                        .AnyAsync(l => l.Action == "AUDIT_START" && l.EntityType == "AuditDraft" && l.EntityId == draft.Id);
+                    if (!alreadyLoggedStart)
+                    {
+                        await _activityLogger.LogAsync(effectiveAuditorId, "AUDIT_START", "AuditDraft", draft.Id, draft.LocationId, draft.StartedAt);
+                    }
                 }
 
                 // 🌟 Broadcast real-time draft update to all devices viewing this audit round
@@ -548,17 +567,46 @@ namespace QSC.Api.Controllers
 
             // Deduplicate
             var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
+            var locationsToRecalculate = new HashSet<int>();
+
             if (uniqueDrafts.Any())
             {
-                // Revert any related in_progress schedule back to pending
                 foreach (var d in uniqueDrafts)
                 {
-                    if (d.AuditScheduleId.HasValue)
+                    if (d.ReopenedFromRecordId.HasValue)
                     {
-                        var sched = await _context.AuditSchedules.FindAsync(d.AuditScheduleId.Value);
-                        if (sched != null && sched.Status == "in_progress")
+                        var oldRecord = await _context.AuditRecords
+                            .IgnoreQueryFilters()
+                            .FirstOrDefaultAsync(r => r.Id == d.ReopenedFromRecordId.Value);
+
+                        if (oldRecord != null)
                         {
-                            sched.Status = "pending";
+                            oldRecord.Status = "SUBMITTED";
+                            oldRecord.ReopenReason = null;
+                        }
+
+                        if (d.AuditScheduleId.HasValue)
+                        {
+                            var sched = await _context.AuditSchedules.FindAsync(d.AuditScheduleId.Value);
+                            if (sched != null)
+                            {
+                                sched.Status = "completed";
+                            }
+                        }
+
+                        _activityLogger.Add(currentUserId, "AUDIT_REOPEN_CANCEL", "AuditRecord", oldRecord?.Id ?? d.ReopenedFromRecordId.Value, d.LocationId);
+                        locationsToRecalculate.Add(d.LocationId);
+                    }
+                    else
+                    {
+                        // Normal draft discard: Revert any related in_progress schedule back to pending
+                        if (d.AuditScheduleId.HasValue)
+                        {
+                            var sched = await _context.AuditSchedules.FindAsync(d.AuditScheduleId.Value);
+                            if (sched != null && sched.Status == "in_progress")
+                            {
+                                sched.Status = "pending";
+                            }
                         }
                     }
                 }
@@ -577,7 +625,287 @@ namespace QSC.Api.Controllers
             }
 
             await _context.SaveChangesAsync();
+
+            if (locationsToRecalculate.Any())
+            {
+                foreach (var locId in locationsToRecalculate)
+                {
+                    await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, locId);
+                }
+                await _context.SaveChangesAsync();
+            }
+
             return NoContent();
+        }
+
+        // ==========================================
+        // 1.1 REOPEN AUDIT TO DRAFT
+        // ==========================================
+        public class ReopenAuditDto
+        {
+            public string Reason { get; set; } = string.Empty;
+        }
+
+        [Authorize]
+        [HttpPost("{id:int}/reopen")]
+        public async Task<IActionResult> ReopenAudit(int id, [FromBody] ReopenAuditDto dto)
+        {
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+            bool canReopen = role == "ADMIN" || await UserScopeHelper.HasPermissionAsync(role, "audit.reopen", _context);
+            if (!canReopen)
+            {
+                return Forbid();
+            }
+
+            if (string.IsNullOrWhiteSpace(dto?.Reason))
+            {
+                return BadRequest(new { message = "กรุณาระบุเหตุผลในการย้อนสถานะ" });
+            }
+
+            var record = await _context.AuditRecords
+                .IgnoreQueryFilters()
+                .Include(r => r.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                        .ThenInclude(lb => lb.Brand)
+                .Include(r => r.SurveyForm)
+                    .ThenInclude(f => f!.Sections)
+                        .ThenInclude(s => s.Items)
+                .Include(r => r.Responses)
+                    .ThenInclude(res => res.SurveyItem)
+                .Include(r => r.Responses)
+                    .ThenInclude(res => res.Images)
+                .Include(r => r.PrimaryAuditor)
+                .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (record == null)
+            {
+                return NotFound(new { message = "ไม่พบผลการตรวจที่ระบุ" });
+            }
+
+            if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId))
+            {
+                return Forbid();
+            }
+
+            if (allowedBrandIds != null &&
+                (record.Location == null ||
+                 !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
+            {
+                return Forbid();
+            }
+
+            if (record.Status != "SUBMITTED")
+            {
+                return Conflict(new { message = "สามารถย้อนสถานะได้เฉพาะผลการตรวจที่ส่งแล้ว (SUBMITTED) เท่านั้น" });
+            }
+
+            // Check if there is already an active draft for this reopened record
+            var existingReopenedDraft = await _context.AuditDrafts
+                .FirstOrDefaultAsync(d => d.ReopenedFromRecordId == record.Id);
+            if (existingReopenedDraft != null)
+            {
+                return Conflict(new { message = "ผลการตรวจนี้ยังมีแบบร่างที่ถูกย้อนสถานะค้างอยู่แล้ว", draftId = existingReopenedDraft.Id });
+            }
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                record.Status = "REOPENED";
+                record.ReopenReason = dto.Reason.Trim();
+
+                // Reconstruct draft payload JSON
+                var answersDict = new Dictionary<string, object>();
+                var photosDict = new Dictionary<string, List<string>>();
+                var commentsDict = new Dictionary<string, string>();
+
+                foreach (var resp in record.Responses)
+                {
+                    string key = resp.SurveyItemId.ToString();
+                    string? resolvedAns = AuditScoring.ResolveStoredAnswer(resp, resp.SurveyItem);
+                    if (resolvedAns != null)
+                    {
+                        answersDict[key] = resolvedAns;
+                    }
+
+                    if (resp.Images != null && resp.Images.Any())
+                    {
+                        photosDict[key] = resp.Images.Select(img => img.ImageUrl).Where(u => !string.IsNullOrWhiteSpace(u)).ToList();
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(resp.Notes))
+                    {
+                        commentsDict[key] = resp.Notes.Trim();
+                    }
+                }
+
+                object metadataValuesObj = new object();
+                if (!string.IsNullOrWhiteSpace(record.MetadataValuesJson))
+                {
+                    try
+                    {
+                        metadataValuesObj = System.Text.Json.JsonSerializer.Deserialize<object>(record.MetadataValuesJson) ?? new object();
+                    }
+                    catch { }
+                }
+
+                var unitObj = new
+                {
+                    id = record.Location?.Id ?? record.LocationId,
+                    code = record.Location?.Code,
+                    name = record.Location?.Name,
+                    region = record.Location?.Region
+                };
+
+                var payloadObj = new
+                {
+                    unit = unitObj,
+                    formId = record.SurveyFormId,
+                    sectionIdx = 0,
+                    answers = answersDict,
+                    photos = photosDict,
+                    comments = commentsDict,
+                    auditorName = record.PrimaryAuditor?.FullName ?? "",
+                    auditType = record.AuditType ?? "announced",
+                    extraNote = record.Notes ?? "",
+                    metadataValues = metadataValuesObj,
+                    isBackdated = record.IsBackdated,
+                    auditeeSignature = record.AuditeeSignatureUrl,
+                    auditorSignature = record.AuditorSignatureUrl,
+                    auditeeSignName = record.AuditeeNameText,
+                    savedAt = DateTime.UtcNow.AddHours(7).ToString("HH:mm"),
+                    startedAt = (record.StartedAt ?? record.AuditDate).ToString("o"),
+                    startLatitude = record.StartLatitude,
+                    startLongitude = record.StartLongitude
+                };
+
+                var draftPayloadJson = System.Text.Json.JsonSerializer.Serialize(payloadObj);
+
+                // Generate draft DocumentNo
+                var brandCode = ResolveBrandCode(record.Location);
+                var bkkDate = (record.StartedAt ?? record.AuditDate).AddHours(7);
+                var yearMonth = bkkDate.ToString("yyyyMM", System.Globalization.CultureInfo.InvariantCulture);
+                var draftPrefix = $"DRAFT-{brandCode}{yearMonth}-";
+
+                var latestDraftDocNo = await _context.AuditDrafts
+                    .Where(d => d.DocumentNo != null && d.DocumentNo.StartsWith(draftPrefix))
+                    .OrderByDescending(d => d.DocumentNo)
+                    .Select(d => d.DocumentNo)
+                    .FirstOrDefaultAsync();
+
+                int nextDraftSeq = 1;
+                if (!string.IsNullOrEmpty(latestDraftDocNo) && latestDraftDocNo.Length >= draftPrefix.Length + 4)
+                {
+                    var seqPart = latestDraftDocNo.Substring(draftPrefix.Length);
+                    if (int.TryParse(seqPart, out int parsedSeq))
+                    {
+                        nextDraftSeq = parsedSeq + 1;
+                    }
+                }
+                var draftDocNo = $"{draftPrefix}{nextDraftSeq:D4}";
+
+                // Clean any conflicting in-progress draft for the same schedule
+                if (record.AuditScheduleId.HasValue)
+                {
+                    var oldSchedDrafts = await _context.AuditDrafts
+                        .Where(d => d.AuditScheduleId == record.AuditScheduleId.Value)
+                        .ToListAsync();
+                    if (oldSchedDrafts.Any()) _context.AuditDrafts.RemoveRange(oldSchedDrafts);
+                }
+
+                int totalQuestions = record.SurveyForm?.Sections?.Sum(s => s.Items?.Count ?? 0) ?? record.Responses.Count;
+
+                var draft = new AuditDraft
+                {
+                    DocumentNo = draftDocNo,
+                    LocationId = record.LocationId,
+                    SurveyFormId = record.SurveyFormId,
+                    AuditorId = record.PrimaryAuditorId, // owned by original primary auditor
+                    AuditScheduleId = record.AuditScheduleId,
+                    ReopenedFromRecordId = record.Id,
+                    DraftPayloadJson = draftPayloadJson,
+                    CurrentSectionIdx = 0,
+                    TotalAnswered = answersDict.Count,
+                    TotalQuestions = totalQuestions,
+                    StartLatitude = record.StartLatitude,
+                    StartLongitude = record.StartLongitude,
+                    StartedAt = record.StartedAt ?? record.AuditDate,
+                    UpdatedAt = DateTime.UtcNow
+                };
+
+                _context.AuditDrafts.Add(draft);
+
+                // Update schedule to in_progress
+                if (record.AuditScheduleId.HasValue)
+                {
+                    var schedule = await _context.AuditSchedules.FindAsync(record.AuditScheduleId.Value);
+                    if (schedule != null)
+                    {
+                        schedule.Status = "in_progress";
+                    }
+                }
+
+                _activityLogger.Add(currentUserId, "AUDIT_REOPEN", "AuditRecord", record.Id, record.LocationId);
+
+                // บันทึกลง AuditRecordEditLog เพื่อให้ปรากฏในประวัติการแก้ไขด้วย
+                var reopenLog = new AuditRecordEditLog
+                {
+                    AuditRecordId = record.Id,
+                    EditedByUserId = currentUserId,
+                    EditedAt = DateTime.UtcNow,
+                    Reason = $"[ย้อนสถานะผลตรวจ] {dto.Reason.Trim()}",
+                    ChangesSummaryJson = JsonSerializer.Serialize(new
+                    {
+                        action = "REOPEN",
+                        reason = dto.Reason.Trim(),
+                        statusBefore = "SUBMITTED",
+                        statusAfter = "REOPENED",
+                        draftDocumentNo = draft.DocumentNo
+                    })
+                };
+                _context.AuditRecordEditLogs.Add(reopenLog);
+
+                await _context.SaveChangesAsync();
+                await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, record.LocationId);
+                await _context.SaveChangesAsync();
+
+                await transaction.CommitAsync();
+
+                // Broadcast SignalR event
+                try
+                {
+                    var reopenPayload = new
+                    {
+                        auditRecordId = record.Id,
+                        documentNo = record.DocumentNo,
+                        locationId = record.LocationId,
+                        draftId = draft.Id,
+                        reopenedBy = currentUserId,
+                        reason = dto.Reason.Trim()
+                    };
+
+                    await _hubContext.Clients.Groups("audit_all", $"loc_{record.LocationId}").SendAsync("AuditReopened", reopenPayload);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to broadcast AuditReopened via SignalR");
+                }
+
+                return Ok(new
+                {
+                    message = "ย้อนสถานะผลตรวจเป็นแบบร่างสำเร็จ",
+                    draftId = draft.Id,
+                    documentNo = draft.DocumentNo,
+                    auditRecordId = record.Id
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "Error reopening audit record {Id}", id);
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการย้อนสถานะผลตรวจ" });
+            }
         }
 
         // ==========================================
@@ -1006,6 +1334,7 @@ namespace QSC.Api.Controllers
             public DateTime? AuditDate { get; set; }
             public DateTime? StartedAt { get; set; }
             public DateTime? SubmittedAt { get; set; }
+            public int? ReopenedFromRecordId { get; set; }
 
             // Answers
             public List<ResponseSubmitDto> Responses { get; set; } = new();
@@ -1527,6 +1856,7 @@ namespace QSC.Api.Controllers
                 var docPrefix = $"{brandCode}{yearMonth}-";
 
                 var latestDocNo = await _context.AuditRecords
+                    .IgnoreQueryFilters()
                     .Where(r => r.DocumentNo != null && r.DocumentNo.StartsWith(docPrefix))
                     .OrderByDescending(r => r.DocumentNo)
                     .Select(r => r.DocumentNo)
@@ -1543,6 +1873,36 @@ namespace QSC.Api.Controllers
                 }
                 var documentNo = $"{docPrefix}{nextSeq:D4}";
 
+                // Delete matching Draft(s) narrowly & check if submitted from reopened draft
+                var draftsToDelete = new List<AuditDraft>();
+
+                if (dto.DraftId.HasValue && dto.DraftId.Value > 0)
+                {
+                    var targetDraft = await _context.AuditDrafts.FindAsync(dto.DraftId.Value);
+                    if (targetDraft != null) draftsToDelete.Add(targetDraft);
+                }
+
+                if (validScheduleId.HasValue)
+                {
+                    var schedDrafts = await _context.AuditDrafts
+                        .Where(d => d.AuditScheduleId == validScheduleId.Value)
+                        .ToListAsync();
+                    draftsToDelete.AddRange(schedDrafts);
+                }
+                else
+                {
+                    var relatedDrafts = await _context.AuditDrafts
+                        .Where(d => d.AuditScheduleId == null &&
+                                    d.LocationId == dto.LocationId &&
+                                    d.SurveyFormId == dto.SurveyFormId &&
+                                    (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
+                        .ToListAsync();
+                    draftsToDelete.AddRange(relatedDrafts);
+                }
+
+                var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
+                int? reopenedFromRecordId = dto.ReopenedFromRecordId ?? uniqueDrafts.FirstOrDefault(d => d.ReopenedFromRecordId.HasValue)?.ReopenedFromRecordId;
+
                 // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ (UTC)
                 // Create AuditRecord
                 var record = new AuditRecord
@@ -1554,6 +1914,7 @@ namespace QSC.Api.Controllers
                     AuditeeUserId = validAuditeeUserId,
                     AuditeeNameText = dto.AuditeeNameText,
                     AuditScheduleId = validScheduleId,
+                    ReopenedFromRecordId = reopenedFromRecordId,
                     AuditDate = startedAtUtc,
                     TotalScore = totalScore,
                     MaxScore = maxScore,
@@ -1618,17 +1979,67 @@ namespace QSC.Api.Controllers
                     }
 
                     record.Responses.Add(response);
+                }
 
-                    // Auto-create CAP task if question failed (and not N/A)
-                    if (!computedResp.IsNa && !computedResp.IsPassed)
+                // 🌟 CAP Migration & Cancellation for Reopened Audit
+                var migratedCapItemIds = new HashSet<int>();
+                if (reopenedFromRecordId.HasValue)
+                {
+                    var oldCaps = await _context.CapTasks
+                        .Include(c => c.Comments)
+                        .Include(c => c.Images)
+                        .Include(c => c.AuditResponse)
+                        .Where(c => c.AuditRecordId == reopenedFromRecordId.Value && c.Status != "CLOSED" && c.Status != "CANCELLED")
+                        .ToListAsync();
+
+                    foreach (var oldCap in oldCaps)
                     {
+                        int? itemId = oldCap.AuditResponse?.SurveyItemId;
+                        if (!itemId.HasValue) continue;
+
+                        var matchingNewResp = processedResponses.FirstOrDefault(r => r.SurveyItemId == itemId.Value);
+                        if (matchingNewResp != null && matchingNewResp.IsPassed)
+                        {
+                            // ข้อที่ผ่านแล้ว → ยกเลิก (ลบถ้าไม่มีแชทและรูป)
+                            bool hasChatOrImages = (oldCap.Comments != null && oldCap.Comments.Any()) || (oldCap.Images != null && oldCap.Images.Any());
+                            if (hasChatOrImages)
+                            {
+                                oldCap.Status = "CANCELLED";
+                                oldCap.NextAuditNote = "ข้อนี้ผ่านเกณฑ์แล้วในการตรวจรอบใหม่";
+                            }
+                            else
+                            {
+                                _context.CapTasks.Remove(oldCap);
+                            }
+                        }
+                        else if (matchingNewResp != null && !matchingNewResp.IsPassed && !matchingNewResp.IsNa)
+                        {
+                            // ข้อที่ยังไม่ผ่านและมี CAP เปิดอยู่ → ย้ายไปผูกผลใหม่
+                            var newRecordResp = record.Responses.FirstOrDefault(r => r.SurveyItemId == itemId.Value);
+                            oldCap.AuditRecord = record;
+                            oldCap.AuditResponse = newRecordResp;
+                            migratedCapItemIds.Add(itemId.Value);
+                        }
+                    }
+                }
+
+                // Auto-create CAP task if question failed (and not N/A), unless already migrated from old record
+                foreach (var computedResp in processedResponses)
+                {
+                    if (!computedResp.IsNa && !computedResp.IsPassed && !migratedCapItemIds.Contains(computedResp.SurveyItemId))
+                    {
+                        allItems.TryGetValue(computedResp.SurveyItemId, out var item);
+                        var catName = item?.CategoryName ?? item?.SurveySection?.Title ?? "ทั่วไป";
+                        if (catName.Length > 100) catName = catName.Substring(0, 100);
+
+                        var resp = record.Responses.FirstOrDefault(r => r.SurveyItemId == computedResp.SurveyItemId);
                         var issueItem = item?.QuestionText ?? "ข้อบกพร่องมาตรฐาน";
                         var desc = !string.IsNullOrWhiteSpace(computedResp.Notes) ? computedResp.Notes : $"ไม่ผ่านเกณฑ์การประเมิน: {issueItem}";
 
                         capTasksToCreate.Add(new CapTask
                         {
                             AuditRecord = record,
-                            AuditResponse = response,
+                            AuditResponse = resp,
                             LocationId = dto.LocationId,
                             CategoryName = catName,
                             IssueItem = issueItem.Length > 250 ? issueItem.Substring(0, 250) : issueItem,
@@ -1658,38 +2069,12 @@ namespace QSC.Api.Controllers
                     }
                 }
 
-                // Delete matching Draft(s) narrowly
-                var draftsToDelete = new List<AuditDraft>();
-
-                if (dto.DraftId.HasValue && dto.DraftId.Value > 0)
-                {
-                    var targetDraft = await _context.AuditDrafts.FindAsync(dto.DraftId.Value);
-                    if (targetDraft != null) draftsToDelete.Add(targetDraft);
-                }
-
-                if (validScheduleId.HasValue)
-                {
-                    var schedDrafts = await _context.AuditDrafts
-                        .Where(d => d.AuditScheduleId == validScheduleId.Value)
-                        .ToListAsync();
-                    draftsToDelete.AddRange(schedDrafts);
-                }
-                else
-                {
-                    var relatedDrafts = await _context.AuditDrafts
-                        .Where(d => d.AuditScheduleId == null &&
-                                    d.LocationId == dto.LocationId &&
-                                    d.SurveyFormId == dto.SurveyFormId &&
-                                    (d.AuditorId == primaryAuditorId || d.AuditorId == currentUserId))
-                        .ToListAsync();
-                    draftsToDelete.AddRange(relatedDrafts);
-                }
-
-                var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
                 if (uniqueDrafts.Any())
                 {
                     _context.AuditDrafts.RemoveRange(uniqueDrafts);
                 }
+
+                _activityLogger.Add(primaryAuditorId, "AUDIT_SUBMIT", "AuditRecord", record.Id, record.LocationId);
 
                 await _context.SaveChangesAsync();
                 await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, dto.LocationId);
@@ -2028,6 +2413,7 @@ namespace QSC.Api.Controllers
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var record = await _context.AuditRecords
+                .IgnoreQueryFilters()
                 .AsNoTracking()
                 .AsSplitQuery()
                 .Include(r => r.Location)
@@ -2061,10 +2447,28 @@ namespace QSC.Api.Controllers
             var r = record;
             var infoSectionIds = r.SurveyForm != null ? AuditScoring.BuildInfoSectionIds(r.SurveyForm) : new HashSet<int>();
 
+            var replacementRecord = await _context.AuditRecords.IgnoreQueryFilters().AsNoTracking()
+                .Where(ar => ar.ReopenedFromRecordId == r.Id)
+                .Select(ar => new { ar.Id, ar.DocumentNo, ar.Status })
+                .FirstOrDefaultAsync();
+
+            var activeReopenedDraft = await _context.AuditDrafts.AsNoTracking()
+                .Where(d => d.ReopenedFromRecordId == r.Id)
+                .Select(d => new { d.Id, d.DocumentNo })
+                .FirstOrDefaultAsync();
+
             var result = new
             {
                 id = r.Id,
                 documentNo = r.DocumentNo,
+                status = r.Status,
+                reopenReason = r.ReopenReason,
+                reopenedFromRecordId = r.ReopenedFromRecordId,
+                replacementRecordId = replacementRecord?.Id,
+                replacementDocumentNo = replacementRecord?.DocumentNo,
+                replacementRecordStatus = replacementRecord?.Status,
+                reopenedDraftId = activeReopenedDraft?.Id,
+                reopenedDraftDocumentNo = activeReopenedDraft?.DocumentNo,
                 locationId = r.LocationId,
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,
@@ -2212,6 +2616,7 @@ namespace QSC.Api.Controllers
             }
 
             var record = await _context.AuditRecords
+                .IgnoreQueryFilters()
                 .AsSplitQuery()
                 .Include(r => r.Location)
                     .ThenInclude(l => l!.LocationBrands)
@@ -2223,6 +2628,11 @@ namespace QSC.Api.Controllers
                 .FirstOrDefaultAsync(r => r.Id == id);
 
             if (record == null) return NotFound();
+
+            if (record.Status == "REOPENED")
+            {
+                return Conflict(new { message = "ไม่สามารถแก้ไขผลการตรวจที่ถูกย้อนสถานะได้" });
+            }
 
             // Concurrency check
             if (string.IsNullOrWhiteSpace(dto.Version))
@@ -2821,6 +3231,8 @@ namespace QSC.Api.Controllers
                     })
                 });
 
+                _activityLogger.Add(currentUserId, "AUDIT_EDIT", "AuditRecord", record.Id, record.LocationId);
+
                 await _context.SaveChangesAsync();
                 await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, record.LocationId);
                 await _context.SaveChangesAsync();
@@ -2860,40 +3272,72 @@ namespace QSC.Api.Controllers
         [HttpGet("{id:int}/edit-logs")]
         public async Task<IActionResult> GetAuditEditLogs(int id)
         {
-            var (_, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
-
-            var record = await _context.AuditRecords
-                .AsNoTracking()
-                .Include(r => r.Location)
-                    .ThenInclude(l => l!.LocationBrands)
-                .FirstOrDefaultAsync(r => r.Id == id);
-
-            if (record == null) return NotFound();
-
-            if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId)) return Forbid();
-            if (allowedBrandIds != null &&
-                (record.Location == null || !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
+            try
             {
-                return Forbid();
-            }
+                var (_, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+                var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var logs = await _context.AuditRecordEditLogs
-                .AsNoTracking()
-                .Include(l => l.EditedByUser)
-                .Where(l => l.AuditRecordId == id)
-                .OrderByDescending(l => l.EditedAt)
-                .Select(l => new
+                var record = await _context.AuditRecords
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Include(r => r.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                    .FirstOrDefaultAsync(r => r.Id == id);
+
+                if (record == null) return NotFound(new { message = "ไม่พบผลการตรวจที่ระบุ" });
+
+                if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId)) return Forbid();
+                if (allowedBrandIds != null &&
+                    (record.Location == null || !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
                 {
-                    l.Id,
-                    l.EditedAt,
-                    l.Reason,
-                    editedByName = l.EditedByUser != null ? l.EditedByUser.FullName : "ผู้ใช้งาน",
-                    l.ChangesSummaryJson
-                })
-                .ToListAsync();
+                    return Forbid();
+                }
 
-            return Ok(logs);
+                var dbLogs = await _context.AuditRecordEditLogs
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Include(l => l.EditedByUser)
+                    .Where(l => l.AuditRecordId == id)
+                    .OrderByDescending(l => l.EditedAt)
+                    .Select(l => new
+                    {
+                        l.Id,
+                        l.EditedAt,
+                        l.Reason,
+                        editedByName = l.EditedByUser != null ? l.EditedByUser.FullName : "ผู้ใช้งาน",
+                        l.ChangesSummaryJson
+                    })
+                    .ToListAsync();
+
+                var resultLogs = new List<object>(dbLogs);
+
+                // หากรอบตรวจนี้มีเหตุผลในการย้อนสถานะ แต่ยังไม่มี log บันทึกไว้ ให้เพิ่มข้อมูลการย้อนสถานะแสดงในประวัติด้วย
+                if (!string.IsNullOrWhiteSpace(record.ReopenReason) &&
+                    !dbLogs.Any(l => l.Reason != null && l.Reason.Contains("[ย้อนสถานะผลตรวจ]")))
+                {
+                    resultLogs.Insert(0, new
+                    {
+                        Id = -1,
+                        EditedAt = record.AuditDate,
+                        Reason = $"[ย้อนสถานะผลตรวจ] {record.ReopenReason}",
+                        editedByName = "ผู้ดูแลระบบ",
+                        ChangesSummaryJson = JsonSerializer.Serialize(new
+                        {
+                            action = "REOPEN",
+                            reason = record.ReopenReason,
+                            statusBefore = "SUBMITTED",
+                            statusAfter = "REOPENED"
+                        })
+                    });
+                }
+
+                return Ok(resultLogs);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching audit edit logs for id {Id}", id);
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการโหลดประวัติการแก้ไข กรุณาลองใหม่อีกครั้ง" });
+            }
         }
 
         // ==========================================
@@ -2914,12 +3358,19 @@ namespace QSC.Api.Controllers
             if (!hasDeletePermission) return Forbid();
 
             var record = await _context.AuditRecords
+                .IgnoreQueryFilters()
                 .AsSplitQuery()
                 .Include(r => r.Location).ThenInclude(l => l!.LocationBrands)
                 .Include(r => r.Responses).ThenInclude(res => res.Images)
                 .FirstOrDefaultAsync(r => r.Id == id);
 
             if (record == null) return NotFound();
+
+            if (record.Status == "REOPENED")
+            {
+                return Conflict(new { message = "ไม่สามารถลบผลการตรวจที่ถูกย้อนสถานะได้" });
+            }
+
             if (allowedLocationIds != null && !allowedLocationIds.Contains(record.LocationId)) return Forbid();
             if (allowedBrandIds != null && (record.Location == null || !record.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)))) return Forbid();
 
@@ -2949,6 +3400,8 @@ namespace QSC.Api.Controllers
                         sched.Status = "pending";
                     }
                 }
+
+                _activityLogger.Add(currentUserId, "AUDIT_DELETE", "AuditRecord", record.Id, record.LocationId);
 
                 _context.AuditRecords.Remove(record);
                 await _context.SaveChangesAsync();

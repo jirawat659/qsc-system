@@ -23,6 +23,16 @@ export default function Header({
   titleRef.current = title;
   const hasBack = Boolean(onBack);
 
+  const listenersRef = React.useRef(new Set());
+  const subscribeAction = React.useCallback((fn) => {
+    listenersRef.current.add(fn);
+    return () => listenersRef.current.delete(fn);
+  }, []);
+
+  React.useEffect(() => {
+    listenersRef.current.forEach(fn => fn());
+  }, [action]);
+
   // 1. Sync with mobile TopBarContext without triggering infinite re-render loops
   React.useEffect(() => {
     if (!title || !setSubHeader) return;
@@ -44,7 +54,7 @@ export default function Header({
       return {
         title,
         subtitle,
-        action: <ActionRenderer actionRef={actionRef} />,
+        action: <ActionRenderer actionRef={actionRef} subscribe={subscribeAction} />,
         isAudit,
         hasBack,
         leftActionType,
@@ -57,7 +67,7 @@ export default function Header({
         } : null
       };
     });
-  }, [title, subtitle, hasBack, isAudit, leftActionType, sectionBadgeNumber, onMenuClick, setSubHeader]);
+  }, [title, subtitle, hasBack, isAudit, leftActionType, sectionBadgeNumber, onMenuClick, setSubHeader, subscribeAction]);
 
   // 2. Clear subHeader ONLY when this Header component actually unmounts
   React.useEffect(() => {
@@ -115,6 +125,11 @@ export default function Header({
   );
 }
 
-function ActionRenderer({ actionRef }) {
+function ActionRenderer({ actionRef, subscribe }) {
+  const [, setTick] = React.useState(0);
+  React.useEffect(() => {
+    if (!subscribe) return;
+    return subscribe(() => setTick(t => t + 1));
+  }, [subscribe]);
   return actionRef.current || null;
 }

@@ -326,16 +326,8 @@ export default function FormEditorScreen({ form, onBack, onSave, readOnly = fals
         });
     }
 
-    const handleClickOutside = (e) => {
-      if (brandDropdownRef.current && !brandDropdownRef.current.contains(e.target)) {
-        setIsBrandDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-
     return () => {
       isMounted = false;
-      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [form?.id]);
 

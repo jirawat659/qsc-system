@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, Clock, User, FileSpreadsheet, Sparkles, Table, Save, RotateCcw, Trash2, Plus, Navigation, Loader2, AlertCircle } from "lucide-react";
+import { List, ClipboardCheck, Store, MapPin, Camera, CheckCircle2, XCircle, PenTool, Check, MessageSquare, Edit3, Megaphone, X, Maximize2, CheckCheck, ExternalLink, AlertTriangle, SlidersHorizontal, BarChart3, Wrench, Minus, History, ChevronRight, ChevronDown, ChevronUp, FileText, Calendar, Clock, User, FileSpreadsheet, Sparkles, Table, Save, RotateCcw, Trash2, Plus, Navigation, Loader2, AlertCircle, MoreVertical } from "lucide-react";
 
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
@@ -70,10 +70,24 @@ const isRealCommentText = (text, answerVal) => {
 };
 
 // 🌟 ตารางข้อมูลแบบซ่อน/เปิดได้ (Collapsible Grid Table)
-// แสดงผลเป็นตารางเต็มรูปแบบเหมือนตอนตรวจ (DynamicFieldRenderer type="grid" readOnly)
-// โดยตั้งค่าเริ่มต้นให้ซ่อนไว้ เพื่อให้ผู้ใช้กดเปิดดูเองตามต้องการ
-function CollapsibleGridTable({ label, fieldConfig, value, defaultOpen = false, className = "" }) {
+// แสดงผลเป็นตารางเต็มรูปแบบเหมือนตอนตรวจ (DynamicFieldRenderer type="grid")
+// รองรับทั้งโหมดอ่านอย่างเดียว (readOnly=true) และโหมดแก้ไข (readOnly=false, มี onChange)
+function CollapsibleGridTable({
+  label,
+  fieldConfig,
+  value,
+  onChange,
+  readOnly = true,
+  defaultOpen = false,
+  className = ""
+}) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (!readOnly && defaultOpen) {
+      setIsOpen(true);
+    }
+  }, [readOnly, defaultOpen]);
 
   const cellData = useMemo(() => {
     if (!value) return {};
@@ -92,7 +106,9 @@ function CollapsibleGridTable({ label, fieldConfig, value, defaultOpen = false, 
 
   return (
     <div className={`rounded-2xl border transition-all overflow-hidden ${
-      isOpen ? "bg-white border-[#0F6659]/40 shadow-sm" : "bg-slate-50/90 border-slate-200 hover:border-[#0F6659]/40 hover:bg-slate-50"
+      !readOnly
+        ? (isOpen ? "bg-white border-emerald-400 shadow-sm ring-1 ring-emerald-400/20" : "bg-slate-50 border-emerald-300 shadow-2xs hover:border-emerald-400")
+        : (isOpen ? "bg-white border-[#0F6659]/40 shadow-sm" : "bg-slate-50/90 border-slate-200 hover:border-[#0F6659]/40 hover:bg-slate-50")
     } ${className}`}>
       <button
         type="button"
@@ -101,13 +117,15 @@ function CollapsibleGridTable({ label, fieldConfig, value, defaultOpen = false, 
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-all ${
-            isOpen ? "bg-[#0F6659] text-white shadow-2xs" : "bg-white text-[#0F6659] border border-slate-200/90 shadow-2xs group-hover:border-[#0F6659]/50"
+            !readOnly
+              ? "bg-[#0F6659] text-white shadow-2xs"
+              : (isOpen ? "bg-[#0F6659] text-white shadow-2xs" : "bg-white text-[#0F6659] border border-slate-200/90 shadow-2xs group-hover:border-[#0F6659]/50")
           }`}>
             <Table size={15} />
           </div>
           <div className="min-w-0">
-            <div className="text-xs sm:text-sm font-extrabold text-slate-800 truncate">
-              {label || "ตารางข้อมูล"}
+            <div className="text-xs sm:text-sm font-extrabold text-slate-800 truncate flex items-center gap-2">
+              <span>{label || "ตารางข้อมูล"}</span>
             </div>
             <div className="text-[10.5px] text-slate-500 font-medium flex items-center gap-1.5 mt-0.5">
               <span>{rowCount > 0 ? `${rowCount} แถว × ${colCount} คอลัมน์` : "ตารางข้อมูล"}</span>
@@ -126,7 +144,7 @@ function CollapsibleGridTable({ label, fieldConfig, value, defaultOpen = false, 
 
         <div className="flex items-center gap-2 shrink-0 ml-2">
           <span className="text-[11px] font-bold text-[#0F6659] hidden sm:inline">
-            {isOpen ? "ซ่อนตาราง" : "เปิดดูตาราง"}
+            {isOpen ? "ซ่อนตาราง" : (!readOnly ? "เปิดแก้ไขตาราง" : "เปิดดูตาราง")}
           </span>
           <div className={`w-7 h-7 rounded-lg flex items-center justify-center transition-transform duration-200 ${
             isOpen ? "rotate-180 bg-emerald-50 text-[#0F6659]" : "text-slate-400 bg-white border border-slate-200 shadow-2xs group-hover:text-slate-600"
@@ -142,7 +160,8 @@ function CollapsibleGridTable({ label, fieldConfig, value, defaultOpen = false, 
             type="grid"
             fieldConfig={fieldConfig}
             value={value}
-            readOnly={true}
+            onChange={onChange}
+            readOnly={readOnly}
           />
         </div>
       )}
@@ -435,7 +454,141 @@ function HistoryCategoryNavigationDrawer({ onClose, categoryItems, activeSection
   );
 }
 
-export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
+// 🌟 Action Buttons Component for Header (Desktop: Full Pills, Mobile: Dropdown Menu to prevent overflow)
+function AuditHeaderActionMenu({
+  canEditAudit,
+  canReopenAudit,
+  isEditing,
+  isSaving,
+  onEnterEditMode,
+  onCancelEditMode,
+  onTriggerSave,
+  onReopen
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("touchstart", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("touchstart", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  // เมื่ออยู่ในโหมดแก้ไข (isEditing) ไม่ต้องแสดงปุ่มบน Header เพื่อไม่ให้ซ้ำกับแถบด้านล่าง (Bottom Bar)
+  if (isEditing) {
+    return null;
+  }
+
+  if (!canEditAudit && !canReopenAudit) {
+    return null;
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Desktop view (หน้าจอคอมพิวเตอร์ / แท็บเล็ต): แสดงปุ่มเต็มตามเดิม */}
+      <div className="hidden sm:flex items-center gap-2">
+        {canReopenAudit && (
+          <button
+            type="button"
+            onClick={onReopen}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer group"
+            title="ย้อนสถานะผลการตรวจเป็นแบบร่าง"
+          >
+            <RotateCcw size={13} className="text-amber-600 group-hover:-rotate-45 transition-transform" />
+            <span>ย้อนเป็นแบบร่าง</span>
+          </button>
+        )}
+        {canEditAudit && (
+          <button
+            type="button"
+            onClick={onEnterEditMode}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-emerald-50 text-slate-700 hover:text-[#0F6659] border border-slate-200 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer group"
+            title="แก้ไขผลการตรวจ (เข้าสู่โหมดแก้ไขข้อมูลบนหน้า)"
+          >
+            <Edit3 size={13} className="text-[#0F6659] group-hover:scale-110 transition-transform" />
+            <span>แก้ไขผลตรวจ</span>
+          </button>
+        )}
+      </div>
+
+      {/* Mobile view (หน้าจอมือถือ): แสดงเป็นปุ่มไอคอนเดียว กดแล้วเด้ง Dropdown เมนูลงมาเพื่อไม่ให้ล้นหน้าจอ */}
+      <div className="relative sm:hidden" ref={menuRef}>
+        <button
+          type="button"
+          onClick={() => setIsOpen(prev => !prev)}
+          className={`w-9 h-9 rounded-full flex items-center justify-center border shadow-2xs transition-all active:scale-90 cursor-pointer ${
+            isOpen
+              ? "bg-emerald-50 text-[#0F6659] border-emerald-300 ring-2 ring-emerald-400/20"
+              : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
+          }`}
+          title="เครื่องมือจัดการผลตรวจ"
+          aria-label="เครื่องมือจัดการผลตรวจ"
+        >
+          <MoreVertical size={18} className={isOpen ? "text-[#0F6659]" : "text-slate-700"} />
+        </button>
+
+        {isOpen && (
+          <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl bg-white backdrop-blur-md border border-slate-200/90 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150 origin-top-right">
+            <div className="px-3.5 py-1.5 text-[11px] font-bold text-slate-400 border-b border-slate-100 flex items-center justify-between">
+              <span>เครื่องมือการแก้ไข</span>
+            </div>
+
+            <div className="p-1 space-y-0.5">
+              {canEditAudit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onEnterEditMode();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-700 hover:text-[#0F6659] hover:bg-emerald-50/70 transition-colors cursor-pointer group"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100/60 text-[#0F6659] flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                    <Edit3 size={14} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-slate-800 group-hover:text-[#0F6659]">แก้ไขผลตรวจ</div>
+                    <div className="text-[10px] font-normal text-slate-400">เข้าสู่โหมดแก้ไขข้อมูลบนหน้า</div>
+                  </div>
+                </button>
+              )}
+
+              {canReopenAudit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    onReopen();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-xs font-bold text-slate-700 hover:text-amber-800 hover:bg-amber-50/70 transition-colors cursor-pointer group"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-amber-100/70 text-amber-700 flex items-center justify-center shrink-0 group-hover:-rotate-45 transition-transform">
+                    <RotateCcw size={14} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-bold text-slate-800 group-hover:text-amber-900">ย้อนเป็นแบบร่าง</div>
+                    <div className="text-[10px] font-normal text-slate-400">คัดลอกไปเป็นแบบร่างใหม่</div>
+                  </div>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function AuditHistoryDetail({ unitName, record = {}, onBack, onResumeDraft }) {
   const { locations: allLocations, forms = [], getFormDetail, currentUser, refreshData } = React.useContext(DataContext);
   const [activeTab, setActiveTab] = useState("overview"); // 'responses' | 'overview' | 'photos' | 'sign'
   const [disputeSubmitted, setDisputeSubmitted] = useState(record.status === "Disputed");
@@ -578,7 +731,13 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   }, [record]);
 
   // 🛡️ Permissions & Edit Logs State
-  const canEditAudit = currentUser?.role === "ADMIN" || currentUser?.roleCode === "ADMIN" || (currentUser?.permissions || []).includes("audit.edit");
+  const isReopened = String(currentRecord?.status || "").toUpperCase() === "REOPENED";
+  const canEditAudit = !isReopened && (currentUser?.role === "ADMIN" || currentUser?.roleCode === "ADMIN" || (currentUser?.permissions || []).includes("audit.edit"));
+  const canReopenAudit = !isReopened && (currentUser?.role === "ADMIN" || currentUser?.roleCode === "ADMIN" || (currentUser?.permissions || []).includes("audit.reopen"));
+  const [showReopenModal, setShowReopenModal] = useState(false);
+  const [reopenReason, setReopenReason] = useState("");
+  const [isReopening, setIsReopening] = useState(false);
+  const [reopenError, setReopenError] = useState("");
   const [editLogsCount, setEditLogsCount] = useState(0);
   const [showEditLogsModal, setShowEditLogsModal] = useState(false);
   const [showAiDefectModal, setShowAiDefectModal] = useState(false);
@@ -638,6 +797,33 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           setCurrentRecord(res.data);
         }
       } catch (err) {}
+    }
+  };
+
+  const handleConfirmReopen = async () => {
+    const trimmed = (reopenReason || "").trim();
+    if (!trimmed) {
+      setReopenError("กรุณาระบุเหตุผลในการย้อนสถานะ");
+      return;
+    }
+    setIsReopening(true);
+    setReopenError("");
+    try {
+      await api.post(`/audit/${currentRecord.id}/reopen`, {
+        reason: trimmed
+      });
+      setShowReopenModal(false);
+      setReopenReason("");
+      if (refreshData) refreshData();
+      const res = await api.get(`/audit/${currentRecord.id}`);
+      if (res.data) {
+        setCurrentRecord(res.data);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.message || "เกิดข้อผิดพลาดในการย้อนสถานะผลตรวจ กรุณาลองใหม่อีกครั้ง";
+      setReopenError(msg);
+    } finally {
+      setIsReopening(false);
     }
   };
 
@@ -743,6 +929,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           displayVal = sc !== undefined && sc !== null && sc !== "" ? String(sc) : "-";
         } else if (f.id === "auditor" || f.type === "auditor") {
           displayVal = f.value || "-";
+        } else if (Array.isArray(displayVal)) {
+          displayVal = displayVal.length > 0 ? displayVal.join(", ") : "-";
         } else if (typeof displayVal === "boolean") {
           displayVal = displayVal ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)";
         } else if (displayVal === undefined || displayVal === null || displayVal === "") {
@@ -755,8 +943,17 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           ? formConfig.find(m => m.id === f.id || m.id?.replace(/^meta_/, '') === f.id?.replace(/^meta_/, ''))
           : null;
 
-        const resolvedType = f.type || matchedMeta?.type || (matchedMeta?.fieldConfig?.columns ? "grid" : "text");
+        const resolvedType = matchedMeta?.type || f.type || (matchedMeta?.fieldConfig?.columns ? "grid" : "text");
         const resolvedFieldConfig = f.fieldConfig || matchedMeta?.fieldConfig || (matchedMeta ? { options: matchedMeta.options, columns: matchedMeta.columns, rows: matchedMeta.rows } : null);
+        const resolvedOptions = (f.options && Array.isArray(f.options) && f.options.length > 0)
+          ? f.options
+          : (f.fieldConfig?.options && Array.isArray(f.fieldConfig.options) && f.fieldConfig.options.length > 0)
+          ? f.fieldConfig.options
+          : (matchedMeta?.options && Array.isArray(matchedMeta.options) && matchedMeta.options.length > 0)
+          ? matchedMeta.options
+          : (matchedMeta?.fieldConfig?.options && Array.isArray(matchedMeta.fieldConfig.options) && matchedMeta.fieldConfig.options.length > 0)
+          ? matchedMeta.fieldConfig.options
+          : null;
 
         return {
           id: f.id || `field_${idx}`,
@@ -765,7 +962,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           rawValue: f.value,
           type: resolvedType,
           fieldConfig: resolvedFieldConfig,
-          options: resolvedFieldConfig?.options || matchedMeta?.options || f.options,
+          options: resolvedOptions,
           unit: f.unit ? (f.unit.startsWith(" ") ? f.unit : ` ${f.unit}`) : ""
         };
       });
@@ -824,9 +1021,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
       } else {
         const val = parsedMetadataValues[field.id];
         if (val !== undefined && val !== null && val !== "") {
-          const displayVal = typeof val === "boolean" 
-            ? (val ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)")
-            : String(val);
+          const displayVal = Array.isArray(val)
+            ? (val.length > 0 ? val.join(", ") : "-")
+            : typeof val === "boolean" 
+              ? (val ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)")
+              : String(val);
           list.push({
             id: field.id,
             label: field.label || field.placeholder || field.id.replace(/^meta_/, '').replace(/_/g, ' '),
@@ -834,6 +1033,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             rawValue: val,
             type: field.type || (field.fieldConfig?.columns ? "grid" : "text"),
             fieldConfig: field.fieldConfig || { options: field.options, columns: field.columns, rows: field.rows },
+            options: field.options || field.fieldConfig?.options || [],
             unit: field.unit ? (field.unit.startsWith(" ") ? field.unit : ` ${field.unit}`) : ""
           });
         }
@@ -849,13 +1049,17 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         const finalLabel = matchedField?.label || matchedField?.placeholder || k.replace(/^meta_/, '').replace(/_/g, ' ');
         const finalType = matchedField?.type || (matchedField?.fieldConfig?.columns ? "grid" : (typeof v === "object" ? "grid" : "text"));
         const finalConfig = matchedField?.fieldConfig || (matchedField ? { options: matchedField.options, columns: matchedField.columns, rows: matchedField.rows } : null);
+        const displayVal = Array.isArray(v)
+          ? (v.length > 0 ? v.join(", ") : "-")
+          : typeof v === "boolean" ? (v ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)") : String(v);
         list.push({
           id: k,
           label: finalLabel,
-          value: typeof v === "boolean" ? (v ? "✓ ใช่ (Yes)" : "ไม่ใช่ (No)") : String(v),
+          value: displayVal,
           rawValue: v,
           type: finalType,
           fieldConfig: finalConfig,
+          options: matchedField?.options || finalConfig?.options || [],
           unit: matchedField?.unit ? (matchedField.unit.startsWith(" ") ? matchedField.unit : ` ${matchedField.unit}`) : ""
         });
       }
@@ -1579,6 +1783,22 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         finalMetadata.audit_type = finalAuditType === "spot" ? "นอกกำหนดการ" : finalAuditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ";
       }
 
+      if (Array.isArray(finalMetadata._fields)) {
+        finalMetadata._fields = finalMetadata._fields.map(f => {
+          let updatedVal = f.value;
+          if (editMetadataValues[f.id] !== undefined) {
+            updatedVal = editMetadataValues[f.id];
+          } else if (f.id === "staff_count") {
+            updatedVal = finalStaffCount;
+          } else if (f.id === "audit_type") {
+            updatedVal = finalMetadata.audit_type;
+          } else if (f.id === "auditor" || f.type === "auditor") {
+            updatedVal = editMetadataValues[f.id] || editMetadataValues.auditor || f.value;
+          }
+          return { ...f, value: updatedVal };
+        });
+      }
+
       if (editStartedAt && editSubmittedAt && new Date(editSubmittedAt) < new Date(editStartedAt)) {
         alert("เวลาสิ้นสุดการตรวจต้องไม่ก่อนเวลาเริ่มตรวจ");
         setIsSaving(false);
@@ -1748,6 +1968,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
   const handleExportReport = async () => {
     if (isExportingReport) return;
     setIsExportingReport(true);
+    api.post('/activity/export', { action: 'EXPORT_AUDIT_EXCEL' }).catch(() => {});
     try {
       const recId = currentRecord?.id || record?.id;
       const typeName = matchedLocation?.locationType?.name || currentRecord.location?.locationType?.name || "-";
@@ -1891,45 +2112,23 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     return list;
   }, [recordCaps, capSubmissions]);
 
-  // Header action buttons (แสดงปุ่มแก้ไขผลตรวจเมื่อมีสิทธิ์)
+  // Header action buttons (แสดงปุ่มแก้ไขผลตรวจและย้อนสถานะเมื่อมีสิทธิ์ - Desktop: Pills, Mobile: Dropdown Menu)
   const headerAction = useMemo(() => (
-    <div className="flex items-center gap-2">
-      {canEditAudit && (
-        !isEditing ? (
-          <button
-            type="button"
-            onClick={handleEnterEditMode}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white hover:bg-emerald-50 text-slate-700 hover:text-[#0F6659] border border-slate-200 text-xs font-bold shadow-2xs transition-all active:scale-95 cursor-pointer group"
-            title="แก้ไขผลการตรวจ (เข้าสู่โหมดแก้ไขข้อมูลบนหน้า)"
-          >
-            <Edit3 size={13} className="text-[#0F6659] group-hover:scale-110 transition-transform" />
-            <span>แก้ไขผลตรวจ</span>
-          </button>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={handleCancelEditMode}
-              disabled={isSaving}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              <X size={13} />
-              <span>ยกเลิก</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleTriggerSave}
-              disabled={isSaving}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-              <span>บันทึกการแก้ไข</span>
-            </button>
-          </div>
-        )
-      )}
-    </div>
-  ), [canEditAudit, isEditing, isSaving, handleEnterEditMode, handleCancelEditMode, handleTriggerSave]);
+    <AuditHeaderActionMenu
+      canEditAudit={canEditAudit}
+      canReopenAudit={canReopenAudit}
+      isEditing={isEditing}
+      isSaving={isSaving}
+      onEnterEditMode={handleEnterEditMode}
+      onCancelEditMode={handleCancelEditMode}
+      onTriggerSave={handleTriggerSave}
+      onReopen={() => {
+        setReopenReason("");
+        setReopenError("");
+        setShowReopenModal(true);
+      }}
+    />
+  ), [canEditAudit, canReopenAudit, isEditing, isSaving, handleEnterEditMode, handleCancelEditMode, handleTriggerSave]);
 
   // 🌟 ติดตามการ Scroll เพื่อแสดงปุ่มเลื่อนขึ้นบนสุด และติดตามหมวดหมู่คำถาม (เฉพาะแท็บผลตรวจ)
   useEffect(() => {
@@ -2074,21 +2273,84 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
         action={headerAction}
       />
       
+      {/* 🌟 REOPENED / CANCELLED NOTICE BANNER */}
+      {isReopened && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-amber-50/90 border border-amber-300 text-amber-950 shadow-xs space-y-2.5">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-2xl bg-amber-200/80 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+              <AlertTriangle size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-black text-sm sm:text-base text-amber-950">รอบตรวจนี้ถูกย้อนสถานะเป็นแบบร่าง</span>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-200 text-amber-900 text-xs font-bold border border-amber-300">
+                  ยกเลิกผลการตรวจ
+                </span>
+              </div>
+              {currentRecord?.reopenReason && (
+                <p className="text-xs sm:text-sm text-amber-900 mt-1.5 bg-white/70 p-2.5 rounded-xl border border-amber-200/70">
+                  <span className="font-bold text-amber-950">เหตุผลในการย้อนสถานะ:</span> {currentRecord.reopenReason}
+                </p>
+              )}
+              <div className="mt-2 text-xs text-amber-800 space-y-1">
+                <p className="text-[11px] text-amber-700 font-medium">
+                  * ผลตรวจนี้ไม่ถูกนำไปคำนวณคะแนนหรือแสดงในรายงานสถิติของระบบ และไม่สามารถแก้ไขหรือลบได้
+                </p>
+              </div>
+              {(currentRecord?.reopenedDraftId || record?.reopenedDraftId) && onResumeDraft && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onResumeDraft({
+                        id: currentRecord?.reopenedDraftId || record?.reopenedDraftId,
+                        documentNo: currentRecord?.reopenedDraftDocumentNo || record?.reopenedDraftDocumentNo,
+                        isResume: true
+                      });
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold shadow-xs cursor-pointer transition-all active:scale-95"
+                  >
+                    <span>ไปที่หน้าตรวจเพื่อแก้ไขต่อ</span>
+                    {(currentRecord?.reopenedDraftDocumentNo || record?.reopenedDraftDocumentNo) && (
+                      <span className="font-mono text-[11px] opacity-90">({currentRecord?.reopenedDraftDocumentNo || record?.reopenedDraftDocumentNo})</span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {currentRecord?.reopenedFromRecordId && (
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 shadow-2xs flex items-center gap-2.5">
+          <RotateCcw className="w-4 h-4 text-[#0F6659] shrink-0" />
+          <p className="text-xs sm:text-sm text-emerald-900 font-medium">
+            ผลการตรวจนี้ส่งจากการย้อนสถานะแบบร่าง (รหัสรอบตรวจเดิม <span className="font-bold font-mono">#{currentRecord.reopenedFromRecordId}</span>)
+          </p>
+        </div>
+      )}
+
       {/* 🌟 1. ALL-IN-ONE SLEEK HERO SUMMARY CARD (ตรงตามแบบ Mockup) */}
       <div className="rounded-3xl p-5 sm:p-6 bg-white border border-slate-200/90 shadow-2xs space-y-4">
         {/* Top Section: Score Ring, Numbers, Status Pill, and Export Excel Button */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-4 sm:gap-5 min-w-0">
-            {/* Circular Gauge Ring with 12 o'clock notch */}
-            <div className={`relative flex items-center justify-center w-[80px] h-[80px] sm:w-[88px] sm:h-[88px] rounded-full border-[5.5px] shadow-2xs shrink-0 bg-white font-mono font-black text-sm sm:text-base text-slate-900 select-none ${
-              displayPassed
-                ? 'border-[#0F6659]'
-                : displayHasCritical
-                ? 'border-rose-600'
-                : 'border-amber-500'
-            }`}>
-              {parseFloat(Number(displayScore).toFixed(2))}%
-              <div className="absolute -top-[5.5px] left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full" />
+            {/* Circular Gauge Ring with 12 o'clock notch & Passing Threshold Underneath */}
+            <div className="flex flex-col items-center shrink-0">
+              <div className={`relative flex items-center justify-center w-[80px] h-[80px] sm:w-[88px] sm:h-[88px] rounded-full border-[5.5px] shadow-2xs shrink-0 bg-white font-mono font-black text-[20px] sm:text-[24px]  text-slate-900 select-none ${
+                displayPassed
+                  ? 'border-[#0F6659]'
+                  : displayHasCritical
+                  ? 'border-rose-600'
+                  : 'border-amber-500'
+              }`}>
+                {parseFloat(Number(displayScore).toFixed(2))}%
+                <div className="absolute -top-[5.5px] left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full" />
+              </div>
+              <div className="text-[11px] sm:text-xs font-semibold text-slate-400 mt-1.5 text-center whitespace-nowrap">
+                เกณฑ์ผ่าน ≥ {passingScore}%
+              </div>
             </div>
 
             {/* Score Text & Status Pill */}
@@ -2097,39 +2359,45 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                 <MapPin size={14} className="text-[#0F6659] shrink-0" />
                 <span className="truncate" title={fullLocationName}>{fullLocationName}</span>
               </div>
-              <div className="text-3xl sm:text-4xl font-black text-slate-900 font-mono tracking-tight leading-none">
-                {parseFloat(Number(displayScore).toFixed(2))}%
-              </div>
-              <div className="text-xs sm:text-sm font-semibold text-slate-400 mt-1">
-                เกณฑ์ผ่าน ≥{passingScore}%
-              </div>
-              <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-                <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full shadow-2xs ${
-                  displayPassed
-                    ? 'bg-[#0F6659] text-white'
-                    : displayHasCritical
-                    ? 'bg-rose-600 text-white'
-                    : 'bg-amber-500 text-white'
-                }`}>
-                  {displayPassed ? (
-                    <CheckCircle2 size={13} className="text-white shrink-0" />
-                  ) : displayHasCritical ? (
-                    <XCircle size={13} className="text-white shrink-0" />
-                  ) : (
-                    <AlertTriangle size={13} className="text-white shrink-0" />
-                  )}
-                  <span>{displayPassed ? "ผ่านเกณฑ์มาตรฐาน" : displayHasCritical ? "ตกข้อสำคัญ" : "ต้องส่งงานแก้ไข"}</span>
-                </span>
-                {isBackdated && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
-                    ⏳ บันทึกย้อนหลัง
-                  </span>
-                )}
+              {/* รหัสรอบตรวจ/เอกสาร แสดงเป็นตัวอักษรสีเทาแบบไม่มีกรอบ */}
+              <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
                 {(currentRecord?.documentNo || record?.documentNo) && (
-                  <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-[#0F6659] border border-emerald-200 shadow-2xs">
+                  <span className="font-mono text-xs font-semibold text-slate-400">
                     {currentRecord?.documentNo || record?.documentNo}
                   </span>
                 )}
+                {isBackdated && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                    ⏳ บันทึกย้อนหลัง
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                {isReopened ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-slate-700 text-white shadow-2xs">
+                    <RotateCcw size={13} className="text-white shrink-0" />
+                    <span>ย้อนเป็นแบบร่าง (REOPENED)</span>
+                  </span>
+                ) : (
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full shadow-2xs ${
+                    displayPassed
+                      ? 'bg-[#0F6659] text-white'
+                      : displayHasCritical
+                      ? 'bg-rose-600 text-white'
+                      : 'bg-amber-500 text-white'
+                  }`}>
+                    {displayPassed ? (
+                      <CheckCircle2 size={13} className="text-white shrink-0" />
+                    ) : displayHasCritical ? (
+                      <XCircle size={13} className="text-white shrink-0" />
+                    ) : (
+                      <AlertTriangle size={13} className="text-white shrink-0" />
+                    )}
+                    <span>{displayPassed ? "ผ่านเกณฑ์มาตรฐาน" : displayHasCritical ? "ตกข้อสำคัญ" : "ต้องส่งงานแก้ไข"}</span>
+                  </span>
+                )}
+
               </div>
             </div>
           </div>
@@ -2220,8 +2488,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
           </div>
         </div>
 
-        {/* Fourth Section: Edit History Callout (เมื่อมีประวัติการแก้ไข) */}
-        {editLogsCount > 0 && (
+        {/* Fourth Section: Edit History Callout (เมื่อมีประวัติการแก้ไข หรือ ถูกย้อนสถานะ) */}
+        {(editLogsCount > 0 || isReopened || currentRecord?.reopenReason) && (
           <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/90 space-y-2.5">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
@@ -2230,10 +2498,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs sm:text-sm font-bold text-amber-950">
-                    ประวัติการแก้ไข
+                    {isReopened || currentRecord?.reopenReason ? "ประวัติการแก้ไข / ย้อนสถานะ" : "ประวัติการแก้ไข"}
                   </span>
                   <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 text-[11px] font-black shadow-2xs">
-                    {editLogsCount} ครั้ง
+                    {Math.max(editLogsCount, 1)} รายการ
                   </span>
                 </div>
               </div>
@@ -2244,7 +2512,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
               onClick={() => setShowEditLogsModal(true)}
               className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
             >
-              <span>ดูประวัติการแก้ไข</span>
+              <span>{isReopened || currentRecord?.reopenReason ? "ดูประวัติการแก้ไขและย้อนสถานะ" : "ดูประวัติการแก้ไข"}</span>
               <ChevronRight size={14} className="text-amber-700" />
             </button>
           </div>
@@ -2485,7 +2753,9 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                   label={q.text || "ตารางข้อมูล"}
                                   fieldConfig={q.fieldConfig}
                                   value={editAns?.rawAnswer || editAns?.answerValue || q.rawAnswer || q.answer}
-                                  defaultOpen={false}
+                                  readOnly={false}
+                                  onChange={(val) => handleSetCustomValue(q.surveyItemId, val)}
+                                  defaultOpen={true}
                                 />
                               </div>
                             ) : (q.type === "multians" || q.questionType === "multians") ? (
@@ -2494,7 +2764,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                   type="multians"
                                   fieldConfig={q.fieldConfig}
                                   value={editAns?.rawAnswer || editAns?.answerValue || q.rawAnswer || q.answer}
-                                  readOnly={true}
+                                  readOnly={false}
+                                  onChange={(val) => handleSetCustomValue(q.surveyItemId, val)}
                                   onViewPhoto={(url) => setPreviewPhoto({ url, qNum: q.num, qText: q.text })}
                                 />
                               </div>
@@ -3100,19 +3371,31 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {allDisplayMetadataFields.map((item) => {
                       if (item.type === "grid") {
+                        const gridVal = isEditing
+                          ? (editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : item.rawValue)
+                          : item.rawValue;
+
                         return (
                           <div key={item.id} className="col-span-full">
                             <CollapsibleGridTable
                               label={item.label}
                               fieldConfig={item.fieldConfig}
-                              value={item.rawValue}
-                              defaultOpen={false}
+                              value={gridVal}
+                              readOnly={!isEditing}
+                              onChange={isEditing ? ((newVal) => {
+                                setEditMetadataValues(prev => ({ ...prev, [item.id]: newVal }));
+                              }) : undefined}
+                              defaultOpen={isEditing}
                             />
                           </div>
                         );
                       }
 
                       if (isEditing) {
+                        const rawType = String(item.type || item.questionType || "").trim().toLowerCase();
+                        const lblLower = String(item.label || "").toLowerCase();
+
+                        // 1. ประเภทการตรวจ (Audit Type)
                         if (item.id === "audit_type") {
                           const options = (item.fieldConfig?.options && item.fieldConfig.options.length > 0)
                             ? item.fieldConfig.options
@@ -3152,7 +3435,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                           );
                         }
 
-                        if (item.id === "auditor" || item.type === "auditor") {
+                        // 2. ผู้ตรวจประเมิน (Auditor)
+                        if (item.id === "auditor" || rawType === "auditor" || rawType === "user") {
                           return (
                             <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
                               <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
@@ -3160,8 +3444,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                 {usersList.length > 0 ? (
                                   <>
                                     <select
-                                      value={editMetadataValues.auditor || currentRecord.auditor || ""}
-                                      onChange={(e) => setEditMetadataValues(prev => ({ ...prev, auditor: e.target.value }))}
+                                      value={editMetadataValues[item.id] || editMetadataValues.auditor || currentRecord.auditor || ""}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setEditMetadataValues(prev => ({ ...prev, [item.id]: v, auditor: v }));
+                                      }}
                                       className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none pr-6 cursor-pointer appearance-none"
                                     >
                                       <option value="">-- เลือกผู้ตรวจ --</option>
@@ -3175,8 +3462,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                                   <div className="flex items-center justify-between gap-2 w-full">
                                     <input
                                       type="text"
-                                      value={editMetadataValues.auditor || currentRecord.auditor || ""}
-                                      onChange={(e) => setEditMetadataValues(prev => ({ ...prev, auditor: e.target.value }))}
+                                      value={editMetadataValues[item.id] || editMetadataValues.auditor || currentRecord.auditor || ""}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setEditMetadataValues(prev => ({ ...prev, [item.id]: v, auditor: v }));
+                                      }}
                                       className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none"
                                       placeholder="ชื่อผู้ตรวจประเมิน..."
                                     />
@@ -3188,27 +3478,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                           );
                         }
 
-                        if (item.type === "select") {
-                          return (
-                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
-                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
-                              <div className="relative mt-1 flex items-center">
-                                <select
-                                  value={editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "")}
-                                  onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                  className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none pr-6 cursor-pointer appearance-none"
-                                >
-                                  <option value="">-- เลือก --</option>
-                                  {(item.fieldConfig?.options || []).map((opt, oIdx) => (
-                                    <option key={oIdx} value={opt}>{opt}</option>
-                                  ))}
-                                </select>
-                                <ChevronDown size={16} className="text-slate-500 pointer-events-none absolute right-0" />
-                              </div>
-                            </div>
-                          );
-                        }
-
+                        // 3. จำนวนพนักงานขณะตรวจ (Staff Count)
                         if (item.id === "staff_count") {
                           return (
                             <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
@@ -3230,12 +3500,243 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                           );
                         }
 
+                        // 4. ผ่าน / ไม่ผ่าน (Yes / No) - รองรับ ผ่าน, ไม่ผ่าน, ข้าม (N/A)
+                        const isYesNo = rawType === "yesno" || rawType === "yes_no" || rawType === "pass_fail" || lblLower.includes("ผ่าน/ไม่ผ่าน") || lblLower.includes("ผ่าน / ไม่ผ่าน") || lblLower.includes("yes/no") || lblLower.includes("yesno");
+                        if (isYesNo) {
+                          const baseOptions = (item.fieldConfig?.options && item.fieldConfig.options.length > 0)
+                            ? item.fieldConfig.options
+                            : (item.options && item.options.length > 0)
+                            ? item.options
+                            : ["ผ่าน", "ไม่ผ่าน", "ข้าม (N/A)"];
+                          
+                          const finalOptions = [...baseOptions];
+                          if (!finalOptions.some(o => o.includes("ข้าม") || o.includes("N/A") || String(o).toLowerCase() === "na")) {
+                            finalOptions.push("ข้าม (N/A)");
+                          }
+
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "");
+                          let mappedVal = String(curVal ?? "");
+                          if (curVal === true || curVal === "true" || curVal === "yes") mappedVal = "ผ่าน";
+                          else if (curVal === false || curVal === "false" || curVal === "no") mappedVal = "ไม่ผ่าน";
+                          else if (curVal === "na" || curVal === "skip") mappedVal = "ข้าม (N/A)";
+
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              <div className="relative mt-1 flex items-center">
+                                <select
+                                  value={mappedVal}
+                                  onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none pr-6 cursor-pointer appearance-none"
+                                >
+                                  <option value="">-- เลือก ผ่าน/ไม่ผ่าน --</option>
+                                  {finalOptions.map((opt, oIdx) => (
+                                    <option key={oIdx} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                                <ChevronDown size={16} className="text-slate-500 pointer-events-none absolute right-0" />
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 5. สเกลคะแนน 1-5 (Scale) - ตัวเลขเดี่ยวๆ 1-5
+                        const isScale = rawType === "scale" || rawType === "rating" || lblLower.includes("1-5") || lblLower.includes("1 - 5") || lblLower.includes("scale");
+                        if (isScale) {
+                          const scaleOptions = ["1", "2", "3", "4", "5"];
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "");
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              <div className="relative mt-1 flex items-center">
+                                <select
+                                  value={curVal !== undefined && curVal !== null ? String(curVal) : ""}
+                                  onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none pr-6 cursor-pointer appearance-none"
+                                >
+                                  <option value="">-- เลือกระดับคะแนน (1-5) --</option>
+                                  {scaleOptions.map(num => (
+                                    <option key={num} value={num}>{num}</option>
+                                  ))}
+                                </select>
+                                <ChevronDown size={16} className="text-slate-500 pointer-events-none absolute right-0" />
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 6. ตัวเลือกเดียว (Radio / Ratio / Select)
+                        const isSingleSelect = rawType === "select" || rawType === "radio" || rawType === "ratio";
+                        if (isSingleSelect) {
+                          const options = (item.fieldConfig?.options && item.fieldConfig.options.length > 0)
+                            ? item.fieldConfig.options
+                            : (item.options && item.options.length > 0)
+                            ? item.options
+                            : [];
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "");
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              <div className="relative mt-1 flex items-center">
+                                <select
+                                  value={curVal !== undefined && curVal !== null ? String(curVal) : ""}
+                                  onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none pr-6 cursor-pointer appearance-none"
+                                >
+                                  <option value="">-- เลือกคำตอบ --</option>
+                                  {options.map((opt, oIdx) => (
+                                    <option key={oIdx} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                                <ChevronDown size={16} className="text-slate-500 pointer-events-none absolute right-0" />
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 7. หลายตัวเลือก (Checkbox / Multi-answer)
+                        const isCheckbox = rawType === "checkbox" || rawType === "multians" || rawType === "multi_select";
+                        if (isCheckbox) {
+                          const options = (item.fieldConfig?.options && item.fieldConfig.options.length > 0)
+                            ? item.fieldConfig.options
+                            : (item.options && item.options.length > 0)
+                            ? item.options
+                            : [];
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : item.rawValue;
+                          const currentSelected = (() => {
+                            if (!curVal) return [];
+                            if (Array.isArray(curVal)) return curVal;
+                            if (typeof curVal === "string") {
+                              try {
+                                const p = JSON.parse(curVal);
+                                if (Array.isArray(p)) return p;
+                              } catch (e) {}
+                              if (curVal.includes(",")) return curVal.split(",").map(s => s.trim()).filter(Boolean);
+                              return [curVal.trim()];
+                            }
+                            return [String(curVal)];
+                          })();
+
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              {options.length > 0 ? (
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                  {options.map((opt, oIdx) => {
+                                    const isChecked = currentSelected.includes(opt);
+                                    return (
+                                      <button
+                                        key={oIdx}
+                                        type="button"
+                                        onClick={() => {
+                                          const next = isChecked
+                                            ? currentSelected.filter(x => x !== opt)
+                                            : [...currentSelected, opt];
+                                          setEditMetadataValues(prev => ({ ...prev, [item.id]: next }));
+                                        }}
+                                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 ${
+                                          isChecked
+                                            ? "bg-emerald-50 text-[#0F6659] border-emerald-400 shadow-2xs ring-1 ring-[#0F6659]/20"
+                                            : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                                        }`}
+                                      >
+                                        <span className={`w-3.5 h-3.5 rounded flex items-center justify-center border text-[10px] ${
+                                          isChecked ? "bg-[#0F6659] border-[#0F6659] text-white" : "border-slate-300 bg-white"
+                                        }`}>
+                                          {isChecked && "✓"}
+                                        </span>
+                                        <span>{opt}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between gap-2 mt-1">
+                                  <input
+                                    type="text"
+                                    value={Array.isArray(currentSelected) ? currentSelected.join(", ") : String(curVal ?? "")}
+                                    onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }))}
+                                    className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none"
+                                    placeholder="คั่นแต่ละตัวเลือกด้วยเครื่องหมายจุลภาค (,)"
+                                  />
+                                  <Edit3 size={15} className="text-slate-400 shrink-0 pointer-events-none" />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // 8. วันที่ (Date)
+                        const isDate = rawType === "date" || (lblLower.includes("วัน") && !lblLower.includes("พนักงาน")) || lblLower.includes("date");
+                        if (isDate) {
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "");
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              <div className="relative mt-1 flex items-center justify-between gap-2">
+                                <input
+                                  type="date"
+                                  value={curVal ?? ""}
+                                  onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none cursor-pointer"
+                                />
+                                <Calendar size={15} className="text-slate-400 shrink-0 pointer-events-none" />
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 9. เวลา (Time)
+                        const isTime = rawType === "time" || lblLower.includes("เวลา") || lblLower.includes("time");
+                        if (isTime) {
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "");
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              <div className="relative mt-1 flex items-center justify-between gap-2">
+                                <input
+                                  type="time"
+                                  value={curVal ?? ""}
+                                  onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none cursor-pointer"
+                                />
+                                <Clock size={15} className="text-slate-400 shrink-0 pointer-events-none" />
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 10. ตัวเลข (Number)
+                        const isNumber = rawType === "number";
+                        if (isNumber) {
+                          const curVal = editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "");
+                          return (
+                            <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
+                              <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
+                              <div className="flex items-center justify-between gap-2 mt-1">
+                                <div className="flex items-center gap-1 flex-1">
+                                  <input
+                                    type="number"
+                                    value={curVal ?? ""}
+                                    onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                    className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none"
+                                    placeholder={`กรอก${item.label}...`}
+                                  />
+                                  {item.unit && <span className="text-xs font-bold text-slate-500 shrink-0">{item.unit}</span>}
+                                </div>
+                                <Edit3 size={15} className="text-slate-400 shrink-0 pointer-events-none" />
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // 11. ข้อความทั่วไป (Text fallback)
                         return (
                           <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
                             <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
                             <div className="flex items-center justify-between gap-2 mt-1">
                               <input
-                                type={item.type === "number" ? "number" : "text"}
+                                type="text"
                                 value={editMetadataValues[item.id] !== undefined ? editMetadataValues[item.id] : (item.rawValue ?? "")}
                                 onChange={(e) => setEditMetadataValues(prev => ({ ...prev, [item.id]: e.target.value }))}
                                 className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none"
@@ -3251,7 +3752,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                         <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
                           <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
                           <div className="text-sm font-extrabold text-slate-800 mt-0.5">
-                            {item.value}{item.unit}
+                            {Array.isArray(item.value) ? item.value.join(", ") : item.value}{item.unit}
                           </div>
                         </div>
                       );
@@ -3936,6 +4437,84 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
             >
               <X size={16} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* 🌟 REOPEN CONFIRMATION MODAL */}
+      {showReopenModal && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <RotateCcw size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-800 leading-tight">ย้อนสถานะผลตรวจเป็นแบบร่าง</h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    รหัส <span className="font-mono font-bold text-slate-700">#{currentRecord?.documentNo || currentRecord?.id}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isReopening && setShowReopenModal(false)}
+                disabled={isReopening}
+                className="w-8 h-8 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1.5">
+              <p className="font-bold text-amber-950">คำแนะนำและผลกระทบ:</p>
+              <ul className="list-disc pl-4 space-y-1 text-slate-700">
+                <li>ผลตรวจปัจจุบันจะไม่ถูกนับในรายงานหรือคะแนนสาขา</li>
+                <li>ข้อมูลคำตอบจะถูกคัดลอกไปยังแบบร่าง</li>
+                <li>หากกดยกเลิกแบบร่างในภายหลัง ผลตรวจเดิมนี้จะกลับมาเป็นปกติ</li>
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                เหตุผลในการย้อนสถานะ <span className="text-rose-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={reopenReason}
+                onChange={(e) => {
+                  setReopenReason(e.target.value);
+                  if (reopenError) setReopenError("");
+                }}
+                placeholder="ระบุเหตุผล เช่น พบข้อผิดพลาดในข้อมูล, ต้องการตรวจซ่อมแซม, รูปภาพไม่สมบูรณ์..."
+                className="w-full px-3.5 py-2.5 text-xs sm:text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-[#0F6659]/30 focus:border-[#0F6659] resize-none"
+                disabled={isReopening}
+              />
+              <div className="flex justify-between items-center mt-1 text-[11px]">
+                <span className="text-rose-500 font-medium">{reopenError}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowReopenModal(false)}
+                disabled={isReopening}
+                className="px-4 py-2 rounded-2xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReopen}
+                disabled={isReopening || !reopenReason.trim()}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
+                {isReopening ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                <span>{isReopening ? "กำลังดำเนินการ..." : "ยืนยันย้อนสถานะ"}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

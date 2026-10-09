@@ -13,10 +13,12 @@ namespace QSC.Api.Controllers
     public class UserController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Services.IActivityLogger _activityLogger;
 
-        public UserController(AppDbContext context)
+        public UserController(AppDbContext context, Services.IActivityLogger activityLogger)
         {
             _context = context;
+            _activityLogger = activityLogger;
         }
 
         public class CreateUserDto
@@ -222,6 +224,10 @@ namespace QSC.Api.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            var (currentUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(currentUserId, "USER_CREATE", "User", user.Id);
+            await _context.SaveChangesAsync();
+
             return CreatedAtAction(nameof(GetUser), new { id = user.Id }, user);
         }
 
@@ -278,6 +284,9 @@ namespace QSC.Api.Controllers
                 }
             }
 
+            var (editUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(editUserId, "USER_EDIT", "User", user.Id);
+
             await _context.SaveChangesAsync();
             return Ok(user);
         }
@@ -289,7 +298,10 @@ namespace QSC.Api.Controllers
             var user = await _context.Users.FindAsync(id);
             if (user == null) return NotFound();
 
+            var (deleteUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             user.IsActive = false; // Soft delete
+            _activityLogger.Add(deleteUserId, "USER_DISABLE", "User", user.Id);
+
             await _context.SaveChangesAsync();
             return NoContent();
         }
@@ -301,10 +313,12 @@ namespace QSC.Api.Controllers
     public class RoleController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly Services.IActivityLogger _activityLogger;
 
-        public RoleController(AppDbContext context)
+        public RoleController(AppDbContext context, Services.IActivityLogger activityLogger)
         {
             _context = context;
+            _activityLogger = activityLogger;
         }
 
         public class RoleDto
@@ -378,6 +392,9 @@ namespace QSC.Api.Controllers
             var jsonString = RoleNavHelper.Serialize(normalizedConfig);
             role.NavConfigJson = jsonString;
 
+            var (menuUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(menuUserId, "ROLE_EDIT_MENU", "Role", role.Id);
+
             await _context.SaveChangesAsync();
 
             return Ok(new
@@ -437,6 +454,10 @@ namespace QSC.Api.Controllers
                 await _context.SaveChangesAsync();
             }
 
+            var (createUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(createUserId, "ROLE_CREATE", "Role", role.Id);
+            await _context.SaveChangesAsync();
+
             return Ok(role);
         }
 
@@ -478,6 +499,16 @@ namespace QSC.Api.Controllers
                 {
                     _context.RolePermissions.Add(new RolePermission { RoleId = id, PermissionId = permId });
                 }
+            }
+
+            var existingPermIds = existingPerms.Select(p => p.PermissionId).OrderBy(x => x).ToList();
+            var newPermIds = validUpdatePermIds.OrderBy(x => x).ToList();
+            bool permChanged = !existingPermIds.SequenceEqual(newPermIds);
+
+            if (permChanged)
+            {
+                var (editUserId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+                _activityLogger.Add(editUserId, "ROLE_EDIT_PERMISSION", "Role", role.Id);
             }
 
             await _context.SaveChangesAsync();

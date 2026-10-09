@@ -13,6 +13,7 @@ class SignalRService {
     this.auditHandlers = new Set();
     this.draftSyncHandlers = new Set();
     this.auditSubmittedHandlers = new Set();
+    this.auditReopenedHandlers = new Set();
     this.isConnecting = false;
   }
 
@@ -102,6 +103,14 @@ class SignalRService {
         this.auditSubmittedHandlers.forEach((handler) => {
           try {
             handler(submittedPayload);
+          } catch (e) {}
+        });
+      });
+
+      this.connection.on("AuditReopened", (reopenPayload) => {
+        this.auditReopenedHandlers.forEach((handler) => {
+          try {
+            handler(reopenPayload);
           } catch (e) {}
         });
       });
@@ -261,6 +270,18 @@ class SignalRService {
     this.auditSubmittedHandlers.add(handler);
     return () => {
       this.auditSubmittedHandlers.delete(handler);
+    };
+  }
+
+  /**
+   * Subscribes to AuditReopened real-time event (Returns unsubscribe function)
+   * @param {Function} handler
+   * @returns {Function} unsubscribe
+   */
+  onAuditReopened(handler) {
+    this.auditReopenedHandlers.add(handler);
+    return () => {
+      this.auditReopenedHandlers.delete(handler);
     };
   }
 
