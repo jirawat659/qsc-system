@@ -3416,15 +3416,15 @@ export default function LiveAuditScreen({
         action: (
           <div className="flex items-center gap-1.5 sm:gap-2">
 
-            {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (ตามรูปที่ 1) */}
-            {step === "audit" && (
+            {/* 🌟 ป้ายสถานะ Synced ย้ายมาแสดงตรงนี้ (คอมเมนต์ไว้ก่อน) */}
+            {/* {step === "audit" && (
               <SyncStatusPill
                 syncStatus={syncStatus}
                 showSaveTime={showSaveTime}
                 lastSavedTime={lastSavedTime}
                 onToggle={() => setShowSaveTime(prev => !prev)}
               />
-            )}
+            )} */}
 
 
 
@@ -5241,8 +5241,7 @@ export default function LiveAuditScreen({
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {/* 🌟 ปุ่ม ChevronDown ที่คงอยู่ใน DOM เพื่อให้ CSS Transition คลี่ขยายและ Fade เข้าแบบนุ่มนวล */}
-                      {activeSectionIndex === sIdx && (
+                      {/* {activeSectionIndex === sIdx && (
                         <SyncStatusPill
                           syncStatus={syncStatus}
                           showSaveTime={showSaveTime}
@@ -5252,7 +5251,7 @@ export default function LiveAuditScreen({
                             setShowSaveTime(prev => !prev);
                           }}
                         />
-                      )}
+                      )} */}
                       <span
                         className={`inline-flex items-center justify-center rounded-full bg-slate-200/70 group-hover:bg-emerald-100 text-slate-500 group-hover:text-[#0F6659] shadow-2xs overflow-hidden transition-all duration-300 ease-in-out shrink-0 ${
                           isCategoryDrawerOpen ? "rotate-180 text-[#0F6659] bg-emerald-100" : ""
