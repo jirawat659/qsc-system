@@ -5544,23 +5544,25 @@ export default function LiveAuditScreen({
           document.body
         )}
 
-        {/* 🌟 ปุ่มลัดแบบไอคอนล้วน มุมขวาล่าง 4 ปุ่ม (เลื่อนขึ้น / ล็อก-ปลดล็อก / บันทึกแบบร่าง / ส่งผลตรวจ) */}
+        {/* 🌟 ปุ่มลัดแบบไอคอนล้วน มุมขวาล่าง (เลื่อนขึ้น / ล็อก-ปลดล็อก / บันทึกแบบร่าง / ส่งผลตรวจ) */}
         {step === "audit" && typeof document !== "undefined" && createPortal(
           <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2.5 select-none">
-            {/* 1. เลื่อนขึ้นบนสุด */}
-            <button
-              type="button"
-              onClick={() => {
-                window.scrollTo({ top: 0, behavior: "smooth" });
-                const mainEl = document.querySelector("main");
-                if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-lg border border-slate-200 flex items-center justify-center cursor-pointer transition-transform active:scale-90"
-              title="เลื่อนขึ้นบนสุดของหน้า"
-              aria-label="เลื่อนขึ้นบนสุดของหน้า"
-            >
-              <ChevronUp size={22} strokeWidth={2.5} />
-            </button>
+            {/* 1. เลื่อนขึ้นบนสุด (แสดงเฉพาะเมื่อเลื่อนจอลงมา) */}
+            {isAuditHeaderScrolled && (
+              <button
+                type="button"
+                onClick={() => {
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                  const mainEl = document.querySelector("main");
+                  if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-lg border border-slate-200 flex items-center justify-center cursor-pointer transition-all active:scale-90 animate-in fade-in zoom-in-90 duration-200"
+                title="เลื่อนขึ้นบนสุดของหน้า"
+                aria-label="เลื่อนขึ้นบนสุดของหน้า"
+              >
+                <ChevronUp size={22} strokeWidth={2.5} />
+              </button>
+            )}
 
             {/* 2. สลับโหมดล็อก / ปลดล็อกแก้ไข */}
             <button
@@ -5577,27 +5579,23 @@ export default function LiveAuditScreen({
               {isReadOnlyMode ? <Edit3 size={20} strokeWidth={2.4} /> : <Eye size={20} strokeWidth={2.4} />}
             </button>
 
-            {/* 3. บันทึกแบบร่าง (แก้ไข = แผ่นดิสก์ / กำลังบันทึก = หมุนโหลด / บันทึกแล้ว = เช็คถูกในวงกลมตามรูป) */}
-            {(() => {
+            {/* 3. บันทึกแบบร่าง (แสดงในหน้าแก้ไขตามปกติ / ในหน้าล็อกไม่ต้องแสดง) */}
+            {!isReadOnlyMode && (() => {
               const isSpinning = isLocalSaving || syncStatus === "saving";
               return (
                 <button
                   type="button"
                   onClick={hasUnsavedChanges && !isSpinning ? handleManualSave : undefined}
-                  disabled={isReadOnlyMode || isSpinning || !hasUnsavedChanges}
+                  disabled={isSpinning || !hasUnsavedChanges}
                   className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-colors select-none border touch-manipulation ${
-                    isReadOnlyMode
-                      ? "bg-white text-slate-300 border-slate-200 cursor-not-allowed"
-                      : isSpinning
+                    isSpinning
                       ? "bg-[#0F6659] text-white border-emerald-600 shadow-md cursor-wait"
                       : hasUnsavedChanges
                       ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 shadow-md cursor-pointer active:scale-95"
                       : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-200 shadow-md cursor-default"
                   }`}
                   title={
-                    isReadOnlyMode
-                      ? "โหมดดูอย่างเดียว (ปลดล็อกเพื่อแก้ไขและบันทึก)"
-                      : isSpinning
+                    isSpinning
                       ? "กำลังบันทึกข้อมูล..."
                       : hasUnsavedChanges
                       ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
@@ -5605,9 +5603,7 @@ export default function LiveAuditScreen({
                   }
                   aria-label="บันทึกแบบร่าง"
                 >
-                  {isReadOnlyMode ? (
-                    <Save size={20} strokeWidth={2.4} />
-                  ) : isSpinning ? (
+                  {isSpinning ? (
                     <Loader2 size={20} className="animate-spin text-white" />
                   ) : hasUnsavedChanges ? (
                     <Save size={20} strokeWidth={2.4} />
@@ -5618,22 +5614,19 @@ export default function LiveAuditScreen({
               );
             })()}
 
-            {/* 4. ส่งผลตรวจประเมิน (ย้ายมาจากปุ่มใหญ่เดิมในแท็บ 3) */}
-            <button
-              id="audit-tab3-submit-btn"
-              type="button"
-              onClick={handleFinalSubmitTab3}
-              disabled={isReadOnlyMode}
-              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-90 border ${
-                isReadOnlyMode
-                  ? "bg-slate-200 text-slate-400 border-slate-300 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
-              }`}
-              title="บันทึกและส่งผลตรวจประเมิน"
-              aria-label="บันทึกและส่งผลตรวจประเมิน"
-            >
-              <Send size={20} strokeWidth={2.2} />
-            </button>
+            {/* 4. ส่งผลตรวจประเมิน (แสดงเฉพาะในสถานะล็อก / ในหน้าแก้ไขไม่แสดง) */}
+            {isReadOnlyMode && (
+              <button
+                id="audit-tab3-submit-btn"
+                type="button"
+                onClick={handleFinalSubmitTab3}
+                className="w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-90 border bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
+                title="บันทึกและส่งผลตรวจประเมิน"
+                aria-label="บันทึกและส่งผลตรวจประเมิน"
+              >
+                <Send size={20} strokeWidth={2.2} />
+              </button>
+            )}
           </div>,
           document.body
         )}
