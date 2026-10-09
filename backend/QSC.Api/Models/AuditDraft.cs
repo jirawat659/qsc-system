@@ -22,6 +22,7 @@ namespace QSC.Api.Models
         public double? StartLongitude { get; set; }
         public DateTime? StartedAt { get; set; }
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        public string? DocumentNo { get; set; }
 
         [NotMapped]
         public bool IsFormOutdated { get; set; } = false;

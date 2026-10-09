@@ -78,6 +78,18 @@ namespace QSC.Api.Controllers
                     isActive = l.IsActive,
                     lastScore = l.LastScore,
                     lastAuditDate = l.LastAuditDate,
+                    lastAuditorName = _context.AuditRecords
+                        .Where(a => a.LocationId == l.Id)
+                        .OrderByDescending(a => a.AuditDate)
+                        .ThenByDescending(a => a.Id)
+                        .Select(a => a.PrimaryAuditor != null ? a.PrimaryAuditor.FullName : null)
+                        .FirstOrDefault(),
+                    auditorName = _context.AuditRecords
+                        .Where(a => a.LocationId == l.Id)
+                        .OrderByDescending(a => a.AuditDate)
+                        .ThenByDescending(a => a.Id)
+                        .Select(a => a.PrimaryAuditor != null ? a.PrimaryAuditor.FullName : null)
+                        .FirstOrDefault(),
                     createdAt = l.CreatedAt,
                     locationBrands = l.LocationBrands.Select(lb => new
                     {

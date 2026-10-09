@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Eye, Send } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Send } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -693,25 +693,10 @@ function SignaturePad({ label, signatoryName, onNameChange, onSignChange, placeh
         <SignaturePadCanvas
           initialSignatureUrl={signatureUrl}
           onCancel={() => setShowModal(false)}
-          onDone={async (dataUrl) => {
+          onDone={(dataUrl) => {
             setShowModal(false);
             if (dataUrl === signatureUrl) return; // Unchanged
             onSignChange(dataUrl);
-            try {
-              setIsUploading(true);
-              const res = await api.post('/audit/upload-signature', { 
-                base64Data: dataUrl,
-                previousUrl: signatureUrl,
-                signatoryType: label?.includes("ผู้รับ") ? "auditee" : "auditor"
-              });
-              if (res.data?.url) {
-                onSignChange(res.data.url);
-              }
-            } catch (err) {
-              console.warn("Upload signature to server failed, keeping dataUrl:", err);
-            } finally {
-              setIsUploading(false);
-            }
           }}
         />,
         document.body
@@ -1801,6 +1786,9 @@ export default function LiveAuditScreen({
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showDiscardConfirmModal, setShowDiscardConfirmModal] = useState(false);
+  const [showCancelEditModal, setShowCancelEditModal] = useState(false);
+  const [cancelEditList, setCancelEditList] = useState([]);
+  const [editHintMsg, setEditHintMsg] = useState("");
   const [highlightedQuestionId, setHighlightedQuestionId] = useState(null);
   const [auditeeSignature, setAuditeeSignature] = useState(() => parsedDraftPayload?.auditeeSignature || preselectedPlan?.auditeeSignature || null);
   const [auditorSignature, setAuditorSignature] = useState(() => parsedDraftPayload?.auditorSignature || preselectedPlan?.auditorSignature || null);
@@ -1865,6 +1853,20 @@ export default function LiveAuditScreen({
       unlockBodyScroll();
     };
   }, [showDiscardConfirmModal]);
+
+  useEffect(() => {
+    if (!showCancelEditModal) return;
+    lockBodyScroll();
+    return () => {
+      unlockBodyScroll();
+    };
+  }, [showCancelEditModal]);
+
+  useEffect(() => {
+    if (!editHintMsg) return;
+    const t = setTimeout(() => setEditHintMsg(""), 2200);
+    return () => clearTimeout(t);
+  }, [editHintMsg]);
   
   const currentSectionsForHeader = selectedForm?.sections || [];
 
@@ -2261,7 +2263,104 @@ export default function LiveAuditScreen({
     comments: new Set(),
     metadataValues: new Set()
   });
-  const latestMapsRef = useRef({ answers: {}, photos: {}, comments: {}, metadataValues: {} });
+  // 🌟 จด "ค่าเดิมก่อนแก้" ของแต่ละข้อที่แก้ค้างอยู่ (ค่าตอนบันทึกล่าสุด) ไว้ใช้ตอนกดยกเลิกการแก้ไข + แสดงรายการในป๊อบอัพ
+  const ABSENT = "__qsc_absent__";
+  const EXTRA_FIELDS = ['staffCount', 'extraNote', 'auditType', 'isBackdated', 'backdatedStartDate', 'backdatedEndDate', 'auditeeSignature', 'auditorSignature', 'auditeeSignName'];
+  const makeEmptyOriginals = () => ({ answers: {}, photos: {}, comments: {}, metadataValues: {}, extras: {} });
+  const originalsRef = useRef(makeEmptyOriginals());
+
+  // 🌟 รูปที่ถ่ายใหม่เก็บในเครื่องเป็น data URL (ย่อขนาดแล้ว) และอัปโหลดขึ้นเซิร์ฟเวอร์ตอนกดบันทึกเท่านั้น
+  const pendingPhotoRawRef = useRef(new Map());
+  const uploadedPhotoUrlRef = useRef(new Map());
+  const isPendingPhoto = (u) => typeof u === "string" && u.startsWith("data:");
+  const toPhotoArray = (v) => (Array.isArray(v) ? v : (v ? [v] : []));
+  const hasPendingPhotos = (photoMap) =>
+    Object.values(photoMap || {}).some((v) => toPhotoArray(v).some(isPendingPhoto));
+  const swapUploadedPhotoUrls = (photoMap) => {
+    const out = {};
+    Object.keys(photoMap || {}).forEach((k) => {
+      const v = photoMap[k];
+      const mapped = toPhotoArray(v).map((u) => (isPendingPhoto(u) && uploadedPhotoUrlRef.current.has(u) ? uploadedPhotoUrlRef.current.get(u) : u));
+      out[k] = Array.isArray(v) ? mapped : mapped[0];
+    });
+    return out;
+  };
+  const resolvePendingPhotos = async (photoMap) => {
+    const todo = [];
+    Object.values(photoMap || {}).forEach((v) => toPhotoArray(v).forEach((u) => {
+      if (isPendingPhoto(u) && !uploadedPhotoUrlRef.current.has(u) && !todo.includes(u)) todo.push(u);
+    }));
+    const results = await Promise.all(todo.map(async (u) => {
+      try {
+        const raw = pendingPhotoRawRef.current.get(u) || u;
+        const res = await api.post('/audit/upload-image', { base64Data: raw });
+        const url = res.data?.url;
+        if (!url) throw new Error("Upload response missing url");
+        uploadedPhotoUrlRef.current.set(u, url);
+        return true;
+      } catch (e) {
+        console.warn("Photo upload failed:", e);
+        return false;
+      }
+    }));
+    const ok = results.every(Boolean);
+    const swapped = swapUploadedPhotoUrls(photoMap);
+    // เปลี่ยนรูปที่อัปโหลดสำเร็จใน state ให้เป็น URL จริงทันที (กันอัปโหลดซ้ำถ้าบันทึกไม่สำเร็จแล้วกดใหม่)
+    if (results.some(Boolean)) setPhotos((prev) => swapUploadedPhotoUrls(prev));
+    return { ok, map: swapped };
+  };
+  // 🌟 ลายเซ็นที่เซ็นใหม่เก็บในเครื่องเป็น data URL และอัปโหลดขึ้นเซิร์ฟเวอร์ตอนกดบันทึกเท่านั้น (เหมือนรูปภาพ)
+  const isPendingSignature = (u) => typeof u === "string" && u.startsWith("data:");
+  const hasPendingSignatures = (auditeeSig, auditorSig) =>
+    isPendingSignature(auditeeSig) || isPendingSignature(auditorSig);
+  const resolvePendingSignatures = async (auditeeSig, auditorSig) => {
+    let resolvedAuditee = auditeeSig;
+    let resolvedAuditor = auditorSig;
+    let ok = true;
+
+    if (isPendingSignature(auditeeSig)) {
+      try {
+        const res = await api.post('/audit/upload-signature', {
+          base64Data: auditeeSig,
+          previousUrl: originalsRef.current.extras?.auditeeSignature !== ABSENT ? originalsRef.current.extras?.auditeeSignature : null,
+          signatoryType: "auditee"
+        });
+        if (res.data?.url) {
+          resolvedAuditee = res.data.url;
+          setAuditeeSignature(res.data.url);
+        } else {
+          throw new Error("Upload auditee signature missing url");
+        }
+      } catch (e) {
+        console.warn("Upload auditee signature failed:", e);
+        ok = false;
+      }
+    }
+
+    if (isPendingSignature(auditorSig)) {
+      try {
+        const res = await api.post('/audit/upload-signature', {
+          base64Data: auditorSig,
+          previousUrl: originalsRef.current.extras?.auditorSignature !== ABSENT ? originalsRef.current.extras?.auditorSignature : null,
+          signatoryType: "auditor"
+        });
+        if (res.data?.url) {
+          resolvedAuditor = res.data.url;
+          setAuditorSignature(res.data.url);
+        } else {
+          throw new Error("Upload auditor signature missing url");
+        }
+      } catch (e) {
+        console.warn("Upload auditor signature failed:", e);
+        ok = false;
+      }
+    }
+
+    return { ok, auditeeSignature: resolvedAuditee, auditorSignature: resolvedAuditor };
+  };
+
+  const isNeverSaved = () => !draftIdRef.current && !getEffectiveDraftId() && !lastSavedTime;
+  const latestMapsRef = useRef({ answers: {}, photos: {}, comments: {}, metadataValues: {}, extras: {} });
   const lastSaveOkRef = useRef(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isLocalSaving, setIsLocalSaving] = useState(false);
@@ -2270,13 +2369,17 @@ export default function LiveAuditScreen({
   const saveOnLeaveSafetyNet = true;
 
   useEffect(() => {
-    latestMapsRef.current = { answers, photos, comments, metadataValues };
+    latestMapsRef.current = {
+      answers, photos, comments, metadataValues,
+      extras: { staffCount, extraNote, auditType, isBackdated, backdatedStartDate, backdatedEndDate, auditeeSignature, auditorSignature, auditeeSignName }
+    };
   });
 
   const hasUnsavedLocalChanges = () => {
     if (isDiscardingRef.current || isSubmittedSuccessRef.current) return false;
     const pending = pendingSaveDataRef.current;
     if (pending && Object.keys(pending).length > 0) return true;
+    if (isPendingSignature(auditeeSignature) || isPendingSignature(auditorSignature)) return true;
     return Object.values(dirtyKeysRef.current).some((set) => set.size > 0);
   };
 
@@ -2290,6 +2393,7 @@ export default function LiveAuditScreen({
       metadataValues: new Set()
     };
     isAnswerModifiedRef.current = false;
+    originalsRef.current = makeEmptyOriginals();
     setHasUnsavedChanges(false);
   };
 
@@ -2413,7 +2517,7 @@ export default function LiveAuditScreen({
         metadataValues: new Set()
       };
       const currentAnswers = overrideData.answers !== undefined ? overrideData.answers : answers;
-      const currentPhotos = overrideData.photos !== undefined ? overrideData.photos : photos;
+      let currentPhotos = overrideData.photos !== undefined ? overrideData.photos : photos;
       const currentComments = overrideData.comments !== undefined ? overrideData.comments : comments;
       const currentSectionIdx = overrideData.sectionIdx !== undefined ? overrideData.sectionIdx : sectionIdx;
       const currentUnit = overrideData.unit || unit;
@@ -2426,8 +2530,8 @@ export default function LiveAuditScreen({
       const currentIsBackdated = overrideData.isBackdated !== undefined ? overrideData.isBackdated : isBackdated;
       const currentBackdatedStartDate = overrideData.backdatedStartDate !== undefined ? overrideData.backdatedStartDate : backdatedStartDate;
       const currentBackdatedEndDate = overrideData.backdatedEndDate !== undefined ? overrideData.backdatedEndDate : backdatedEndDate;
-      const currentAuditeeSignature = overrideData.auditeeSignature !== undefined ? overrideData.auditeeSignature : auditeeSignature;
-      const currentAuditorSignature = overrideData.auditorSignature !== undefined ? overrideData.auditorSignature : auditorSignature;
+      let currentAuditeeSignature = overrideData.auditeeSignature !== undefined ? overrideData.auditeeSignature : auditeeSignature;
+      let currentAuditorSignature = overrideData.auditorSignature !== undefined ? overrideData.auditorSignature : auditorSignature;
       const currentAuditeeSignName = overrideData.auditeeSignName !== undefined ? overrideData.auditeeSignName : auditeeSignName;
 
       if (!currentUnit?.id || !currentForm?.id || step !== "audit") {
@@ -2444,6 +2548,27 @@ export default function LiveAuditScreen({
       if (!hasAnyData && !isAnswerModifiedRef.current) {
         setSyncStatus("idle");
         return;
+      }
+
+      // 🌟 อัปโหลดรูปที่ยังอยู่ในเครื่องก่อน แล้วค่อยสร้าง payload (ห้ามให้ base64 หลุดเข้า draft / localStorage)
+      if (hasPendingPhotos(currentPhotos)) {
+        const resolved = await resolvePendingPhotos(currentPhotos);
+        if (!resolved.ok) {
+          setEditHintMsg("อัปโหลดรูปไม่สำเร็จ กรุณากดบันทึกอีกครั้ง");
+          throw new Error("photo-upload-failed");
+        }
+        currentPhotos = resolved.map;
+      }
+
+      // 🌟 อัปโหลดลายเซ็นที่ยังอยู่ในเครื่องก่อน แล้วค่อยสร้าง payload (ห้ามให้ base64 หลุดเข้า draft / localStorage)
+      if (hasPendingSignatures(currentAuditeeSignature, currentAuditorSignature)) {
+        const sigResolved = await resolvePendingSignatures(currentAuditeeSignature, currentAuditorSignature);
+        if (!sigResolved.ok) {
+          setEditHintMsg("อัปโหลดลายเซ็นไม่สำเร็จ กรุณากดบันทึกอีกครั้ง");
+          throw new Error("signature-upload-failed");
+        }
+        currentAuditeeSignature = sigResolved.auditeeSignature;
+        currentAuditorSignature = sigResolved.auditorSignature;
       }
       const currentTimeStr = new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
 
@@ -2534,6 +2659,20 @@ export default function LiveAuditScreen({
 
       // 🌟 ถ้าระหว่างรอ request มีการแก้เพิ่ม ให้ยังถือว่ามีข้อมูลที่ยังไม่บันทึก
       const stillUnsaved = hasUnsavedLocalChanges();
+      {
+        const sentMaps = { answers: currentAnswers, photos: currentPhotos, comments: currentComments, metadataValues: currentMetadataValues };
+        Object.keys(sentDirty).forEach((field) => {
+          sentDirty[field].forEach((k) => {
+            if (dirtyKeysRef.current[field].has(k)) {
+              const sv = sentMaps[field] || {};
+              originalsRef.current[field][k] = (k in sv) ? sv[k] : ABSENT;
+            } else {
+              delete originalsRef.current[field][k];
+            }
+          });
+        });
+        if (!stillUnsaved) originalsRef.current.extras = {};
+      }
       isAnswerModifiedRef.current = stillUnsaved;
       setHasUnsavedChanges(stillUnsaved);
       setLastSavedTime(currentTimeStr);
@@ -2620,12 +2759,27 @@ export default function LiveAuditScreen({
       const prev = latestMapsRef.current[field] || {};
       const next = overrideData[field] || {};
       const dirty = dirtyKeysRef.current[field];
+      const orig = originalsRef.current[field];
       Object.keys(next).forEach((k) => {
-        if (JSON.stringify(next[k]) !== JSON.stringify(prev[k])) dirty.add(k);
+        if (JSON.stringify(next[k]) !== JSON.stringify(prev[k])) {
+          dirty.add(k);
+          if (!Object.prototype.hasOwnProperty.call(orig, k)) orig[k] = (k in prev) ? prev[k] : ABSENT;
+        }
       });
       Object.keys(prev).forEach((k) => {
-        if (!(k in next)) dirty.add(k);
+        if (!(k in next)) {
+          dirty.add(k);
+          if (!Object.prototype.hasOwnProperty.call(orig, k)) orig[k] = prev[k];
+        }
       });
+    });
+
+    EXTRA_FIELDS.forEach((f) => {
+      if (overrideData[f] === undefined) return;
+      const prevVal = latestMapsRef.current.extras?.[f];
+      if (JSON.stringify(overrideData[f]) !== JSON.stringify(prevVal) && !Object.prototype.hasOwnProperty.call(originalsRef.current.extras, f)) {
+        originalsRef.current.extras[f] = prevVal === undefined ? ABSENT : prevVal;
+      }
     });
 
     pendingSaveDataRef.current = {
@@ -2659,8 +2813,139 @@ export default function LiveAuditScreen({
       pendingSaveDataRef.current = { ...queued, ...(pendingSaveDataRef.current || {}) };
       setHasUnsavedChanges(true);
       setSyncStatus((prev) => (prev === "error" ? "error" : "unsaved"));
+    } else if (lastSaveOkRef.current) {
+      // 🌟 บันทึกสำเร็จ → สลับกลับเป็นโหมดล็อก (ดูอย่างเดียว) อัตโนมัติ
+      setIsReadOnlyMode(true);
     }
   }, [isReadOnlyMode, isLocalSaving]);
+
+  // 🌟 รายการที่จะหายถ้ากดยกเลิกการแก้ไข (เทียบ "ค่าเดิมก่อนแก้" กับค่าปัจจุบัน)
+  const buildCancelEditList = () => {
+    const o = originalsRef.current;
+    const list = [];
+    const seen = new Set();
+    const push = (group, text) => {
+      const key = group + "|" + text;
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({ group, text });
+    };
+    const qInfo = {};
+    (selectedForm?.sections || []).forEach((sec, si) => {
+      (sec.items || []).forEach((it, qi) => {
+        qInfo[it.id] = { si, qi };
+      });
+    });
+    const qLabel = (id) => {
+      const q = qInfo[id];
+      if (!q) return "ข้อที่แก้ไข";
+      return `หมวด ${q.si + 1} ข้อ ${q.qi + 1}`;
+    };
+    const fmtAns = (v) => {
+      if (v === undefined || v === null || v === "" || v === ABSENT) return "ยังไม่ตอบ";
+      if (v === "yes" || v === true) return "ผ่าน";
+      if (v === "no" || v === false) return "ไม่ผ่าน";
+      if (v === "na") return "N/A";
+      return String(v);
+    };
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const cur = latestMapsRef.current;
+
+    Object.keys(o.answers).forEach((k) => {
+      const ov = o.answers[k] === ABSENT ? undefined : o.answers[k];
+      const nv = cur.answers?.[k];
+      if (same(ov, nv)) return;
+      push("-", `${qLabel(k)}: ${fmtAns(nv)} → ${fmtAns(ov)}`);
+    });
+    const cnt = (v) => (v === undefined || v === ABSENT || v === null ? 0 : Array.isArray(v) ? v.length : 1);
+    Object.keys(o.photos).forEach((k) => {
+      const nv = cur.photos?.[k];
+      if (same(o.photos[k] === ABSENT ? undefined : o.photos[k], nv)) return;
+      push("รูปภาพ", `${qLabel(k)}: ${cnt(nv)} รูป → กลับเป็น ${cnt(o.photos[k])} รูป`);
+    });
+    Object.keys(o.comments).forEach((k) => {
+      const ov = o.comments[k] === ABSENT ? "" : (o.comments[k] || "");
+      const nv = cur.comments?.[k] || "";
+      if (ov === nv) return;
+      push("ข้อคิดเห็น", `${qLabel(k)}: ${nv ? "ข้อความที่พิมพ์ใหม่จะหาย" : "ข้อความเดิมที่ลบไปจะกลับมา"}`);
+    });
+    Object.keys(o.metadataValues).forEach((k) => {
+      const ov = o.metadataValues[k] === ABSENT ? undefined : o.metadataValues[k];
+      if (same(ov, cur.metadataValues?.[k])) return;
+      const f = (activeMetadataFields || []).find((x) => x.id === k);
+      push("ข้อมูลการตรวจ", f?.label || k);
+    });
+    const extraLabels = {
+      staffCount: "จำนวนพนักงาน",
+      extraNote: "สรุปผลการตรวจ / ข้อเสนอแนะ",
+      auditType: "ประเภทการตรวจ",
+      isBackdated: "การตรวจย้อนหลัง",
+      backdatedStartDate: "วันที่เริ่มตรวจย้อนหลัง",
+      backdatedEndDate: "วันที่สิ้นสุดตรวจย้อนหลัง",
+      auditeeSignature: "ลายเซ็นผู้รับการตรวจ",
+      auditorSignature: "ลายเซ็นผู้ตรวจประเมิน",
+      auditeeSignName: "ชื่อผู้รับการตรวจ"
+    };
+    Object.keys(o.extras).forEach((f) => {
+      const ov = o.extras[f] === ABSENT ? undefined : o.extras[f];
+      if (same(ov, cur.extras?.[f])) return;
+      const group = f.includes("Signature") ? "ลายเซ็น" : "ข้อมูลการตรวจ";
+      push(group, extraLabels[f] || f);
+    });
+    return list;
+  };
+
+  const handleRequestCancelEdit = () => {
+    const list = hasUnsavedLocalChanges() ? buildCancelEditList() : [];
+    if (list.length === 0) {
+      discardLocalUnsaved();
+      setIsReadOnlyMode(true);
+      return;
+    }
+    setCancelEditList(list);
+    setShowCancelEditModal(true);
+  };
+
+  const handleConfirmCancelEdit = () => {
+    const snap = {
+      answers: { ...originalsRef.current.answers },
+      photos: { ...originalsRef.current.photos },
+      comments: { ...originalsRef.current.comments },
+      metadataValues: { ...originalsRef.current.metadataValues },
+      extras: { ...originalsRef.current.extras }
+    };
+    const restoreMap = (setter, map) => {
+      const keys = Object.keys(map);
+      if (keys.length === 0) return;
+      setter((prev) => {
+        const next = { ...prev };
+        keys.forEach((k) => {
+          if (map[k] === ABSENT) delete next[k];
+          else next[k] = map[k];
+        });
+        return next;
+      });
+    };
+    restoreMap(setAnswers, snap.answers);
+    restoreMap(setPhotos, snap.photos);
+    restoreMap(setComments, snap.comments);
+    restoreMap(setMetadataValues, snap.metadataValues);
+    const extraSetters = {
+      staffCount: setStaffCount, extraNote: setExtraNote, auditType: setAuditType,
+      isBackdated: setIsBackdated, backdatedStartDate: setBackdatedStartDate, backdatedEndDate: setBackdatedEndDate,
+      auditeeSignature: setAuditeeSignature, auditorSignature: setAuditorSignature,
+      auditeeSignName: setAuditeeSignName
+    };
+    Object.keys(snap.extras).forEach((f) => {
+      const v = snap.extras[f];
+      const emptyDefault = f === "isBackdated" ? false : (f === "auditeeSignature" || f === "auditorSignature") ? null : "";
+      extraSetters[f]?.(v === ABSENT ? emptyDefault : v);
+    });
+    discardLocalUnsaved();
+    setSyncStatus(lastSavedTime ? "synced" : "idle");
+    setShowCancelEditModal(false);
+    setIsReadOnlyMode(true);
+  };
 
   // 🌟 Auto-fetch the latest draft from server upon entering step === "audit"
   // ONLY if this is NOT a new audit (i.e. resuming an in-progress draft)
@@ -2978,46 +3263,22 @@ export default function LiveAuditScreen({
       const fileList = validFiles;
       const compressedBase64List = await Promise.all(fileList.map(f => compressImageFile(f)));
 
-      // ⚠️ จุดสำคัญ: ห้าม fallback คืน base64 อีกต่อไป เพราะ backend column
-      // ImageUrl จำกัดแค่ nvarchar(500) ตัวอักษร แต่ base64 ยาวเป็นแสนตัวอักษร
-      const lastBackendError = { msg: null };
-      const uploadResults = await Promise.all(
-        compressedBase64List.map(async (base64) => {
-          try {
-            const res = await api.post('/audit/upload-image', { base64Data: base64 });
-            const url = res.data?.url;
-            if (!url) throw new Error("Upload response missing url");
-            return { ok: true, url };
-          } catch (uploadErr) {
-            console.warn("Photo upload failed:", uploadErr);
-            const serverMsg = uploadErr?.response?.data?.message;
-            if (serverMsg) lastBackendError.msg = serverMsg;
-            return { ok: false };
-          }
-        })
-      );
+      // 🌟 ย่อรูปแล้วเก็บในเครื่องก่อน ยังไม่อัปโหลด (อัปโหลดตอนกดบันทึก) เพื่อให้กดยกเลิกแล้วไม่มีไฟล์ค้างบนเซิร์ฟเวอร์
+      const localUrls = compressedBase64List.map((raw) => {
+        const url = (typeof raw === "string" && raw.startsWith("data:")) ? raw : `data:image/jpeg;base64,${raw}`;
+        pendingPhotoRawRef.current.set(url, raw);
+        return url;
+      });
 
-      const successfulUrls = uploadResults.filter(r => r.ok).map(r => r.url);
-      const failedCount = uploadResults.length - successfulUrls.length;
-
-      if (successfulUrls.length > 0) {
+      if (localUrls.length > 0) {
         setPhotos(prev => {
           const existing = Array.isArray(prev[questionId])
             ? prev[questionId]
             : (prev[questionId] ? [prev[questionId]] : []);
-          const next = { ...prev, [questionId]: [...existing, ...successfulUrls] };
+          const next = { ...prev, [questionId]: [...existing, ...localUrls] };
           scheduleActionSave({ photos: next });
           return next;
         });
-      }
-
-      if (failedCount > 0) {
-        setPhotoUploadErrors(prev => ({
-          ...prev,
-          [questionId]: lastBackendError.msg || (failedCount === fileList.length
-            ? "อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
-            : `อัปโหลดสำเร็จ ${successfulUrls.length} รูป แต่มี ${failedCount} รูปที่ล้มเหลว กรุณาลองใหม่`)
-        }));
       }
     } catch (e) {
       console.error("Compression/Upload error:", e);
@@ -3305,7 +3566,7 @@ export default function LiveAuditScreen({
       const locationCode = unit?.code || "";
 
       const header = {
-        reportNo: `DRAFT-${locationCode || "QSC"}-${formatBkk(now, false).slice(0, 10).replace(/\//g, "")}`,
+        reportNo: matchedDraftRecord?.documentNo || activeDraft?.documentNo || "-",
         issuedAt: formatBkk(now, false).slice(0, 10),
         locationCode: locationCode,
         location: `${locationCode} ${locationTitle}`.trim(),
@@ -4418,6 +4679,10 @@ export default function LiveAuditScreen({
     };
 
     const handleFinalSubmitTab3 = () => {
+      if (hasUnsavedLocalChanges() || hasPendingPhotos(photos) || hasPendingSignatures(auditeeSignature, auditorSignature)) {
+        alert("มีข้อมูลที่ยังไม่ได้บันทึก กรุณากดบันทึกก่อนส่งผลตรวจ");
+        return;
+      }
       if (!validateEntireAuditForm()) return;
       setShowConfirmModal(true);
     };
@@ -5363,6 +5628,11 @@ export default function LiveAuditScreen({
                 <SignaturePad
                   label={`1. ผู้รับการตรวจ (${unit?.fullName || unit?.name})`}
                   signatoryName={auditeeSignName}
+                  onNameChange={(name) => {
+                    if (isReadOnlyMode) return;
+                    setAuditeeSignName(name);
+                    scheduleActionSave({ auditeeSignName: name });
+                  }}
                   onSignChange={(sig) => {
                     if (isReadOnlyMode) return;
                     setAuditeeSignature(sig);
@@ -5506,6 +5776,63 @@ export default function LiveAuditScreen({
         )}
 
 
+        {/* CANCEL EDIT MODAL: บอกว่ายกเลิกแล้วข้อมูลข้อไหนจะหาย */}
+        {showCancelEditModal && typeof document !== 'undefined' && createPortal(
+          <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 shrink-0 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center border border-rose-200">
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h4 className="text-base font-black text-slate-900">ยกเลิกการแก้ไข</h4>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    {isNeverSaved()
+                      ? "ยังไม่เคยบันทึก ข้อมูลต่อไปนี้จะถูกล้างทั้งหมด"
+                      : "ข้อมูลที่แก้ไขต่อไปนี้จะหายและกลับเป็นค่าที่บันทึกไว้ล่าสุด"}
+                  </p>
+                </div>
+              </div>
+              <div className="max-h-[40vh] overflow-y-auto rounded-2xl border border-slate-200 divide-y divide-slate-100">
+                {cancelEditList.slice(0, 10).map((it, idx) => (
+                  <div key={idx} className="px-3 py-2 flex items-start gap-2">
+                    <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-600">{it.group}</span>
+                    <span className="text-xs font-semibold text-slate-700 leading-relaxed">{it.text}</span>
+                  </div>
+                ))}
+                {cancelEditList.length > 10 && (
+                  <div className="px-3 py-2 text-xs font-semibold text-slate-500">และอีก {cancelEditList.length - 10} รายการ</div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowCancelEditModal(false)}
+                  className="py-3 px-4 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs cursor-pointer"
+                >
+                  แก้ไขต่อ
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmCancelEdit}
+                  className="py-3 px-4 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md cursor-pointer"
+                >
+                  ยกเลิกการแก้ไข
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+
+        {/* ข้อความเตือนสั้นๆ เหนือปุ่มลอย (เช่น กดปุ่มรูปตาตอนยังมีข้อมูลที่ไม่ได้บันทึก) */}
+        {editHintMsg && typeof document !== 'undefined' && createPortal(
+          <div className="fixed bottom-28 right-5 sm:right-8 z-[60] max-w-[260px] rounded-xl bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 shadow-xl animate-in fade-in">
+            {editHintMsg}
+          </div>,
+          document.body
+        )}
+
         {/* REMOTE AUDIT SUBMITTED NOTIFICATION MODAL */}
         {remoteSubmittedInfo && typeof document !== 'undefined' && createPortal(
           <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm animate-in fade-in duration-200">
@@ -5546,87 +5873,160 @@ export default function LiveAuditScreen({
 
         {/* 🌟 ปุ่มลัดแบบไอคอนล้วน มุมขวาล่าง (เลื่อนขึ้น / ล็อก-ปลดล็อก / บันทึกแบบร่าง / ส่งผลตรวจ) */}
         {step === "audit" && typeof document !== "undefined" && createPortal(
-          <div className="fixed bottom-4 right-3 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-2.5 select-none">
-            {/* 1. เลื่อนขึ้นบนสุด (แสดงเฉพาะเมื่อเลื่อนจอลงมา) */}
-            {isAuditHeaderScrolled && (
-              <button
-                type="button"
-                onClick={() => {
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                  const mainEl = document.querySelector("main");
-                  if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-lg border border-slate-200 flex items-center justify-center cursor-pointer transition-all active:scale-90 animate-in fade-in zoom-in-90 duration-200"
-                title="เลื่อนขึ้นบนสุดของหน้า"
-                aria-label="เลื่อนขึ้นบนสุดของหน้า"
-              >
-                <ChevronUp size={22} strokeWidth={2.5} />
-              </button>
-            )}
-
-            {/* 2. สลับโหมดล็อก / ปลดล็อกแก้ไข */}
+          <div className="fixed bottom-7 right-5 sm:bottom-9 sm:right-8 z-50 flex flex-col items-end gap-3 select-none">
+            {/* 1. เลื่อนขึ้นบนสุด (อนิเมชัน Fade-in / Fade-out + Slide แบบนุ่มนวล ไม่โผล่หรือหายแบบแว๊บ) */}
             <button
               type="button"
-              onClick={() => setIsReadOnlyMode(prev => !prev)}
-              className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-transform active:scale-90 border ${
-                isReadOnlyMode
-                  ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
-                  : "bg-white hover:bg-slate-50 text-slate-700 border-slate-200"
+              onClick={() => {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                const mainEl = document.querySelector("main");
+                if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-xl border border-slate-200/80 flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 ${
+                isAuditHeaderScrolled
+                  ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
+                  : "opacity-0 scale-75 translate-y-3 pointer-events-none"
               }`}
-              title={isReadOnlyMode ? "คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ" : "ล็อกหน้าจอ (ดูอย่างเดียว) ป้องกันการเผลอโดนคำตอบ"}
-              aria-label={isReadOnlyMode ? "ปลดล็อกแก้ไข" : "ล็อกหน้าจอ"}
+              title="เลื่อนขึ้นบนสุดของหน้า"
+              aria-label="เลื่อนขึ้นบนสุดของหน้า"
             >
-              {isReadOnlyMode ? <Edit3 size={20} strokeWidth={2.4} /> : <Eye size={20} strokeWidth={2.4} />}
+              <ChevronUp size={24} strokeWidth={2.6} />
             </button>
 
-            {/* 3. บันทึกแบบร่าง (แสดงในหน้าแก้ไขตามปกติ / ในหน้าล็อกไม่ต้องแสดง) */}
-            {!isReadOnlyMode && (() => {
-              const isSpinning = isLocalSaving || syncStatus === "saving";
-              return (
-                <button
-                  type="button"
-                  onClick={hasUnsavedChanges && !isSpinning ? handleManualSave : undefined}
-                  disabled={isSpinning || !hasUnsavedChanges}
-                  className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-colors select-none border touch-manipulation ${
-                    isSpinning
-                      ? "bg-[#0F6659] text-white border-emerald-600 shadow-md cursor-wait"
-                      : hasUnsavedChanges
-                      ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 shadow-md cursor-pointer active:scale-95"
-                      : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-200 shadow-md cursor-default"
-                  }`}
-                  title={
-                    isSpinning
-                      ? "กำลังบันทึกข้อมูล..."
-                      : hasUnsavedChanges
-                      ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
-                      : "บันทึกข้อมูลเรียบร้อยแล้ว"
-                  }
-                  aria-label="บันทึกแบบร่าง"
-                >
-                  {isSpinning ? (
-                    <Loader2 size={20} className="animate-spin text-white" />
-                  ) : hasUnsavedChanges ? (
-                    <Save size={20} strokeWidth={2.4} />
-                  ) : (
-                    <CheckCircle2 size={22} strokeWidth={2.4} className="text-emerald-600" />
-                  )}
-                </button>
-              );
-            })()}
-
-            {/* 4. ส่งผลตรวจประเมิน (แสดงเฉพาะในสถานะล็อก / ในหน้าแก้ไขไม่แสดง) */}
-            {isReadOnlyMode && (
-              <button
-                id="audit-tab3-submit-btn"
-                type="button"
-                onClick={handleFinalSubmitTab3}
-                className="w-11 h-11 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-90 border bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
-                title="บันทึกและส่งผลตรวจประเมิน"
-                aria-label="บันทึกและส่งผลตรวจประเมิน"
+            {/* 2. แถวล่าง: ปุ่มซ้าย (ปลดล็อกแก้ไข หรือ ยกเลิก) คู่กับ ปุ่มขวา (ส่งผลตรวจ หรือ บันทึก) */}
+            <div className="flex items-center gap-3">
+              {/* 2.1 ฝั่งซ้าย: สลับระหว่างปุ่มปลดล็อกแก้ไข (โหมดดู) และปุ่มยกเลิกการแก้ไข (โหมดแก้ไขเมื่อมีการเปลี่ยนแปลงข้อมูล) */}
+              <div
+                className={`shrink-0 transition-all duration-300 ease-out ${
+                  isReadOnlyMode || hasUnsavedChanges
+                    ? "w-12 sm:w-14 opacity-100 scale-100"
+                    : "w-0 -mr-3 opacity-0 scale-50 pointer-events-none overflow-hidden"
+                }`}
               >
-                <Send size={20} strokeWidth={2.2} />
-              </button>
-            )}
+                <div className="relative w-12 h-12 sm:w-14 sm:h-14">
+                  {/* ปุ่มยกเลิกการแก้ไข (แสดงเฉพาะโหมดแก้ไขและมีการแก้ไขข้อมูล) */}
+                  <div
+                    className={`absolute inset-0 transition-all duration-300 ease-out ${
+                      !isReadOnlyMode && hasUnsavedChanges
+                        ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
+                        : "opacity-0 scale-75 -rotate-12 pointer-events-none"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={handleRequestCancelEdit}
+                      tabIndex={!isReadOnlyMode && hasUnsavedChanges ? 0 : -1}
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-rose-50 text-rose-600 shadow-xl border border-rose-200 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90"
+                      title="ยกเลิกการแก้ไข (กลับเป็นข้อมูลที่บันทึกล่าสุด)"
+                      aria-label="ยกเลิกการแก้ไข"
+                    >
+                      <X size={24} strokeWidth={2.6} />
+                    </button>
+                  </div>
+
+                  {/* ปุ่มปลดล็อกแก้ไข (แสดงในโหมดล็อก) */}
+                  <div
+                    className={`absolute inset-0 transition-all duration-300 ease-out ${
+                      isReadOnlyMode
+                        ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
+                        : "opacity-0 scale-75 rotate-12 pointer-events-none"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setIsReadOnlyMode(false)}
+                      tabIndex={isReadOnlyMode ? 0 : -1}
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 border bg-amber-500 hover:bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400/40"
+                      title="คลิกเพื่อปลดล็อกกลับมาแก้ไขผลตรวจ"
+                      aria-label="ปลดล็อกแก้ไข"
+                    >
+                      <Edit3 size={22} strokeWidth={2.4} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* ฝั่งขวา: Container สลับอย่างสมูทระหว่างปุ่มบันทึกแบบร่าง (หน้าแก้ไข) และปุ่มส่ง (หน้าล็อก) */}
+              <div className="relative w-12 h-12 sm:w-14 sm:h-14 shrink-0">
+                {/* 2.2 ปุ่มบันทึกแบบร่าง (แสดงในหน้าแก้ไข) */}
+                <div
+                  className={`absolute inset-0 transition-all duration-300 ease-out ${
+                    !isReadOnlyMode
+                      ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
+                      : "opacity-0 scale-75 -rotate-12 pointer-events-none"
+                  }`}
+                >
+                  {(() => {
+                    const isSpinning = isLocalSaving || syncStatus === "saving";
+                    return (
+                      <button
+                        type="button"
+                        onClick={!isSpinning ? (hasUnsavedChanges ? handleManualSave : () => setIsReadOnlyMode(true)) : undefined}
+                        disabled={isSpinning}
+                        className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 select-none border touch-manipulation active:scale-95 cursor-pointer ${
+                          isSpinning
+                            ? "bg-[#0F6659] text-white border-emerald-600 shadow-md cursor-wait"
+                            : hasUnsavedChanges
+                            ? "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600 shadow-md"
+                            : "bg-white hover:bg-slate-50 text-emerald-600 border-slate-200/80 shadow-md"
+                        }`}
+                        title={
+                          isSpinning
+                            ? "กำลังบันทึกข้อมูล..."
+                            : hasUnsavedChanges
+                            ? "คลิกเพื่อบันทึกแบบร่าง (มีข้อมูลที่ยังไม่ได้บันทึก)"
+                            : "บันทึกข้อมูลเรียบร้อยแล้ว (คลิกเพื่อกลับสู่โหมดดู)"
+                        }
+                        aria-label="บันทึกแบบร่าง"
+                      >
+                        <span className="relative w-6 h-6 inline-grid place-items-center">
+                          <Loader2
+                            size={22}
+                            className={`col-start-1 row-start-1 animate-spin text-white transition-all duration-200 ${
+                              isSpinning ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                            }`}
+                          />
+                          <Save
+                            size={22}
+                            strokeWidth={2.4}
+                            className={`col-start-1 row-start-1 transition-all duration-200 ${
+                              !isSpinning && hasUnsavedChanges ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                            }`}
+                          />
+                          <CheckCircle2
+                            size={24}
+                            strokeWidth={2.4}
+                            className={`col-start-1 row-start-1 text-emerald-600 transition-all duration-200 ${
+                              !isSpinning && !hasUnsavedChanges ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                            }`}
+                          />
+                        </span>
+                      </button>
+                    );
+                  })()}
+                </div>
+
+                {/* 2.2 ปุ่มส่งผลตรวจประเมิน (แสดงในสถานะล็อก) */}
+                <div
+                  className={`absolute inset-0 transition-all duration-300 ease-out ${
+                    isReadOnlyMode
+                      ? "opacity-100 scale-100 rotate-0 pointer-events-auto"
+                      : "opacity-0 scale-75 rotate-12 pointer-events-none"
+                  }`}
+                >
+                  <button
+                    id="audit-tab3-submit-btn"
+                    type="button"
+                    onClick={handleFinalSubmitTab3}
+                    className="w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 active:scale-90 border bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 ring-2 ring-emerald-500/30 cursor-pointer shadow-emerald-900/30"
+                    title="บันทึกและส่งผลตรวจประเมิน"
+                    aria-label="บันทึกและส่งผลตรวจประเมิน"
+                  >
+                    <Send size={22} strokeWidth={2.3} />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>,
           document.body
         )}

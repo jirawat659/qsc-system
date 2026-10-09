@@ -104,6 +104,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
   const [filterCategory, setFilterCategory] = useState("all");
   const [sortBy, setSortBy] = useState("score-desc"); // 'score-desc' | 'score-asc' | 'name' | 'date'
   const [currentPage, setCurrentPage] = useState(1);
+  const [pageInput, setPageInput] = useState("1");
   const [showExportModal, setShowExportModal] = useState(false);
   // งาน CAP ที่ยังค้าง (OPEN + REJECTED) — ดึงตรงจาก /cap เพราะ capTasks ใน context เป็นแค่ buffer บางส่วน
   const [capRaw, setCapRaw] = useState({ loading: true, tasks: [] });
@@ -113,6 +114,11 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
   React.useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, filterCategory, sortBy]);
+
+  // Sync input text with currentPage when navigating via buttons
+  useEffect(() => {
+    setPageInput(String(currentPage));
+  }, [currentPage]);
 
   // ดึง CAP ค้างดำเนินการ (สถานะ OPEN / REJECTED) ทุกหน้า แล้วเก็บเฉพาะ locationId + วันกำหนดส่ง
   useEffect(() => {
@@ -169,7 +175,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
         const matchFullName = u.fullName?.toLowerCase().includes(q);
         const matchCode = u.code?.toLowerCase().includes(q);
         const matchRegion = u.region?.toLowerCase().includes(q);
-        const matchAuditor = u.history && u.history[0]?.auditor?.toLowerCase().includes(q);
+        const matchAuditor = (u.auditorName || u.lastAuditorName || (u.history && u.history[0]?.auditor) || "").toLowerCase().includes(q);
         const matchBrand = (u.locationBrands || []).some(lb =>
           (lb.brand?.name || lb.brandName || "").toLowerCase().includes(q) ||
           (lb.brand?.code || lb.brandCode || "").toLowerCase().includes(q)
@@ -228,6 +234,18 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
   const paginatedUnits = filteredAndSorted.slice(startIndex, startIndex + pageSize);
   const startItem = totalCount === 0 ? 0 : startIndex + 1;
   const endItem = Math.min(startIndex + pageSize, totalCount);
+
+  // Submit typed page number only on Enter or Blur
+  const handlePageSubmit = () => {
+    const val = parseInt(pageInput, 10);
+    if (!isNaN(val)) {
+      const targetPage = Math.max(1, Math.min(totalPages, val));
+      setCurrentPage(targetPage);
+      setPageInput(String(targetPage));
+    } else {
+      setPageInput(String(currentPage));
+    }
+  };
 
   // ---------- ตัวเลขสรุปเหนือตาราง ----------
   const summary = useMemo(() => {
@@ -476,15 +494,30 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                 type="button"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
               >
                 ก่อนหน้า
               </button>
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={handlePageSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePageSubmit();
+                    e.target.blur();
+                  }
+                }}
+                className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
               <button
                 type="button"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95"
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
               >
                 ถัดไป
               </button>
@@ -496,10 +529,10 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
       {/* 💻 Tablet & Desktop View (>=768px): ตารางเต็มรูปแบบ */}
       <div className="hidden md:block rounded-3xl bg-white border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto custom-tab-scrollbar">
-          <table className="w-full min-w-[780px] text-left border-collapse">
+          <table className="w-full table-fixed min-w-[850px] text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200/80 bg-[#FAF9F5] text-slate-700 text-xs font-bold select-none">
-                <th className="py-3 px-4 w-[28%]">
+                <th className="py-3 px-4 w-[30%]">
                   <button 
                     type="button" 
                     onClick={() => setSortBy(prev => prev === 'name' ? 'score-desc' : 'name')}
@@ -509,7 +542,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     <ArrowUpDown size={13} className="text-slate-400" />
                   </button>
                 </th>
-                <th className="py-3 px-4 w-[12%] text-center">
+                <th className="py-3 px-4 w-[11%] text-center">
                   <button
                     type="button"
                     onClick={() => setSortBy(prev => prev === 'score-desc' ? 'score-asc' : 'score-desc')}
@@ -519,8 +552,8 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     <span className="text-[10px] text-slate-400">▽</span>
                   </button>
                 </th>
-                <th className="py-3 px-4 w-[20%]">ภูมิภาค / ประเภท</th>
-                <th className="py-3 px-4 w-[16%]">
+                <th className="py-3 px-4 w-[21%]">ภูมิภาค / ประเภท</th>
+                <th className="py-3 px-4 w-[12%]">
                   <button 
                     type="button" 
                     onClick={() => setSortBy(prev => prev === 'date' ? 'score-desc' : 'date')}
@@ -530,7 +563,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     <ArrowUpDown size={13} className="text-[#0F6659]" />
                   </button>
                 </th>
-                <th className="py-3 px-4 w-[12%]">ผู้ตรวจประเมิน</th>
+                <th className="py-3 px-4 w-[14%]">ผู้ตรวจประเมิน</th>
                 <th className="py-3 px-4 w-[12%] text-center pr-6">สถานะ</th>
               </tr>
             </thead>
@@ -575,19 +608,25 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                   >
                     {/* 1. อันดับ & ชื่อสาขา */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-3">
+                    <td className="py-3.5 px-4 overflow-hidden">
+                      <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xs font-semibold text-slate-400 w-4 text-center shrink-0 font-mono">
                           {overallIdx}
                         </span>
                         <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs shrink-0 font-mono bg-white shadow-2xs ${circleColor}`}>
                           {isUnaudited ? "-" : parseFloat(Number(u.lastScore).toFixed(2))}
                         </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate">
+                        <div className="min-w-0 flex-1 overflow-hidden">
+                          <div 
+                            className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate"
+                            title={u.code ? `${u.code} · ${u.name}` : u.name}
+                          >
                             <BranchTitle u={u} />
                           </div>
-                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                          <div 
+                            className="text-xs text-slate-400 font-normal truncate mt-0.5"
+                            title={u.fullName || u.region}
+                          >
                             {u.fullName || u.region}
                           </div>
                           {(() => {
@@ -597,7 +636,7 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                             return (
                               <div className="flex items-center gap-1 mt-1 flex-wrap">
                                 {brands.map((b, bi) => (
-                                  <span key={bi} className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-teal-50 text-teal-800 border border-teal-200/70">
+                                  <span key={bi} className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-teal-50 text-teal-800 border border-teal-200/70 truncate max-w-[120px]">
                                     🏷️ {b}
                                   </span>
                                 ))}
@@ -616,11 +655,11 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     </td>
 
                     {/* 3. ภูมิภาค */}
-                    <td className="py-3.5 px-4">
-                      <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                    <td className="py-3.5 px-4 overflow-hidden">
+                      <div className="text-xs sm:text-sm font-semibold text-slate-800 truncate" title={u.region}>
                         {u.region}
                       </div>
-                      <div className="text-xs text-slate-400 font-normal truncate mt-0.5">
+                      <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "-"}>
                         {u.locationType?.name || (typeof u.locationType === 'string' ? u.locationType : null) || u.type || "-"}
                       </div>
                     </td>
@@ -631,8 +670,10 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
                     </td>
 
                     {/* 5. ผู้ตรวจประเมิน */}
-                    <td className="py-3.5 px-4 whitespace-nowrap text-xs sm:text-sm font-normal text-slate-700">
-                      {u.history && u.history[0]?.auditor ? u.history[0].auditor : (u.auditorName || "-")}
+                    <td className="py-3.5 px-4 text-xs sm:text-sm font-normal text-slate-700 overflow-hidden">
+                      <span className="truncate block" title={u.auditorName || u.lastAuditorName || "-"}>
+                        {u.auditorName || u.lastAuditorName || "-"}
+                      </span>
                     </td>
 
                     {/* 6. สถานะ & Arrow */}
@@ -670,49 +711,39 @@ export default function AllBranchesScreen({ onBack, onSelectUnit, onExportExcel 
 
           {/* Pagination Controls */}
           {totalPages > 1 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
-                className={`px-3 py-1.5 rounded-2xl font-bold flex items-center gap-1 transition-all ${
-                  currentPage === 1
-                    ? 'text-slate-300 bg-slate-100 cursor-not-allowed'
-                    : 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 cursor-pointer shadow-2xs'
-                }`}
+                className="px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
               >
-                <ChevronLeft size={14} />
-                <span>ก่อนหน้า</span>
+                ก่อนหน้า
               </button>
 
-              {/* Page Number Buttons */}
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pageNum => (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => setCurrentPage(pageNum)}
-                  className={`w-8 h-8 rounded-2xl font-bold text-xs flex items-center justify-center transition-all cursor-pointer ${
-                    currentPage === pageNum
-                      ? 'bg-[#0F6659] text-white shadow-xs'
-                      : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {pageNum}
-                </button>
-              ))}
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={pageInput}
+                onChange={(e) => setPageInput(e.target.value)}
+                onBlur={handlePageSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handlePageSubmit();
+                    e.target.blur();
+                  }
+                }}
+                className="w-10 h-8 text-center text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-lg outline-none focus:border-[#0F6659] focus:ring-1 focus:ring-[#0F6659] shadow-2xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              />
 
               <button
                 type="button"
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
-                className={`px-3 py-1.5 rounded-2xl font-bold flex items-center gap-1 transition-all ${
-                  currentPage === totalPages
-                    ? 'text-slate-300 bg-slate-100 cursor-not-allowed'
-                    : 'text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 active:scale-95 cursor-pointer shadow-2xs'
-                }`}
+                className="px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold disabled:opacity-40 cursor-pointer transition-all active:scale-95 text-xs"
               >
-                <span>ถัดไป</span>
-                <ChevronRight size={14} />
+                ถัดไป
               </button>
             </div>
           )}

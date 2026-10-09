@@ -9,7 +9,6 @@ import { TopBarContext } from "../../context/TopBarContext";
 import { DataContext } from "../../context/DataContext";
 import { exportAuditReportToExcel, formatBkk } from "../../utils/exportAuditReport";
 import { formatThaiDate, formatThaiTime, parseServerDate } from "../../utils/formatters";
-import { generateReportNumber } from "../../utils/reportNumberHelper";
 import api, { getFullImageUrl } from "../../config/api";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { computeScore } from "../../config/scoring";
@@ -1752,13 +1751,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
     try {
       const recId = currentRecord?.id || record?.id;
       const typeName = matchedLocation?.locationType?.name || currentRecord.location?.locationType?.name || "-";
-      const officialReportNo = generateReportNumber({
-        id: recId,
-        brandNames: currentRecord.locationBrand,
-        unitCode: currentRecord.locationCode || matchedLocation?.code,
-        rawDate: currentRecord.auditDate || currentRecord.startedAt || currentRecord.createdAt,
-        isDraft: false
-      }) || `QSC-${String(recId || 0).padStart(6, "0")}`;
+      const officialReportNo = currentRecord?.documentNo || record?.documentNo || "-";
 
       await exportAuditReportToExcel({
         record: currentRecord,
@@ -2130,6 +2123,11 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack }) {
                 {isBackdated && (
                   <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
                     ⏳ บันทึกย้อนหลัง
+                  </span>
+                )}
+                {(currentRecord?.documentNo || record?.documentNo) && (
+                  <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-[#0F6659] border border-emerald-200 shadow-2xs">
+                    {currentRecord?.documentNo || record?.documentNo}
                   </span>
                 )}
               </div>

@@ -26,7 +26,14 @@ namespace QSC.Api.Data
         {
             EnsureUploadDirectories(env);
 
-            context.Database.Migrate();
+            try
+            {
+                context.Database.Migrate();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Database.Migrate warning/error (continuing with seeders): {ex.Message}");
+            }
 
             DedupeLegacyDuplicates(context);
             EnsureRoles(context);
@@ -34,6 +41,7 @@ namespace QSC.Api.Data
             EnsureRolePermissions(context);
             EnsureLocationTypes(context);
             EnsureAdminUser(context);
+            EnsureDocumentNumbers(context);
         }
 
         // ==========================================================
@@ -356,6 +364,107 @@ namespace QSC.Api.Data
             context.SaveChanges();
 
             Console.WriteLine("[DatabaseSeeder] สร้างบัญชี admin ตั้งต้นแล้ว (รหัสผ่าน 1234 — ต้องเปลี่ยนเมื่อเข้าใช้ครั้งแรก)");
+        }
+
+        // ==========================================================
+        // อัปเดต DocumentNo ย้อนหลังให้ข้อมูลผลตรวจและแบบร่างเดิมที่ยังไม่มีรหัส
+        // ==========================================================
+        private static void EnsureDocumentNumbers(AppDbContext context)
+        {
+            try
+            {
+                // 1. ตรวจสอบและอัปเดต AuditRecords ที่ยังไม่มี DocumentNo
+                if (context.AuditRecords.Any(ar => ar.DocumentNo == null))
+                {
+                    var sqlRecords = @"
+                        WITH CTE AS (
+                            SELECT 
+                                ar.Id,
+                                ar.AuditDate,
+                                BrandCode = CASE 
+                                    WHEN b.Name LIKE N'%ลูกก๊อ%' OR b.Name LIKE '%Lukka%' OR b.Name LIKE '%Lookgaw%' OR l.Code LIKE 'LG%' THEN 'LG'
+                                    WHEN b.Name LIKE N'%มิกก้า%' OR b.Name LIKE '%Mikka%' OR l.Code LIKE 'MK%' THEN 'MK'
+                                    ELSE 'AU'
+                                END,
+                                YearMonth = FORMAT(DATEADD(HOUR, 7, ar.AuditDate), 'yyyyMM', 'en-US')
+                            FROM AuditRecords ar
+                            LEFT JOIN Locations l ON ar.LocationId = l.Id
+                            OUTER APPLY (
+                                SELECT TOP 1 b.Name 
+                                FROM LocationBrands lb 
+                                JOIN Brands b ON lb.BrandId = b.Id 
+                                WHERE lb.LocationId = l.Id
+                            ) b
+                        ),
+                        Sequenced AS (
+                            SELECT 
+                                Id,
+                                BrandCode,
+                                YearMonth,
+                                Seq = ROW_NUMBER() OVER (PARTITION BY BrandCode, YearMonth ORDER BY AuditDate ASC, Id ASC)
+                            FROM CTE
+                        )
+                        UPDATE ar
+                        SET ar.DocumentNo = s.BrandCode + s.YearMonth + '-' + RIGHT('0000' + CAST(s.Seq AS VARCHAR(10)), 4)
+                        FROM AuditRecords ar
+                        JOIN Sequenced s ON ar.Id = s.Id
+                        WHERE ar.DocumentNo IS NULL;";
+
+                    context.Database.ExecuteSqlRaw(sqlRecords);
+                    Console.WriteLine("[DatabaseSeeder] อัปเดต DocumentNo ย้อนหลังให้ผลตรวจเดิมสำเร็จ");
+                }
+
+                // 2. ตรวจสอบและอัปเดต AuditDrafts ที่ยังไม่มี DocumentNo
+                if (context.AuditDrafts.Any(d => d.DocumentNo == null))
+                {
+                    var sqlDrafts = @"
+                        WITH CTE AS (
+                            SELECT 
+                                d.Id,
+                                d.CreatedAt,
+                                BrandCode = CASE 
+                                    WHEN b.Name LIKE N'%ลูกก๊อ%' OR b.Name LIKE '%Lukka%' OR b.Name LIKE '%Lookgaw%' OR l.Code LIKE 'LG%' THEN 'LG'
+                                    WHEN b.Name LIKE N'%มิกก้า%' OR b.Name LIKE '%Mikka%' OR l.Code LIKE 'MK%' THEN 'MK'
+                                    ELSE 'AU'
+                                END,
+                                YearMonth = FORMAT(DATEADD(HOUR, 7, d.CreatedAt), 'yyyyMM', 'en-US')
+                            FROM AuditDrafts d
+                            LEFT JOIN Locations l ON d.LocationId = l.Id
+                            OUTER APPLY (
+                                SELECT TOP 1 b.Name 
+                                FROM LocationBrands lb 
+                                JOIN Brands b ON lb.BrandId = b.Id 
+                                WHERE lb.LocationId = l.Id
+                            ) b
+                        ),
+                        Sequenced AS (
+                            SELECT 
+                                Id,
+                                BrandCode,
+                                YearMonth,
+                                Seq = ROW_NUMBER() OVER (PARTITION BY BrandCode, YearMonth ORDER BY CreatedAt ASC, Id ASC)
+                            FROM CTE
+                        )
+                        UPDATE d
+                        SET d.DocumentNo = 'DRAFT-' + s.BrandCode + s.YearMonth + '-' + RIGHT('0000' + CAST(s.Seq AS VARCHAR(10)), 4)
+                        FROM AuditDrafts d
+                        JOIN Sequenced s ON d.Id = s.Id
+                        WHERE d.DocumentNo IS NULL;";
+
+                    context.Database.ExecuteSqlRaw(sqlDrafts);
+                    Console.WriteLine("[DatabaseSeeder] อัปเดต DocumentNo ย้อนหลังให้แบบร่างเดิมสำเร็จ");
+                }
+
+                // 3. ปรับปรุง DocumentNo ที่อาจมี พ.ศ. 2569 ให้เป็น ค.ศ. 2026
+                context.Database.ExecuteSqlRaw(@"
+                    UPDATE AuditDrafts SET DocumentNo = REPLACE(DocumentNo, '2569', '2026') WHERE DocumentNo LIKE '%2569%';
+                    UPDATE AuditRecords SET DocumentNo = REPLACE(DocumentNo, '2569', '2026') WHERE DocumentNo LIKE '%2569%';
+                ");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] ไม่สามารถอัปเดต DocumentNo ย้อนหลังได้: {ex.Message}");
+            }
         }
     }
 }

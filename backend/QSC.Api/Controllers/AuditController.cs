@@ -313,11 +313,44 @@ namespace QSC.Api.Controllers
                     return Forbid();
                 }
 
+                // 🌟 Generate DocumentNo for draft (e.g. DRAFT-AU202610-0001) if not already assigned
+                string? draftDocNo = null;
+                if (draft == null || string.IsNullOrWhiteSpace(draft.DocumentNo))
+                {
+                    var loc = await _context.Locations
+                        .Include(l => l.LocationBrands)
+                            .ThenInclude(lb => lb.Brand)
+                        .FirstOrDefaultAsync(l => l.Id == dto.LocationId);
+
+                    var brandCode = ResolveBrandCode(loc);
+                    var bkkDate = (dto.StartedAt ?? DateTime.UtcNow).AddHours(7);
+                    var yearMonth = bkkDate.ToString("yyyyMM", System.Globalization.CultureInfo.InvariantCulture);
+                    var draftPrefix = $"DRAFT-{brandCode}{yearMonth}-";
+
+                    var latestDraftDocNo = await _context.AuditDrafts
+                        .Where(d => d.DocumentNo != null && d.DocumentNo.StartsWith(draftPrefix))
+                        .OrderByDescending(d => d.DocumentNo)
+                        .Select(d => d.DocumentNo)
+                        .FirstOrDefaultAsync();
+
+                    int nextDraftSeq = 1;
+                    if (!string.IsNullOrEmpty(latestDraftDocNo) && latestDraftDocNo.Length >= draftPrefix.Length + 4)
+                    {
+                        var seqPart = latestDraftDocNo.Substring(draftPrefix.Length);
+                        if (int.TryParse(seqPart, out int parsedSeq))
+                        {
+                            nextDraftSeq = parsedSeq + 1;
+                        }
+                    }
+                    draftDocNo = $"{draftPrefix}{nextDraftSeq:D4}";
+                }
+
                 // 3. If still no draft, insert a brand-new row (ensures separate rows for ad-hoc drafts)
                 if (draft == null)
                 {
                     draft = new AuditDraft
                     {
+                        DocumentNo = draftDocNo,
                         LocationId = dto.LocationId,
                         SurveyFormId = effectiveFormId,
                         AuditorId = effectiveAuditorId,
@@ -335,6 +368,10 @@ namespace QSC.Api.Controllers
                 }
                 else
                 {
+                    if (string.IsNullOrWhiteSpace(draft.DocumentNo) && !string.IsNullOrWhiteSpace(draftDocNo))
+                    {
+                        draft.DocumentNo = draftDocNo;
+                    }
                     // 🛡️ GUARD: If the draft in database has already been migrated to a newer form version
                     // than the one the client is trying to save, reject this save with 409 Conflict!
                     if (draft.SurveyFormId != effectiveFormId)
@@ -417,6 +454,7 @@ namespace QSC.Api.Controllers
                         var syncPayload = new
                         {
                             draftId = draft.Id,
+                            documentNo = draft.DocumentNo,
                             locationId = dto.LocationId,
                             surveyFormId = effectiveFormId,
                             auditScheduleId = dto.AuditScheduleId,
@@ -1275,6 +1313,21 @@ namespace QSC.Api.Controllers
             return input.Trim().Length > 20 ? input.Trim().Substring(0, 20) : input.Trim();
         }
 
+        private static string ResolveBrandCode(Location? location)
+        {
+            if (location == null) return "AU";
+            var brandNames = string.Join(" ", (location.LocationBrands ?? Enumerable.Empty<LocationBrand>())
+                .Select(lb => lb.Brand?.Name ?? ""));
+            var combined = $"{brandNames} {location.Code}".ToUpperInvariant();
+            if (combined.Contains("ลูกก๊อ") || combined.Contains("LUKKA") || combined.Contains("LOOKGAW") || combined.Contains("LG")) return "LG";
+            if (combined.Contains("มิกก้า") || combined.Contains("MIKKA") || combined.Contains("MK")) return "MK";
+            if (combined.Contains("AFTER YOU") || combined.Contains("AU")) return "AU";
+            if (location.Code?.StartsWith("LG", StringComparison.OrdinalIgnoreCase) == true) return "LG";
+            if (location.Code?.StartsWith("MK", StringComparison.OrdinalIgnoreCase) == true) return "MK";
+            if (location.Code?.StartsWith("AU", StringComparison.OrdinalIgnoreCase) == true) return "AU";
+            return "AU";
+        }
+
         private static DateTime ToUtcKind(DateTime d) =>
             d.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : d.ToUniversalTime();
 
@@ -1467,10 +1520,34 @@ namespace QSC.Api.Controllers
                 var auditeeSigUrl = await UploadHelper.SaveSignaturePhotoAsync(
                     _env, _config, dto.AuditeeSignatureUrl, validScheduleId, location.Code, "auditee", 2 * 1024 * 1024);
 
+                // 🌟 Generate DocumentNo (e.g. AU202610-0001) with monthly reset
+                var brandCode = ResolveBrandCode(location);
+                var bkkDate = startedAtUtc.AddHours(7);
+                var yearMonth = bkkDate.ToString("yyyyMM", System.Globalization.CultureInfo.InvariantCulture);
+                var docPrefix = $"{brandCode}{yearMonth}-";
+
+                var latestDocNo = await _context.AuditRecords
+                    .Where(r => r.DocumentNo != null && r.DocumentNo.StartsWith(docPrefix))
+                    .OrderByDescending(r => r.DocumentNo)
+                    .Select(r => r.DocumentNo)
+                    .FirstOrDefaultAsync();
+
+                int nextSeq = 1;
+                if (!string.IsNullOrEmpty(latestDocNo) && latestDocNo.Length >= docPrefix.Length + 4)
+                {
+                    var seqPart = latestDocNo.Substring(docPrefix.Length);
+                    if (int.TryParse(seqPart, out int parsedSeq))
+                    {
+                        nextSeq = parsedSeq + 1;
+                    }
+                }
+                var documentNo = $"{docPrefix}{nextSeq:D4}";
+
                 // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ (UTC)
                 // Create AuditRecord
                 var record = new AuditRecord
                 {
+                    DocumentNo = documentNo,
                     LocationId = dto.LocationId,
                     SurveyFormId = dto.SurveyFormId,
                     PrimaryAuditorId = primaryAuditorId,
@@ -1626,6 +1703,7 @@ namespace QSC.Api.Controllers
                     await _hubContext.Clients.Groups("audit_all", $"loc_{record.LocationId}").SendAsync("AuditCreated", new
                     {
                         auditRecordId = record.Id,
+                        documentNo = record.DocumentNo,
                         locationId = record.LocationId,
                         percentageScore = percentageScore,
                         isPassed = isOverallPassed,
@@ -1654,6 +1732,7 @@ namespace QSC.Api.Controllers
                     var submittedPayload = new
                     {
                         auditRecordId = record.Id,
+                        documentNo = record.DocumentNo,
                         draftId = dto.DraftId,
                         auditScheduleId = validScheduleId,
                         locationId = dto.LocationId,
@@ -1675,6 +1754,7 @@ namespace QSC.Api.Controllers
                 return Ok(new
                 {
                     auditRecordId = record.Id,
+                    documentNo = record.DocumentNo,
                     totalScore = totalScore,
                     maxScore = maxScore,
                     percentageScore = percentageScore,
@@ -1851,6 +1931,7 @@ namespace QSC.Api.Controllers
             var result = records.Select(r => new
             {
                 id = r.Id,
+                documentNo = r.DocumentNo,
                 locationId = r.LocationId,
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,
@@ -1983,6 +2064,7 @@ namespace QSC.Api.Controllers
             var result = new
             {
                 id = r.Id,
+                documentNo = r.DocumentNo,
                 locationId = r.LocationId,
                 locationCode = r.Location?.Code,
                 locationName = r.Location?.Name,

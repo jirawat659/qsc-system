@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { Search, ArrowUpDown, ArrowDown, ArrowUp, Download, X, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight, FileText } from "lucide-react";
+import { Search, ArrowUpDown, ArrowDown, ArrowUp, Download, X, ClipboardCheck, CalendarDays, Plus, Calendar, ChevronRight } from "lucide-react";
 
 
 import { c, sans, mono } from "../../config/theme";
@@ -12,7 +12,6 @@ import BranchProfile from "./BranchProfile";
 import LiveAuditScreen from "../audit/LiveAuditScreen";
 import api from "../../config/api";
 import { parseAuditTimestamp, parseThaiMonthYearQuery } from "../../utils/formatters";
-import { generateReportNumber } from "../../utils/reportNumberHelper";
 
 // 🌟 ฟังก์ชันช่วยระดับโมดูล (เดิมเคยประกาศซ้ำในหลายจุดของ allLogs useMemo) — รับ forms/activeLocations
 // เป็นพารามิเตอร์ตรงๆ เพื่อให้เรียกใช้ซ้ำได้ทั้งใน allLogs useMemo และใน buildCompletedLog (โหมดค้นหาเดือน/ปี)
@@ -93,19 +92,14 @@ function buildCompletedLog(r, forms, activeLocations) {
         ? r.surveyForm.passingScore 
         : (matchedFormObj?.passingScore ?? 85));
   const isPassed = r.isPassed !== undefined ? r.isPassed : (score >= effectivePassingScore && !r.hasCriticalDefect);
-  const reportNo = generateReportNumber({
-    id: r.id,
-    brandNames: brandNames,
-    unitCode: unitCode,
-    rawDate: rawDate,
-    isDraft: false
-  });
+  const reportNo = r.documentNo || null;
 
   return {
     id: `completed-${r.id}`,
     originalId: r.id,
     type: 'completed',
     reportNo: reportNo,
+    documentNo: reportNo,
     unitName: branchName,
     unitFullName: branchFullName,
     unitCode: unitCode,
@@ -126,6 +120,7 @@ function buildCompletedLog(r, forms, activeLocations) {
     record: {
       ...r,
       reportNo: reportNo,
+      documentNo: reportNo,
       unitName: branchName,
       unitFullName: branchFullName,
       score: score,
@@ -387,19 +382,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         const brandNames = getBrandsForLoc(d.locationId, d.location, activeLocations);
         const unitCode = getCodeForLoc(d.locationId, d.location, activeLocations);
-        const reportNo = generateReportNumber({
-          id: d.id,
-          brandNames: brandNames,
-          unitCode: unitCode,
-          rawDate: rawDate,
-          isDraft: true
-        });
+        const reportNo = d.documentNo || null;
 
         logs.push({
           id: `draft-${d.id}`,
           originalId: d.id,
           type: 'draft',
           reportNo: reportNo,
+          documentNo: reportNo,
           unitName: branchName,
           unitFullName: branchFullName,
           unitCode: unitCode,
@@ -417,6 +407,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
           record: {
             ...d,
             reportNo: reportNo,
+            documentNo: reportNo,
             id: d.id,
             auditScheduleId: d.auditScheduleId || d.scheduleId || null,
             scheduleId: d.auditScheduleId || d.scheduleId || null,
@@ -482,19 +473,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         // If s.status is in_progress (ongoing audit from schedule without a separate draft entry)
         if (s.status === 'in_progress') {
-          const reportNo = generateReportNumber({
-            id: s.id,
-            brandNames: brandNames,
-            unitCode: unitCode,
-            rawDate: rawDate,
-            isDraft: true
-          });
+          const reportNo = s.documentNo || null;
 
           logs.push({
             id: `schedule-progress-${s.id}`,
             originalId: s.id,
             type: 'draft',
             reportNo: reportNo,
+            documentNo: reportNo,
             unitName: branchName,
             unitFullName: branchFullName,
             unitCode: unitCode,
@@ -1200,24 +1186,42 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
               }}
               className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs hover:border-[#0F6659] active:scale-[0.99] transition-all cursor-pointer space-y-2.5 group"
             >
-              {/* บรรทัดที่ 1: วงกลมคะแนน (ซ้าย) + ชื่อสาขา (ข้างคะแนน) + ป้ายสถานะ (ขวา) */}
-              <div className="flex items-center justify-between gap-2.5">
+              {/* บรรทัดที่ 1: วงกลมคะแนน (ซ้าย) + ชื่อสาขา & รหัสรายงาน (ข้างคะแนน) + ป้ายสถานะ (ขวา) */}
+              <div className="flex items-start justify-between gap-2.5">
                 <div className="flex items-center gap-2.5 min-w-0 flex-1">
                   <div className={`min-w-[42px] px-2 h-8 rounded-full border-2 flex items-center justify-center font-bold text-xs font-mono shadow-2xs shrink-0 ${circleColor}`}>
                     {scoreDisplay}
                   </div>
-                  <h3 className="text-sm font-bold text-slate-900 leading-snug truncate group-hover:text-[#0F6659] transition-colors min-w-0" title={log.unitName}>
-                    <BranchTitle code={log.unitCode} name={log.unitName} />
-                  </h3>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-bold text-slate-900 leading-snug truncate group-hover:text-[#0F6659] transition-colors min-w-0" title={log.unitName}>
+                      <BranchTitle code={log.unitCode} name={log.unitName} />
+                    </h3>
+                    <div 
+                      className="text-xs text-slate-400 font-normal truncate mt-0.5" 
+                      title={[log.documentNo || log.reportNo, log.region && log.region !== '-' ? log.region : null].filter(Boolean).join(" · ")}
+                    >
+                      {(log.documentNo || log.reportNo) ? (
+                        <span className="inline-flex items-center gap-1.5 truncate">
+                          <span className={`font-mono text-[11px] font-bold ${
+                            log.type === 'draft'
+                              ? 'text-amber-600/80'
+                              : 'text-slate-400'
+                          }`}>
+                            {log.documentNo || log.reportNo}
+                          </span>
+                        </span>
+                      ) : log.region}
+                    </div>
+                  </div>
                 </div>
-                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 ${statusBadge}`}>
+                <span className={`inline-flex items-center justify-center px-2.5 py-1 rounded-lg text-xs font-bold shrink-0 mt-0.5 ${statusBadge}`}>
                   {statusText}
                 </span>
               </div>
 
-              {/* บรรทัดที่ 2: แบบฟอร์มการตรวจ & เลขที่รายงาน */}
-              <div className="space-y-0.5">
-                {log.formName && (
+              {/* บรรทัดที่ 2: แบบฟอร์มการตรวจ */}
+              {log.formName && (
+                <div className="space-y-0.5">
                   <p className="text-xs text-slate-500 font-medium truncate">
                     {log.formName}
                     {log.auditType && (
@@ -1226,26 +1230,8 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                       </span>
                     )}
                   </p>
-                )}
-                {log.reportNo ? (
-                  <div className="pt-0.5 flex items-center gap-1.5 flex-wrap">
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md font-mono text-[11px] font-bold border shadow-2xs ${
-                      log.type === 'draft'
-                        ? 'bg-amber-50 text-amber-800 border-amber-200/90'
-                        : 'bg-slate-100 text-slate-700 border-slate-200/90'
-                    }`}>
-                      <FileText size={10} className={log.type === 'draft' ? 'text-amber-600 shrink-0' : 'text-[#0F6659] shrink-0'} />
-                      <span>{log.reportNo}</span>
-                    </span>
-                  </div>
-                ) : (
-                  log.region && log.region !== '-' && (
-                    <p className="text-[11px] text-slate-400 font-normal truncate">
-                      {log.region}
-                    </p>
-                  )
-                )}
-              </div>
+                </div>
+              )}
 
               {/* บรรทัดที่ 3: สถานะคืบหน้า (ถ้ามี) + วันที่ / ผู้ตรวจ */}
               <div className="space-y-1 text-xs">
@@ -1475,14 +1461,19 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                           <div className="text-sm font-bold text-slate-900 group-hover:text-[#0F6659] transition-colors truncate" title={log.unitName}>
                             <BranchTitle code={log.unitCode} name={log.unitName} />
                           </div>
-                          <div className="text-xs text-slate-400 font-normal truncate mt-0.5" title={log.reportNo || log.region}>
-                            {log.reportNo ? (
-                              <span className={`font-mono text-[11px] font-medium ${
-                                log.type === 'draft'
-                                  ? 'text-amber-600/80'
+                          <div 
+                            className="text-xs text-slate-400 font-normal truncate mt-0.5" 
+                            title={[log.documentNo || log.reportNo, log.region && log.region !== '-' ? log.region : null].filter(Boolean).join(" · ")}
+                          >
+                            {(log.documentNo || log.reportNo) ? (
+                              <span className="inline-flex items-center gap-1.5 truncate">
+                                <span className={`font-mono text-[11px] font-bold ${
+                                  log.type === 'draft'
+                                    ? 'text-amber-600/80'
                                   : 'text-slate-400'
-                              }`}>
-                                {log.reportNo}
+                                }`}>
+                                  {log.documentNo || log.reportNo}
+                                </span>
                               </span>
                             ) : log.region}
                           </div>

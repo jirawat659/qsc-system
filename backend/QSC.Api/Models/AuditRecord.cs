@@ -43,6 +43,7 @@ namespace QSC.Api.Models
         public DateTime? StartedAt { get; set; }
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
         public byte[]? VersionNumber { get; set; }
+        public string? DocumentNo { get; set; }
 
         public List<AuditResponse> Responses { get; set; } = new();
     }

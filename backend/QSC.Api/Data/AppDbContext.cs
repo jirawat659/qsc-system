@@ -223,6 +223,13 @@ namespace QSC.Api.Data
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(ar => ar.AuditDate);
 
+            modelBuilder.Entity<AuditRecord>()
+                .Property(ar => ar.DocumentNo)
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<AuditRecord>()
+                .HasIndex(ar => ar.DocumentNo);
+
             modelBuilder.Entity<AuditScheduleAuditor>()
                 .HasIndex(asa => asa.AuditorId);
 
@@ -273,6 +280,13 @@ namespace QSC.Api.Data
             // 🌟 หา draft ที่ผู้ตรวจค้างไว้ (ตารางนี้เดิมไม่มี index เลยสักตัว)
             modelBuilder.Entity<AuditDraft>()
                 .HasIndex(d => new { d.AuditorId, d.LocationId, d.SurveyFormId });
+
+            modelBuilder.Entity<AuditDraft>()
+                .Property(d => d.DocumentNo)
+                .HasMaxLength(50);
+
+            modelBuilder.Entity<AuditDraft>()
+                .HasIndex(d => d.DocumentNo);
 
             modelBuilder.Entity<AuditRecord>()
                 .HasIndex(r => r.SurveyFormId);
