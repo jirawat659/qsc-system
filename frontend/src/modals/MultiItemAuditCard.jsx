@@ -149,15 +149,11 @@ export default function MultiItemAuditCard({
                             onClick={() => handleItemChange(item.id, "answers", { [crit.id]: true })}
                             className={`py-1.5 sm:py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${readOnly ? "cursor-default pointer-events-none" : "cursor-pointer active:scale-95"} ${
                               isPass
-                                ? readOnly
-                                  ? "bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40"
-                                  : "bg-emerald-50 text-emerald-800 border-emerald-400 ring-2 ring-emerald-400/20 shadow-2xs font-extrabold"
-                                : readOnly
-                                  ? "bg-slate-50 text-slate-300 border-slate-100 opacity-25"
-                                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                ? "bg-emerald-50 text-emerald-800 border-emerald-400 ring-2 ring-emerald-400/20 shadow-2xs font-extrabold"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                             }`}
                           >
-                            <CheckCircle2 size={14} className={isPass ? (readOnly ? "text-slate-700" : "text-emerald-700") : (readOnly ? "text-slate-300" : "text-slate-400")} />
+                            <CheckCircle2 size={14} className={isPass ? "text-emerald-700" : "text-slate-400"} />
                             <span>ผ่าน</span>
                           </button>
 
@@ -168,15 +164,11 @@ export default function MultiItemAuditCard({
                             onClick={() => handleItemChange(item.id, "answers", { [crit.id]: false })}
                             className={`py-1.5 sm:py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${readOnly ? "cursor-default pointer-events-none" : "cursor-pointer active:scale-95"} ${
                               isFail
-                                ? readOnly
-                                  ? "bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40"
-                                  : "bg-rose-50 text-rose-800 border-rose-400 ring-2 ring-rose-400/20 shadow-2xs font-extrabold"
-                                : readOnly
-                                  ? "bg-slate-50 text-slate-300 border-slate-100 opacity-25"
-                                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                                ? "bg-rose-50 text-rose-800 border-rose-400 ring-2 ring-rose-400/20 shadow-2xs font-extrabold"
+                                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
                             }`}
                           >
-                            <XCircle size={14} className={isFail ? (readOnly ? "text-slate-700" : "text-rose-700") : (readOnly ? "text-slate-300" : "text-slate-400")} />
+                            <XCircle size={14} className={isFail ? "text-rose-700" : "text-slate-400"} />
                             <span>ไม่ผ่าน</span>
                           </button>
                         </div>

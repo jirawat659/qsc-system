@@ -336,22 +336,18 @@ const QuestionCard = React.memo(function QuestionCard({
           )}
         </div>
       ) : !isScale ? (
-        <div className={`grid grid-cols-3 gap-2 ${readOnly ? 'pointer-events-none' : ''}`}>
+        <div className={`grid grid-cols-3 gap-2 ${readOnly ? 'pointer-events-none select-none' : ''}`}>
           <button
             type="button"
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "yes")}
             className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
               answer === "yes" || answer === true
-                ? readOnly
-                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                  : 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30'
-                : readOnly
-                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30 font-black'
+                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
             }`}
           >
-            <CheckCircle2 size={14} className={readOnly && (answer === "yes" || answer === true) ? "text-slate-700" : ""} />
+            <CheckCircle2 size={14} className={answer === "yes" || answer === true ? "text-white" : ""} />
             <span>ผ่าน</span>
           </button>
           <button
@@ -360,15 +356,11 @@ const QuestionCard = React.memo(function QuestionCard({
             onClick={() => onAnswerSelect(q.id, "no")}
             className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
               answer === "no" || answer === false
-                ? readOnly
-                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                  : 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30'
-                : readOnly
-                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30 font-black'
+                : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
             }`}
           >
-            <XCircle size={14} className={readOnly && (answer === "no" || answer === false) ? "text-slate-700" : ""} />
+            <XCircle size={14} className={answer === "no" || answer === false ? "text-white" : ""} />
             <span>ไม่ผ่าน</span>
           </button>
           <button
@@ -377,20 +369,16 @@ const QuestionCard = React.memo(function QuestionCard({
             onClick={() => onAnswerSelect(q.id, "na")}
             className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
               answer === "na"
-                ? readOnly
-                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                  : 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30'
-                : readOnly
-                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                  : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30 font-black'
+                : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
             }`}
           >
-            <Minus size={14} className={readOnly && answer === "na" ? "text-slate-700" : ""} />
+            <Minus size={14} className={answer === "na" ? "text-white" : ""} />
             <span>ข้าม</span>
           </button>
         </div>
       ) : (
-        <div className={`flex gap-1.5 items-center ${readOnly ? 'pointer-events-none' : ''}`}>
+        <div className={`flex gap-1.5 items-center ${readOnly ? 'pointer-events-none select-none' : ''}`}>
           {[5, 4, 3, 2, 1].map((n) => (
             <button
               key={n}
@@ -399,12 +387,8 @@ const QuestionCard = React.memo(function QuestionCard({
               onClick={() => onAnswerSelect(q.id, n)}
               className={`flex-1 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all border ${
                 answer === n
-                  ? readOnly
-                    ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                    : 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30'
-                  : readOnly
-                    ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 cursor-pointer'
+                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30 font-black'
+                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
               }`}
             >
               {n}
@@ -416,15 +400,11 @@ const QuestionCard = React.memo(function QuestionCard({
             onClick={() => onAnswerSelect(q.id, "na")}
             className={`px-2 py-1.5 sm:py-2 rounded-xl flex items-center justify-center text-[10px] font-bold transition-all border ${
               answer === "na"
-                ? readOnly
-                  ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                  : 'bg-slate-700 text-white border-slate-700 shadow-md'
-                : readOnly
-                  ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                  : 'bg-slate-50 text-slate-500 border-slate-200 cursor-pointer'
+                ? 'bg-slate-700 text-white border-slate-700 shadow-md font-black'
+                : 'bg-slate-50 text-slate-500 border-slate-200'
             }`}
           >
-            <Minus size={12} className={`mr-0.5 ${readOnly && answer === "na" ? "text-slate-700" : ""}`} /> N/A
+            <Minus size={12} className={`mr-0.5 ${answer === "na" ? "text-white" : ""}`} /> N/A
           </button>
         </div>
       )}
@@ -4823,14 +4803,10 @@ export default function LiveAuditScreen({
                                 scheduleActionSave({ auditType: key, metadataValues: nextMeta });
                               }}
                               className={`py-2.5 px-1 rounded-xl text-xs font-bold border transition-all ${
-                                isReadOnlyMode ? 'pointer-events-none' : 'cursor-pointer'
+                                isReadOnlyMode ? 'pointer-events-none select-none' : 'cursor-pointer'
                               } ${isSelected
-                                  ? isReadOnlyMode
-                                    ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                                    : 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                                  : isReadOnlyMode
-                                    ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs font-black'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                             >
                               {opt}
@@ -5000,14 +4976,10 @@ export default function LiveAuditScreen({
                                 scheduleActionSave({ metadataValues: next });
                               }}
                               className={`py-2.5 px-2 rounded-xl text-xs font-bold border transition-all ${
-                                isReadOnlyMode ? 'pointer-events-none' : 'cursor-pointer'
+                                isReadOnlyMode ? 'pointer-events-none select-none' : 'cursor-pointer'
                               } ${currentVal === opt
-                                  ? isReadOnlyMode
-                                    ? 'bg-slate-200 text-slate-800 border-slate-400 font-black shadow-none ring-1 ring-slate-400/40'
-                                    : 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
-                                  : isReadOnlyMode
-                                    ? 'bg-slate-50 text-slate-300 border-slate-100 opacity-25'
-                                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs font-black'
+                                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                                 }`}
                             >
                               {opt}
