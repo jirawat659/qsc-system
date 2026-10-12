@@ -74,12 +74,25 @@ function parseMetadataJson(meta) {
 export function normalizeCatCode(code, name) {
   const c = (code || "").toUpperCase().trim();
   const n = (name || "").toUpperCase().trim();
-  if (c === "PD" || c === "QLT" || c.includes("PROD") || n.includes("PRODUCT") || n.includes("คุณภาพ") || n.includes("สินค้า")) return "PD";
-  if (c === "PC" || c === "OPS" || c.includes("PROC") || n.includes("PROCESS") || n.includes("ปฏิบัติ") || n.includes("การดำเนินงาน")) return "PC";
-  if (c === "S" || c === "SVC" || c.includes("SERV") || n.includes("SERVICE") || n.includes("บริการ")) return "S";
-  if (c === "C" || c === "CLN" || c.includes("CLEAN") || n.includes("CLEAN") || n.includes("สะอาด")) return "C";
-  if (c === "DM" || c === "DOC" || c.includes("DOC") || n.includes("DOCUMENT") || n.includes("เอกสาร")) return "DM";
-  return c;
+
+  // ตัดหมวด INFO / รายละเอียด ออกจากการคำนวณคะแนน
+  if (c === "INFO" || n === "INFO" || n.includes("รายละเอียด") || n.includes("ข้อมูลทั่วไป")) return "INFO";
+
+  // 1. ตรวจสอบรหัสหมวด (Category Code) เป็นหลัก
+  if (c === "PD" || c === "QLT" || c.startsWith("PD")) return "PD";
+  if (c === "PC" || c === "OPS" || c.startsWith("PC")) return "PC";
+  if (c === "S" || c === "SVC" || c.startsWith("S")) return "S";
+  if (c === "C" || c === "CLN" || c.startsWith("C")) return "C";
+  if (c === "DM" || c === "DOC" || c.startsWith("DM") || c.startsWith("DOC")) return "DM";
+
+  // 2. Fallback ตรวจสอบจากชื่อหมวดหมู่ (กรณีข้อมูลประวัติเก่ามากที่ไม่มี code)
+  if (n.includes("PRODUCT") || n.includes("คุณภาพ") || n.includes("สินค้า")) return "PD";
+  if (n.includes("PROCESS") || n.includes("ปฏิบัติ") || n.includes("การดำเนินงาน")) return "PC";
+  if (n.includes("SERVICE") || n.includes("บริการ")) return "S";
+  if (n.includes("CLEAN") || n.includes("สะอาด")) return "C";
+  if (n.includes("DOCUMENT") || n.includes("เอกสาร")) return "DM";
+
+  return c || "GEN";
 }
 
 export function extractTDS(record) {
@@ -128,22 +141,18 @@ export function getCategoryScores(record) {
   const catMap = { PD: [], PC: [], S: [], C: [], DM: [] };
   for (const res of record.responses || []) {
     if (res.isNa) continue;
+    const full = Number(res.fullScore ?? res.maxScore ?? res.surveyItem?.fullScore ?? 0);
+    if (full <= 0) continue; // ข้อที่ไม่คิดคะแนน
     const code = normalizeCatCode(res.categoryCode, res.categoryName);
+    if (code === "INFO") continue;
     if (catMap[code]) {
-      catMap[code].push({ given: res.scoreGiven ?? 0, full: res.fullScore ?? 0 });
+      catMap[code].push({ given: Number(res.scoreGiven ?? 0), full });
     }
   }
   const result = {};
   for (const [cat, items] of Object.entries(catMap)) {
     if (items.length === 0) {
-      const fallbackVal = record[`score${cat}`] ?? (
-        cat === "PD" ? (record.scoreQLT ?? record.scoreProduct) :
-        cat === "PC" ? (record.scoreOPS ?? record.scoreProcess) :
-        cat === "S"  ? (record.scoreSVC ?? record.scoreService) :
-        cat === "C"  ? (record.scoreCLN ?? record.scoreCleanliness) :
-        cat === "DM" ? (record.scoreDOC ?? record.scoreDocument) : null
-      );
-      result[cat] = fallbackVal != null ? Math.round(fallbackVal) : "-";
+      result[cat] = "-";
     } else {
       const totalFull = items.reduce((s, i) => s + i.full, 0);
       const totalGiven = items.reduce((s, i) => s + i.given, 0);

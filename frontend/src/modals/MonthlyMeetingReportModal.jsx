@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { BarChart3, Download, X, Loader2, FileSpreadsheet, ChevronDown, Filter, Search } from "lucide-react";
+import { BarChart3, Download, X, Loader2, FileSpreadsheet, ChevronDown, Filter, Search, AlertCircle } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import { c, mono } from "../config/theme";
@@ -7,7 +7,7 @@ import { DataContext } from "../context/DataContext";
 import ModalWrapper from "../shared/ModalWrapper";
 import api from "../config/api";
 import { parseServerDate } from "../utils/formatters";
-import { getCategoryScores, extractTeamOnShift } from "../utils/exportToExcel";
+import { getCategoryScores, extractTeamOnShift, normalizeCatCode } from "../utils/exportToExcel";
 
 const THAI_MONTHS_FULL = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -28,6 +28,15 @@ const BRAND_ABBR_MAP = {
   "AU": "AU",
   "Mikka": "MK",
   "mikka": "MK"
+};
+
+const CAT_NAMES_MAP = {
+  PD: "Product (สินค้า/คุณภาพ)",
+  PC: "Process (ขั้นตอนการปฏิบัติงาน)",
+  S: "Service (การบริการ)",
+  C: "Cleanliness (ความสะอาด)",
+  DM: "Documents (เอกสาร/การจัดการ)",
+  GEN: "ทั่วไป"
 };
 
 function formatThaiDateShort(dateStr) {
@@ -70,8 +79,33 @@ function makeSheet(aoa, widths) {
   return ws;
 }
 
+// 🌟 ตัวช่วยดึงผลตรวจแบบ Client-Side Pagination เพื่อก้าวข้ามเพดาน 2,000 รายการของเซิร์ฟเวอร์
+async function fetchAllAuditRecords(params, onProgress) {
+  let allItems = [];
+  let page = 1;
+  const pageSize = 100;
+  while (true) {
+    const res = await api.get('/audit/records', {
+      params: { ...params, page, pageSize }
+    });
+    const data = res.data;
+    const items = Array.isArray(data) ? data : (data?.items || []);
+    const totalCount = typeof data?.totalCount === "number" ? data.totalCount : null;
+    allItems = allItems.concat(items);
+    if (onProgress) {
+      onProgress({ current: allItems.length, total: totalCount });
+    }
+    if (items.length < pageSize || (totalCount !== null && allItems.length >= totalCount)) {
+      break;
+    }
+    page++;
+  }
+  return allItems;
+}
+
 export default function MonthlyMeetingReportModal({ onClose }) {
   const { 
+    currentUser,
     locations = [], 
     visibleLocations = [], 
     brands = [], 
@@ -79,78 +113,141 @@ export default function MonthlyMeetingReportModal({ onClose }) {
     selectedBrandId 
   } = React.useContext(DataContext);
 
-  // กรองเฉพาะแบรนด์และฟอร์มที่เปิดใช้งาน
+  // 1. กรองแบรนด์ที่เปิดใช้งานและตามสิทธิ์ของผู้ใช้ (User Brand Scope)
   const activeBrands = useMemo(() => {
-    return (brands || []).filter(b => b.isActive !== false && b.isActive !== 0);
-  }, [brands]);
+    let list = (brands || []).filter(b => b.isActive !== false && b.isActive !== 0);
+    if (currentUser?.brandScope === "SPECIFIC" && Array.isArray(currentUser?.allowedBrandIds) && currentUser.allowedBrandIds.length > 0) {
+      list = list.filter(b => currentUser.allowedBrandIds.includes(b.id));
+    }
+    return list;
+  }, [brands, currentUser]);
 
-  const activeForms = useMemo(() => {
-    return (forms || []).filter(f => f.isActive !== false && f.isActive !== 0);
-  }, [forms]);
-
-  // ตั้งค่าเริ่มต้นของแบรนด์
+  // ตั้งค่าเริ่มต้นของแบรนด์ (บังคับเลือกแบรนด์ ไม่มีตัวเลือก "ทุกแบรนด์")
   const [modalBrandId, setModalBrandId] = useState(() => {
     if (selectedBrandId && activeBrands.some(b => b.id === selectedBrandId)) {
       return String(selectedBrandId);
     }
-    return activeBrands.length === 1 ? String(activeBrands[0].id) : "";
+    return activeBrands.length > 0 ? String(activeBrands[0].id) : "";
   });
 
-  // 🌟 ตั้งค่าเริ่มต้นเป็น "" (ทุกแบบฟอร์ม) เพื่อไม่ให้ถูกล็อกค้างที่ฟอร์มแรก
+  useEffect(() => {
+    if (activeBrands.length > 0) {
+      if (!modalBrandId || !activeBrands.some(b => String(b.id) === String(modalBrandId))) {
+        setModalBrandId(String(activeBrands[0].id));
+      }
+    } else {
+      setModalBrandId("");
+    }
+  }, [activeBrands, modalBrandId]);
+
+  // 2. กรองแบบฟอร์ม: เฉพาะ isActive && isLatest และตรงกับแบรนด์ที่เลือก
+  const activeForms = useMemo(() => {
+    if (!modalBrandId) return [];
+    const bId = Number(modalBrandId);
+    return (forms || []).filter(f => {
+      if (f.isActive === false || f.isActive === 0) return false;
+      if (!f.isLatest) return false;
+      const matchBrand = (Array.isArray(f.brandIds) && f.brandIds.includes(bId)) ||
+                         f.brandId === bId ||
+                         (!f.brandIds?.length && !f.brandId);
+      return matchBrand;
+    });
+  }, [forms, modalBrandId]);
+
+  // ค่า form ที่เลือก (เก็บเป็น formGroupId หรือ f.id)
   const [modalFormId, setModalFormId] = useState("");
 
+  // Auto-select form ถ้าเหลือฟอร์มเดียว หรือถ้าเปลี่ยนแบรนด์แล้วฟอร์มเดิมไม่อยู่ในรายการ
+  useEffect(() => {
+    if (activeForms.length === 1) {
+      setModalFormId(String(activeForms[0].formGroupId || activeForms[0].id));
+    } else if (modalFormId && !activeForms.some(f => String(f.formGroupId || f.id) === String(modalFormId))) {
+      setModalFormId(activeForms.length > 0 ? String(activeForms[0].formGroupId || activeForms[0].id) : "");
+    } else if (!modalFormId && activeForms.length > 0) {
+      setModalFormId(String(activeForms[0].formGroupId || activeForms[0].id));
+    }
+  }, [activeForms, modalFormId]);
+
+  // 3. ตัวเลือกเดือนและปี: ค่าเริ่มต้น ถ้าวันที่ 1–7 ให้เป็นเดือนก่อนหน้า ถ้าไม่ใช่ให้เป็นเดือนปัจจุบัน
   const now = new Date();
-  const currentMonth = now.getMonth();
-  const currentYear = now.getFullYear();
-  const thaiYear = currentYear + 543;
-  const shortYear = thaiYear % 100;
-  const currentMonthName = `${THAI_MONTHS_FULL[currentMonth]} ${thaiYear}`;
-  const monthNameShort = THAI_MONTHS_SHORT[currentMonth];
-  const monthStr = String(currentMonth + 1).padStart(2, "0");
+  const currentSystemYear = now.getFullYear();
+  const defaultMonth = now.getDate() <= 7
+    ? (now.getMonth() === 0 ? 11 : now.getMonth() - 1)
+    : now.getMonth();
+  const defaultYear = (now.getDate() <= 7 && now.getMonth() === 0)
+    ? currentSystemYear - 1
+    : currentSystemYear;
+
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+  const [selectedYear, setSelectedYear] = useState(defaultYear);
+
+  // ปี พ.ศ. ให้เลือกย้อนหลัง 3 ปี
+  const availableYears = useMemo(() => [
+    currentSystemYear,
+    currentSystemYear - 1,
+    currentSystemYear - 2
+  ], [currentSystemYear]);
+
+  const selectedThaiYear = selectedYear + 543;
+  const shortYear = selectedThaiYear % 100;
+  const selectedMonthName = `${THAI_MONTHS_FULL[selectedMonth]} ${selectedThaiYear}`;
+  const monthNameShort = THAI_MONTHS_SHORT[selectedMonth];
+  const monthStr = String(selectedMonth + 1).padStart(2, "0");
 
   const [rawYearRecords, setRawYearRecords] = useState([]);
   const [rawCaps, setRawCaps] = useState([]);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [isLoadingReport, setIsLoadingReport] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(null);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [reportError, setReportError] = useState(null);
+  const [exportError, setExportError] = useState(null);
 
   // 🌟 ฟังก์ชันโหลดข้อมูลรายงาน
   const handleLoadReportData = async () => {
+    if (!modalBrandId) {
+      setReportError("กรุณาเลือกแบรนด์ที่ต้องการออกรายงาน");
+      return;
+    }
+    if (!modalFormId) {
+      setReportError("กรุณาเลือกแบบฟอร์มการตรวจที่ต้องการออกรายงาน");
+      return;
+    }
+
     setIsLoadingReport(true);
     setReportError(null);
+    setExportError(null);
+    setLoadingProgress(null);
+
     try {
-      const startOfYear = new Date(currentYear, 0, 1, 0, 0, 0).toISOString();
-      const endOfYear = new Date(currentYear + 1, 0, 1, 0, 0, 0).toISOString();
+      // ดึงตั้งแต่ 1 ม.ค. ของ selectedYear จนถึง 1 ของเดือนถัดไปของ selectedMonth
+      const startOfYear = new Date(selectedYear, 0, 1, 0, 0, 0).toISOString();
+      const endOfPeriod = new Date(selectedYear, selectedMonth + 1, 1, 0, 0, 0).toISOString();
 
       const params = {
         startDate: startOfYear,
-        endDate: endOfYear,
-        includeResponses: true
+        endDate: endOfPeriod,
+        includeResponses: true,
+        brandId: Number(modalBrandId),
+        formGroupId: Number(modalFormId)
       };
-      if (modalBrandId) {
-        params.brandId = Number(modalBrandId);
-      }
 
       const [recordsRes, capsRes] = await Promise.all([
-        api.get('/audit/records', { params }),
+        fetchAllAuditRecords(params, (prog) => setLoadingProgress(prog)),
         api.get('/cap')
       ]);
 
-      const rawRecords = Array.isArray(recordsRes.data) 
-        ? recordsRes.data 
-        : (recordsRes.data?.items || []);
-      
+      const rawRecords = recordsRes;
       const allCapsData = Array.isArray(capsRes.data) 
         ? capsRes.data 
         : (capsRes.data?.items || []);
 
-      // กรองเฉพาะข้อมูลที่อยู่ในปีปัจจุบันจริง
+      // กรองเฉพาะข้อมูลที่อยู่ใน selectedYear
       const validYearRecords = rawRecords.filter(r => {
         const rawDate = r.auditDate || r.submittedAt || r.createdAt;
         if (!rawDate) return false;
         const d = new Date(rawDate);
-        return !isNaN(d.getTime()) && d.getFullYear() === currentYear;
+        return !isNaN(d.getTime()) && d.getFullYear() === selectedYear;
       });
 
       setRawYearRecords(validYearRecords);
@@ -161,30 +258,36 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       setReportError("ไม่สามารถดึงข้อมูลสำหรับสรุปรายงานประจำเดือนได้ครบถ้วน");
     } finally {
       setIsLoadingReport(false);
+      setLoadingProgress(null);
     }
   };
 
-  // ── 🎯 กรองข้อมูลตามฟอร์มที่เลือก (ถ้าเลือก "ทุกแบบฟอร์ม" จะไม่ตัดทิ้ง) ─────────
+  // ── 🎯 ข้อมูลทั้งปีที่ตรงกับกลุ่มฟอร์ม ──────────────────────────────────
   const allYearRecords = useMemo(() => {
     if (!hasLoaded) return [];
     return rawYearRecords.filter(r => {
-      if (modalFormId && String(r.surveyFormId || r.formId) !== String(modalFormId)) {
-        return false;
+      if (modalFormId) {
+        const targetId = Number(modalFormId);
+        const rFormGroupId = Number(r.formGroupId ?? r.surveyFormId ?? r.formId);
+        const rSurveyFormId = Number(r.surveyFormId ?? r.formId);
+        if (rFormGroupId !== targetId && rSurveyFormId !== targetId) {
+          return false;
+        }
       }
       return true;
     });
   }, [rawYearRecords, modalFormId, hasLoaded]);
 
-  // กรองเฉพาะเดือนปัจจุบัน
+  // กรองเฉพาะเดือนและปีที่เลือก
   const monthRecords = useMemo(() => {
     if (!hasLoaded) return [];
     return allYearRecords.filter(r => {
       const rawDate = r.auditDate || r.submittedAt || r.createdAt;
       if (!rawDate) return false;
       const d = new Date(rawDate);
-      return !isNaN(d.getTime()) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      return !isNaN(d.getTime()) && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
     });
-  }, [allYearRecords, currentMonth, currentYear, hasLoaded]);
+  }, [allYearRecords, selectedMonth, selectedYear, hasLoaded]);
 
   // กรองงาน CAP
   const monthCaps = useMemo(() => {
@@ -193,7 +296,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       const rawDate = cItem.createdAt;
       if (!rawDate) return false;
       const d = new Date(rawDate);
-      const isThisMonth = !isNaN(d.getTime()) && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+      const isThisMonth = !isNaN(d.getTime()) && d.getMonth() === selectedMonth && d.getFullYear() === selectedYear;
       if (!isThisMonth) return false;
 
       if (modalBrandId) {
@@ -207,7 +310,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       }
       return true;
     });
-  }, [rawCaps, currentMonth, currentYear, modalBrandId, locations, hasLoaded]);
+  }, [rawCaps, selectedMonth, selectedYear, modalBrandId, locations, hasLoaded]);
 
   // สาขาที่เกี่ยวข้องตามแบรนด์
   const activeLocationsList = useMemo(() => {
@@ -221,8 +324,8 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   const currentBrandObj = useMemo(() => activeBrands.find(b => String(b.id) === String(modalBrandId)), [activeBrands, modalBrandId]);
   const currentBrandName = currentBrandObj?.name || (modalBrandId ? "Brand" : "After You");
 
-  const currentFormObj = useMemo(() => activeForms.find(f => String(f.id) === String(modalFormId)), [activeForms, modalFormId]);
-  const currentFormTitle = currentFormObj?.title || currentFormObj?.name || "AU. Operation Excellence";
+  const currentFormObj = useMemo(() => activeForms.find(f => String(f.formGroupId || f.id) === String(modalFormId)), [activeForms, modalFormId]);
+  const currentFormTitle = currentFormObj?.title || currentFormObj?.name || "Operation Excellence";
 
   // ── KPIs ──────────────────────────────────────────────────────────────────
   const totalLocations = activeLocationsList.length;
@@ -245,17 +348,19 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       (r.responses || []).forEach(resp => {
         if (resp.isNa || resp.isScored === false) return;
         const full = Number(resp.fullScore !== undefined && resp.fullScore !== null ? resp.fullScore : (resp.maxScore ?? resp.surveyItem?.fullScore ?? 0));
-        if (full <= 0) return; // 🌟 ข้อที่ไม่คิดคะแนน ไม่นำมาคำนวณในหมวดคะแนน
-        const cat = (resp.categoryName || resp.surveyItem?.categoryName || resp.sectionTitle || 'ทั่วไป').trim();
-        if (cat === "รายละเอียด" || cat.toLowerCase() === "info" || cat === "ข้อมูลทั่วไป") return;
-        if (!categoryScores[cat]) categoryScores[cat] = { total: 0, count: 0 };
-        categoryScores[cat].total += (resp.scoreGiven || 0);
-        categoryScores[cat].count += full;
+        if (full <= 0) return; // ข้อที่ไม่คิดคะแนน ไม่นำมาคำนวณในหมวดคะแนน
+        const catCode = normalizeCatCode(resp.categoryCode || resp.surveyItem?.categoryCode, resp.categoryName || resp.surveyItem?.categoryName);
+        if (catCode === "INFO") return;
+        const catTitle = CAT_NAMES_MAP[catCode] || resp.categoryName || catCode;
+        if (!categoryScores[catCode]) categoryScores[catCode] = { title: catTitle, total: 0, count: 0 };
+        categoryScores[catCode].total += (resp.scoreGiven || 0);
+        categoryScores[catCode].count += full;
       });
     });
     return Object.entries(categoryScores)
-      .map(([title, s]) => ({
-        title,
+      .map(([code, s]) => ({
+        code,
+        title: s.title,
         percent: s.count > 0 ? Number(((s.total / s.count) * 100).toFixed(2)) : 0,
       }))
       .sort((a, b) => b.percent - a.percent);
@@ -286,10 +391,11 @@ export default function MonthlyMeetingReportModal({ onClose }) {
   // ── 🌟 สร้างรายงาน Excel ครบ 6 ชีทหลัก ─────────────────────────────────────
   const handleExportFullExcel = () => {
     if (!hasLoaded || allYearRecords.length === 0) {
-      alert("ไม่พบข้อมูลผลการตรวจสำหรับเงื่อนไขที่เลือก กรุณาตรวจสอบแบรนด์หรือแบบฟอร์มอีกครั้ง");
+      setExportError("ไม่พบข้อมูลผลการตรวจสำหรับเงื่อนไขที่เลือก กรุณาตรวจสอบแบรนด์หรือแบบฟอร์มอีกครั้ง");
       return;
     }
     setIsExportingExcel(true);
+    setExportError(null);
     api.post('/activity/export', { action: 'EXPORT_MONTHLY_EXCEL' }).catch(() => {});
     try {
       const wb = XLSX.utils.book_new();
@@ -322,12 +428,12 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         const endRow = 4 + monthRecords.length;
         sheet1Aoa.push([
           "เฉลี่ย", "", "", "", "",
-          { t: "n", f: `AVERAGE(F5:F${endRow})` },
-          { t: "n", f: `AVERAGE(G5:G${endRow})` },
-          { t: "n", f: `AVERAGE(H5:H${endRow})` },
-          { t: "n", f: `AVERAGE(I5:I${endRow})` },
-          { t: "n", f: `AVERAGE(J5:J${endRow})` },
-          { t: "n", f: `AVERAGE(K5:K${endRow})` },
+          { t: "n", f: `IFERROR(AVERAGE(F5:F${endRow}), "-")` },
+          { t: "n", f: `IFERROR(AVERAGE(G5:G${endRow}), "-")` },
+          { t: "n", f: `IFERROR(AVERAGE(H5:H${endRow}), "-")` },
+          { t: "n", f: `IFERROR(AVERAGE(I5:I${endRow}), "-")` },
+          { t: "n", f: `IFERROR(AVERAGE(J5:J${endRow}), "-")` },
+          { t: "n", f: `IFERROR(AVERAGE(K5:K${endRow}), "-")` },
           ""
         ]);
       }
@@ -338,7 +444,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         [],
         [`บริษัท  ${currentBrandName} จำกัด มหาชน`],
         ["รายการผลการตรวจสอบคุณภาพ และมาตรฐานภายใน"],
-        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนผลตรวจสาขาของ ${currentBrandName} ประจำเดือน ${monthNameShort}  ${thaiYear}`],
+        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนผลตรวจสาขาของ ${currentBrandName} ประจำเดือน ${monthNameShort}  ${selectedThaiYear}`],
         [...Array(17).fill(""), "สาขา", "Percent"]
       ];
       const sortedMonthRecords = [...monthRecords].sort((a, b) => (b.percentageScore || 0) - (a.percentageScore || 0));
@@ -351,25 +457,26 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       const sheet3Aoa = [
         [],
         [`บริษัท  ${currentBrandName} จำกัด มหาชน`],
-        [`แผนภูมิแสดงเปอร์เซ็นต์เปรียบเทียบแยกหมวด รวมทั้งบริษัท ของ ${currentBrandName} ปี ${thaiYear}`],
+        [`แผนภูมิแสดงเปอร์เซ็นต์เปรียบเทียบแยกหมวด รวมทั้งบริษัท ของ ${currentBrandName} ปี ${selectedThaiYear}`],
         [],
         ["หมวด", ...THAI_MONTHS_SHORT, "เฉลี่ยทั้งปี"]
       ];
       ["PD", "PC", "S", "C", "DM"].forEach((cat, idx) => {
         const row = [cat];
         for (let m = 0; m < 12; m++) {
-          if (m > currentMonth) {
+          const isFutureMonth = (selectedYear === currentSystemYear && m > selectedMonth) || (selectedYear > currentSystemYear);
+          if (isFutureMonth) {
             row.push("-");
             continue;
           }
           const mRecords = allYearRecords.filter(r => {
             const d = new Date(r.auditDate);
-            return d.getFullYear() === currentYear && d.getMonth() === m;
+            return d.getFullYear() === selectedYear && d.getMonth() === m;
           });
           const scores = mRecords.map(r => getCategoryScores(r)[cat]).filter(s => typeof s === "number");
           row.push(scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : "-");
         }
-        row.push({ t: "n", f: `AVERAGE(B${6 + idx}:M${6 + idx})` });
+        row.push({ t: "n", f: `IFERROR(AVERAGE(B${6 + idx}:M${6 + idx}), "-")` });
         sheet3Aoa.push(row);
       });
       XLSX.utils.book_append_sheet(wb, makeSheet(sheet3Aoa, [10, ...Array(12).fill(8), 12]), "แยกหมวดเฉลี่ยสาขา");
@@ -378,30 +485,31 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       const sheet4Aoa = [
         [],
         [`บริษัท  ${currentBrandName} จำกัด มหาชน`],
-        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนโดยรวมทั้งบริษัทของ ${currentBrandName} ปี ${thaiYear}`],
+        [`แผนภูมิแสดงเปอร์เซ็นต์คะแนนโดยรวมทั้งบริษัทของ ${currentBrandName} ปี ${selectedThaiYear}`],
         [],
         [...Array(10).fill(""), "เดือน", "Percent"]
       ];
       for (let m = 0; m < 12; m++) {
-        if (m > currentMonth) {
+        const isFutureMonth = (selectedYear === currentSystemYear && m > selectedMonth) || (selectedYear > currentSystemYear);
+        if (isFutureMonth) {
           sheet4Aoa.push([...Array(10).fill(""), THAI_MONTHS_SHORT[m], "-"]);
           continue;
         }
         const mRecords = allYearRecords.filter(r => {
           const d = new Date(r.auditDate);
-          return d.getFullYear() === currentYear && d.getMonth() === m;
+          return d.getFullYear() === selectedYear && d.getMonth() === m;
         });
         const avg = mRecords.length > 0 
           ? Math.round(mRecords.reduce((s, r) => s + (r.percentageScore || 0), 0) / mRecords.length) 
           : "-";
         sheet4Aoa.push([...Array(10).fill(""), THAI_MONTHS_SHORT[m], avg]);
       }
-      sheet4Aoa.push([...Array(10).fill(""), "เฉลี่ย", { t: "n", f: "AVERAGE(L6:L17)" }]);
-      XLSX.utils.book_append_sheet(wb, makeSheet(sheet4Aoa), `Company ${thaiYear}`);
+      sheet4Aoa.push([...Array(10).fill(""), "เฉลี่ย", { t: "n", f: "IFERROR(AVERAGE(L6:L17), \"-\")" }]);
+      XLSX.utils.book_append_sheet(wb, makeSheet(sheet4Aoa), `Company ${selectedThaiYear}`);
 
       // 5. ชีท: แยกหมวดหมู่คะแนนตามสาขา (รายละเอียดย่อย: สาขา x 6 แถว x 12 เดือน)
       const sheet5Aoa = [
-        [`คะแนนแยกหมวด(แยกสาขา) ${thaiYear}`],
+        [`คะแนนแยกหมวด(แยกสาขา) ${selectedThaiYear}`],
         ["No.", "Branch/ Month", "", ...ENG_MONTHS_SHORT, "%  เฉลี่ย "]
       ];
       const uniqueBranches = Array.from(new Set(allYearRecords.map(r => r.locationCode || r.locationName)));
@@ -411,13 +519,14 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         ["PD", "PC", "S", "C", "DM", "%"].forEach((metric, mIdx) => {
           const row = [mIdx === 0 ? bIdx + 1 : "", mIdx === 0 ? bName : "", metric];
           for (let m = 0; m < 12; m++) {
-            if (m > currentMonth) {
+            const isFutureMonth = (selectedYear === currentSystemYear && m > selectedMonth) || (selectedYear > currentSystemYear);
+            if (isFutureMonth) {
               row.push("-");
               continue;
             }
             const mRecs = bRecords.filter(r => {
               const d = new Date(r.auditDate);
-              return d.getFullYear() === currentYear && d.getMonth() === m;
+              return d.getFullYear() === selectedYear && d.getMonth() === m;
             });
 
             if (mRecs.length === 0) {
@@ -430,7 +539,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
               row.push(scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : "-");
             }
           }
-          row.push({ t: "n", f: `AVERAGE(D${curRow}:O${curRow})` });
+          row.push({ t: "n", f: `IFERROR(AVERAGE(D${curRow}:O${curRow}), "-")` });
           sheet5Aoa.push(row);
           curRow++;
         });
@@ -439,7 +548,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
 
       // 6. ชีท: คะแนนเฉลี่ยทั้งปีจัดแบ่งเกรดตามกรุ๊ป (A / B / C)
       const sheet6Aoa = [
-        [`AVG. ${currentYear} & Divide into groups`],
+        [`AVG. ${selectedYear} & Divide into groups`],
         ["Groups", "No.", "Branch", "PD.", "PC.", "S.", "C.", "DM.", "Percent", "A", "90.00-100.00"],
         ["", "", "", "", "", "", "", "", "", "B", "87.00-89.99"],
         ["", "", "", "", "", "", "", "", "", "C", "<87.00"]
@@ -482,7 +591,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         fileTitle = `${brandShort} ${currentFormTitle}`.trim();
       }
 
-      const yearTwoDigits = String(currentYear).slice(-2);
+      const yearTwoDigits = String(selectedYear).slice(-2);
       const fileName = `${fileTitle} ${monthStr}.${yearTwoDigits}.xlsx`
         .replace(/[\\/:*?"<>|]/g, "_")
         .replace(/\s+/g, " ")
@@ -491,14 +600,14 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       XLSX.writeFile(wb, fileName);
     } catch (err) {
       console.error("Export error:", err);
-      alert("เกิดข้อผิดพลาดในการสร้างไฟล์ Excel รายงานประจำเดือน");
+      setExportError("เกิดข้อผิดพลาดในการสร้างไฟล์ Excel รายงานประจำเดือน กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsExportingExcel(false);
     }
   };
 
   return (
-    <ModalWrapper onClose={onClose} maxWidth="max-w-2xl">
+    <ModalWrapper onClose={onClose} maxWidth="max-w-3xl">
       {/* Header */}
       <div className="shrink-0 p-4 sm:p-5 border-b flex items-center justify-between" style={{ borderColor: c.border, background: "#FAF9F5" }}>
         <div className="flex items-center gap-2.5">
@@ -518,27 +627,30 @@ export default function MonthlyMeetingReportModal({ onClose }) {
       {/* Content */}
       <div className="flex-1 overflow-y-auto overscroll-contain min-h-0 p-4 sm:p-6 space-y-4">
         
-        {/* 🌟 1. ส่วนเลือกแบรนด์ + แบบฟอร์ม + ปุ่มโหลดข้อมูลรายงาน */}
+        {/* 🌟 1. ส่วนเลือกแบรนด์ + แบบฟอร์ม + เดือน/ปี + ปุ่มโหลดข้อมูลรายงาน */}
         <div className="p-3.5 rounded-2xl bg-white border border-slate-200 shadow-2xs space-y-3">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
             <Filter size={14} className="text-[#0F6659]" />
-            <span>กรองข้อมูลรายงานที่ต้องการสรุปและส่งออก</span>
+            <span>กำหนดเงื่อนไขสรุปรายงานประจำเดือน</span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* เลือกแบรนด์ */}
             <div>
-              <label className="text-[11px] font-bold text-slate-500 block mb-1">แบรนด์ที่เปิดใช้งาน (Active Brands)</label>
+              <label className="text-[11px] font-bold text-slate-500 block mb-1">แบรนด์ (Brand)</label>
               <div className="relative">
                 <select
                   value={modalBrandId}
                   onChange={(e) => {
                     setModalBrandId(e.target.value);
+                    setModalFormId("");
                     setHasLoaded(false);
+                    setReportError(null);
+                    setExportError(null);
                   }}
                   className="w-full text-xs font-semibold pl-3 pr-8 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer appearance-none truncate"
                 >
-                  <option value="">ทุกแบรนด์ที่เปิดใช้งาน</option>
+                  {activeBrands.length === 0 && <option value="" disabled>ไม่มีแบรนด์ที่เข้าถึงได้</option>}
                   {activeBrands.map(b => (
                     <option key={b.id} value={b.id}>{b.name}</option>
                   ))}
@@ -547,21 +659,73 @@ export default function MonthlyMeetingReportModal({ onClose }) {
               </div>
             </div>
 
-            {/* เลือกแบบฟอร์ม (เปิดให้เลือก "ทุกแบบฟอร์ม" ได้) */}
+            {/* เลือกแบบฟอร์ม */}
             <div>
-              <label className="text-[11px] font-bold text-slate-500 block mb-1">แบบฟอร์มการตรวจ (Forms)</label>
+              <label className="text-[11px] font-bold text-slate-500 block mb-1">แบบฟอร์มการตรวจ (Form)</label>
               <div className="relative">
                 <select
                   value={modalFormId}
                   onChange={(e) => {
                     setModalFormId(e.target.value);
                     setHasLoaded(false);
+                    setReportError(null);
+                    setExportError(null);
+                  }}
+                  disabled={activeForms.length === 0}
+                  className="w-full text-xs font-semibold pl-3 pr-8 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer appearance-none truncate disabled:opacity-50"
+                >
+                  {activeForms.length === 0 ? (
+                    <option value="" disabled>ไม่มีแบบฟอร์มสำหรับแบรนด์นี้</option>
+                  ) : (
+                    activeForms.map(f => (
+                      <option key={f.formGroupId || f.id} value={f.formGroupId || f.id}>
+                        {f.title || f.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* เลือกเดือน */}
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 block mb-1">เดือนที่ออกรายงาน (Month)</label>
+              <div className="relative">
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => {
+                    setSelectedMonth(Number(e.target.value));
+                    setHasLoaded(false);
+                    setReportError(null);
+                    setExportError(null);
                   }}
                   className="w-full text-xs font-semibold pl-3 pr-8 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer appearance-none truncate"
                 >
-                  <option value="">ทุกแบบฟอร์ม (All Forms)</option>
-                  {activeForms.map(f => (
-                    <option key={f.id} value={f.id}>{f.title || f.name}</option>
+                  {THAI_MONTHS_FULL.map((name, idx) => (
+                    <option key={idx} value={idx}>{name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* เลือกปี */}
+            <div>
+              <label className="text-[11px] font-bold text-slate-500 block mb-1">ปี (Year)</label>
+              <div className="relative">
+                <select
+                  value={selectedYear}
+                  onChange={(e) => {
+                    setSelectedYear(Number(e.target.value));
+                    setHasLoaded(false);
+                    setReportError(null);
+                    setExportError(null);
+                  }}
+                  className="w-full text-xs font-semibold pl-3 pr-8 py-2.5 rounded-xl bg-slate-50 border border-slate-200 outline-none text-slate-800 focus:bg-white focus:border-[#0F6659] transition-all cursor-pointer appearance-none truncate"
+                >
+                  {availableYears.map(y => (
+                    <option key={y} value={y}>พ.ศ. {y + 543}</option>
                   ))}
                 </select>
                 <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -573,13 +737,15 @@ export default function MonthlyMeetingReportModal({ onClose }) {
           <button
             type="button"
             onClick={handleLoadReportData}
-            disabled={isLoadingReport}
+            disabled={isLoadingReport || !modalBrandId || !modalFormId}
             className="w-full mt-1 py-2.5 px-4 rounded-xl bg-[#0F6659] hover:bg-emerald-800 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition-all cursor-pointer active:scale-98 disabled:opacity-50"
           >
             {isLoadingReport ? (
               <>
                 <Loader2 size={15} className="animate-spin" />
-                <span>กำลังโหลดข้อมูลรายงาน...</span>
+                <span>
+                  {loadingProgress ? `กำลังโหลดข้อมูลผลตรวจ... (${loadingProgress.current} รายการ)` : "กำลังโหลดข้อมูลรายงาน..."}
+                </span>
               </>
             ) : (
               <>
@@ -594,13 +760,23 @@ export default function MonthlyMeetingReportModal({ onClose }) {
         {isLoadingReport && (
           <div className="flex flex-col items-center justify-center py-12 gap-2 text-slate-400">
             <Loader2 size={24} className="animate-spin text-[#0F6659]" />
-            <span className="text-xs font-bold">กำลังรวบรวมและประมวลผลข้อมูลรายงานประจำเดือน...</span>
+            <span className="text-xs font-bold">
+              {loadingProgress ? `กำลังรวบรวมข้อมูลผลตรวจ... (${loadingProgress.current} รายการ)` : "กำลังรวบรวมและประมวลผลข้อมูลรายงานประจำเดือน..."}
+            </span>
           </div>
         )}
 
         {!isLoadingReport && reportError && (
-          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 text-center">
-            {reportError}
+          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 text-center flex items-center justify-center gap-2">
+            <AlertCircle size={15} className="shrink-0" />
+            <span>{reportError}</span>
+          </div>
+        )}
+
+        {!isLoadingReport && exportError && (
+          <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 text-center flex items-center justify-center gap-2">
+            <AlertCircle size={15} className="shrink-0" />
+            <span>{exportError}</span>
           </div>
         )}
 
@@ -609,8 +785,8 @@ export default function MonthlyMeetingReportModal({ onClose }) {
             <div className="w-12 h-12 rounded-2xl bg-slate-50 text-[#0F6659] flex items-center justify-center mx-auto border border-slate-100">
               <FileSpreadsheet size={24} />
             </div>
-            <p className="text-xs font-bold text-slate-700">กรุณาเลือกแบรนด์และแบบฟอร์ม แล้วกดปุ่ม "โหลดข้อมูลรายงาน"</p>
-            <p className="text-[11px] text-slate-400">แนะนำ: หากต้องการดูผลตรวจทั้งหมดให้เลือกแบบฟอร์มเป็น "ทุกแบบฟอร์ม (All Forms)"</p>
+            <p className="text-xs font-bold text-slate-700">กรุณาเลือกแบรนด์, แบบฟอร์ม, เดือน และปี แล้วกดปุ่ม "โหลดข้อมูลรายงาน"</p>
+            <p className="text-[11px] text-slate-400">ระบบจะรวบรวมผลตรวจทุกเวอร์ชันในกลุ่มแบบฟอร์มเดียวกันตั้งแต่ต้นปี {selectedThaiYear} ถึงสิ้นเดือน {THAI_MONTHS_SHORT[selectedMonth]}</p>
           </div>
         )}
 
@@ -621,11 +797,11 @@ export default function MonthlyMeetingReportModal({ onClose }) {
           <div>
             <div className="text-xs font-bold text-slate-400">รอบรายงาน</div>
             <div className="text-xs sm:text-sm font-bold text-slate-800">
-              สรุปผลการตรวจสอบมาตรฐาน Q.S.C. ประจำเดือน {currentMonthName}
+              สรุปผลการตรวจสอบมาตรฐาน Q.S.C. ประจำเดือน {selectedMonthName}
             </div>
             {monthRecords.length === 0 && allYearRecords.length > 0 && (
               <div className="text-[11px] text-amber-700 font-semibold mt-0.5">
-                ℹ️ เดือนนี้ยังไม่มีรอบตรวจของฟอร์มนี้ (แต่มีข้อมูลในรอบเดือนอื่น {allYearRecords.length} รายการ สามารถกดดาวน์โหลดรายงานทั้งปีได้)
+                ℹ️ เดือนนี้ยังไม่มีรอบตรวจของฟอร์มนี้ (แต่มีข้อมูลในรอบเดือนอื่นของปี {selectedThaiYear} จำนวน {allYearRecords.length} รายการ สามารถกดดาวน์โหลดรายงานได้)
               </div>
             )}
           </div>
@@ -734,7 +910,7 @@ export default function MonthlyMeetingReportModal({ onClose }) {
 
       {/* Footer Actions */}
       <div className="shrink-0 p-4 border-t bg-slate-50 flex items-center justify-between gap-2" style={{ borderColor: c.border }}>
-        {/* 🌟 ปลดล็อกปุ่ม: ดาวน์โหลดได้ทันทีที่มีข้อมูลของปีนี้ (allYearRecords > 0) */}
+        {/* 🌟 ปุ่มดาวน์โหลดรายงาน: ดาวน์โหลดได้เมื่อโหลดข้อมูลและมีผลตรวจของปีที่เลือก */}
         <button
           type="button"
           onClick={handleExportFullExcel}

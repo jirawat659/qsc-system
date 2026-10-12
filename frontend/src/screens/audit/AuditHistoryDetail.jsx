@@ -589,7 +589,7 @@ function AuditHeaderActionMenu({
 }
 
 export default function AuditHistoryDetail({ unitName, record = {}, onBack, onResumeDraft }) {
-  const { locations: allLocations, forms = [], getFormDetail, currentUser, refreshData } = React.useContext(DataContext);
+  const { locations: allLocations, forms = [], getFormDetail, currentUser, refreshData, auditRecords = [] } = React.useContext(DataContext);
   const [activeTab, setActiveTab] = useState("overview"); // 'responses' | 'overview' | 'photos' | 'sign'
   const [disputeSubmitted, setDisputeSubmitted] = useState(record.status === "Disputed");
   const [previewPhoto, setPreviewPhoto] = useState(null);
@@ -602,6 +602,32 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
 
   // 🌟 Local Record State for Immediate UI Updates on Edit
   const [currentRecord, setCurrentRecord] = useState(record);
+  const [reopenedFromDocNo, setReopenedFromDocNo] = useState(record?.reopenedFromDocumentNo || null);
+
+  useEffect(() => {
+    if (!currentRecord?.reopenedFromRecordId) {
+      setReopenedFromDocNo(null);
+      return;
+    }
+    if (currentRecord.reopenedFromDocumentNo) {
+      setReopenedFromDocNo(currentRecord.reopenedFromDocumentNo);
+      return;
+    }
+    const matched = (auditRecords || []).find(r => r.id === currentRecord.reopenedFromRecordId);
+    if (matched?.documentNo) {
+      setReopenedFromDocNo(matched.documentNo);
+      return;
+    }
+    let isMounted = true;
+    api.get(`/audit/${currentRecord.reopenedFromRecordId}`)
+      .then(res => {
+        if (isMounted && res.data?.documentNo) {
+          setReopenedFromDocNo(res.data.documentNo);
+        }
+      })
+      .catch(() => {});
+    return () => { isMounted = false; };
+  }, [currentRecord?.reopenedFromRecordId, currentRecord?.reopenedFromDocumentNo, auditRecords]);
   const [isCategoryScoresExpanded, setIsCategoryScoresExpanded] = useState(true);
   const [isAuditDetailsExpanded, setIsAuditDetailsExpanded] = useState(true);
   const [activeSectionIndex, setActiveSectionIndex] = useState(null);
@@ -1993,6 +2019,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
           location: `${currentRecord.locationCode || matchedLocation?.code || ""} ${locationTitle}`.trim(),
           brandType: `${currentRecord.locationBrand || "-"} / ${typeName}`,
           form: formTitle,
+          version: currentRecord.surveyFormVersion || selectedForm?.version || "v1.0",
           startedAt: formatBkk(currentRecord.startedAt || currentRecord.auditDate),
           endedAt: formatBkk(currentRecord.submittedAt),
           auditor: auditorName,
@@ -2326,7 +2353,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
         <div className="p-3.5 sm:p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 shadow-2xs flex items-center gap-2.5">
           <RotateCcw className="w-4 h-4 text-[#0F6659] shrink-0" />
           <p className="text-xs sm:text-sm text-emerald-900 font-medium">
-            ผลการตรวจนี้ส่งจากการย้อนสถานะแบบร่าง (รหัสรอบตรวจเดิม <span className="font-bold font-mono">#{currentRecord.reopenedFromRecordId}</span>)
+            ผลการตรวจนี้ส่งจากการย้อนสถานะแบบร่าง (รหัสรอบตรวจเดิม <span className="font-bold font-mono">{reopenedFromDocNo || currentRecord.reopenedFromDocumentNo || `#${currentRecord.reopenedFromRecordId}`}</span>)
           </p>
         </div>
       )}

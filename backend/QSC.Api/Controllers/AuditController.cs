@@ -2233,6 +2233,7 @@ namespace QSC.Api.Controllers
             [FromQuery] int? auditorId,
             [FromQuery] int? limit,
             [FromQuery] int? brandId,
+            [FromQuery] int? formGroupId,
             [FromQuery] int? page,
             [FromQuery] int? pageSize,
             [FromQuery] DateTime? startDate,
@@ -2325,6 +2326,13 @@ namespace QSC.Api.Controllers
 
             if (auditorId.HasValue) query = query.Where(r => r.PrimaryAuditorId == auditorId.Value);
 
+            if (formGroupId.HasValue)
+            {
+                query = query.Where(r => r.SurveyForm != null &&
+                    ((r.SurveyForm.FormGroupId != null && r.SurveyForm.FormGroupId == formGroupId.Value) ||
+                     (r.SurveyForm.FormGroupId == null && (r.SurveyFormId == formGroupId.Value || r.SurveyForm.Id == formGroupId.Value))));
+            }
+
             // 🌟 ค้นหาตามช่วงวันที่ (ใช้เมื่อผู้ใช้พิมพ์เดือน/ปีในช่องค้นหา เช่น "มี.ค 2568")
             // startDate รวม, endDate ไม่รวม (exclusive upper bound) — ยิงตรงไป DB ด้วย index บน AuditDate
             // ไม่ผ่าน buffer ฝั่ง client เลย เพราะเป็นคนละ path กับการ browse ปกติ
@@ -2388,6 +2396,7 @@ namespace QSC.Api.Controllers
                     })
                     .ToList(),
                 surveyFormId = r.SurveyFormId,
+                formGroupId = r.SurveyForm?.FormGroupId ?? r.SurveyFormId,
                 surveyFormTitle = r.SurveyForm?.Title,
                 surveyFormVersion = r.SurveyForm?.Version ?? "v1.0",
                 passingScore = r.SurveyForm != null ? r.SurveyForm.PassingScore : 85.0,
@@ -2414,6 +2423,7 @@ namespace QSC.Api.Controllers
                 startedAt = r.StartedAt,
                 submittedAt = r.SubmittedAt,
                 isBackdated = r.IsBackdated,
+                reopenedFromRecordId = r.ReopenedFromRecordId,
                 // 🌟 responses: จะส่งเฉพาะเมื่อ includeResponses=true (Excel export)
                 // เพื่อให้สร้างชีท "คำตอบรายข้อ" ได้ครบโดยไม่ต้องยิง API เพิ่มทีละ record
                 responses = includeResponses
@@ -2512,6 +2522,13 @@ namespace QSC.Api.Controllers
                 .Select(d => new { d.Id, d.DocumentNo })
                 .FirstOrDefaultAsync();
 
+            var reopenedFromRecord = r.ReopenedFromRecordId.HasValue
+                ? await _context.AuditRecords.IgnoreQueryFilters().AsNoTracking()
+                    .Where(ar => ar.Id == r.ReopenedFromRecordId.Value)
+                    .Select(ar => new { ar.Id, ar.DocumentNo })
+                    .FirstOrDefaultAsync()
+                : null;
+
             var result = new
             {
                 id = r.Id,
@@ -2519,6 +2536,7 @@ namespace QSC.Api.Controllers
                 status = r.Status,
                 reopenReason = r.ReopenReason,
                 reopenedFromRecordId = r.ReopenedFromRecordId,
+                reopenedFromDocumentNo = reopenedFromRecord?.DocumentNo,
                 replacementRecordId = replacementRecord?.Id,
                 replacementDocumentNo = replacementRecord?.DocumentNo,
                 replacementRecordStatus = replacementRecord?.Status,

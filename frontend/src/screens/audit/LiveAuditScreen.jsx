@@ -1389,7 +1389,31 @@ export default function LiveAuditScreen({
 
   const [searchBranch, setSearchBranch] = useState("");
   const [userCoords, setUserCoords] = useState(DEFAULT_USER_COORDS);
-  const [realStartGps, setRealStartGps] = useState(null);
+  const [realStartGps, setRealStartGps] = useState(() => {
+    const lat = matchedDraftRecord?.startLatitude ?? preselectedPlan?.startLatitude ?? initialDraft?.startLatitude ?? parsedDraftPayload?.startLatitude;
+    const lng = matchedDraftRecord?.startLongitude ?? preselectedPlan?.startLongitude ?? initialDraft?.startLongitude ?? parsedDraftPayload?.startLongitude;
+    if (lat != null && lng != null && !isNaN(Number(lat)) && !isNaN(Number(lng))) {
+      return { latitude: Number(lat), longitude: Number(lng) };
+    }
+    return null;
+  });
+  const realStartGpsRef = useRef(realStartGps);
+  useEffect(() => {
+    realStartGpsRef.current = realStartGps;
+  }, [realStartGps]);
+
+  // 📍 ป้องกันพิกัดเริ่มตรวจสูญหายเมื่อดึงข้อมูลแบบร่างมาจากเซิร์ฟเวอร์
+  useEffect(() => {
+    if (!realStartGpsRef.current) {
+      const lat = matchedDraftRecord?.startLatitude ?? preselectedPlan?.startLatitude ?? initialDraft?.startLatitude ?? parsedDraftPayload?.startLatitude;
+      const lng = matchedDraftRecord?.startLongitude ?? preselectedPlan?.startLongitude ?? initialDraft?.startLongitude ?? parsedDraftPayload?.startLongitude;
+      if (lat != null && lng != null && !isNaN(Number(lat)) && !isNaN(Number(lng))) {
+        const coords = { latitude: Number(lat), longitude: Number(lng) };
+        setRealStartGps(coords);
+        realStartGpsRef.current = coords;
+      }
+    }
+  }, [matchedDraftRecord, preselectedPlan, initialDraft, parsedDraftPayload]);
 
   const sortedBranchList = useMemo(() => {
     let list = [...(visibleLocations || [])];
@@ -1826,10 +1850,6 @@ export default function LiveAuditScreen({
   }
   const performSaveDraftRef = useRef(null);
   const saveSeqRef = useRef(0);
-  const realStartGpsRef = useRef(realStartGps);
-  useEffect(() => {
-    realStartGpsRef.current = realStartGps;
-  }, [realStartGps]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
   const isSubmittedSuccessRef = useRef(false);
@@ -1970,18 +1990,22 @@ export default function LiveAuditScreen({
             longitude: pos.coords.longitude
           };
           setUserCoords(coords);
-          setRealStartGps(coords);
+          // 📍 บันทึกพิกัดเริ่มตรวจเฉพาะเมื่อยังไม่มีพิกัดเริ่มตรวจเดิม และไม่ใช่การเปิดตรวจต่อจากแบบร่าง
+          if (!realStartGpsRef.current && !isResumeDraft) {
+            setRealStartGps(coords);
+            realStartGpsRef.current = coords;
+          }
         },
         (err) => {
           // หากไม่มี GPS หรือผู้ใช้ไม่อนุญาต ไม่ใช้ fallback ใดๆ (คงเป็น null)
         },
-        { enableHighAccuracy: true, timeout: 8000 }
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
       );
     }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isResumeDraft]);
 
   const hasHydratedDraftRef = useRef(false);
   const hydratedFormIdRef = useRef(null);
@@ -2626,6 +2650,8 @@ export default function LiveAuditScreen({
         auditorSignature: currentAuditorSignature,
         auditeeSignName: currentAuditeeSignName,
         savedAt: currentTimeStr,
+        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? matchedDraftRecord?.startLatitude ?? null),
+        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? matchedDraftRecord?.startLongitude ?? null),
         startedAt: (() => {
           const effective = auditStartedAtRef.current || auditStartedAt || parsedDraftPayload?.startedAt || new Date().toISOString();
           if (!auditStartedAtRef.current) {
@@ -2665,8 +2691,8 @@ export default function LiveAuditScreen({
           currentSectionIdx: currentSectionIdx,
           totalAnswered,
           totalQuestions,
-          startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
-          startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+          startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? matchedDraftRecord?.startLatitude ?? null),
+          startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? matchedDraftRecord?.startLongitude ?? null),
           startedAt: payload.startedAt,
           isNewAudit: isExplicitNewAudit,
           reopenedFromRecordId: reopenedFromRecordId
@@ -3595,6 +3621,7 @@ export default function LiveAuditScreen({
         location: `${locationCode} ${locationTitle}`.trim(),
         brandType: `${brandName} / ${typeName}`,
         form: selectedForm?.title || "แบบฟอร์มการตรวจ",
+        version: selectedForm?.version || "v1.0",
         startedAt: startedStr,
         endedAt: `กำลังตรวจ (ณ เวลา ${timeStr})`,
         auditor: auditorName || loggedInAuditorName,
@@ -4019,7 +4046,14 @@ export default function LiveAuditScreen({
       if ("geolocation" in navigator) {
         try {
           const pos = await new Promise((res, rej) => 
-            navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 6000 })
+            navigator.geolocation.getCurrentPosition(
+              res,
+              (err1) => {
+                // หาก High accuracy หลุดเวลา ลองดึงแบบ standard network เพื่อให้ได้ตำแหน่งล่าสุดจริงโดยไม่ใช้แคช
+                navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 5000, maximumAge: 0 });
+              },
+              { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+            )
           );
           if (pos?.coords) {
             endLat = pos.coords.latitude;
@@ -4140,8 +4174,8 @@ export default function LiveAuditScreen({
         auditorSignatureUrl: auditorSignature || null,
         auditeeSignatureUrl: auditeeSignature || null,
         signedAt: new Date().toISOString(),
-        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? null),
-        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? null),
+        startLatitude: (realStartGpsRef.current || realStartGps)?.latitude ?? (parsedDraftPayload?.startLatitude ?? matchedDraftRecord?.startLatitude ?? null),
+        startLongitude: (realStartGpsRef.current || realStartGps)?.longitude ?? (parsedDraftPayload?.startLongitude ?? matchedDraftRecord?.startLongitude ?? null),
         endLatitude: endLat,
         endLongitude: endLng,
         isBackdated: Boolean(isBackdated),

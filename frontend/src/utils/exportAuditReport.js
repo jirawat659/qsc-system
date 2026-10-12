@@ -185,12 +185,33 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
       const scored = !!q.isScored;
       const counted = scored && !q.isNa;
       const cat = scored ? (categoryOf ? categoryOf(q, sec) : (q.category || "-")) : "-";
+      const ans = isGrid && grid ? "" : answerText(q);
+
+      // 🌟 ตรวจสอบว่าข้อนี้ "ไม่ผ่าน" หรือไม่ (เพื่อไฮไลต์สีแดงทั้งแถวใน Excel)
+      let isFailed = false;
+      if (counted) {
+        if (q.isPassed !== undefined && q.isPassed !== null) {
+          isFailed = !q.isPassed;
+        } else if (ans === "ไม่ผ่าน") {
+          isFailed = true;
+        } else if (q.type === "scale" || q.type === "rating") {
+          const num = Number(q.scaleScore ?? q.answer);
+          if (!isNaN(num) && num > 0) isFailed = num < 3;
+          else if (q.scoreGiven !== null && q.fullScore) isFailed = Number(q.scoreGiven) < (Number(q.fullScore) * 0.6);
+        } else if (q.scoreGiven !== null && q.fullScore !== null) {
+          isFailed = Number(q.scoreGiven) < Number(q.fullScore);
+        }
+      }
+
       const item = {
         num: q.num,
         text: q.text,
         kind: isGrid && grid ? "grid" : "item",
-        answer: isGrid && grid ? "" : answerText(q),
+        answer: ans,
         scored,
+        counted,
+        isFailed,
+        isPassed: !isFailed,
         given: counted ? Number(q.scoreGiven) || 0 : null,
         full: counted ? Number(q.fullScore) || 0 : null,
         category: cat,
@@ -304,8 +325,13 @@ export function buildAuditReportModel({ record, sections, metaFields = [], passi
     }
   });
 
+  const effectiveHeader = {
+    ...header,
+    version: header?.version || record?.surveyFormVersion || record?.version || "v1.0"
+  };
+
   return {
-    header,
+    header: effectiveHeader,
     passing: passingScore / 100,
     hasCritical: !!record?.hasCriticalDefect,
     categories: catTotals,
@@ -507,19 +533,28 @@ export function buildAuditReportWorkbook(ExcelJS, model, opts = {}) {
       if (toAppx) appendix.push({ q, tag });
 
       const ansText = isGrid ? (toAppx ? `ดูตารางแนบ ${tag}` : "ดูตารางด้านล่าง") : q.answer;
-      const dash = { h: "center", border: BOX };
+      const isFailed = !!q.isFailed || (q.scored && !isGrid && ansText === "ไม่ผ่าน");
+      const rowFill = isFailed ? C.roseBg : undefined;
+      const rowColor = isFailed ? C.rose : undefined;
+
+      const dash = { h: "center", border: BOX, fill: rowFill, color: rowColor };
+      const baseSt = { border: BOX, fill: rowFill, color: rowColor };
       // ข้อไม่คิดคะแนนที่คำตอบเป็นข้อความยาว → ขยายช่องคำตอบกินคอลัมน์ C–F (ไม่มีคะแนนให้แสดงอยู่แล้ว)
       const wideAnswer = !q.scored && !isGrid && estimateLines(ansText, COL_W[2]) >= 3;
       box(ws, r, 1, r, 1, q.num, dash);
-      box(ws, r, 2, r, 2, q.text, { border: BOX });
+      box(ws, r, 2, r, 2, q.text, baseSt);
       const ansEnd = wideAnswer ? 6 : 3;
-      const ac = box(ws, r, 3, r, ansEnd, ansText, { border: BOX, italic: isGrid, color: isGrid ? C.teal : C.ink });
+      const ac = box(ws, r, 3, r, ansEnd, ansText, {
+        ...baseSt,
+        italic: isGrid,
+        color: isFailed ? C.rose : (isGrid ? C.teal : C.ink)
+      });
       if (!wideAnswer) {
         box(ws, r, 4, r, 4, q.given !== null ? q.given : "-", dash);
         box(ws, r, 5, r, 5, q.full !== null ? q.full : "-", dash);
         box(ws, r, 6, r, 6, q.category, dash);
       }
-      box(ws, r, 7, r, 8, q.note || null, { border: BOX });
+      box(ws, r, 7, r, 8, q.note || null, baseSt);
       ws.getRow(r).height = rowHeightFor(Math.max(
         estimateLines(q.text, COL_W[1]), estimateLines(ansText, spanWidth(3, ansEnd)), estimateLines(q.note, spanWidth(7, 8))
       ));
@@ -582,7 +617,8 @@ export function buildAuditReportWorkbook(ExcelJS, model, opts = {}) {
 
   box(ws, 6, 1, 6, 4, H.location, { size: 14, bold: true, wrap: false });
   box(ws, 7, 1, 7, 4, H.brandType, { wrap: false });
-  box(ws, 8, 1, 8, 4, `แบบฟอร์ม: ${H.form}`, { wrap: false });
+  const cleanFormTitle = String(H.form || "-").replace(/\s*\(v\d+(\.\d+)?\)$/i, "").trim();
+  box(ws, 8, 1, 8, 4, `แบบฟอร์ม: ${cleanFormTitle}`, { wrap: false });
   [["วันเวลาเริ่มตรวจ", H.startedAt], ["วันเวลาสิ้นสุดตรวจ", H.endedAt], ["ผู้ตรวจ", H.auditor], ["ผู้รับการตรวจ", H.auditee]].forEach(([k, v], i) => {
     box(ws, 6 + i, 5, 6 + i, 6, k, { size: 9, color: C.muted, wrap: false });
     box(ws, 6 + i, 7, 6 + i, 8, v, { bold: true, wrap: false });
