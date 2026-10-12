@@ -202,6 +202,12 @@ namespace QSC.Api.Data
                 .HasIndex(u => u.Username)
                 .IsUnique();
 
+            // oid ของ Entra ผูกได้กับผู้ใช้ QSC แค่คนเดียว (NULL ซ้ำได้ — filtered unique)
+            modelBuilder.Entity<User>()
+                .HasIndex(u => u.EntraOid)
+                .IsUnique()
+                .HasFilter("[EntraOid] IS NOT NULL");
+
             // index เดี่ยวบน UserId / LocationId ไม่ต้องมี เพราะเป็น prefix ของ composite ด้านล่างอยู่แล้ว
             modelBuilder.Entity<UserLocation>()
                 .HasIndex(ul => new { ul.UserId, ul.LocationId })

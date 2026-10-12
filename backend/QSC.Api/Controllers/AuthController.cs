@@ -61,6 +61,14 @@ namespace QSC.Api.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
         {
+            // ปิดทางรหัสผ่านได้ด้วย config Auth:PasswordLoginEnabled=false (ใช้ตอน cutover ไป SSO อย่างเดียว)
+            if (!_config.GetValue<bool>("Auth:PasswordLoginEnabled", true))
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    message = "ระบบปิดการเข้าสู่ระบบด้วยรหัสผ่านแล้ว กรุณาเข้าสู่ระบบผ่าน Microsoft Entra ID หรือ AU Portal",
+                    code = "password_login_disabled"
+                });
+
             var trimmedUsername = dto.Username?.Trim() ?? string.Empty;
             var clientIp = GetClientIp();
 

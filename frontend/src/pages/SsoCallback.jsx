@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../config/api';
 import authStorage from '../config/storage';
+import { getMsal, SSO_CALLBACK_PATH } from '../config/msal';
 import { Loader2, AlertCircle } from 'lucide-react';
 
-export const SSO_CALLBACK_PATH = '/sso/callback';
+export { SSO_CALLBACK_PATH };
 
 export default function SsoCallback() {
   const [error, setError] = useState('');
@@ -13,75 +14,47 @@ export default function SsoCallback() {
     if (hasStartedRef.current) return;
     hasStartedRef.current = true;
 
-    let token = null;
-    let isEntra = false;
-    let oauthError = null;
-
-    // 1. ตรวจสอบจาก Query String (?token=... หรือ ?id_token=...)
-    const searchParams = new URLSearchParams(window.location.search);
-    if (searchParams.has('error')) {
-      oauthError = searchParams.get('error_description') || searchParams.get('error');
-    } else if (searchParams.has('id_token')) {
-      token = searchParams.get('id_token');
-      isEntra = true;
-    } else if (searchParams.has('token')) {
-      token = searchParams.get('token');
-      isEntra = false;
-    }
-
-    // 2. ตรวจสอบจาก Hash Fragment (#id_token=... หรือ #token=...) ซึ่ง Microsoft ส่งมา
-    if (!token && window.location.hash) {
-      const hashStr = window.location.hash.startsWith('#')
-        ? window.location.hash.substring(1)
-        : window.location.hash;
-      const hashParams = new URLSearchParams(hashStr);
-
-      if (hashParams.has('error')) {
-        oauthError = hashParams.get('error_description') || hashParams.get('error');
-      } else if (hashParams.has('id_token')) {
-        token = hashParams.get('id_token');
-        isEntra = true;
-      } else if (hashParams.has('token')) {
-        token = hashParams.get('token');
-        isEntra = false;
-      }
-    }
-
-    // ล้าง URL ออกจาก Browser History ทันทีเพื่อความปลอดภัย
-    window.history.replaceState({}, document.title, window.location.pathname);
-
-    if (oauthError) {
-      setError(`ข้อผิดพลาดจาก Microsoft: ${oauthError}`);
-      return;
-    }
-
-    if (!token) {
-      setError('ไม่พบ Token ยืนยันตัวตน กรุณากลับไปเข้าสู่ระบบใหม่อีกครั้ง');
-      return;
-    }
-
-    const endpoint = isEntra ? '/auth/sso/entra' : '/auth/sso/launch';
-
-    api.post(endpoint, { token })
-      .then(({ data }) => {
+    const exchange = async (endpoint, token) => {
+      try {
+        const { data } = await api.post(endpoint, { token });
         const { token: sessionToken, user } = data;
-
-        authStorage.saveSession({
-          token: sessionToken,
-          role: user?.role,
-          username: user?.username,
-          user
-        });
-        if (user?.fullName) {
-          localStorage.setItem('fullName', user.fullName);
-        }
-
+        authStorage.saveSession({ token: sessionToken, role: user?.role, username: user?.username, user });
+        if (user?.fullName) localStorage.setItem('fullName', user.fullName);
         window.location.replace('/');
-      })
-      .catch((err) => {
-        const d = err.response?.data;
-        setError(d?.message || 'เข้าสู่ระบบผ่าน SSO ไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ');
-      });
+      } catch (err) {
+        setError(err.response?.data?.message || 'เข้าสู่ระบบผ่าน SSO ไม่สำเร็จ กรุณาติดต่อผู้ดูแลระบบ');
+      }
+    };
+
+    const run = async () => {
+      const sp = new URLSearchParams(window.location.search);
+
+      // ทาง B: AU Portal launcher redirect มาพร้อม ?token=<JWT> → ล้างออกจาก URL ทันทีก่อนทำอย่างอื่น
+      if (sp.has('token') || sp.has('error')) {
+        const token = sp.get('token');
+        const oauthError = sp.get('error_description') || sp.get('error');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        if (oauthError) return setError(`ข้อผิดพลาดจาก AU Portal: ${oauthError}`);
+        return exchange('/auth/sso/launch', token);
+      }
+
+      // ทาง A: กลับจาก Entra — MSAL ตรวจ state/nonce และแลก code+PKCE เป็น id_token เอง
+      // (ห้ามล้าง hash/URL ก่อนเรียก handleRedirectPromise เพราะ MSAL ต้องอ่านมัน)
+      try {
+        const msal = await getMsal();
+        const result = await msal.handleRedirectPromise();
+        if (result?.idToken) {
+          try { await msal.clearCache?.(); } catch { /* ไม่เป็นไร */ }
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return exchange('/auth/sso/entra', result.idToken);
+        }
+        setError('ไม่พบข้อมูลยืนยันตัวตน กรุณากลับไปเข้าสู่ระบบใหม่อีกครั้ง');
+      } catch (err) {
+        setError(`ข้อผิดพลาดจาก Microsoft: ${err?.errorMessage || err?.message || 'ไม่ทราบสาเหตุ'}`);
+      }
+    };
+
+    run();
   }, []);
 
   return (

@@ -77,9 +77,18 @@ public sealed class SsoTokenValidator(
 
         if (!result.IsValid) return SsoValidation.Fail(Classify(result.Exception));
 
-        // subject ต้องเป็น oid เท่านั้น (ห้าม email/upn)
-        if (!result.Claims.TryGetValue("oid", out var oidObj) || oidObj is not string oid || string.IsNullOrWhiteSpace(oid))
+        if (_o.DebugClaims)
+            log.LogInformation("SSO[{Route}] DEBUG claims=[{Names}] iss={Iss} aud={Aud} lifetimeSec={Life}",
+                route, string.Join(",", result.Claims.Keys), jwt.Issuer, string.Join(",", jwt.Audiences), (jwt.ValidTo - jwt.ValidFrom).TotalSeconds);
+
+        // subject ต้องเป็น oid เท่านั้น (ห้าม email/upn) — ชื่อ claim ปรับได้ที่ AuPortal:SubjectClaim
+        var subjectClaim = string.IsNullOrWhiteSpace(_o.SubjectClaim) ? "oid" : _o.SubjectClaim;
+        if (!result.Claims.TryGetValue(subjectClaim, out var oidObj) || oidObj is not string oid || string.IsNullOrWhiteSpace(oid))
+        {
+            // log เฉพาะ "ชื่อ" claim (ไม่ log ค่า) เพื่อใช้ debug ตอนยังไม่รู้หน้าตา token จริง
+            log.LogWarning("SSO[{Route}] ไม่พบ claim '{Claim}' — claim ที่มีใน token: [{Names}]", route, subjectClaim, string.Join(",", result.Claims.Keys));
             return SsoValidation.Fail("missing_oid");
+        }
 
         string? jti = result.Claims.TryGetValue("jti", out var j) ? j as string : null;
         if (route == SsoRoute.Launch && string.IsNullOrEmpty(jti)) return SsoValidation.Fail("missing_jti");

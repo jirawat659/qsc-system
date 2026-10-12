@@ -72,7 +72,8 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const isLoginEndpoint = error.config?.url?.includes('/auth/login');
+    // ยกเว้น /auth/login และ /auth/sso/* — ให้หน้า Login/Callback แสดงข้อความ error จริงจาก server (เช่น token ถูกใช้ซ้ำ)
+    const isLoginEndpoint = error.config?.url?.includes('/auth/login') || error.config?.url?.includes('/auth/sso/');
     if (!isLoginEndpoint && error.response && error.response.status === 401) {
       authStorage.clearSession();
       window.dispatchEvent(new Event('storage'));

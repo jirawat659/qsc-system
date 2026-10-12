@@ -14,9 +14,11 @@ namespace QSC.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly Services.IActivityLogger _activityLogger;
+        private readonly Services.IPermissionService _permissions;
 
-        public UserController(AppDbContext context, Services.IActivityLogger activityLogger)
+        public UserController(AppDbContext context, Services.IActivityLogger activityLogger, Services.IPermissionService permissions)
         {
+            _permissions = permissions;
             _context = context;
             _activityLogger = activityLogger;
         }
@@ -31,6 +33,12 @@ namespace QSC.Api.Controllers
             public List<int> LocationIds { get; set; } = new();
             public string BrandScope { get; set; } = "ALL";
             public List<int> BrandIds { get; set; } = new();
+        }
+
+        public class LinkEntraDto
+        {
+            /// <summary>Object ID (GUID) ของบัญชี Entra — ส่ง null/ว่าง = ยกเลิกการผูก</summary>
+            public string? EntraOid { get; set; }
         }
 
         public class UpdateUserDto
@@ -58,7 +66,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetUsers([FromQuery] bool? activeOnly)
         {
             var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            bool canManageUsers = await UserScopeHelper.HasPermissionAsync(callerRole, "users.manage", _context);
+            bool canManageUsers = await _permissions.HasAsync(User, "users.manage", HttpContext.RequestAborted);
 
             var query = _context.Users
                 .AsNoTracking()
@@ -106,6 +114,7 @@ namespace QSC.Api.Controllers
                 roleName = u.Role?.Name,
                 branchScope = u.BranchScope,
                 mustChangePassword = u.MustChangePassword,
+                entraOid = u.EntraOid,
                 isActive = u.IsActive,
                 createdAt = u.CreatedAt,
                 locationIds = u.UserLocations.Select(ul => ul.LocationId).ToList(),
@@ -122,7 +131,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetUser(int id)
         {
             var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            if (!await UserScopeHelper.HasPermissionAsync(callerRole, "users.manage", _context))
+            if (!await _permissions.HasAsync(User, "users.manage", HttpContext.RequestAborted))
             {
                 return Forbid();
             }
@@ -146,6 +155,7 @@ namespace QSC.Api.Controllers
                 roleName = user.Role?.Name,
                 branchScope = user.BranchScope,
                 mustChangePassword = user.MustChangePassword,
+                entraOid = user.EntraOid,
                 isActive = user.IsActive,
                 createdAt = user.CreatedAt,
                 locationIds = user.UserLocations.Select(ul => ul.LocationId).ToList(),
@@ -291,6 +301,50 @@ namespace QSC.Api.Controllers
             return Ok(user);
         }
 
+        // ผูก/ยกเลิกการผูกบัญชี Entra (Object ID) กับผู้ใช้ QSC — แยก endpoint ออกจาก UpdateUser
+        // เพื่อไม่ให้การแก้ไขข้อมูลอื่นที่ไม่ได้ส่งค่านี้มา เผลอล้างการผูกของผู้ใช้
+        [Authorize(Roles = "ADMIN")]
+        [HttpPut("{id}/entra-oid")]
+        public async Task<IActionResult> SetEntraOid(int id, [FromBody] LinkEntraDto dto)
+        {
+            var user = await _context.Users.FindAsync(id);
+            if (user == null) return NotFound();
+
+            Guid? oid = null;
+            var raw = dto?.EntraOid?.Trim();
+            if (!string.IsNullOrEmpty(raw))
+            {
+                if (!Guid.TryParse(raw, out var parsed) || parsed == Guid.Empty)
+                    return BadRequest(new { message = "รูปแบบ Object ID ไม่ถูกต้อง (ต้องเป็น GUID เช่น 3f2b8c1e-9d4a-4c5b-8e2f-1a2b3c4d5e6f)" });
+                oid = parsed;
+
+                var owner = await _context.Users.AsNoTracking()
+                    .Where(u => u.EntraOid == oid && u.Id != id)
+                    .Select(u => u.Username)
+                    .FirstOrDefaultAsync();
+                if (owner != null)
+                    return Conflict(new { message = $"Object ID นี้ถูกผูกกับผู้ใช้ \"{owner}\" อยู่แล้ว" });
+            }
+
+            if (user.EntraOid == oid) return Ok(new { id = user.Id, entraOid = user.EntraOid });
+
+            user.EntraOid = oid;
+            var (adminId, _, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            _activityLogger.Add(adminId, oid == null ? "USER_ENTRA_UNLINK" : "USER_ENTRA_LINK", "User", user.Id);
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                // ชนกับ unique index ของ EntraOid (มีคนผูกพร้อมกัน)
+                return Conflict(new { message = "Object ID นี้ถูกผูกกับผู้ใช้อื่นแล้ว" });
+            }
+
+            return Ok(new { id = user.Id, entraOid = user.EntraOid });
+        }
+
         [Authorize(Roles = "ADMIN")]
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteUser(int id)
@@ -314,11 +368,13 @@ namespace QSC.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly Services.IActivityLogger _activityLogger;
+        private readonly Services.IPermissionService _permissions;
 
-        public RoleController(AppDbContext context, Services.IActivityLogger activityLogger)
+        public RoleController(AppDbContext context, Services.IActivityLogger activityLogger, Services.IPermissionService permissions)
         {
             _context = context;
             _activityLogger = activityLogger;
+            _permissions = permissions;
         }
 
         public class RoleDto
@@ -339,7 +395,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetRoles()
         {
             var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            if (!await UserScopeHelper.HasPermissionAsync(callerRole, "roles.manage", _context))
+            if (!await _permissions.HasAsync(User, "roles.manage", HttpContext.RequestAborted))
             {
                 return Forbid();
             }
@@ -521,7 +577,7 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> GetPermissions()
         {
             var (_, callerRole, _) = await UserScopeHelper.GetUserScopeAsync(User, _context);
-            if (!await UserScopeHelper.HasPermissionAsync(callerRole, "roles.manage", _context))
+            if (!await _permissions.HasAsync(User, "roles.manage", HttpContext.RequestAborted))
             {
                 return Forbid();
             }

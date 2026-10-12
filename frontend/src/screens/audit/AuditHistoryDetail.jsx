@@ -883,7 +883,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
   const hasCritical = currentRecord.hasCriticalDefect || (currentRecord.responses && currentRecord.responses.some(r => r.isCritical && !r.isPassed));
   const locationTitle = unitName || currentRecord.unitFullName || currentRecord.locationName || currentRecord.location?.name || "-";
   const managerName = currentRecord.auditeeName || currentRecord.auditeeUser?.fullName || "-";
-  const staffCount = currentRecord.staffCount || 0;
   const auditType = (currentRecord.auditType === "unannounced" || currentRecord.auditType === "spot") 
     ? "นอกกำหนดการ" 
     : (currentRecord.auditType === "undercover" ? "ปลอมตัว" : "ตามกำหนดการ");
@@ -906,6 +905,23 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
     }
     return result;
   }, [currentRecord]);
+
+  const staffCount = useMemo(() => {
+    if (currentRecord?.staffCount !== undefined && currentRecord?.staffCount !== null && Number(currentRecord.staffCount) > 0) {
+      return Number(currentRecord.staffCount);
+    }
+    const storedFields = Array.isArray(parsedMetadataValues?._fields)
+      ? parsedMetadataValues._fields
+      : (Array.isArray(parsedMetadataValues) ? parsedMetadataValues : []);
+    const fieldStaff = storedFields.find(f => f.id === "staff_count" || f.id === "staffCount");
+    if (fieldStaff?.value !== undefined && fieldStaff?.value !== null && fieldStaff?.value !== "") {
+      return Number(fieldStaff.value) || 0;
+    }
+    if (parsedMetadataValues?.staff_count !== undefined && parsedMetadataValues?.staff_count !== null && parsedMetadataValues?.staff_count !== "") {
+      return Number(parsedMetadataValues.staff_count) || 0;
+    }
+    return Number(currentRecord?.staffCount) || 0;
+  }, [currentRecord, parsedMetadataValues]);
 
   // รวมรายการ Metadata ทั้งหมด (ฟิลด์มาตรฐาน 3 ฟิลด์ + ฟิลด์เพิ่มเติมเฉพาะรอบตรวจ ตามลำดับและ Label ที่ตั้งไว้)
   const allDisplayMetadataFields = useMemo(() => {
@@ -1399,7 +1415,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
     });
     setEditAnswersState(initialMap);
     setInitialAnswersState(initialMap);
-    setEditStaffCount(currentRecord.staffCount || 0);
+    setEditStaffCount(staffCount);
     setEditAuditType(currentRecord.auditType || "announced");
     const s0 = toDatetimeLocal(currentRecord.startedAt || currentRecord.auditDate || new Date().toISOString());
     const e0 = toDatetimeLocal(currentRecord.submittedAt || currentRecord.signedAt || currentRecord.auditDate || new Date().toISOString());
@@ -1414,7 +1430,10 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
     setEditStartLongitude(currentRecord.startLongitude !== undefined && currentRecord.startLongitude !== null ? String(currentRecord.startLongitude) : "");
     setEditEndLatitude(currentRecord.endLatitude !== undefined && currentRecord.endLatitude !== null ? String(currentRecord.endLatitude) : "");
     setEditEndLongitude(currentRecord.endLongitude !== undefined && currentRecord.endLongitude !== null ? String(currentRecord.endLongitude) : "");
-    setEditMetadataValues({ ...parsedMetadataValues });
+    setEditMetadataValues({
+      ...parsedMetadataValues,
+      staff_count: staffCount
+    });
     setOverallReason("");
     setIsEditing(true);
 
@@ -1423,7 +1442,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
         if (Array.isArray(res.data)) setUsersList(res.data);
       })
       .catch(() => {});
-  }, [currentRecord, allChecklistQuestions, parseResponseAnswer, parsedMetadataValues]);
+  }, [currentRecord, allChecklistQuestions, parseResponseAnswer, parsedMetadataValues, staffCount]);
 
   const handleCancelEditMode = useCallback(() => {
     setIsEditing(false);
@@ -3507,6 +3526,14 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
 
                         // 3. จำนวนพนักงานขณะตรวจ (Staff Count)
                         if (item.id === "staff_count") {
+                          const currentStaffVal = editMetadataValues[item.id] !== undefined && editMetadataValues[item.id] !== null && editMetadataValues[item.id] !== ""
+                            ? editMetadataValues[item.id]
+                            : (editStaffCount !== undefined && editStaffCount !== null && editStaffCount !== 0
+                              ? editStaffCount
+                              : (item.rawValue !== undefined && item.rawValue !== null && item.rawValue !== ""
+                                ? item.rawValue
+                                : (staffCount ?? 0)));
+
                           return (
                             <div key={item.id} className="p-3 rounded-xl bg-slate-50 border border-emerald-300 shadow-2xs relative">
                               <div className="text-[11px] font-bold text-slate-500 capitalize">{item.label}</div>
@@ -3515,8 +3542,12 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
                                   <input
                                     type="number"
                                     min="0"
-                                    value={editStaffCount}
-                                    onChange={(e) => setEditStaffCount(Number(e.target.value) || 0)}
+                                    value={currentStaffVal}
+                                    onChange={(e) => {
+                                      const val = e.target.value === "" ? "" : (Number(e.target.value) || 0);
+                                      setEditStaffCount(Number(val) || 0);
+                                      setEditMetadataValues(prev => ({ ...prev, [item.id]: val, staff_count: val }));
+                                    }}
                                     className="w-full text-sm font-extrabold text-slate-800 bg-transparent outline-none"
                                   />
                                   <span className="text-xs font-bold text-slate-500 shrink-0">คน</span>

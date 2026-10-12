@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Send } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Send, Info } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -1632,7 +1632,13 @@ export default function LiveAuditScreen({
   const [openComments, setOpenComments] = useState({});
   const [staffCount, setStaffCount] = useState(() => {
     if (!isResumeDraft || !parsedDraftPayload) return "";
-    return parsedDraftPayload.staffCount ?? parsedDraftPayload.metadataValues?.staff_count ?? "";
+    const directVal = parsedDraftPayload.staffCount ?? parsedDraftPayload.metadataValues?.staff_count;
+    if (directVal !== undefined && directVal !== null && directVal !== "") return directVal;
+    const storedFields = Array.isArray(parsedDraftPayload.metadataValues?._fields)
+      ? parsedDraftPayload.metadataValues._fields
+      : (Array.isArray(parsedDraftPayload.metadataValues) ? parsedDraftPayload.metadataValues : []);
+    const f = storedFields.find(x => x.id === "staff_count" || x.id === "staffCount");
+    return f?.value ?? "";
   });
   const loggedInAuditorName = currentUser?.fullName || currentUser?.name || defaultAuditorName || "ผู้ตรวจประเมิน";
   const [auditorName, setAuditorName] = useState(() => {
@@ -1783,6 +1789,23 @@ export default function LiveAuditScreen({
     }
     return null;
   }, [preselectedPlan, matchedDraftRecord]);
+
+  const scheduleNotes = useMemo(() => {
+    if (preselectedPlan?.notes && typeof preselectedPlan.notes === 'string' && preselectedPlan.notes.trim()) {
+      return preselectedPlan.notes.trim();
+    }
+    if (parsedDraftPayload?.scheduleNotes && typeof parsedDraftPayload.scheduleNotes === 'string' && parsedDraftPayload.scheduleNotes.trim()) {
+      return parsedDraftPayload.scheduleNotes.trim();
+    }
+    const schedId = effectiveSchedId || parsedDraftPayload?.auditScheduleId;
+    if (schedId && schedules && schedules.length > 0) {
+      const found = schedules.find(s => Number(s.id) === Number(schedId));
+      if (found?.notes && typeof found.notes === 'string' && found.notes.trim()) {
+        return found.notes.trim();
+      }
+    }
+    return null;
+  }, [preselectedPlan, parsedDraftPayload, effectiveSchedId, schedules]);
 
   const initialDraftId = useMemo(() => {
     if (isResumeDraft && matchedDraftRecord?.id && typeof matchedDraftRecord.id === 'number') {
@@ -2041,7 +2064,11 @@ export default function LiveAuditScreen({
       setAnswers(remappedAnswers);
       setPhotos(remappedPhotos);
       setComments(remappedComments);
-      const effectiveStaffCount = parsedDraftPayload.staffCount ?? parsedDraftPayload.metadataValues?.staff_count;
+      const storedFields = Array.isArray(parsedDraftPayload.metadataValues?._fields)
+        ? parsedDraftPayload.metadataValues._fields
+        : (Array.isArray(parsedDraftPayload.metadataValues) ? parsedDraftPayload.metadataValues : []);
+      const fieldStaff = storedFields.find(f => f.id === "staff_count" || f.id === "staffCount");
+      const effectiveStaffCount = parsedDraftPayload.staffCount ?? parsedDraftPayload.metadataValues?.staff_count ?? fieldStaff?.value;
       if (effectiveStaffCount !== undefined && effectiveStaffCount !== null && effectiveStaffCount !== "") {
         setStaffCount(effectiveStaffCount);
       }
@@ -2642,6 +2669,7 @@ export default function LiveAuditScreen({
         auditorName: currentAuditorName,
         auditType: currentAuditType,
         extraNote: currentExtraNote,
+        scheduleNotes: scheduleNotes || parsedDraftPayload?.scheduleNotes || null,
         metadataValues: currentMetadataValues,
         isBackdated: currentIsBackdated,
         backdatedStartDate: currentBackdatedStartDate,
@@ -3073,7 +3101,11 @@ export default function LiveAuditScreen({
             if (payload.comments !== undefined) {
               setComments(prev => (prev && Object.keys(prev).length > 0 ? { ...activeComments, ...prev } : activeComments));
             }
-            const effStaff = payload.staffCount ?? payload.metadataValues?.staff_count;
+            const storedFields = Array.isArray(payload.metadataValues?._fields)
+              ? payload.metadataValues._fields
+              : (Array.isArray(payload.metadataValues) ? payload.metadataValues : []);
+            const fieldStaff = storedFields.find(f => f.id === "staff_count" || f.id === "staffCount");
+            const effStaff = payload.staffCount ?? payload.metadataValues?.staff_count ?? fieldStaff?.value;
             if (effStaff !== undefined) {
               setStaffCount(effStaff);
             }
@@ -3185,7 +3217,11 @@ export default function LiveAuditScreen({
           if (payload.comments !== undefined) setComments(incomingComments);
           if (payload.metadataValues !== undefined) setMetadataValues(payload.metadataValues || {});
 
-          const effStaff = payload.staffCount ?? payload.metadataValues?.staff_count;
+          const storedFields = Array.isArray(payload.metadataValues?._fields)
+            ? payload.metadataValues._fields
+            : (Array.isArray(payload.metadataValues) ? payload.metadataValues : []);
+          const fieldStaff = storedFields.find(f => f.id === "staff_count" || f.id === "staffCount");
+          const effStaff = payload.staffCount ?? payload.metadataValues?.staff_count ?? fieldStaff?.value;
           if (effStaff !== undefined) setStaffCount(effStaff || "");
           if (payload.extraNote !== undefined) setExtraNote(payload.extraNote || "");
           if (payload.auditeeSignature !== undefined) setAuditeeSignature(payload.auditeeSignature || null);
@@ -4139,6 +4175,7 @@ export default function LiveAuditScreen({
           if (lower.includes("นอก") || lower === "spot" || lower === "unannounced") return "spot";
           return "announced";
         })(),
+        staffCount: Number(staffCount) || 0,
         notes: extraNote || "",
         metadataValuesJson: JSON.stringify({
           _fields: (activeMetadataFields || []).map((field, idx) => {
@@ -4844,6 +4881,17 @@ export default function LiveAuditScreen({
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 shrink-0">
                   หากยกเลิกแบบร่างจะคืนสถานะเดิม
                 </span>
+              </div>
+            </div>
+          )}
+          {scheduleNotes && (
+            <div className="px-3 sm:px-4 pt-1">
+              <div className="p-3.5 rounded-2xl bg-amber-50/95 border border-amber-200/90 text-amber-900 shadow-2xs flex items-start gap-2.5">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1 text-xs">
+                  <span className="font-extrabold text-amber-900 block mb-0.5">📌 คำแนะนำ / หมายเหตุจากผู้วางแผนรอบตรวจ:</span>
+                  <span className="font-medium text-slate-800 whitespace-pre-wrap">{scheduleNotes}</span>
+                </div>
               </div>
             </div>
           )}

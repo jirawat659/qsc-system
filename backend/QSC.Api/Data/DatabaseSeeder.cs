@@ -214,6 +214,7 @@ namespace QSC.Api.Data
         private static readonly (string Code, string Name, string Module)[] PermissionDefs =
         {
             ("activity.view",       "ดูประวัติกิจกรรมการใช้งานระบบ",                "System"),
+            ("audit.delete",        "ลบข้อมูลผลการตรวจประเมิน",                     "Audit"),
             ("audit.edit",          "แก้ไขการตรวจบันทึกที่ส่งแล้ว พร้อมระบุเหตุผล", "Audit"),
             ("audit.reopen",        "ย้อนสถานะผลตรวจที่ส่งแล้วกลับเป็นแบบร่าง",     "Audit"),
             ("audit.start",         "เริ่มทำการตรวจประเมิน",                        "Audit"),

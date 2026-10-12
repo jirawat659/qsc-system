@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../config/api';
 import authStorage from '../config/storage';
+import { getSsoConfig, startEntraLogin } from '../config/msal';
 import { LogIn, Lock, User, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
 
 function Login({ onLoginSuccess }) {
@@ -9,6 +10,13 @@ function Login({ onLoginSuccess }) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [ssoConfig, setSsoConfig] = useState(null);
+  // ซ่อนฟอร์มรหัสผ่านเมื่อ backend ปิดไว้ (Auth:PasswordLoginEnabled=false)
+  const passwordEnabled = ssoConfig ? ssoConfig.passwordLoginEnabled !== false : true;
+
+  useEffect(() => {
+    getSsoConfig().then(setSsoConfig).catch(() => setSsoConfig({ entraEnabled: false, passwordLoginEnabled: true }));
+  }, []);
   // โหลดเวลา Lockout ที่ค้างไว้จาก localStorage (ถ้ามี เพื่อไม่ให้เวลารีเซ็ตเมื่อรีเฟรชหน้าเว็บ)
   const [lockoutSeconds, setLockoutSeconds] = useState(() => {
     try {
@@ -133,6 +141,7 @@ function Login({ onLoginSuccess }) {
         ) : null}
 
         {/* Login Form */}
+        {passwordEnabled && (<>
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label htmlFor="login-username" className="block text-xs font-bold text-slate-700 mb-1.5">ชื่อผู้ใช้งาน (Username)</label>
@@ -228,19 +237,19 @@ function Login({ onLoginSuccess }) {
           </div>
         </div>
 
+        </>)}
+
         {/* Microsoft Entra ID Button */}
         <button
           type="button"
-          onClick={() => {
-            const tenantId = import.meta.env.VITE_ENTRA_TENANT_ID;
-            const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID;
-            const redirectUri = encodeURIComponent(`${window.location.origin}/sso/callback`);
-            const scope = encodeURIComponent('openid profile email');
-            const responseType = 'id_token';
-            const nonce = Math.random().toString(36).substring(2);
-            const state = Math.random().toString(36).substring(2);
-
-            window.location.href = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=${responseType}&redirect_uri=${redirectUri}&scope=${scope}&response_mode=fragment&nonce=${nonce}&state=${state}`;
+          disabled={ssoConfig !== null && !ssoConfig.entraEnabled}
+          onClick={async () => {
+            setError('');
+            try {
+              await startEntraLogin(); // redirect ไป Entra ด้วย Authorization Code + PKCE (MSAL)
+            } catch {
+              setError('ไม่สามารถเริ่มเข้าสู่ระบบด้วย Microsoft Entra ID ได้ กรุณาติดต่อผู้ดูแลระบบ');
+            }
           }}
           className="w-full py-3 px-4 rounded-2xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50/80 text-slate-700 font-bold text-xs sm:text-sm transition-all flex items-center justify-center gap-2.5 shadow-sm active:scale-98 cursor-pointer"
         >

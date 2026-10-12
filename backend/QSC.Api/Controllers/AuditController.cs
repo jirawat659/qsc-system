@@ -24,9 +24,11 @@ namespace QSC.Api.Controllers
         private readonly IHubContext<CapChatHub> _hubContext;
         private readonly IConfiguration _config;
         private readonly IActivityLogger _activityLogger;
+        private readonly IPermissionService _permissions;
 
-        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext, IConfiguration config, IActivityLogger activityLogger)
+        public AuditController(AppDbContext context, IWebHostEnvironment env, ILogger<AuditController> logger, IHubContext<CapChatHub> hubContext, IConfiguration config, IActivityLogger activityLogger, IPermissionService permissions)
         {
+            _permissions = permissions;
             _context = context;
             _env = env;
             _logger = logger;
@@ -649,7 +651,7 @@ namespace QSC.Api.Controllers
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            bool canReopen = role == "ADMIN" || await UserScopeHelper.HasPermissionAsync(role, "audit.reopen", _context);
+            bool canReopen = await _permissions.HasAsync(User, "audit.reopen", HttpContext.RequestAborted);
             if (!canReopen)
             {
                 return Forbid();
@@ -753,9 +755,20 @@ namespace QSC.Api.Controllers
                     {
                         metadataValuesObj = System.Text.Json.JsonSerializer.Deserialize<object>(record.MetadataValuesJson) ?? new object();
                         using var doc = System.Text.Json.JsonDocument.Parse(record.MetadataValuesJson);
-                        if (doc.RootElement.TryGetProperty("staff_count", out var scElem))
+                        if (doc.RootElement.TryGetProperty("staff_count", out var scElem) && !string.IsNullOrWhiteSpace(scElem.ToString()))
                         {
                             staffCountStr = scElem.ToString();
+                        }
+                        else if (doc.RootElement.TryGetProperty("_fields", out var fieldsElem) && fieldsElem.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            foreach (var f in fieldsElem.EnumerateArray())
+                            {
+                                if (f.TryGetProperty("id", out var idElem) && (idElem.GetString() == "staff_count" || idElem.GetString() == "staffCount") && f.TryGetProperty("value", out var valElem))
+                                {
+                                    staffCountStr = valElem.ToString();
+                                    break;
+                                }
+                            }
                         }
                     }
                     catch (System.Text.Json.JsonException ex)
@@ -2679,7 +2692,7 @@ namespace QSC.Api.Controllers
 
             // 1) สิทธิ์ audit.edit ต้องผูกกับ role แบบ dynamic ผ่านตาราง RolePermission
             //    (ไม่ hardcode [Authorize(Roles=...)] เพื่อให้ Admin ไปเปิด/ปิดให้ role ไหนก็ได้จากหน้า "บทบาทและสิทธิ์")
-            var hasEditPermission = await UserScopeHelper.HasPermissionAsync(role, "audit.edit", _context);
+            var hasEditPermission = await _permissions.HasAsync(User, "audit.edit", HttpContext.RequestAborted);
             if (!hasEditPermission) return Forbid();
 
             // 2) บังคับกรอกเหตุผลเสมอ — ไม่มีเหตุผล = แก้ไม่ได้ (ไม่จำกัดเวลาที่แก้ไขได้)
@@ -3423,10 +3436,7 @@ namespace QSC.Api.Controllers
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
             var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
-            var hasDeletePermission = role == "ADMIN" || await _context.RolePermissions
-                .Include(rp => rp.Role)
-                .Include(rp => rp.Permission)
-                .AnyAsync(rp => rp.Role!.Code == role && rp.Permission!.Code == "audit.delete");
+            var hasDeletePermission = await _permissions.HasAsync(User, "audit.delete", HttpContext.RequestAborted);
 
             if (!hasDeletePermission) return Forbid();
 

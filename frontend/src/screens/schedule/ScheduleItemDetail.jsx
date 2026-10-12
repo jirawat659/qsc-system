@@ -184,9 +184,22 @@ export default function ScheduleItemDetail({ item, role, onBack, onStartAudit, o
             </div>
             <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 col-span-2 sm:col-span-1">
               <div className="text-[11px] font-extrabold text-slate-400">ประเภทการตรวจ</div>
-              <div className="text-xs sm:text-sm font-bold text-slate-800 mt-0.5">{auditTypeMeta.label}</div>
+              <div className="text-xs sm:text-sm font-bold text-slate-800 mt-0.5">{currentType?.label || "ตามกำหนดการ"}</div>
             </div>
           </div>
+
+          {/* 🌟 หมายเหตุ / คำแนะนำเพิ่มเติมจากผู้วางแผน */}
+          {item.notes && item.notes.trim() && (
+            <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/80 shadow-2xs space-y-1">
+              <div className="text-[11px] font-extrabold text-amber-900 flex items-center gap-1.5">
+                <Info size={14} className="text-amber-600 shrink-0" />
+                <span>หมายเหตุ / คำแนะนำจากผู้วางแผน</span>
+              </div>
+              <p className="text-xs font-semibold text-slate-700 whitespace-pre-wrap pl-5">
+                {item.notes.trim()}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Address & Contact */}

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -28,13 +29,15 @@ public sealed class PdpClient(HttpClient http, IOptions<SsoOptions> options, ILo
     {
         try
         {
-            using var cts = LinkedTimeout(ct);
             var url = $"{_o.BaseUrl}/api/pdp/my-grants?subject={Uri.EscapeDataString(oid)}&application={Uri.EscapeDataString(_o.AppCode)}";
-            using var req = new HttpRequestMessage(HttpMethod.Get, url);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-            using var res = await http.SendAsync(req, cts.Token);
+            using var res = await SendWithRetryAsync(() =>
+            {
+                var r = new HttpRequestMessage(HttpMethod.Get, url);
+                r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+                return r;
+            }, ct);
             if (!res.IsSuccessStatusCode) return PdpGrants.Fail($"pdp_http_{(int)res.StatusCode}");
-            using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(cts.Token), cancellationToken: cts.Token);
+            using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             return ParseGrants(doc.RootElement);
         }
         catch (Exception ex)
@@ -50,14 +53,16 @@ public sealed class PdpClient(HttpClient http, IOptions<SsoOptions> options, ILo
     {
         try
         {
-            using var cts = LinkedTimeout(ct);
             var body = JsonSerializer.Serialize(new { subject = oid, application = _o.AppCode, action, scopeDimension, scopeCode });
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"{_o.BaseUrl}/api/pdp/check")
-            { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
-            using var res = await http.SendAsync(req, cts.Token);
+            using var res = await SendWithRetryAsync(() =>
+            {
+                var r = new HttpRequestMessage(HttpMethod.Post, $"{_o.BaseUrl}/api/pdp/check")
+                { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+                r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
+                return r;
+            }, ct);
             if (!res.IsSuccessStatusCode) return new PdpDecision(false, $"pdp_http_{(int)res.StatusCode}");
-            using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(cts.Token), cancellationToken: cts.Token);
+            using var doc = await JsonDocument.ParseAsync(await res.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
             var root = doc.RootElement;
             var allowed = root.TryGetProperty("allowed", out var a) && a.ValueKind == JsonValueKind.True;
             var reason = root.TryGetProperty("reason", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString()! : "";
@@ -90,6 +95,37 @@ public sealed class PdpClient(HttpClient http, IOptions<SsoOptions> options, ILo
                     scopes.Add(new PdpScope(d.GetString()!, cs.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()));
 
         return new PdpGrants(true, perms, scopes);
+    }
+
+    // ---- retry เฉพาะความล้มเหลวชั่วคราว (ต่อไม่ติด/timeout/408/502/503/504) ----
+    // ลองสูงสุด 3 ครั้ง; หมดแล้วยังไม่สำเร็จ = ปล่อยให้ผู้เรียก fail-closed ตามเดิม
+    // เวลารอสูงสุด ≈ 3 × PdpTimeoutSeconds + backoff — ควรตั้ง AuPortal:PdpTimeoutSeconds ไว้ 3–5 วินาที
+    private static readonly int[] RetryDelaysMs = { 200, 600 };
+
+    private static bool IsTransient(HttpStatusCode s) =>
+        s is HttpStatusCode.RequestTimeout or HttpStatusCode.BadGateway
+          or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;
+
+    private async Task<HttpResponseMessage> SendWithRetryAsync(Func<HttpRequestMessage> build, CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            var last = attempt >= RetryDelaysMs.Length;
+            try
+            {
+                using var cts = LinkedTimeout(ct);   // timeout ต่อครั้ง
+                using var req = build();             // HttpRequestMessage ใช้ซ้ำไม่ได้ ต้องสร้างใหม่ทุกครั้ง
+                var res = await http.SendAsync(req, cts.Token);   // buffer เนื้อหาเสร็จก่อน cts ถูก dispose
+                if (last || !IsTransient(res.StatusCode)) return res;
+                res.Dispose();
+            }
+            catch (Exception ex) when (!last && !ct.IsCancellationRequested
+                                       && (ex is HttpRequestException or OperationCanceledException))
+            {
+                log.LogWarning(ex, "PDP ล้มเหลวครั้งที่ {Attempt} — จะลองใหม่", attempt + 1);
+            }
+            await Task.Delay(RetryDelaysMs[attempt] + Random.Shared.Next(0, 150), ct);   // backoff + jitter
+        }
     }
 
     private CancellationTokenSource LinkedTimeout(CancellationToken ct)

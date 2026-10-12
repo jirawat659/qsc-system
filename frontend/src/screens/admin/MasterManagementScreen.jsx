@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag, Eye, EyeOff } from "lucide-react";
+import { Users, Store, Building2, ShieldCheck, Plus, Search, Key, Check, X, ChevronRight, CheckCircle2, AlertCircle, AlertTriangle, RefreshCw, Shield, SlidersHorizontal, CheckSquare, Square, ArrowLeft, ChevronDown, ChevronUp, Smartphone, Tag, Eye, EyeOff } from "lucide-react";
 import api from '../../config/api';
 import Header from '../../shared/Header';
 import ModalWrapper from '../../shared/ModalWrapper';
@@ -52,7 +52,8 @@ export default function MasterManagementScreen({ onBack }) {
     allowedBrandIds: [],
     isActive: true,
     locationIds: [],
-    newPassword: ''
+    newPassword: '',
+    entraOid: ''
   });
 
   // 1.1 Branch Selector Sub-Modal (จัดการสาขาที่ได้รับอนุญาต)
@@ -254,7 +255,8 @@ export default function MasterManagementScreen({ onBack }) {
       allowedBrandIds: u.allowedBrandIds || u.brandIds || [],
       isActive: u.isActive !== undefined ? u.isActive : true,
       locationIds: u.locationIds || [],
-      newPassword: ''
+      newPassword: '',
+      entraOid: u.entraOid || ''
     });
   };
 
@@ -262,6 +264,21 @@ export default function MasterManagementScreen({ onBack }) {
     e.preventDefault();
     if (!editUser || !editUserForm.fullName.trim()) {
       showToast('กรุณากรอกชื่อ-นามสกุลผู้ใช้งาน', true);
+      return;
+    }
+
+    // ตรวจรูปแบบ Object ID (GUID) ก่อนบันทึกอะไรทั้งสิ้น
+    const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const newOid = (editUserForm.entraOid || '').trim();
+    const oldOid = (editUser.entraOid || '').trim();
+    if (newOid && !GUID_RE.test(newOid)) {
+      showToast('รูปแบบ Object ID ไม่ถูกต้อง (ต้องเป็น GUID 36 ตัว เช่น 3f2b8c1e-9d4a-4c5b-8e2f-1a2b3c4d5e6f)', true);
+      return;
+    }
+
+    // ตรวจสอบ Object ID ซ้ำกับผู้ใช้อื่น
+    if (newOid && duplicateOidUser) {
+      showToast(`Object ID นี้ซ้ำกับผู้ใช้ "${duplicateOidUser.fullName || duplicateOidUser.username}"`, true);
       return;
     }
 
@@ -276,6 +293,11 @@ export default function MasterManagementScreen({ onBack }) {
         isActive: editUserForm.isActive,
         locationIds: editUserForm.branchScope === 'SPECIFIC' ? editUserForm.locationIds : []
       });
+
+      // 1.1 ผูก/ยกเลิกการผูกบัญชี Entra (เรียกเฉพาะเมื่อค่าเปลี่ยน)
+      if (newOid.toLowerCase() !== oldOid.toLowerCase()) {
+        await api.put(`/user/${editUser.id}/entra-oid`, { entraOid: newOid || null });
+      }
 
       // 2. If newPassword is provided, reset password
       if (editUserForm.newPassword && editUserForm.newPassword.trim()) {
@@ -626,6 +648,12 @@ export default function MasterManagementScreen({ onBack }) {
     }
     return locations.filter(loc => isLocationInBrands(loc, editUserForm.allowedBrandIds));
   }, [locations, editUserForm.brandScope, editUserForm.allowedBrandIds]);
+
+  const duplicateOidUser = useMemo(() => {
+    const raw = (editUserForm.entraOid || '').trim().toLowerCase();
+    if (!raw || !editUser) return null;
+    return users.find(u => u.id !== editUser.id && (u.entraOid || '').trim().toLowerCase() === raw) || null;
+  }, [editUserForm.entraOid, editUser, users]);
 
   const selectableLocationsForCreate = useMemo(() => {
     if (userForm.brandScope !== 'SPECIFIC' || !userForm.allowedBrandIds || userForm.allowedBrandIds.length === 0) {
@@ -1409,6 +1437,43 @@ export default function MasterManagementScreen({ onBack }) {
                 </div>
               )}
 
+              {/* ผูกบัญชี Entra ID (SSO) */}
+              <div className="p-4.5 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-2.5">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                  <ShieldCheck size={17} className="text-[#0F6659]" />
+                  <span>ผูกบัญชี Entra ID</span>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                    editUser?.entraOid
+                      ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                      : 'text-amber-700 bg-amber-50 border-amber-200'
+                  }`}>
+                    {editUser?.entraOid ? 'ผูกแล้ว' : 'ยังไม่ผูก'}
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Object ID (GUID) เช่น 3f2b8c1e-9d4a-4c5b-8e2f-1a2b3c4d5e6f"
+                  value={editUserForm.entraOid || ''}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, entraOid: e.target.value })}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className={`w-full px-4.5 py-3 rounded-xl bg-white border text-sm sm:text-base font-mono font-normal outline-none shadow-xs placeholder:text-slate-400 transition-colors ${
+                    duplicateOidUser
+                      ? 'border-rose-400 text-rose-800 focus:border-rose-500 ring-2 ring-rose-200'
+                      : 'border-slate-200 text-slate-500 focus:text-slate-800 focus:border-[#0F6659]'
+                  }`}
+                />
+                {duplicateOidUser && (
+                  <div className="flex items-center gap-1.5 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold">
+                    <AlertTriangle size={15} className="shrink-0 text-rose-600" />
+                    <span>⚠️ Object ID นี้ซ้ำกับผู้ใช้ <strong>"{duplicateOidUser.fullName || duplicateOidUser.username}"</strong> ({duplicateOidUser.username})</span>
+                  </div>
+                )}
+                <div className="text-xs text-slate-400 font-normal">
+                  ปล่อยว่างเพื่อยกเลิกการผูก
+                </div>
+              </div>
+
               {/* Integrated Password Reset Section */}
               <div className="p-4.5 rounded-2xl bg-slate-50/80 border border-slate-200 space-y-2.5">
                 <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
@@ -1462,7 +1527,12 @@ export default function MasterManagementScreen({ onBack }) {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3.5 rounded-2xl bg-[#0F6659] hover:bg-emerald-800 text-sm font-bold text-white shadow-md cursor-pointer active:scale-98 transition-all"
+                  disabled={Boolean(duplicateOidUser)}
+                  className={`flex-1 py-3.5 rounded-2xl text-sm font-bold shadow-md transition-all ${
+                    duplicateOidUser
+                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      : 'bg-[#0F6659] hover:bg-emerald-800 text-white cursor-pointer active:scale-98'
+                  }`}
                 >
                   บันทึก
                 </button>

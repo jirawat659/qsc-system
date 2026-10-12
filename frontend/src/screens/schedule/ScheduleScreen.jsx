@@ -56,20 +56,11 @@ export default function ScheduleScreen({ role, currentUser, isDesktop, onStartAu
 
         // ตรวจสอบว่าสาขานี้ตรวจเสร็จแล้วหรือยัง
         const isCompleted = s.status === "completed" || s.status === "done" || s.isCompleted || (auditRecords || []).some(ar => {
-          if (ar.auditScheduleId && Number(ar.auditScheduleId) === Number(s.id)) return true;
-          if (Number(ar.locationId) === Number(s.locationId)) {
-            const ad = new Date(ar.auditDate || ar.submittedAt || ar.createdAt);
-            const diffDays = Math.abs((ad.getTime() - dateObj.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 2 && (!s.surveyFormId || !ar.surveyFormId || Number(ar.surveyFormId) === Number(s.surveyFormId))) {
-              return true;
-            }
-          }
-          return false;
+          return ar.auditScheduleId && Number(ar.auditScheduleId) === Number(s.id);
         });
 
         const hasActiveDraft = (activeDrafts || []).some(d =>
-          (d.auditScheduleId && Number(d.auditScheduleId) === Number(s.id)) ||
-          (Number(d.locationId) === Number(s.locationId) && (!s.surveyFormId || !d.surveyFormId || Number(d.surveyFormId) === Number(s.surveyFormId)))
+          (d.auditScheduleId && Number(d.auditScheduleId) === Number(s.id))
         );
 
         const now = new Date();

@@ -713,10 +713,21 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const rawAuditType = initialMeta.audit_type || currentRecord.auditType || "announced";
     initialMeta.audit_type = matchAuditTypeOption(rawAuditType, auditTypeOpts);
 
-    // 👥 จำนวนพนักงาน
-    if ((initialMeta.staff_count === undefined || initialMeta.staff_count === null) && currentRecord.staffCount !== undefined) {
-      initialMeta.staff_count = currentRecord.staffCount;
-    }
+    // 👥 จำนวนพนักงาน (ดึงจาก _fields หรือ staff_count หรือ currentRecord.staffCount)
+    const storedFields = Array.isArray(initialMeta._fields)
+      ? initialMeta._fields
+      : (Array.isArray(initialMeta) ? initialMeta : []);
+    const fieldStaff = storedFields.find(f => f.id === "staff_count" || f.id === "staffCount");
+    const resolvedStaff = (currentRecord?.staffCount !== undefined && currentRecord?.staffCount !== null && Number(currentRecord.staffCount) > 0)
+      ? Number(currentRecord.staffCount)
+      : (fieldStaff?.value !== undefined && fieldStaff?.value !== null && fieldStaff?.value !== "")
+        ? Number(fieldStaff.value)
+        : (initialMeta.staff_count !== undefined && initialMeta.staff_count !== null && initialMeta.staff_count !== "")
+          ? Number(initialMeta.staff_count)
+          : (Number(currentRecord?.staffCount) || 0);
+
+    initialMeta.staff_count = resolvedStaff;
+    setStaffCount(resolvedStaff);
 
     // 📝 หมายเหตุ
     if (initialMeta.general_notes === undefined && rawNotes) {
@@ -781,10 +792,20 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
     const rawAuditType = meta.audit_type || currentRecord.auditType || "announced";
     meta.audit_type = matchAuditTypeOption(rawAuditType, auditTypeOpts);
 
-    if (currentRecord.staffCount !== undefined) {
-      meta.staff_count = currentRecord.staffCount;
-      setStaffCount(currentRecord.staffCount);
-    }
+    const storedFields = Array.isArray(meta._fields)
+      ? meta._fields
+      : (Array.isArray(meta) ? meta : []);
+    const fieldStaff = storedFields.find(f => f.id === "staff_count" || f.id === "staffCount");
+    const resolvedStaff = (currentRecord?.staffCount !== undefined && currentRecord?.staffCount !== null && Number(currentRecord.staffCount) > 0)
+      ? Number(currentRecord.staffCount)
+      : (fieldStaff?.value !== undefined && fieldStaff?.value !== null && fieldStaff?.value !== "")
+        ? Number(fieldStaff.value)
+        : (meta.staff_count !== undefined && meta.staff_count !== null && meta.staff_count !== "")
+          ? Number(meta.staff_count)
+          : (Number(currentRecord?.staffCount) || 0);
+
+    meta.staff_count = resolvedStaff;
+    setStaffCount(resolvedStaff);
 
     if (rawNotes) {
       meta.general_notes = rawNotes;
@@ -1628,7 +1649,9 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                   let val = metadataValues[field.id];
                   if (val === undefined || val === null || val === "") {
                     if (field.id === 'staff_count' || field.id === 'staffCount') {
-                      val = currentRecord?.staffCount ?? staffCount ?? "";
+                      val = (staffCount !== undefined && staffCount !== null && staffCount !== 0)
+                        ? staffCount
+                        : (currentRecord?.staffCount ?? staffCount ?? "");
                     } else if (field.id === 'audit_type' || field.id === 'auditType') {
                       val = matchAuditTypeOption(currentRecord?.auditType || "announced", field.options);
                     } else if (field.id === 'auditor' || field.id === 'auditor_name' || field.id === 'auditorName' || field.type === 'auditor') {

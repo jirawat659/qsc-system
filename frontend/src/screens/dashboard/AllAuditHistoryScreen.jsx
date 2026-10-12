@@ -429,7 +429,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             photos: parsedPayload?.photos || d.photos || {},
             comments: parsedPayload?.comments || d.comments || {},
             metadataValues: parsedPayload?.metadataValues || d.metadataValues || {},
-            staffCount: parsedPayload?.staffCount || d.staffCount || "",
+            staffCount: parsedPayload?.staffCount ?? parsedPayload?.metadataValues?.staff_count ?? parsedPayload?.metadataValues?._fields?.find?.(f => f.id === "staff_count" || f.id === "staffCount")?.value ?? d.staffCount ?? "",
             auditorName: auditorVal,
             auditType: parsedPayload?.auditType || d.auditType || "announced",
             auditeeSignature: parsedPayload?.auditeeSignature || d.auditeeSignature || null,
@@ -446,17 +446,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
       schedules.forEach((s) => {
         const dateObj = new Date(s.scheduledDate);
         const isCompleted = s.status === 'completed' || s.status === 'done' || s.isCompleted ||
-          (auditRecords || []).some(ar => {
-            if (ar.auditScheduleId && Number(ar.auditScheduleId) === Number(s.id)) return true;
-            if (Number(ar.locationId) === Number(s.locationId)) {
-              const ad = new Date(ar.auditDate || ar.submittedAt || ar.createdAt);
-              const diffDays = Math.abs((ad.getTime() - dateObj.getTime()) / (1000 * 60 * 60 * 24));
-              if (diffDays <= 2 && (!s.surveyFormId || !ar.surveyFormId || Number(ar.surveyFormId) === Number(s.surveyFormId))) {
-                return true;
-              }
-            }
-            return false;
-          });
+          (auditRecords || []).some(ar => ar.auditScheduleId && Number(ar.auditScheduleId) === Number(s.id));
         if (isCompleted) return; // skip completed schedules
 
         const branchName = s.locationName || s.location?.name || "-";
@@ -465,7 +455,12 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
         const dateFormatted = formatThaiAuditDate(rawDate);
         
         const timestamp = parseAuditTimestamp(rawDate, s.id) + 2000000000; // prioritize schedules (future)
-        const auditorVal = s.auditorName || s.primaryAuditor?.fullName || (s.auditors?.[0]?.fullName) || "-";
+        const allAuditors = [
+          s.auditorName,
+          s.primaryAuditor?.fullName,
+          ...(s.auditors || []).map(a => a.fullName || a.name || a.username)
+        ].filter(Boolean);
+        const auditorVal = allAuditors.length > 0 ? Array.from(new Set(allAuditors)).join(", ") : "-";
         const formId = s.surveyFormId || s.formId || s.surveyForm?.id;
         const directForm = s.surveyFormTitle || s.formTitle || s.surveyForm?.title || s.formName || s.form;
         const formVal = resolveFormTitle(formId, directForm, forms);
@@ -1259,6 +1254,14 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
                       </span>
                     )}
                   </p>
+                </div>
+              )}
+
+              {/* 📌 คำแนะนำ / หมายเหตุจากผู้วางแผน (ถ้ามี) */}
+              {log.type === 'schedule' && log.record?.notes && log.record.notes.trim() && (
+                <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/70 text-xs text-amber-900 flex items-start gap-1.5">
+                  <span className="text-[11px] font-extrabold text-amber-800 shrink-0">📌 คำแนะนำ:</span>
+                  <span className="font-semibold text-slate-700 line-clamp-2">{log.record.notes.trim()}</span>
                 </div>
               )}
 

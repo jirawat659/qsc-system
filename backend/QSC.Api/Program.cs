@@ -34,6 +34,8 @@ builder.Services.AddSingleton<QSC.Api.Sso.JtiStore>();
 builder.Services.AddSingleton<QSC.Api.Sso.SsoTokenValidator>();
 builder.Services.AddSingleton<QSC.Api.Sso.TokenService>();
 builder.Services.AddHttpClient<QSC.Api.Sso.PdpClient>();
+builder.Services.AddSingleton<QSC.Api.Sso.IPdpBearerProvider, QSC.Api.Sso.UnconfiguredBearerProvider>();
+builder.Services.AddScoped<QSC.Api.Services.IPermissionService, QSC.Api.Services.PermissionService>();
 
 // 2. CORS Setup
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() 
@@ -133,11 +135,24 @@ builder.Services.AddRateLimiter(options =>
     options.OnRejected = async (context, token) =>
     {
         context.HttpContext.Response.ContentType = "application/json; charset=utf-8";
-        var msg = "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่";
+        var isSso = context.HttpContext.Request.Path.StartsWithSegments("/api/auth/sso");
+        var msg = isSso ? "ขอเข้าสู่ระบบถี่เกินไป กรุณารอสักครู่แล้วลองใหม่"
+                        : "คุณเรียกใช้งาน AI ถี่เกินไป กรุณารอ 1 นาทีก่อนลองใหม่";
         await context.HttpContext.Response.WriteAsync(
             $"{{\"message\": \"{msg}\", \"status\": 429, \"retryAfterSeconds\": 60}}", 
             token);
     };
+
+    // จำกัดต่อ IP สำหรับ /api/auth/sso/* (anonymous endpoint) — เผื่อหลายคนออกอินเทอร์เน็ตผ่าน IP เดียวกัน (NAT ของบริษัท)
+    options.AddPolicy("SsoRateLimit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 
     options.AddPolicy("AiRateLimit", httpContext =>
     {
