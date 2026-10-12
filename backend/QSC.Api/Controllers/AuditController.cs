@@ -206,7 +206,6 @@ namespace QSC.Api.Controllers
             public double? StartLongitude { get; set; }
             public DateTime? StartedAt { get; set; }
             public bool IsNewAudit { get; set; } = false;
-            public int? ReopenedFromRecordId { get; set; }
         }
 
         [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
@@ -358,7 +357,6 @@ namespace QSC.Api.Controllers
                         SurveyFormId = effectiveFormId,
                         AuditorId = effectiveAuditorId,
                         AuditScheduleId = effectiveScheduleId,
-                        ReopenedFromRecordId = dto.ReopenedFromRecordId,
                         DraftPayloadJson = dto.DraftPayloadJson ?? "{}",
                         CurrentSectionIdx = dto.CurrentSectionIdx,
                         TotalAnswered = dto.TotalAnswered,
@@ -375,10 +373,6 @@ namespace QSC.Api.Controllers
                     if (string.IsNullOrWhiteSpace(draft.DocumentNo) && !string.IsNullOrWhiteSpace(draftDocNo))
                     {
                         draft.DocumentNo = draftDocNo;
-                    }
-                    if (dto.ReopenedFromRecordId.HasValue && !draft.ReopenedFromRecordId.HasValue)
-                    {
-                        draft.ReopenedFromRecordId = dto.ReopenedFromRecordId;
                     }
                     // 🛡️ GUARD: If the draft in database has already been migrated to a newer form version
                     // than the one the client is trying to save, reject this save with 409 Conflict!
@@ -573,17 +567,19 @@ namespace QSC.Api.Controllers
             {
                 foreach (var d in uniqueDrafts)
                 {
+                    AuditRecord? oldRecord = null;
                     if (d.ReopenedFromRecordId.HasValue)
                     {
-                        var oldRecord = await _context.AuditRecords
+                        oldRecord = await _context.AuditRecords
                             .IgnoreQueryFilters()
                             .FirstOrDefaultAsync(r => r.Id == d.ReopenedFromRecordId.Value);
+                    }
 
-                        if (oldRecord != null)
-                        {
-                            oldRecord.Status = "SUBMITTED";
-                            oldRecord.ReopenReason = null;
-                        }
+                    // 🛡️ คืนสถานะผลเดิมเฉพาะเมื่อมันถูกย้อนอยู่จริง (REOPENED) และเป็นสาขาเดียวกับแบบร่าง
+                    if (oldRecord != null && oldRecord.Status == "REOPENED" && oldRecord.LocationId == d.LocationId)
+                    {
+                        oldRecord.Status = "SUBMITTED";
+                        oldRecord.ReopenReason = null;
 
                         if (d.AuditScheduleId.HasValue)
                         {
@@ -594,7 +590,7 @@ namespace QSC.Api.Controllers
                             }
                         }
 
-                        _activityLogger.Add(currentUserId, "AUDIT_REOPEN_CANCEL", "AuditRecord", oldRecord?.Id ?? d.ReopenedFromRecordId.Value, d.LocationId);
+                        _activityLogger.Add(currentUserId, "AUDIT_REOPEN_CANCEL", "AuditRecord", oldRecord.Id, d.LocationId);
                         locationsToRecalculate.Add(d.LocationId);
                     }
                     else
@@ -726,7 +722,16 @@ namespace QSC.Api.Controllers
                     string? resolvedAns = AuditScoring.ResolveStoredAnswer(resp, resp.SurveyItem);
                     if (resolvedAns != null)
                     {
-                        answersDict[key] = resolvedAns;
+                        var srcItem = resp.SurveyItem;
+                        string qType = (srcItem?.QuestionType ?? "").Trim().ToLowerInvariant();
+                        if ((qType == "scale" || qType == "rating") && int.TryParse(resolvedAns, out int scaleVal) && scaleVal >= 1 && scaleVal <= 5)
+                        {
+                            answersDict[key] = scaleVal;
+                        }
+                        else
+                        {
+                            answersDict[key] = resolvedAns;
+                        }
                     }
 
                     if (resp.Images != null && resp.Images.Any())
@@ -741,13 +746,22 @@ namespace QSC.Api.Controllers
                 }
 
                 object metadataValuesObj = new object();
+                string staffCountStr = "";
                 if (!string.IsNullOrWhiteSpace(record.MetadataValuesJson))
                 {
                     try
                     {
                         metadataValuesObj = System.Text.Json.JsonSerializer.Deserialize<object>(record.MetadataValuesJson) ?? new object();
+                        using var doc = System.Text.Json.JsonDocument.Parse(record.MetadataValuesJson);
+                        if (doc.RootElement.TryGetProperty("staff_count", out var scElem))
+                        {
+                            staffCountStr = scElem.ToString();
+                        }
                     }
-                    catch { }
+                    catch (System.Text.Json.JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to parse MetadataValuesJson for audit record {RecordId}", record.Id);
+                    }
                 }
 
                 var unitObj = new
@@ -758,6 +772,17 @@ namespace QSC.Api.Controllers
                     region = record.Location?.Region
                 };
 
+                // 🌟 ตรวจย้อนหลัง: คืนวัน-เวลาเริ่ม/สิ้นสุดเดิมลงช่อง datetime-local ของหน้าจอ
+                // รูปแบบ yyyy-MM-ddTHH:mm เป็นเวลาไทย (UTC+7) ตรงกับที่หน้าจอใช้แปลงกลับเป็น UTC ตอนส่งผล
+                // (ถ้าไม่ใส่ หน้าจอจะบังคับให้กรอกวันที่ใหม่ทุกครั้งก่อนส่งผลตรวจย้อนหลัง)
+                string backdatedStartInput = "";
+                string backdatedEndInput = "";
+                if (record.IsBackdated)
+                {
+                    backdatedStartInput = (record.StartedAt ?? record.AuditDate).AddHours(7).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture);
+                    backdatedEndInput = record.SubmittedAt.AddHours(7).ToString("yyyy-MM-dd'T'HH:mm", CultureInfo.InvariantCulture);
+                }
+
                 var payloadObj = new
                 {
                     unit = unitObj,
@@ -766,11 +791,14 @@ namespace QSC.Api.Controllers
                     answers = answersDict,
                     photos = photosDict,
                     comments = commentsDict,
+                    staffCount = staffCountStr,
                     auditorName = record.PrimaryAuditor?.FullName ?? "",
                     auditType = record.AuditType ?? "announced",
                     extraNote = record.Notes ?? "",
                     metadataValues = metadataValuesObj,
                     isBackdated = record.IsBackdated,
+                    backdatedStartDate = backdatedStartInput,
+                    backdatedEndDate = backdatedEndInput,
                     auditeeSignature = record.AuditeeSignatureUrl,
                     auditorSignature = record.AuditorSignatureUrl,
                     auditeeSignName = record.AuditeeNameText,
@@ -1334,7 +1362,6 @@ namespace QSC.Api.Controllers
             public DateTime? AuditDate { get; set; }
             public DateTime? StartedAt { get; set; }
             public DateTime? SubmittedAt { get; set; }
-            public int? ReopenedFromRecordId { get; set; }
 
             // Answers
             public List<ResponseSubmitDto> Responses { get; set; } = new();
@@ -1879,7 +1906,12 @@ namespace QSC.Api.Controllers
                 if (dto.DraftId.HasValue && dto.DraftId.Value > 0)
                 {
                     var targetDraft = await _context.AuditDrafts.FindAsync(dto.DraftId.Value);
-                    if (targetDraft != null) draftsToDelete.Add(targetDraft);
+                    // 🛡️ รับเฉพาะแบบร่างของตัวเอง (หรือ ADMIN) ไม่ให้ส่งเลขแบบร่างของคนอื่นมาลบ/ใช้ลิงก์
+                    if (targetDraft != null &&
+                        (role == "ADMIN" || targetDraft.AuditorId == currentUserId || targetDraft.AuditorId == primaryAuditorId))
+                    {
+                        draftsToDelete.Add(targetDraft);
+                    }
                 }
 
                 if (validScheduleId.HasValue)
@@ -1901,7 +1933,28 @@ namespace QSC.Api.Controllers
                 }
 
                 var uniqueDrafts = draftsToDelete.GroupBy(d => d.Id).Select(g => g.First()).ToList();
-                int? reopenedFromRecordId = dto.ReopenedFromRecordId ?? uniqueDrafts.FirstOrDefault(d => d.ReopenedFromRecordId.HasValue)?.ReopenedFromRecordId;
+                // 🛡️ ลิงก์ "ย้อนจากผลตรวจเดิม" อ่านจากแบบร่างในฐานข้อมูลเท่านั้น (ไม่รับจากหน้าจอ)
+                // และต้องเป็นผลเดิมที่ยัง REOPENED อยู่จริง สาขาเดียวกัน และตารางงานไม่ขัดกัน
+                int? reopenedFromRecordId = null;
+                var reopenLinkDraft = uniqueDrafts.FirstOrDefault(d => d.ReopenedFromRecordId.HasValue);
+                if (reopenLinkDraft != null)
+                {
+                    int linkedOldRecordId = reopenLinkDraft.ReopenedFromRecordId!.Value;
+                    var linkedOldRecord = await _context.AuditRecords
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Where(r => r.Id == linkedOldRecordId)
+                        .Select(r => new { r.Id, r.Status, r.LocationId, r.AuditScheduleId })
+                        .FirstOrDefaultAsync();
+
+                    if (linkedOldRecord != null &&
+                        linkedOldRecord.Status == "REOPENED" &&
+                        linkedOldRecord.LocationId == dto.LocationId &&
+                        (!linkedOldRecord.AuditScheduleId.HasValue || linkedOldRecord.AuditScheduleId == validScheduleId))
+                    {
+                        reopenedFromRecordId = linkedOldRecord.Id;
+                    }
+                }
 
                 // 🌟 ผูก AuditDate และ StartedAt เข้าด้วยกันเป็นเวลาเริ่มตรวจจริงเสมอ (UTC)
                 // Create AuditRecord
@@ -2074,9 +2127,11 @@ namespace QSC.Api.Controllers
                     _context.AuditDrafts.RemoveRange(uniqueDrafts);
                 }
 
-                _activityLogger.Add(primaryAuditorId, "AUDIT_SUBMIT", "AuditRecord", record.Id, record.LocationId);
-
                 await _context.SaveChangesAsync();
+
+                // 🌟 บันทึกประวัติหลัง SaveChanges ครั้งแรก เพื่อให้ record.Id เป็นเลขจริงจากฐานข้อมูล
+                // (ถ้าเรียกก่อน EF จะให้เลขชั่วคราว ทำให้ EntityId ผิด) แถวนี้จะถูกบันทึกใน SaveChanges ครั้งถัดไป ภายใน transaction เดียวกัน
+                _activityLogger.Add(primaryAuditorId, "AUDIT_SUBMIT", "AuditRecord", record.Id, record.LocationId);
                 await LocationStatsHelper.UpdateLocationLastAuditStatsAsync(_context, dto.LocationId);
                 await _context.SaveChangesAsync();
 

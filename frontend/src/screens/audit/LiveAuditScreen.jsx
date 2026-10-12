@@ -136,16 +136,18 @@ const QuestionCard = React.memo(function QuestionCard({
   const qType = (q.questionType || q.type || "YESNO").toString().toLowerCase();
   const isNonScored = !isItemScored({ ...q, sectionType: sec?.sectionType, sectionTitle: sec?.title });
 
-  const isNa = answer === "na";
+  const isNa = answer === "na" || String(answer).toLowerCase() === "na";
   const isScale = qType === "scale" || qType === "rating";
-  const isFailed = !isNonScored && !isNa && (answer === "no" || answer === false || (isScale && Number(answer) < 3 && answer !== undefined && answer !== ""));
+  const isYes = answer === "yes" || answer === true || String(answer).toLowerCase() === "yes";
+  const isNo = answer === "no" || answer === false || String(answer).toLowerCase() === "no";
+  const isFailed = !isNonScored && !isNa && (isNo || (isScale && !isNaN(Number(answer)) && Number(answer) < 3 && answer !== undefined && answer !== ""));
   const rawP = photosForQuestion;
   const questionPhotos = Array.isArray(rawP) ? rawP : (rawP ? [rawP] : []);
   const hasPhoto = questionPhotos.length > 0;
   const isCommentRequired = isFailed;
   const isCommentOpen = Boolean(isCommentRequired || openCommentOverride || (commentValue && commentValue.trim().length > 0));
   const itemFullScore = Number(q.fullScore ?? q.maxScore ?? 0);
-  const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * itemFullScore : ((answer === "yes" || answer === true) ? itemFullScore : 0)));
+  const scoreGiven = isNonScored ? 0 : (isNa ? 0 : (isScale ? (Number(answer) || 0) / 5 * itemFullScore : (isYes ? itemFullScore : 0)));
   const isAnswered = answer !== undefined && answer !== "" && answer !== null;
 
   return (
@@ -342,12 +344,12 @@ const QuestionCard = React.memo(function QuestionCard({
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "yes")}
             className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
-              answer === "yes" || answer === true
+              isYes
                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-md ring-2 ring-emerald-600/30 font-black'
                 : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
             }`}
           >
-            <CheckCircle2 size={14} className={answer === "yes" || answer === true ? "text-white" : ""} />
+            <CheckCircle2 size={14} className={isYes ? "text-white" : ""} />
             <span>ผ่าน</span>
           </button>
           <button
@@ -355,12 +357,12 @@ const QuestionCard = React.memo(function QuestionCard({
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "no")}
             className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
-              answer === "no" || answer === false
+              isNo
                 ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-600/30 font-black'
                 : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
             }`}
           >
-            <XCircle size={14} className={answer === "no" || answer === false ? "text-white" : ""} />
+            <XCircle size={14} className={isNo ? "text-white" : ""} />
             <span>ไม่ผ่าน</span>
           </button>
           <button
@@ -368,43 +370,46 @@ const QuestionCard = React.memo(function QuestionCard({
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "na")}
             className={`py-2 px-1.5 sm:py-2.5 sm:px-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 ${
-              answer === "na"
+              isNa
                 ? 'bg-slate-700 text-white border-slate-700 shadow-md ring-2 ring-slate-700/30 font-black'
                 : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
             }`}
           >
-            <Minus size={14} className={answer === "na" ? "text-white" : ""} />
+            <Minus size={14} className={isNa ? "text-white" : ""} />
             <span>ข้าม</span>
           </button>
         </div>
       ) : (
         <div className={`flex gap-1.5 items-center ${readOnly ? 'pointer-events-none select-none opacity-70' : ''}`}>
-          {[5, 4, 3, 2, 1].map((n) => (
-            <button
-              key={n}
-              type="button"
-              disabled={readOnly}
-              onClick={() => onAnswerSelect(q.id, n)}
-              className={`flex-1 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all border ${
-                answer === n
-                  ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30 font-black'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              {n}
-            </button>
-          ))}
+          {[5, 4, 3, 2, 1].map((n) => {
+            const isSelected = !isNa && Number(answer) === n;
+            return (
+              <button
+                key={n}
+                type="button"
+                disabled={readOnly}
+                onClick={() => onAnswerSelect(q.id, n)}
+                className={`flex-1 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-bold transition-all border ${
+                  isSelected
+                    ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-md ring-2 ring-[#0F6659]/30 font-black'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {n}
+              </button>
+            );
+          })}
           <button
             type="button"
             disabled={readOnly}
             onClick={() => onAnswerSelect(q.id, "na")}
             className={`px-2 py-1.5 sm:py-2 rounded-xl flex items-center justify-center text-[10px] font-bold transition-all border ${
-              answer === "na"
+              isNa
                 ? 'bg-slate-700 text-white border-slate-700 shadow-md font-black'
                 : 'bg-slate-50 text-slate-500 border-slate-200'
             }`}
           >
-            <Minus size={12} className={`mr-0.5 ${answer === "na" ? "text-white" : ""}`} /> N/A
+            <Minus size={12} className={`mr-0.5 ${isNa ? "text-white" : ""}`} /> N/A
           </button>
         </div>
       )}
@@ -1601,7 +1606,10 @@ export default function LiveAuditScreen({
   const [photos, setPhotos] = useState(() => initialRemappedDraft?.photos || (isResumeDraft ? (parsedDraftPayload?.photos || {}) : {}));
   const [comments, setComments] = useState(() => initialRemappedDraft?.comments || (isResumeDraft ? (parsedDraftPayload?.comments || {}) : {}));
   const [openComments, setOpenComments] = useState({});
-  const [staffCount, setStaffCount] = useState(isResumeDraft ? (parsedDraftPayload?.staffCount || "") : "");
+  const [staffCount, setStaffCount] = useState(() => {
+    if (!isResumeDraft || !parsedDraftPayload) return "";
+    return parsedDraftPayload.staffCount ?? parsedDraftPayload.metadataValues?.staff_count ?? "";
+  });
   const loggedInAuditorName = currentUser?.fullName || currentUser?.name || defaultAuditorName || "ผู้ตรวจประเมิน";
   const [auditorName, setAuditorName] = useState(() => {
     if (isResumeDraft && parsedDraftPayload?.auditorName) return parsedDraftPayload.auditorName;
@@ -1609,6 +1617,16 @@ export default function LiveAuditScreen({
   });
   const [metadataValues, setMetadataValues] = useState(() => {
     const meta = parsedDraftPayload?.metadataValues ? { ...parsedDraftPayload.metadataValues } : {};
+    if (Array.isArray(meta.items)) {
+      meta.items.forEach(it => {
+        if (it && it.id && meta[it.id] === undefined && it.value !== undefined) {
+          meta[it.id] = it.value;
+        }
+      });
+    }
+    if (!meta.staff_count && parsedDraftPayload?.staffCount) {
+      meta.staff_count = parsedDraftPayload.staffCount;
+    }
     if (!meta.auditor) {
       meta.auditor = parsedDraftPayload?.auditorName || currentUser?.fullName || currentUser?.name || defaultAuditorName || "";
     }
@@ -1999,16 +2017,19 @@ export default function LiveAuditScreen({
       setAnswers(remappedAnswers);
       setPhotos(remappedPhotos);
       setComments(remappedComments);
-      if (parsedDraftPayload.staffCount) {
-        setStaffCount(parsedDraftPayload.staffCount);
+      const effectiveStaffCount = parsedDraftPayload.staffCount ?? parsedDraftPayload.metadataValues?.staff_count;
+      if (effectiveStaffCount !== undefined && effectiveStaffCount !== null && effectiveStaffCount !== "") {
+        setStaffCount(effectiveStaffCount);
       }
       if (parsedDraftPayload.auditorName) {
         setAuditorName(parsedDraftPayload.auditorName);
       }
       if (parsedDraftPayload.metadataValues) {
-        setMetadataValues(parsedDraftPayload.metadataValues);
+        const meta = { ...parsedDraftPayload.metadataValues };
+        if (effectiveStaffCount && !meta.staff_count) meta.staff_count = effectiveStaffCount;
+        setMetadataValues(meta);
       } else if (parsedDraftPayload.auditorName && parsedDraftPayload.auditorName !== (currentUser?.fullName || currentUser?.name)) {
-        setMetadataValues(prev => ({ ...prev, auditor: parsedDraftPayload.auditorName }));
+        setMetadataValues(prev => ({ ...prev, auditor: parsedDraftPayload.auditorName, ...(effectiveStaffCount ? { staff_count: effectiveStaffCount } : {}) }));
       }
       if (parsedDraftPayload.isBackdated !== undefined) {
         setIsBackdated(Boolean(parsedDraftPayload.isBackdated));
@@ -2673,6 +2694,25 @@ export default function LiveAuditScreen({
       const stillUnsaved = hasUnsavedLocalChanges();
       isAnswerModifiedRef.current = stillUnsaved;
       setHasUnsavedChanges(stillUnsaved);
+
+      // 🌟 ตั้ง "ค่าเดิมก่อนแก้" ใหม่หลังบันทึกสำเร็จ: ข้อที่เพิ่งบันทึกไปแล้วต้องไม่ถูกนับเป็น "ที่จะหายถ้ากดยกเลิกการแก้ไข"
+      // (ถ้าไม่ตั้งใหม่ การยกเลิกการแก้ไขรอบถัดไปจะย้อนคำตอบกลับไปเป็นค่าก่อนการแก้ที่บันทึกไปแล้ว และบันทึกครั้งถัดไปจะเขียนทับค่าที่ถูกต้องบนเซิร์ฟเวอร์)
+      {
+        const sentMaps = { answers: currentAnswers, photos: currentPhotos, comments: currentComments, metadataValues: currentMetadataValues };
+        Object.keys(sentDirty || {}).forEach((field) => {
+          (sentDirty[field] || []).forEach((k) => {
+            if (dirtyKeysRef.current[field]?.has(k)) {
+              // แก้ซ้ำระหว่างรอ request: ค่าที่เพิ่งบันทึกคือ "ค่าเดิม" ของการแก้รอบถัดไป
+              const sv = sentMaps[field] || {};
+              originalsRef.current[field][k] = (k in sv) ? sv[k] : ABSENT;
+            } else {
+              delete originalsRef.current[field][k];
+            }
+          });
+        });
+        if (!stillUnsaved) originalsRef.current.extras = {};
+      }
+
       setLastSavedTime(currentTimeStr);
       setSyncStatus(stillUnsaved ? "unsaved" : "synced");
 
@@ -2682,6 +2722,11 @@ export default function LiveAuditScreen({
       console.error("Save draft API error:", err);
       if (currentSeq === saveSeqRef.current) {
         setSyncStatus("error");
+      }
+      if (err.response?.status === 409) {
+        // 409 Conflict: แบบร่างถูกอัปเดต/ย้ายเวอร์ชันจากอีกเครื่องหรืออีกหน้าต่าง → รีเฟรชข้อมูลจากเซิร์ฟเวอร์
+        console.warn("Draft version conflict (409):", err.response?.data?.message);
+        if (refreshData) refreshData();
       }
       return false;
     } finally {
@@ -3002,8 +3047,9 @@ export default function LiveAuditScreen({
             if (payload.comments !== undefined) {
               setComments(prev => (prev && Object.keys(prev).length > 0 ? { ...activeComments, ...prev } : activeComments));
             }
-            if (payload.staffCount !== undefined) {
-              setStaffCount(payload.staffCount);
+            const effStaff = payload.staffCount ?? payload.metadataValues?.staff_count;
+            if (effStaff !== undefined) {
+              setStaffCount(effStaff);
             }
             if (payload.extraNote !== undefined) {
               setExtraNote(payload.extraNote);
@@ -3113,7 +3159,8 @@ export default function LiveAuditScreen({
           if (payload.comments !== undefined) setComments(incomingComments);
           if (payload.metadataValues !== undefined) setMetadataValues(payload.metadataValues || {});
 
-          if (payload.staffCount !== undefined) setStaffCount(payload.staffCount || "");
+          const effStaff = payload.staffCount ?? payload.metadataValues?.staff_count;
+          if (effStaff !== undefined) setStaffCount(effStaff || "");
           if (payload.extraNote !== undefined) setExtraNote(payload.extraNote || "");
           if (payload.auditeeSignature !== undefined) setAuditeeSignature(payload.auditeeSignature || null);
           if (payload.auditorSignature !== undefined) setAuditorSignature(payload.auditorSignature || null);
@@ -3841,7 +3888,10 @@ export default function LiveAuditScreen({
       }
 
       if (field.id === "staff_count") {
-        if (staffCount === "" || staffCount === undefined || staffCount === null) {
+        const val = (staffCount !== "" && staffCount !== undefined && staffCount !== null)
+          ? staffCount
+          : (metadataValues[field.id] ?? metadataValues.staff_count);
+        if (val === "" || val === undefined || val === null || (typeof val === "string" && !val.trim())) {
           setActiveTab(1);
           alert("⚠️ กรุณาระบุจำนวนพนักงานขณะตรวจในแท็บ 'ข้อมูลการตรวจ'");
           scrollToTop();
@@ -4639,9 +4689,14 @@ export default function LiveAuditScreen({
           }
         }
 
-        if (field.id === "staff_count" && (staffCount === "" || staffCount === undefined)) {
-          alert("กรุณาระบุจำนวนพนักงานขณะตรวจ");
-          return;
+        if (field.id === "staff_count") {
+          const val = (staffCount !== "" && staffCount !== undefined && staffCount !== null)
+            ? staffCount
+            : (metadataValues[field.id] ?? metadataValues.staff_count);
+          if (val === "" || val === undefined || val === null || (typeof val === "string" && !val.trim())) {
+            alert("กรุณาระบุจำนวนพนักงานขณะตรวจ");
+            return;
+          }
         }
 
         if (field.id !== "auditor" && field.type !== "auditor" && field.id !== "audit_type" && field.id !== "staff_count") {
@@ -4753,7 +4808,7 @@ export default function LiveAuditScreen({
                   </div>
                 </div>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/80 text-amber-900 shrink-0">
-                  หากทิ้งร่างจะคืนสถานะเดิม
+                  หากยกเลิกแบบร่างจะคืนสถานะเดิม
                 </span>
               </div>
             </div>

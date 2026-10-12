@@ -2785,7 +2785,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
                               <div className="flex gap-1.5 items-center w-full">
                                 {[5, 4, 3, 2, 1].map((n) => {
                                   const selectedScale = editAns?.scaleScore;
-                                  const isSelected = isAnswered && !isNa && (selectedScale === n);
+                                  const isSelected = isAnswered && !isNa && (selectedScale !== null && selectedScale !== undefined && Number(selectedScale) === n);
                                   return (
                                     <button
                                       key={n}
@@ -2897,7 +2897,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
                               <div className="flex gap-1.5 items-center w-full">
                                 {[5, 4, 3, 2, 1].map((n) => {
                                   const selectedScale = q.scaleScore || (typeof q.answer === 'number' && q.answer <= 5 ? q.answer : Math.round((currentSc / full) * 5));
-                                  const isSelected = isAnswered && !q.isNa && (selectedScale === n);
+                                  const isSelected = isAnswered && !q.isNa && (selectedScale !== null && selectedScale !== undefined && Number(selectedScale) === n);
                                   return (
                                     <div
                                       key={n}

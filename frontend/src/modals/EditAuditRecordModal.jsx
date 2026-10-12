@@ -2110,7 +2110,7 @@ export default function EditAuditRecordModal({ isOpen, onClose, record, onSaveSu
                                   type="button"
                                   onClick={() => handleSetScale(itemId, num)}
                                   className={`flex-1 min-w-[42px] py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                                    state.scaleScore === num
+                                    state.scaleScore !== null && state.scaleScore !== undefined && Number(state.scaleScore) === num
                                       ? 'bg-[#0F6659] text-white border-[#0F6659] shadow-2xs'
                                       : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                                   }`}
