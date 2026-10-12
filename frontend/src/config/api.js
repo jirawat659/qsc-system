@@ -48,6 +48,7 @@ export const AI_REQUEST_TIMEOUT_MS = 65000;
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
+  withCredentials: true, // 🍪 ส่ง HttpOnly session cookie ข้าม request อัตโนมัติ
   headers: {
     'Content-Type': 'application/json',
   },

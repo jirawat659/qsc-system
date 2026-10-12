@@ -23,7 +23,8 @@
 8. [มาตรฐานบทบาทและสิทธิ์ผู้ใช้งาน (Roles & RBAC Standards)](#8-มาตรฐานบทบาทและสิทธิ์ผู้ใช้งาน-roles--rbac-standards)
 9. [มาตรฐานบันทึกประวัติการใช้งานระบบ (System Activity Log Standards)](#9-มาตรฐานบันทึกประวัติการใช้งานระบบ-system-activity-log-standards-)
 10. [มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์ (Tech Stack & Storage Standards)](#10-มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์-tech-stack--storage-standards)
-11. [Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)](#11-checklist-สำหรับการพัฒนาฟีเจอร์ใหม่-developer-checklist)
+11. [มาตรฐานการเชื่อมต่อ SSO และการจัดการ Session Token (SSO & Session Security Standards)](#11-มาตรฐานการเชื่อมต่อ-sso-และการจัดการ-session-token-sso--session-security-standards)
+12. [Checklist สำหรับการพัฒนาและขึ้นระบบจริง (Developer & Production Checklist)](#12-checklist-สำหรับการพัฒนาและขึ้นระบบจริง-developer--production-checklist)
 
 ---
 
@@ -271,24 +272,40 @@ stateDiagram-v2
   - `'ALL'` = เข้าถึงได้ทุกแบรนด์ในเครือ
   - `'SPECIFIC'` = เข้าถึงได้เฉพาะแบรนด์ที่มีบันทึกในตาราง `USER_BRANDS`
 
-### 8.3 สิทธิ์ในระบบมาตรฐาน (Permission Codes & Definitions) 🛡️
-ระบบ QSC ใช้ระบบ Role-Based Access Control (RBAC) ควบคู่กับสิทธิ์รายฟังก์ชัน โดยรหัสสิทธิ์มาตรฐานทั้งหมดถูกกำหนดไว้ใน [`DatabaseSeeder.cs`](backend/QSC.Api/Data/DatabaseSeeder.cs):
+### 8.3 สิทธิ์ในระบบมาตรฐานและแคตตาล็อกสำหรับ PDP (Permission Catalog for PDP) 🛡️
 
-| รหัสสิทธิ์ (`Code`) | ชื่อสิทธิ์ภาษาไทย | หมวดหมู่ | คำอธิบายและการนำไปใช้ |
-| :--- | :--- | :---: | :--- |
-| **`audit.view`** | ดูผลการตรวจ | Audit | เข้าถึงหน้าประวัติและรายละเอียดผลการตรวจ |
-| **`audit.create`** | ทำการตรวจประเมิน | Audit | เริ่มตรวจสดและบันทึกแบบร่าง |
-| **`audit.edit`** | แก้ไขผลการตรวจ | Audit | เข้าสู่โหมดแก้ไขผลตรวจ (Inline Edit) และปรับคะแนนผลตรวจ `SUBMITTED` |
-| **`audit.reopen`** 🌟 | ย้อนสถานะผลตรวจเป็นแบบร่าง | Audit | สิทธิ์ย้อนสถานะผลตรวจที่ส่งแล้วกลับเป็นแบบร่างพร้อมระบุเหตุผล (ADMIN ได้รับอัตโนมัติ) |
-| **`audit.delete`** | ลบผลการตรวจ | Audit | สิทธิ์ในการลบผลการตรวจออกจากระบบ |
-| **`activity.view`** 🌟 | ดูประวัติการใช้งานระบบ | System | เข้าถึงประวัติและบันทึกการกระทำ (Activity Log) ของระบบ (ADMIN ได้รับอัตโนมัติ) |
-| **`cap.view`** | ดูงาน CAP | CAP | เข้าดูรายการงานแก้ไขข้อบกพร่องและห้องแชท |
-| **`cap.manage`** | จัดการงาน CAP | CAP | อนุมัติ ปฏิเสธ หรือเปลี่ยนสถานะงานแก้ไขข้อบกพร่อง |
-| **`schedule.view`** | ดูตารางงานตรวจ | Schedule | ดูปฏิทินและรายการตารางงานตรวจ |
-| **`schedule.manage`**| จัดการตารางงานตรวจ | Schedule | สร้าง แก้ไข มอบหมายผู้ตรวจ และลบตารางงานตรวจ |
-| **`form.view`** | ดูแบบฟอร์ม | Master | ดูรายการและรายละเอียดข้อตรวจในแบบฟอร์ม |
-| **`form.manage`** | จัดการแบบฟอร์ม | Master | สร้าง แก้ไข โคลนเวอร์ชัน และลบแบบฟอร์ม |
-| **`master.manage`** | จัดการข้อมูลหลัก | Master | จัดการสาขา แบรนด์ ประเภทสาขา และผู้ใช้งาน |
+ระบบ QSC รองรับการตรวจสอบสิทธิ์แบบ 2 ชั้น (Hybrid Authorization):
+1. **Local RBAC Mode (Default):** ตรวจสอบสิทธิ์ผ่านตาราง `RolePermissions` ในฐานข้อมูลของ QSC
+2. **PDP Enforced Mode (AU Portal SSO):** เมื่อเปิด `AuPortal:EnforcePdpPermissions = true` ระบบจะยิงถาม PDP ของ AU Portal สดทุกครั้ง (`POST /api/pdp/check` หรือ `GET /api/pdp/my-grants`) โดย **PDP ชนะเสมอ (Fail-Closed)**
+
+> ⚠️ **คำสั่งสำคัญสำหรับการเชื่อมต่อ AU Portal (PDP Catalog Registration):**  
+> รายการ Permission Code ด้านล่างนี้คือ **Catalog กลางของระบบ QSC ทั้งหมด 21 สิทธิ์** ที่ต้องนำไปส่งมอบให้ทีม AU Portal เพื่อลงทะเบียนในระบบ PDP กลาง (ห้ามแก้ไขตัวสะกดหรือ Case-sensitive โดยพลการ เพื่อป้องกันปัญหา Catalog Drift ตาม Spec §3.1)
+
+| ลำดับ | รหัสสิทธิ์ (`Permission Code`) | โมดูล (`Module`) | ชื่อสิทธิ์ภาษาไทย | บทบาทเริ่มต้นที่ได้รับสิทธิ์ | วัตถุประสงค์และการนำไปใช้งาน |
+| :---: | :--- | :---: | :--- | :--- | :--- |
+| **1** | **`menu.dashboard`** | Dashboard | เข้าดูหน้าแดชบอร์ดภาพรวม | `ADMIN`, `AUDITOR`, `AUDITEE`, `STANDARD`, `EXEC` | เข้าถึงหน้า Dashboard หลักของระบบ |
+| **2** | **`dashboard.executive`** | Dashboard | ดูข้อมูลภาพรวมระดับผู้บริหาร | `ADMIN`, `EXEC` | ดูสถิติระดับบริหาร, วิเคราะห์คะแนนเปรียบเทียบ |
+| **3** | **`menu.audit`** | Audit | เข้าเมนูตรวจหน้างานสด | `ADMIN`, `AUDITOR`, `STANDARD` | แสดงเมนูและเข้าสู่หน้าจอการตรวจประเมิน |
+| **4** | **`audit.start`** | Audit | เริ่มทำการตรวจประเมิน | `ADMIN`, `AUDITOR` | เริ่มต้นรอบตรวจใหม่และบันทึกแบบร่าง (Draft) |
+| **5** | **`audit.submit`** | Audit | ส่งผลการตรวจและลงนาม | `ADMIN`, `AUDITOR` | บันทึกผลการตรวจเสร็จสิ้น พร้อมส่งผลคะแนน |
+| **6** | **`audit.edit`** | Audit | แก้ไขผลการตรวจที่ส่งแล้ว | `ADMIN` (มอบหมายเพิ่มได้) | ปรับแก้คะแนน/คำตอบของผลตรวจย้อนหลัง พร้อมระบุเหตุผล |
+| **7** | **`audit.reopen`** 🌟 | Audit | ย้อนสถานะผลตรวจเป็นแบบร่าง | `ADMIN` (มอบหมายเพิ่มได้) | ย้อนสถานะผลตรวจ `SUBMITTED` กลับไปแก้ไขเป็นแบบร่าง |
+| **8** | **`audit.delete`** | Audit | ลบข้อมูลผลการตรวจประเมิน | `ADMIN` | ลบประวัติผลการตรวจออกจากฐานข้อมูล |
+| **9** | **`menu.cap`** | CAP | เข้าดูรายการงานแก้ไข CAP | `ADMIN`, `AUDITOR`, `AUDITEE`, `STANDARD`, `EXEC` | เข้าถึงรายการงาน CAP และเปิดห้องสนทนา |
+| **10**| **`cap.resolve`** | CAP | ส่งหลักฐานแก้ไขข้อบกพร่อง (สาขา) | `ADMIN`, `AUDITEE` | ส่งรูปภาพและข้อความรายงานการแก้ไขของสาขา |
+| **11**| **`cap.approve`** | CAP | ตรวจสอบและอนุมัติปิดงาน CAP (QA)| `ADMIN`, `AUDITOR`, `STANDARD` | อนุมัติ ปฏิเสธ หรือสั่งปิดงานแก้ไข CAP |
+| **12**| **`menu.schedules`** | Schedule | เข้าดูตารางแผนการตรวจ | `ADMIN`, `AUDITOR`, `STANDARD`, `EXEC` | เข้าถึงปฏิทินและรายการแผนนัดหมายตรวจ |
+| **13**| **`schedules.manage`**| Schedule | สร้างและแก้ไขนัดหมายตรวจ | `ADMIN`, `STANDARD` | สร้าง, มอบหมายผู้ตรวจ, แก้ไข และลบแผนตรวจ |
+| **14**| **`menu.forms`** | Form | เข้าดูแม่แบบฟอร์มตรวจ | `ADMIN`, `STANDARD`, `EXEC` | เข้าดูรายการแบบฟอร์มการตรวจ |
+| **15**| **`forms.manage`** | Form | สร้างและแก้ไขแบบฟอร์มการตรวจ | `ADMIN`, `STANDARD` | สร้าง, ออกแบบข้อตรวจ, โคลนเวอร์ชัน และลบแบบฟอร์ม |
+| **16**| **`menu.analytics`** | Analytics | เข้าดูรายงานและการวิเคราะห์สถิติ | `ADMIN`, `AUDITOR`, `STANDARD`, `EXEC` | ดูรายงานสรุปประจำเดือนและส่งออก Excel |
+| **17**| **`menu.admin`** | System | เข้าเมนูจัดการระบบ (Admin Panel) | `ADMIN` | เปิดการเข้าถึงแท็บการจัดการข้อมูลหลัก (Master Data) |
+| **18**| **`users.manage`** | System | จัดการบัญชีผู้ใช้และรีเซ็ตรหัสผ่าน | `ADMIN` | จัดการผู้ใช้, รีเซ็ตรหัสผ่าน, ผูก Entra OID |
+| **19**| **`roles.manage`** | System | จัดการบทบาทและสิทธิ์การใช้งาน | `ADMIN` | กำหนดชุดสิทธิ์ของแต่ละบทบาท, ปรับแต่ง NavConfig |
+| **20**| **`locations.manage`**| System | จัดการข้อมูลสาขาและประเภทสถานที่ | `ADMIN` | สร้าง/แก้ไขสาขา, กำหนดพิกัด GPS, จัดการประเภทสาขา |
+| **21**| **`activity.view`** | System | ดูประวัติกิจกรรมการใช้งานระบบ | `ADMIN` | ดู Activity Log การทำงานและการเข้าสู่ระบบย้อนหลัง |
+
+> 📌 **บทบาท `ADMIN`:** ในการ Seeding ข้อมูลเริ่มต้น บทบาท `ADMIN` จะได้รับทั้ง 21 สิทธิ์โดยอัตโนมัติ เพื่อป้องกันผู้ดูแลระบบล็อกตนเองออกจากระบบ
 
 ---
 
@@ -370,7 +387,59 @@ uploads/
 
 ---
 
-## 11. Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)
+---
+
+## 11. มาตรฐานการเชื่อมต่อ SSO และการจัดการ Session Token (SSO & Session Security Standards)
+
+อ้างอิงตามเอกสารข้อกำหนด [`Login/sso-rp-integration-spec.md`](Login/sso-rp-integration-spec.md) ระบบ QSC รองรับการเข้าใช้งาน 2 ทาง:
+1. **ทาง A (Microsoft Entra ID ตรง):** ใช้ Authorization Code Flow + PKCE ผ่าน MSAL Browser โดยแชร์ App Registration กลางร่วมกับ AU Portal
+2. **ทาง B (AU Portal Launcher):** ล็อกอินผ่าน Launcher กลางแล้ว redirect มาที่ `launchUrl?token=JWT` (token อายุสั้น 15–300 วิ)
+
+### 11.1 กฎเหล็กด้านความปลอดภัยของ Token (Token Security Rules)
+- 🚫 **ห้ามเก็บ Token ใน localStorage เด็ดขาด:** ป้องกันการโจมตีประเภท Cross-Site Scripting (XSS) ในการขโมยสิทธิ์
+- 🍪 **จัดเก็บด้วย HttpOnly + Secure Cookie:**
+  - Token ประจำเซสชัน (`qsc_token`) ต้องส่งผ่าน HTTP Response Header `Set-Cookie`
+  - มี Flag `HttpOnly = true` เพื่อไม่ให้ JavaScript หน้าเว็บอ่าน Token ได้
+  - Frontend ใช้ Axios `withCredentials: true` เพื่อแนบคุกกี้ไปทุกคำขออัตโนมัติ
+  - Backend ตรวจสอบ Token จาก Cookie ก่อนเสมอผ่าน `CookieHelper` ใน `JwtBearerEvents`
+- 🛡️ **การตรวจสอบ Token ขาเข้า (Incoming Token Validation):**
+  - บังคับใช้อัลกอริทึม **`RS256` เท่านั้น** ปฏิเสธ `none` และ `HS*`
+  - ตรวจสอบ `iss`, `aud`, `exp`, `nbf` ผ่าน Public Keys (JWKS) ของต้นทาง
+  - ทาง A ตรวจสอบ `aud` = `AuPortal:EntraClientId`
+  - ทาง B ตรวจสอบ `aud` = `AuPortal:AppCode` และตรวจสอบ `jti` ผ่าน `JtiStore` เพื่อป้องกัน Token Replay
+- ⚖️ **PDP ตัดสินสิทธิ์ (Policy Decision Point):**
+  - **PDP ชนะเสมอ (Fail-Closed):** หากเชื่อมต่อ PDP ไม่ได้ หรือ PDP ตอบ Deny ระบบต้องปฏิเสธการเข้าถึงทันที ไม่อนุญาตให้ Bypass สิทธิ์
+
+### 11.2 การตั้งค่าสำคัญเมื่อนำขึ้นระบบจริง (Production Deployment Configuration) 🚀
+
+เมื่อ Deploy ระบบขึ้นเซิร์ฟเวอร์จริง (Staging / Production) ต้องดำเนินการตั้งค่าดังนี้:
+
+| จุดที่ต้องตั้งค่า | สภาพแวดล้อม Development (เครื่อง Dev) | สภาพแวดล้อม Production (เซิร์ฟเวอร์จริง) | คำอธิบายและเหตุผล |
+| :--- | :--- | :--- | :--- |
+| **Protocol (TLS)** | `http://` (อนุญาตเฉพาะ localhost) | **`https://` (TLS ทุก hop บังคับ 100%)** | ห้ามมี hop ใดเป็น HTTP ธรรมดา เพื่อป้องกันการดักฟัง Token |
+| **Cookie `Secure`** | `Secure = false` | **`Secure = true`** | ใน CookieHelper จะอ่านจาก `!env.IsDevelopment()` อัตโนมัติ บังคับส่งผ่าน HTTPS เท่านั้น |
+| **Cookie `SameSite`** | `SameSite = SameSiteMode.Lax` | **`SameSite = SameSiteMode.Lax` (หรือ `None`)** | หาก Frontend และ Backend ใช้โดเมนแม่เดียวกัน (เช่น `app.domain.com` กับ `api.domain.com`) ใช้ `Lax` ได้ หากแยกโดเมนสิ้นเชิงต้องใช้ `None` คู่กับ `Secure = true` |
+| **JWT Key (Session)** | Key ค่าเริ่มต้นใน `appsettings.json` | **สุ่ม Secret ใหม่ (256-bit+) ผ่าน Environment Variable** | **ห้าม commit คีย์จริงขึ้น Git** ให้ส่งผ่าน Environment Variable `Jwt__Key` ใน Server/Docker/K8s |
+| **AuPortal:PdpBaseUrl** | `http://localhost:5090` | **`https://portal.domain.com`** | ชี้ไปยัง Base URL จริงของ AU Portal Production |
+| **CORS:AllowedOrigins** | `http://localhost:5173`, `http://localhost:3000` | **URL โดเมนจริงของ Frontend เท่านั้น** | เช่น `https://qsc.domain.com` ห้ามใส่ Wildcard `*` เมื่อเปิด `AllowCredentials()` |
+### 11.3 สถาปัตยกรรม Hybrid Session และการผูกบัญชีตัวตน (Hybrid Session & Identity Mapping) 🔄
+
+1. **สถาปัตยกรรม Hybrid Token (Production vs Localhost Compatibility):**
+   - **ปัญหาทางเทคนิค:** เบราว์เซอร์ยุคใหม่มีนโยบาย Same-Origin Policy (SOP) เข้มงวด ไม่อนุญาตให้ส่ง Cookie ข้าม Port (Cross-Origin เช่น Frontend พอร์ต `2000` ไป Backend พอร์ต `5082`) ในโปรโตคอล `http://` ธรรมดาของเครื่อง Localhost ได้
+   - **กลยุทธ์ Hybrid:** 
+     - **Backend:** ทำงานแบบสองชั้น โดยออกทั้ง `HttpOnly Cookie` และส่ง Token ใน Response Body ควบคู่กัน และใน `JwtBearerEvents` จะตรวจสอบจาก Cookie ก่อน หากไม่พบจะ Fallback ไปตรวจที่ `Authorization: Bearer` Header
+     - **Frontend:** ส่งทั้ง `withCredentials: true` (เพื่อรองรับ Cookie บน Production HTTPS) และแนบ Bearer Header จาก `localStorage` (สำหรับ Localhost Development)
+     - **Production Ready:** เมื่อขึ้นเซิร์ฟเวอร์จริงที่มี Reverse Proxy (เช่น Nginx) และวิ่งผ่าน HTTPS โดเมนเดียวกัน Cookie จะทำงานเต็มรูปแบบ 100%
+
+2. **หลักการผูกบัญชีด้วย Entra OID (Identity Mapping Rules):**
+   - **OID คือตัวตนหลัก:** ระบบใช้ **`oid` (Object ID GUID)** เป็นค่าระบุตัวตนของผู้ใช้ ห้ามใช้ `email` หรือ `username` ในการ Match
+   - **กฎ 1:1 ห้ามซ้ำ (Filtered Unique Index):** 1 Entra OID ผูกได้กับ 1 QSC User เท่านั้น (`[EntraOid] IS NOT NULL` มี Unique Constraint ในระดับฐานข้อมูล)
+   - **สิทธิ์อิงตามบัญชีที่ผูก:** เมื่อผู้ใช้ล็อกอินผ่าน SSO ระบบจะค้นหา User ใน QSC ด้วย OID และสวมสิทธิ์/ขอบเขตสาขาตามบัญชีนั้นทันที
+   - **ความปลอดภัยในการผูก:** สงวนสิทธิ์การผูก/ปลด OID ให้กับบทบาท `ADMIN` เท่านั้นผ่าน Endpoint `PUT /api/user/{id}/entra-oid`
+
+---
+
+## 12. Checklist สำหรับการพัฒนาและขึ้นระบบจริง (Developer & Production Checklist)
 
 ก่อนเปิด Pull Request หรือ Deploy ฟีเจอร์ใหม่ ให้ตรวจสอบตามรายการด้านล่าง:
 
@@ -380,8 +449,9 @@ uploads/
 - [ ] **การคิดคะแนน:** ข้อ N/A ถูกหักออกจากคะแนนเต็มหรือไม่? และหากมีข้อ Critical ตก ได้ตัดสินให้ไม่ผ่านทันทีหรือไม่?
 - [ ] **สถานะ REOPENED:** รอบตรวจที่ถูกย้อนสถานะ (`REOPENED`) จะต้องถูกซ่อนจากรายงาน/คะแนน/แดชบอร์ดด้วย Global Query Filter และห้ามแก้ไขหรือลบเด็ดขาด (ตอบ 409) หรือไม่?
 - [ ] **การแก้ไขผลตรวจ:** หากมีการเปลี่ยนคะแนน ได้บังคับให้ระบุ `editReason` หรือไม่?
-- [ ] **ActivityLog:** การกระทำสำคัญ (สร้าง/แก้/ลบ Master Data, ส่งตรวจ, ย้อนสถานะ) ได้ถูกบันทึกลง ActivityLog ด้วยรหัส Action ที่ถูกต้องหรือไม่?
+- [ ] **ActivityLog:** การกระทำสำคัญ (สร้าง/แก้/ลบ Master Data, ส่งตรวจ, ย้อนสถานะ, เข้าสู่ระบบ) ได้ถูกบันทึกลง ActivityLog ด้วยรหัส Action ที่ถูกต้องหรือไม่?
 - [ ] **UI & Styling:** ปฏิบัติตาม Fresh Mint / Emerald Palette (`#0F6659`) และใช้ Tailwind คลาสที่ถูกต้องหรือไม่?
+- [ ] **ความปลอดภัยของ Session Token:** Token ไม่ถูกบันทึกลงใน `localStorage` และจัดส่งผ่าน `HttpOnly Cookie` หรือไม่?
 - [ ] **การทดสอบ Build:** ฝั่ง Frontend รัน `npm run build` ผ่าน 0 errors และ Backend รัน `dotnet build -t:Compile` ผ่าน 0 errors หรือไม่?
 - [ ] **การปรับปรุง Spec:** หากมีประเภทคำถามใหม่, รหัสหมวดใหม่, สิทธิ์ใหม่, หรือเงื่อนไขใหม่ ได้มาเพิ่มในเอกสาร `SYSTEM_SPEC.md` นี้แล้วหรือยัง?
 

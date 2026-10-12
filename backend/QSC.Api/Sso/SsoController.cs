@@ -15,7 +15,7 @@ namespace QSC.Api.Sso;
 [Route("api/auth/sso")]
 public class SsoController(
     AppDbContext db, SsoTokenValidator validator, JtiStore jtiStore, PdpClient pdp, TokenService tokens,
-    ILogger<SsoController> log, IActivityLogger activityLogger) : ControllerBase
+    ILogger<SsoController> log, IActivityLogger activityLogger, IWebHostEnvironment env) : ControllerBase
 {
     public record SsoTokenDto(string Token);
 
@@ -94,9 +94,12 @@ public class SsoController(
         // บันทึกการเข้าระบบลง ActivityLog เหมือนที่ AuthController.Login ทำ (ไม่งั้นการล็อกอินผ่าน SSO จะไม่ปรากฏในประวัติ)
         await activityLogger.LogAsync(user.Id, "LOGIN", "User", user.Id);
 
+        var sessionToken = tokens.Issue(user, roleCode);
+        CookieHelper.AppendSessionCookie(Response, sessionToken, env);
+
         return Ok(new
         {
-            token = tokens.Issue(user, roleCode),
+            token = sessionToken,
             user = new
             {
                 id = user.Id, username = user.Username, fullName = user.FullName,

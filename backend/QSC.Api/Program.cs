@@ -102,11 +102,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             OnMessageReceived = context =>
             {
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                // 1. ตรวจสอบจาก HttpOnly Cookie ก่อนเสมอ
+                if (context.Request.Cookies.TryGetValue(QSC.Api.Helpers.CookieHelper.CookieName, out var cookieToken) && !string.IsNullOrWhiteSpace(cookieToken))
                 {
-                    context.Token = accessToken;
+                    context.Token = cookieToken;
+                }
+                else
+                {
+                    // 2. ถ้าไม่มีใน Cookie แต่เป็น SignalR connection ให้ดึงจาก Query string
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+                    {
+                        context.Token = accessToken;
+                    }
+                    // 3. ถ้าไม่มีทั้ง 2 อย่าง JwtBearer handler จะอ่านจาก Authorization: Bearer Header ตามปกติ
                 }
                 return Task.CompletedTask;
             }
