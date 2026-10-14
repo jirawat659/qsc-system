@@ -12,7 +12,8 @@ import {
   Layers,
   Store,
   UserCheck,
-  Key
+  Key,
+  Clock
 } from "lucide-react";
 
 export const ROLES = [
@@ -355,6 +356,16 @@ export const SYSTEM_TOOLS = [
     fullLabel: "การเชื่อมต่อ API & Webhook",
     desc: "ระบบเชื่อมต่อ ERP, POS และ LINE Notify",
     perm: "menu.admin",
+    roles: ["ADMIN"],
+    group: "system"
+  },
+  {
+    key: "activity_logs",
+    icon: Clock,
+    label: "ประวัติการใช้งานระบบ",
+    fullLabel: "ประวัติการเข้าใช้งานและกิจกรรมระบบ",
+    desc: "ดูบันทึกการเข้าสู่ระบบและกิจกรรมของผู้ใช้ทั้งหมด",
+    perm: "activity.view",
     roles: ["ADMIN"],
     group: "system"
   },

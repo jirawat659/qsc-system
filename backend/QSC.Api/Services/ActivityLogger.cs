@@ -10,8 +10,8 @@ namespace QSC.Api.Services
 {
     public interface IActivityLogger
     {
-        void Add(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null);
-        Task LogAsync(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null);
+        void Add(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null, string? details = null);
+        Task LogAsync(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null, string? details = null);
     }
 
     public class ActivityLogger : IActivityLogger
@@ -27,7 +27,7 @@ namespace QSC.Api.Services
             _logger = logger;
         }
 
-        public void Add(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null)
+        public void Add(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null, string? details = null)
         {
             _context.ActivityLogs.Add(new ActivityLog
             {
@@ -36,11 +36,12 @@ namespace QSC.Api.Services
                 EntityType = entityType,
                 EntityId = entityId,
                 LocationId = locationId,
-                OccurredAt = occurredAt ?? DateTime.UtcNow
+                OccurredAt = occurredAt ?? DateTime.UtcNow,
+                Details = details
             });
         }
 
-        public async Task LogAsync(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null)
+        public async Task LogAsync(int userId, string action, string? entityType = null, int? entityId = null, int? locationId = null, DateTime? occurredAt = null, string? details = null)
         {
             try
             {
@@ -53,7 +54,8 @@ namespace QSC.Api.Services
                     EntityType = entityType,
                     EntityId = entityId,
                     LocationId = locationId,
-                    OccurredAt = occurredAt ?? DateTime.UtcNow
+                    OccurredAt = occurredAt ?? DateTime.UtcNow,
+                    Details = details
                 });
                 await db.SaveChangesAsync();
             }

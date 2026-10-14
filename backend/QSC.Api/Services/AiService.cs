@@ -457,7 +457,7 @@ namespace QSC.Api.Services
                     var aiResultJson = await CallLocalAiApiAsync(prompt, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiResultJson))
                     {
-                        var parsed = JsonSerializer.Deserialize<DashboardAiInsightsDto>(aiResultJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        var parsed = JsonDefaults.Deserialize<DashboardAiInsightsDto>(aiResultJson);
                         if (parsed != null && !string.IsNullOrWhiteSpace(parsed.Highlight))
                         {
                             parsed.GeneratedBy = $"Local AI ({GetModel()})";
@@ -809,7 +809,7 @@ namespace QSC.Api.Services
                     var aiJson = await CallLocalAiApiAsync(prompt, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiJson))
                     {
-                        var parsed = JsonSerializer.Deserialize<CapAiAnalysisDto>(aiJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        var parsed = JsonDefaults.Deserialize<CapAiAnalysisDto>(aiJson);
                         if (parsed != null)
                         {
                             parsed.TaskId = capTaskId;
@@ -919,7 +919,7 @@ namespace QSC.Api.Services
             {
                 try
                 {
-                    var cached = JsonSerializer.Deserialize<AuditDefectAnalysisDto>(record.AiAnalysisJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    var cached = JsonDefaults.Deserialize<AuditDefectAnalysisDto>(record.AiAnalysisJson);
                     // ถ้าแคชเดิมมี action ครบในทุกหมวด ให้ใช้แคชได้เลย ถ้าเป็นรุ่นเก่าที่ไม่มี action ให้ปล่อย generate ใหม่
                     if (cached != null && (cached.CategoryGroups.Count == 0 || cached.CategoryGroups.All(c => !string.IsNullOrWhiteSpace(c.Action))))
                     {
@@ -998,7 +998,7 @@ namespace QSC.Api.Services
                     var aiJson = await CallLocalAiApiAsync(prompt, GetModel());
                     if (!string.IsNullOrWhiteSpace(aiJson))
                     {
-                        var parsed = JsonSerializer.Deserialize<AuditDefectAnalysisDto>(aiJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        var parsed = JsonDefaults.Deserialize<AuditDefectAnalysisDto>(aiJson);
                         if (parsed != null && parsed.CategoryGroups.Count > 0)
                         {
                             parsed.AuditRecordId = auditRecordId;
@@ -1041,7 +1041,7 @@ namespace QSC.Api.Services
             {
                 var record = await _context.AuditRecords.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == auditRecordId);
                 if (record == null) return;
-                record.AiAnalysisJson = JsonSerializer.Serialize(result);
+                record.AiAnalysisJson = JsonDefaults.Serialize(result);
                 record.AiAnalysisGeneratedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
             }
@@ -1143,7 +1143,7 @@ namespace QSC.Api.Services
                 requestBody["format"] = "json";
             }
 
-            var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+            var content = new StringContent(JsonDefaults.Serialize(requestBody), Encoding.UTF8, "application/json");
             var response = await client.PostAsync(endpoint, content);
 
             if (!response.IsSuccessStatusCode)

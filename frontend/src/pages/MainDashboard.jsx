@@ -759,7 +759,7 @@ export default function MainDashboard({ onLogout }) {
   }, [role]);
 
   const renderCurrentScreen = () => {
-    const adminMoreSubScreens = ["master_management", "branch_info", "contact_qa", "auditor_profile", "settings", "integrations"];
+    const adminMoreSubScreens = ["master_management", "branch_info", "contact_qa", "auditor_profile", "settings", "integrations", "activity_logs"];
 
     return (
       <ErrorBoundary>

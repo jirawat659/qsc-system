@@ -43,6 +43,7 @@ namespace QSC.Api.Data
             EnsureAdminUser(context);
             EnsureDocumentNumbers(context);
             EnsureColumnLengths(context);
+            EnsureUnescapedThaiJson(context);
         }
 
         // ==========================================================
@@ -486,11 +487,102 @@ namespace QSC.Api.Data
                     BEGIN
                         ALTER TABLE [AuditRecords] ALTER COLUMN [ReopenReason] nvarchar(max) NULL;
                     END
+
+                    IF NOT EXISTS (
+                        SELECT 1 FROM sys.columns 
+                        WHERE object_id = OBJECT_ID('ActivityLogs') 
+                          AND name = 'Details'
+                    )
+                    BEGIN
+                        ALTER TABLE [ActivityLogs] ADD [Details] nvarchar(max) NULL;
+                    END
                 ");
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[DatabaseSeeder] EnsureColumnLengths warning: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// ตรวจสอบและแปลง JSON ค้างเก่าในฐานข้อมูลที่เคยถูก serialize ด้วย ASCII Unicode escape (\u0e...)
+        /// ให้แปลงกลับมาเป็นภาษาไทยที่อ่านรู้เรื่อง ค้นหาง่าย และประหยัดพื้นที่ โดยไม่กระทบโครงสร้าง JSON เดิม
+        /// </summary>
+        private static void EnsureUnescapedThaiJson(AppDbContext context)
+        {
+            try
+            {
+                bool changed = false;
+
+                // 1. AuditRecordEditLogs.ChangesSummaryJson (ประวัติการแก้ไขผลตรวจ)
+                var logs = context.AuditRecordEditLogs
+                    .Where(l => l.ChangesSummaryJson != null && l.ChangesSummaryJson.Contains(@"\u0"))
+                    .ToList();
+                foreach (var log in logs)
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(log.ChangesSummaryJson!);
+                        log.ChangesSummaryJson = JsonDefaults.Serialize(doc);
+                        changed = true;
+                    }
+                    catch { }
+                }
+
+                // 2. AuditDrafts.DraftPayloadJson (แบบร่างการตรวจ)
+                var drafts = context.AuditDrafts
+                    .Where(d => d.DraftPayloadJson != null && d.DraftPayloadJson.Contains(@"\u0"))
+                    .ToList();
+                foreach (var draft in drafts)
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(draft.DraftPayloadJson);
+                        draft.DraftPayloadJson = JsonDefaults.Serialize(doc);
+                        changed = true;
+                    }
+                    catch { }
+                }
+
+                // 3. AuditRecords.MetadataValuesJson (ข้อมูลฟิลด์ทั่วไปในผลตรวจ)
+                var records = context.AuditRecords
+                    .Where(r => r.MetadataValuesJson != null && r.MetadataValuesJson.Contains(@"\u0"))
+                    .ToList();
+                foreach (var rec in records)
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(rec.MetadataValuesJson!);
+                        rec.MetadataValuesJson = JsonDefaults.Serialize(doc);
+                        changed = true;
+                    }
+                    catch { }
+                }
+
+                // 4. SurveyForms.MetadataConfigJson (การตั้งค่าฟิลด์ฟอร์ม)
+                var forms = context.SurveyForms
+                    .Where(f => f.MetadataConfigJson != null && f.MetadataConfigJson.Contains(@"\u0"))
+                    .ToList();
+                foreach (var frm in forms)
+                {
+                    try
+                    {
+                        using var doc = System.Text.Json.JsonDocument.Parse(frm.MetadataConfigJson!);
+                        frm.MetadataConfigJson = JsonDefaults.Serialize(doc);
+                        changed = true;
+                    }
+                    catch { }
+                }
+
+                if (changed)
+                {
+                    context.SaveChanges();
+                    Console.WriteLine("[DatabaseSeeder] แปลงข้อมูล JSON เดิมที่ติดรหัส Unicode (\\u0...) ให้เป็นภาษาไทยปกติเรียบร้อยแล้ว");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DatabaseSeeder] EnsureUnescapedThaiJson warning: {ex.Message}");
             }
         }
     }
