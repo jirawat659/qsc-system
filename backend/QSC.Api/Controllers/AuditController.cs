@@ -2493,6 +2493,14 @@ namespace QSC.Api.Controllers
 
                 if (uniqueDrafts.Any())
                 {
+                    _context.AuditDrafts.RemoveRange(uniqueDrafts);
+                }
+
+                await _context.SaveChangesAsync();
+
+                // 🌟 ย้ายประวัติแบบร่าง (ActivityLogs) ไปผูกกับ AuditRecord หลังบันทึกเพื่อให้ record.Id เป็นเลขจริงจากฐานข้อมูล
+                if (uniqueDrafts.Any())
+                {
                     var draftIds = uniqueDrafts.Select(d => d.Id).ToList();
                     var draftActivityLogs = await _context.ActivityLogs
                         .Where(l => l.EntityType == "AuditDraft" && l.EntityId.HasValue && draftIds.Contains(l.EntityId.Value))
@@ -2503,11 +2511,7 @@ namespace QSC.Api.Controllers
                         al.EntityType = "AuditRecord";
                         al.EntityId = record.Id;
                     }
-
-                    _context.AuditDrafts.RemoveRange(uniqueDrafts);
                 }
-
-                await _context.SaveChangesAsync();
 
                 // 🌟 บันทึกประวัติหลัง SaveChanges ครั้งแรก เพื่อให้ record.Id เป็นเลขจริงจากฐานข้อมูล
                 // (ถ้าเรียกก่อน EF จะให้เลขชั่วคราว ทำให้ EntityId ผิด) แถวนี้จะถูกบันทึกใน SaveChanges ครั้งถัดไป ภายใน transaction เดียวกัน
