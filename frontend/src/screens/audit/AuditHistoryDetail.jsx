@@ -798,12 +798,17 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
   const [isUploadingPhoto, setIsUploadingPhoto] = useState({});
   const [previewEditPhoto, setPreviewEditPhoto] = useState(null);
 
+  const [lastUpdatedTimestamp, setLastUpdatedTimestamp] = useState(null);
+
   const fetchEditLogs = () => {
     if (!currentRecord?.id) return;
     api.get(`/audit/${currentRecord.id}/edit-logs`)
       .then(res => {
         if (Array.isArray(res.data)) {
           setEditLogsCount(res.data.length);
+          if (res.data.length > 0 && res.data[0]?.editedAt) {
+            setLastUpdatedTimestamp(res.data[0].editedAt);
+          }
         }
       })
       .catch(() => {});
@@ -1425,16 +1430,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
       .catch(() => {});
   }, [currentRecord, allChecklistQuestions, parseResponseAnswer, parsedMetadataValues]);
 
-  const handleCancelEditMode = useCallback(() => {
-    setIsEditing(false);
-    setEditAnswersState({});
-    setInitialAnswersState({});
-    setExpandedCommentItems({});
-    setExpandedPhotoItems({});
-    setEditStartedAt("");
-    setEditSubmittedAt("");
-  }, []);
-
   const isScoreChanged = useCallback((itemId) => {
     const orig = initialAnswersState[itemId];
     const curr = editAnswersState[itemId];
@@ -1458,6 +1453,21 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
     if (!isEditing) return 0;
     return allChecklistQuestions.filter(q => q.surveyItemId && isScoreChanged(q.surveyItemId)).length;
   }, [isEditing, allChecklistQuestions, isScoreChanged]);
+
+  const handleCancelEditMode = useCallback(() => {
+    if (changedQuestionsCount > 0) {
+      if (!window.confirm(`มีการปรับคะแนน ${changedQuestionsCount} ข้อที่ยังไม่ได้บันทึก คุณต้องการยกเลิกการแก้ไขใช่หรือไม่?`)) {
+        return;
+      }
+    }
+    setIsEditing(false);
+    setEditAnswersState({});
+    setInitialAnswersState({});
+    setExpandedCommentItems({});
+    setExpandedPhotoItems({});
+    setEditStartedAt("");
+    setEditSubmittedAt("");
+  }, [changedQuestionsCount]);
 
   const liveScoreData = useMemo(() => {
     if (!isEditing || Object.keys(editAnswersState).length === 0) return null;
@@ -2289,7 +2299,7 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
   }
 
   return (
-    <div className="page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto pb-12">
+    <div className={`page-transition p-4 sm:p-6 space-y-4 w-full max-w-[100%] sm:max-w-[96%] md:max-w-[92%] mx-auto ${isEditing ? "pb-28 sm:pb-32" : "pb-12"}`}>
       <Header 
         title={currentHeaderTitle}
         subtitle={currentHeaderSubtitle}
@@ -2515,35 +2525,39 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
           </div>
         </div>
 
-        {/* Fourth Section: Edit History Callout (เมื่อมีประวัติการแก้ไข หรือ ถูกย้อนสถานะ) */}
-        {(editLogsCount > 0 || isReopened || currentRecord?.reopenReason) && (
-          <div className="p-3 sm:p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/90 space-y-2.5">
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
-                <History size={18} />
+        {/* Fourth Section: Edit History Callout (ปุ่มการ์ดตาม Mockup) */}
+        <button
+          type="button"
+          onClick={() => setShowEditLogsModal(true)}
+          className="w-full p-3 sm:p-3.5 rounded-2xl bg-[#FFFBEB] hover:bg-[#FEF3C7] border border-[#FDE68A] flex items-center justify-between gap-3 text-left transition-all active:scale-[0.99] cursor-pointer shadow-2xs group"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-full bg-[#FEF3C7] text-[#D97706] flex items-center justify-center shrink-0 border border-[#FDE68A]/60 shadow-2xs">
+              <History size={18} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-extrabold text-slate-800">ประวัติการตรวจ</span>
+                <span className="px-2 py-0.5 rounded-md bg-[#FDE68A] text-[#92400E] text-[11px] font-black">
+                  {editLogsCount}
+                </span>
+                {isReopened && (
+                  <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[10px] font-black border border-rose-200">
+                    ย้อนสถานะ
+                  </span>
+                )}
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs sm:text-sm font-bold text-amber-950">
-                    {isReopened || currentRecord?.reopenReason ? "ประวัติการแก้ไข / ย้อนสถานะ" : "ประวัติการแก้ไข"}
-                  </span>
-                  <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-950 text-[11px] font-black shadow-2xs">
-                    {Math.max(editLogsCount, 1)} รายการ
-                  </span>
-                </div>
+              <div className="text-[11px] text-slate-500 font-medium truncate mt-0.5">
+                {lastUpdatedTimestamp ? (
+                  <>แก้ไขล่าสุด {formatBkk(lastUpdatedTimestamp, true)}</>
+                ) : (
+                  <>เริ่มต้นตรวจ {formatBkk(currentRecord?.startedAt || currentRecord?.auditDate, true)}</>
+                )}
               </div>
             </div>
-
-            <button
-              type="button"
-              onClick={() => setShowEditLogsModal(true)}
-              className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold shadow-2xs cursor-pointer transition-all active:scale-[0.98]"
-            >
-              <span>{isReopened || currentRecord?.reopenReason ? "ดูประวัติการแก้ไขและย้อนสถานะ" : "ดูประวัติการแก้ไข"}</span>
-              <ChevronRight size={14} className="text-amber-700" />
-            </button>
           </div>
-        )}
+          <ChevronRight size={18} className="text-[#D97706] shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </button>
       </div>
 
       {/* 🌟 5-TAB SEGMENTED SELECTOR (ตรงตาม Mockup) */}
@@ -4305,6 +4319,8 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
         isOpen={showEditLogsModal}
         onClose={() => setShowEditLogsModal(false)}
         auditRecordId={currentRecord?.id}
+        auditRecord={currentRecord}
+        questions={allChecklistQuestions}
       />
 
       {/* 🌟 AI DEFECT ANALYSIS MODAL (วิเคราะห์ข้อบกพร่องด้วย AI) */}
@@ -4546,48 +4562,6 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
         </div>
       )}
 
-      {/* 🌟 FLOATING BOTTOM ACTION BAR (เมื่ออยู่ในโหมดแก้ไข) */}
-      {isEditing && typeof document !== "undefined" && createPortal(
-        <div className="fixed bottom-0 inset-x-0 z-40 p-3 sm:p-4 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-2xl animate-in slide-in-from-bottom duration-200">
-          <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-emerald-100 text-[#0F6659] flex items-center justify-center shrink-0">
-                <Edit3 size={15} />
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-slate-800 truncate">
-                  กำลังแก้ไขข้อมูลรอบการตรวจ
-                </div>
-                <div className="text-[11px] text-slate-500 font-medium truncate">
-                  {changedQuestionsCount > 0 ? `มีการปรับคะแนน ${changedQuestionsCount} ข้อ` : "ยังไม่มีการปรับคะแนน"}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleCancelEditMode}
-                disabled={isSaving}
-                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="button"
-                onClick={handleTriggerSave}
-                disabled={isSaving}
-                className="px-4 py-2 rounded-xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                <span>บันทึกการแก้ไข</span>
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
       {/* 🌟 Category Navigation Drawer (เลือกเลื่อนดูหมวดหมู่) */}
       {isCategoryDrawerOpen && typeof document !== "undefined" && createPortal(
         <HistoryCategoryNavigationDrawer
@@ -4599,25 +4573,79 @@ export default function AuditHistoryDetail({ unitName, record = {}, onBack, onRe
         document.body
       )}
 
-      {/* 🌟 Floating Scroll-to-Top Button (ปุ่มเลื่อนขึ้นบนสุดเหมือนตอนตรวจ) */}
+      {/* 🌟 Floating Action Controls มุมขวาล่าง (ปุ่มเลื่อนขึ้นบนสุด และ ปุ่มยกเลิก/บันทึกเมื่ออยู่ในโหมดแก้ไขผลตรวจ) */}
       {typeof document !== "undefined" && createPortal(
-        <button
-          type="button"
-          onClick={() => {
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            const mainEl = document.querySelector('main');
-            if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          aria-label="เลื่อนขึ้นบนสุดของหน้า"
-          title="เลื่อนขึ้นบนสุดของหน้า"
-          className={`fixed ${isEditing ? "bottom-20 sm:bottom-24" : "bottom-4 sm:bottom-6"} right-3 sm:right-6 z-40 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#0F6659] hover:bg-[#0c5247] active:bg-[#093e36] text-white shadow-lg shadow-[#0F6659]/30 border border-emerald-600/30 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 ${
-            isScrolled
-              ? "opacity-100 translate-y-0 scale-100 pointer-events-auto"
-              : "opacity-0 translate-y-3 scale-75 pointer-events-none"
-          }`}
-        >
-          <ChevronUp size={20} strokeWidth={2.8} />
-        </button>,
+        <div className="fixed bottom-7 right-5 sm:bottom-9 sm:right-8 z-50 flex flex-col items-end gap-3 select-none">
+          {/* 1. ปุ่มเลื่อนขึ้นบนสุด (อนิเมชัน Fade-in / Fade-out + Slide แบบนุ่มนวล) */}
+          <button
+            type="button"
+            onClick={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              const mainEl = document.querySelector('main');
+              if (mainEl) mainEl.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            className={`w-14 h-14 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-slate-50 text-slate-700 shadow-xl border border-slate-200/80 flex items-center justify-center cursor-pointer transition-all duration-300 ease-out active:scale-90 ${
+              isScrolled
+                ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
+                : "opacity-0 scale-75 translate-y-3 pointer-events-none"
+            }`}
+            title="เลื่อนขึ้นบนสุดของหน้า"
+            aria-label="เลื่อนขึ้นบนสุดของหน้า"
+          >
+            <ChevronUp size={34} strokeWidth={2.8} />
+          </button>
+
+          {/* 2. แถวปุ่มแอ็กชัน (แสดงเฉพาะเมื่ออยู่ในโหมดแก้ไข: ยกเลิก / บันทึกการแก้ไข) */}
+          {isEditing && (
+            <div className="flex items-center gap-3 animate-in fade-in zoom-in-95 duration-200">
+              {/* ปุ่มยกเลิกการแก้ไข (สีขาว กากบาทสีแดง) */}
+              <div className="relative w-14 h-14 sm:w-14 sm:h-14 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCancelEditMode}
+                  disabled={isSaving}
+                  className="w-14 h-14 sm:w-14 sm:h-14 rounded-full bg-white hover:bg-rose-50 text-rose-600 shadow-xl border border-rose-200 flex items-center justify-center cursor-pointer transition-all duration-300 active:scale-90 disabled:opacity-50"
+                  title="ยกเลิกการแก้ไข (ไม่บันทึก)"
+                  aria-label="ยกเลิกการแก้ไข"
+                >
+                  <X size={28} strokeWidth={2.8} />
+                </button>
+              </div>
+
+              {/* ปุ่มบันทึกการแก้ไข (สีเขียวเข้ม #0F6659) */}
+              <div className="relative w-14 h-14 sm:w-14 sm:h-14 shrink-0">
+                <button
+                  type="button"
+                  onClick={!isSaving ? handleTriggerSave : undefined}
+                  disabled={isSaving}
+                  className={`w-14 h-14 sm:w-14 sm:h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-300 select-none border touch-manipulation active:scale-95 cursor-pointer shadow-md ${
+                    isSaving
+                      ? "cursor-wait opacity-90 bg-[#0F6659] text-white border-emerald-600"
+                      : "bg-[#0F6659] hover:bg-[#0c5247] text-white border-emerald-600"
+                  }`}
+                  title={isSaving ? "กำลังบันทึกข้อมูล..." : "บันทึกการแก้ไข"}
+                  aria-label="บันทึกการแก้ไข"
+                >
+                  <span className="relative w-6 h-6 inline-grid place-items-center">
+                    <Loader2
+                      size={22}
+                      className={`col-start-1 row-start-1 animate-spin text-white transition-all duration-200 ${
+                        isSaving ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                      }`}
+                    />
+                    <Save
+                      size={28}
+                      strokeWidth={2.8}
+                      className={`col-start-1 row-start-1 text-white transition-all duration-200 ${
+                        !isSaving ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
+                      }`}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>,
         document.body
       )}
     </div>

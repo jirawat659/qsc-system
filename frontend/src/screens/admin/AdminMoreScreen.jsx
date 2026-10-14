@@ -21,6 +21,7 @@ import ErrorBoundary from "../../shared/ErrorBoundary";
 import AdminSubScreen from "./AdminSubScreen";
 import ConsolidatedReportsScreen from "./ConsolidatedReportsScreen";
 import MasterManagementScreen from "./MasterManagementScreen";
+import ActivityHistoryScreen from "./ActivityHistoryScreen";
 import ChangePasswordModal from "../../modals/ChangePasswordModal";
 
 
@@ -79,6 +80,10 @@ export default function AdminMoreScreen({
 
   if (open === "master_management") {
     return <MasterManagementScreen onBack={backHandler} />;
+  }
+
+  if (open === "activity_logs") {
+    return <ActivityHistoryScreen onBack={backHandler} />;
   }
 
   if (open === "reports") {

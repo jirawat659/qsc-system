@@ -15,7 +15,24 @@ export default function MultiItemAuditCard({
   const [expandedId, setExpandedId] = useState(question?.fieldConfig?.items?.[0]?.id || null);
   
   // รายการเมนู (สามารถกด + เพิ่มรายการ ต่อท้ายได้)
-  const [itemList, setItemList] = useState(question?.fieldConfig?.items || []);
+  const [itemList, setItemList] = useState(() => {
+    const defaultItems = question?.fieldConfig?.items || [];
+    const itemMap = new Map(defaultItems.map(it => [it.id, { ...it }]));
+    if (value && typeof value === "object") {
+      Object.entries(value).forEach(([k, v]) => {
+        if (!itemMap.has(k)) {
+          itemMap.set(k, {
+            id: k,
+            name: v?.name || `รายการที่ ${itemMap.size + 1}`
+          });
+        } else if (v?.name && !itemMap.get(k).name) {
+          itemMap.get(k).name = v.name;
+        }
+      });
+    }
+    return Array.from(itemMap.values());
+  });
+
   const [isAddingItem, setIsAddingItem] = useState(false);
   const [newItemName, setNewItemName] = useState("");
 
@@ -24,12 +41,37 @@ export default function MultiItemAuditCard({
     { id: "taste", label: "รสชาติ" }
   ];
 
+  // ซิงก์รายการเมนูเมื่อ value มีการเปลี่ยนแปลงจากภายนอก
+  React.useEffect(() => {
+    if (value && typeof value === "object") {
+      setItemList(prev => {
+        const itemMap = new Map(prev.map(it => [it.id, it]));
+        let changed = false;
+        Object.entries(value).forEach(([k, v]) => {
+          if (!itemMap.has(k)) {
+            itemMap.set(k, {
+              id: k,
+              name: v?.name || `รายการที่ ${itemMap.size + 1}`
+            });
+            changed = true;
+          } else if (v?.name && itemMap.get(k)?.name !== v.name) {
+            itemMap.set(k, { ...itemMap.get(k), name: v.name });
+            changed = true;
+          }
+        });
+        return changed ? Array.from(itemMap.values()) : prev;
+      });
+    }
+  }, [value]);
+
   // ฟังก์ชันอัปเดตคำตอบของแต่ละเมนู
   const handleItemChange = (itemId, field, val) => {
     if (readOnly) return;
     const currentItemVal = value[itemId] || { answers: {}, note: "", photos: [] };
+    const matchedItem = itemList.find(it => it.id === itemId);
     const nextItemVal = {
       ...currentItemVal,
+      name: currentItemVal.name || matchedItem?.name || "",
       [field]: field === "answers" ? { ...currentItemVal.answers, ...val } : val
     };
 
@@ -48,10 +90,24 @@ export default function MultiItemAuditCard({
       return;
     }
 
+    const trimmed = newItemName.trim();
     const newItemId = `item_${Date.now()}`;
-    const nextList = [...itemList, { id: newItemId, name: newItemName.trim() }];
+    const nextList = [...itemList, { id: newItemId, name: trimmed }];
     setItemList(nextList);
     setExpandedId(newItemId);
+
+    if (onChange) {
+      onChange({
+        ...value,
+        [newItemId]: {
+          name: trimmed,
+          answers: {},
+          note: "",
+          photos: []
+        }
+      });
+    }
+
     setNewItemName("");
     setIsAddingItem(false);
   };

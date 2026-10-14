@@ -248,3 +248,176 @@ export const getScoreStatus = (score) => {
     isPassed: false
   };
 };
+
+// 🌟 แม็ปปิ้งชื่อเกณฑ์การตรวจย่อย (Multians Evaluation Criteria)
+export const AUDIT_CRITERIA_MAP = {
+  decor: "การตกแต่ง",
+  taste: "รสชาติ",
+  clean: "ความสะอาด",
+  cleanliness: "ความสะอาด",
+  service: "การบริการ",
+  temp: "อุณหภูมิ",
+  temperature: "อุณหภูมิ",
+  weight: "น้ำหนัก",
+  exp: "วันหมดอายุ",
+  appearance: "ลักษณะภายนอก",
+  label: "ป้าย/ฉลาก"
+};
+
+/**
+ * 🌟 แปลงข้อความรายละเอียดประวัติกิจกรรม (ActivityLog Details) ให้คนทั่วไปอ่านเข้าใจง่าย
+ * - แปลงก้อน JSON ของข้อแบบตาราง (Grid) เช่น {"r_ผู้จัดการ_c_1":"1"} -> ผู้จัดการ: 1
+ * - แปลงก้อน JSON ของข้อตรวจหลายรายการ (Multians) เช่น {"item_1":{"answers":{"decor":false,"taste":true},"note":"..."}} 
+ *   -> รายการที่ 1: การตกแต่ง: ไม่ผ่าน, รสชาติ: ผ่าน [หมายเหตุ: ...]
+ */
+export const formatActivityLogDetails = (detailsStr, questions = []) => {
+  if (!detailsStr || typeof detailsStr !== "string") return "";
+
+  const formatParsedObject = (parsed) => {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+    const keys = Object.keys(parsed);
+    if (keys.length === 0) return "";
+
+    // ตรวจสอบว่าเป็นข้อตรวจแบบหลายรายการ (Multians) หรือไม่
+    const isMultiItem = keys.some(k => {
+      const val = parsed[k];
+      return val && typeof val === "object" && (val.answers !== undefined || val.note !== undefined || val.photos !== undefined);
+    });
+
+    if (isMultiItem) {
+      const itemEntries = [];
+      keys.forEach((itemKey, idx) => {
+        const itemData = parsed[itemKey];
+        if (!itemData || typeof itemData !== "object") return;
+
+        // ค้นหาชื่อรายการ
+        let itemLabel = itemData.name;
+        if (!itemLabel && Array.isArray(questions)) {
+          for (const q of questions) {
+            const fcItems = q?.fieldConfig?.items;
+            if (Array.isArray(fcItems)) {
+              const found = fcItems.find(it => it.id === itemKey);
+              if (found?.name) {
+                itemLabel = found.name;
+                break;
+              }
+            }
+          }
+        }
+        if (!itemLabel) {
+          itemLabel = `รายการที่ ${idx + 1}`;
+        }
+
+        // แปลงผลการตรวจของเกณฑ์ย่อย (การตกแต่ง, รสชาติ ฯลฯ)
+        const answers = itemData.answers || {};
+        const ansParts = [];
+        Object.entries(answers).forEach(([critKey, critVal]) => {
+          let critLabel = AUDIT_CRITERIA_MAP[critKey.toLowerCase()] || critKey;
+          if (Array.isArray(questions)) {
+            for (const q of questions) {
+              const fcCriteria = q?.fieldConfig?.criteria;
+              if (Array.isArray(fcCriteria)) {
+                const found = fcCriteria.find(c => c.id === critKey);
+                if (found?.label) {
+                  critLabel = found.label;
+                  break;
+                }
+              }
+            }
+          }
+
+          let valText;
+          if (critVal === true) valText = "ผ่าน";
+          else if (critVal === false) valText = "ไม่ผ่าน";
+          else if (critVal === "na" || critVal === "NA") valText = "N/A";
+          else valText = String(critVal);
+
+          ansParts.push(`${critLabel}: ${valText}`);
+        });
+
+        let itemSummary = ansParts.length > 0 ? ansParts.join(", ") : "";
+        const note = itemData.note ? String(itemData.note).trim() : "";
+        if (note) {
+          itemSummary = itemSummary ? `${itemSummary} [หมายเหตุ: ${note}]` : `[หมายเหตุ: ${note}]`;
+        }
+
+        if (itemSummary) {
+          itemEntries.push(`${itemLabel}: ${itemSummary}`);
+        }
+      });
+
+      return itemEntries.length > 0 ? itemEntries.join(" · ") : null;
+    }
+
+    // ตารางทั่วไป (Grid Table)
+    const gridEntries = [];
+    keys.forEach(k => {
+      const v = parsed[k];
+      if (v === undefined || v === null || v === "" || v === "0" || v === "-") return;
+      const parts = k.split("_").filter(Boolean);
+      const rowLabel = parts.length >= 2 && parts[0] === "r" ? parts[1] : k;
+      const formattedVal = !isNaN(Number(v)) ? Number(v).toLocaleString() : v;
+      gridEntries.push(`${rowLabel}: ${formattedVal}`);
+    });
+
+    return gridEntries.length > 0 ? gridEntries.join(", ") : null;
+  };
+
+  // แกะก้อน JSON ทั้งหมดในข้อความ detailsStr
+  let result = "";
+  let i = 0;
+  while (i < detailsStr.length) {
+    if (detailsStr[i] === "{") {
+      let depth = 0;
+      let j = i;
+      let inString = false;
+      let escape = false;
+      while (j < detailsStr.length) {
+        const char = detailsStr[j];
+        if (inString) {
+          if (escape) {
+            escape = false;
+          } else if (char === "\\") {
+            escape = true;
+          } else if (char === '"') {
+            inString = false;
+          }
+        } else {
+          if (char === '"') {
+            inString = true;
+          } else if (char === "{") {
+            depth++;
+          } else if (char === "}") {
+            depth--;
+            if (depth === 0) break;
+          }
+        }
+        j++;
+      }
+
+      if (depth === 0 && j < detailsStr.length) {
+        const jsonSubstring = detailsStr.substring(i, j + 1);
+        try {
+          const parsed = JSON.parse(jsonSubstring);
+          const formatted = formatParsedObject(parsed);
+          if (formatted) {
+            result += formatted;
+            i = j + 1;
+            continue;
+          }
+        } catch (e) {
+          // not valid JSON, fallback
+        }
+      }
+    }
+    result += detailsStr[i];
+    i++;
+  }
+
+  return result
+    .replace(/\(\s*\)/g, "")
+    .replace(/\(\s+/g, "( ")
+    .replace(/\s+\)/g, " )")
+    .trim();
+};

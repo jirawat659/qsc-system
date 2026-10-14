@@ -315,6 +315,8 @@ namespace QSC.Api.Controllers
                     return Forbid();
                 }
 
+                string? previousPayloadJson = draft?.DraftPayloadJson;
+
                 // 🌟 Generate DocumentNo for draft (e.g. DRAFT-AU202610-0001) if not already assigned
                 string? draftDocNo = null;
                 if (draft == null || string.IsNullOrWhiteSpace(draft.DocumentNo))
@@ -448,14 +450,332 @@ namespace QSC.Api.Controllers
                     return Conflict(new { message = "บันทึกแบบร่างไม่สำเร็จเนื่องจากมีการแก้ไขพร้อมกัน กรุณาลองใหม่อีกครั้ง" });
                 }
 
-                // 🌟 Log AUDIT_START when draft is first created (skip if reopened from record)
-                if (draft != null && !draft.ReopenedFromRecordId.HasValue)
+                // 🌟 บันทึกประวัติกิจกรรม (เริ่มการตรวจ หรือ บันทึกแบบร่าง)
+                if (draft != null)
                 {
-                    bool alreadyLoggedStart = await _context.ActivityLogs
-                        .AnyAsync(l => l.Action == "AUDIT_START" && l.EntityType == "AuditDraft" && l.EntityId == draft.Id);
-                    if (!alreadyLoggedStart)
+                    try
                     {
-                        await _activityLogger.LogAsync(effectiveAuditorId, "AUDIT_START", "AuditDraft", draft.Id, draft.LocationId, draft.StartedAt);
+                        var oldAnswers = new Dictionary<string, string>();
+                        var oldComments = new Dictionary<string, string>();
+                        if (!string.IsNullOrWhiteSpace(previousPayloadJson))
+                        {
+                            using var oldDoc = System.Text.Json.JsonDocument.Parse(previousPayloadJson);
+                            if (oldDoc.RootElement.TryGetProperty("answers", out var oldAns) && oldAns.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                foreach (var prop in oldAns.EnumerateObject())
+                                {
+                                    oldAnswers[prop.Name] = prop.Value.ToString();
+                                }
+                            }
+                            if (oldDoc.RootElement.TryGetProperty("comments", out var oldComm) && oldComm.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                foreach (var prop in oldComm.EnumerateObject())
+                                {
+                                    oldComments[prop.Name] = prop.Value.ToString();
+                                }
+                            }
+                        }
+
+                        var newAnswers = new Dictionary<string, string>();
+                        var newComments = new Dictionary<string, string>();
+                        if (!string.IsNullOrWhiteSpace(dto.DraftPayloadJson))
+                        {
+                            using var newDoc = System.Text.Json.JsonDocument.Parse(dto.DraftPayloadJson);
+                            if (newDoc.RootElement.TryGetProperty("answers", out var newAns) && newAns.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                foreach (var prop in newAns.EnumerateObject())
+                                {
+                                    newAnswers[prop.Name] = prop.Value.ToString();
+                                }
+                            }
+                            if (newDoc.RootElement.TryGetProperty("comments", out var newComm) && newComm.ValueKind == System.Text.Json.JsonValueKind.Object)
+                            {
+                                foreach (var prop in newComm.EnumerateObject())
+                                {
+                                    newComments[prop.Name] = prop.Value.ToString();
+                                }
+                            }
+                        }
+
+                        var changedItemIds = new HashSet<int>();
+                        foreach (var kvp in newAnswers)
+                        {
+                            if (int.TryParse(kvp.Key, out var itemId))
+                            {
+                                string newVal = kvp.Value?.Trim() ?? "";
+                                if (string.IsNullOrEmpty(newVal)) continue;
+
+                                if (!oldAnswers.TryGetValue(kvp.Key, out var oldVal))
+                                {
+                                    // ข้อใหม่ที่เพิ่งตอบ
+                                    changedItemIds.Add(itemId);
+                                }
+                                else if (oldVal?.Trim() != newVal)
+                                {
+                                    // ข้อที่มีการแก้คำตอบ
+                                    changedItemIds.Add(itemId);
+                                }
+                            }
+                        }
+
+                        foreach (var kvp in newComments)
+                        {
+                            if (int.TryParse(kvp.Key, out var itemId))
+                            {
+                                string newComm = kvp.Value?.Trim() ?? "";
+                                if (string.IsNullOrEmpty(newComm)) continue;
+
+                                if (!oldComments.TryGetValue(kvp.Key, out var oldComm))
+                                {
+                                    // ข้อที่มีการพิมพ์คอมเมนต์ใหม่
+                                    changedItemIds.Add(itemId);
+                                }
+                                else if (oldComm?.Trim() != newComm)
+                                {
+                                    // ข้อที่มีการแก้คอมเมนต์
+                                    changedItemIds.Add(itemId);
+                                }
+                            }
+                        }
+
+                        string? deltaDetails = null;
+
+                        if (changedItemIds.Count > 0)
+                        {
+                            // ดึงเลขข้อลำดับจริงในแบบฟอร์ม
+                            var formItems = await _context.SurveyItems
+                                .AsNoTracking()
+                                .Include(i => i.SurveySection)
+                                .Where(i => i.SurveySection!.SurveyFormId == effectiveFormId && i.IsActive)
+                                .OrderBy(i => i.SurveySection!.OrderIndex)
+                                .ThenBy(i => i.OrderIndex)
+                                .ToListAsync();
+
+                            var itemNumMap = new Dictionary<int, string>();
+                            var itemInfoMap = new Dictionary<int, (string text, string type)>();
+                            int runningNo = 1;
+                            foreach (var it in formItems)
+                            {
+                                itemNumMap[it.Id] = runningNo.ToString();
+                                itemInfoMap[it.Id] = (it.QuestionText, it.QuestionType);
+                                runningNo++;
+                            }
+
+                            static string FormatComplexJson(string jsonStr)
+                            {
+                                try
+                                {
+                                    using var doc = System.Text.Json.JsonDocument.Parse(jsonStr);
+                                    var root = doc.RootElement;
+                                    if (root.ValueKind != System.Text.Json.JsonValueKind.Object) return jsonStr;
+
+                                    // ตรวจสอบว่าเป็นข้อตรวจหลายรายการ (Multians) หรือไม่
+                                    bool isMultiItem = false;
+                                    foreach (var prop in root.EnumerateObject())
+                                    {
+                                        if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                                            (prop.Value.TryGetProperty("answers", out _) || prop.Value.TryGetProperty("note", out _)))
+                                        {
+                                            isMultiItem = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (isMultiItem)
+                                    {
+                                        var itemEntries = new List<string>();
+                                        int idx = 1;
+                                        foreach (var prop in root.EnumerateObject())
+                                        {
+                                            if (prop.Value.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                                            var itemObj = prop.Value;
+
+                                            string itemLabel = $"รายการที่ {idx}";
+                                            if (itemObj.TryGetProperty("name", out var nameProp) && !string.IsNullOrWhiteSpace(nameProp.GetString()))
+                                            {
+                                                itemLabel = nameProp.GetString()!;
+                                            }
+
+                                            var ansParts = new List<string>();
+                                            if (itemObj.TryGetProperty("answers", out var ansProp) && ansProp.ValueKind == System.Text.Json.JsonValueKind.Object)
+                                            {
+                                                foreach (var crit in ansProp.EnumerateObject())
+                                                {
+                                                    string critKey = crit.Name.ToLower();
+                                                    string critLabel = critKey switch
+                                                    {
+                                                        "decor" => "การตกแต่ง",
+                                                        "taste" => "รสชาติ",
+                                                        "clean" or "cleanliness" => "ความสะอาด",
+                                                        "service" => "การบริการ",
+                                                        "temp" or "temperature" => "อุณหภูมิ",
+                                                        "weight" => "น้ำหนัก",
+                                                        "exp" => "วันหมดอายุ",
+                                                        "appearance" => "ลักษณะภายนอก",
+                                                        "label" => "ป้าย/ฉลาก",
+                                                        _ => crit.Name
+                                                    };
+
+                                                    string valText;
+                                                    if (crit.Value.ValueKind == System.Text.Json.JsonValueKind.True) valText = "ผ่าน";
+                                                    else if (crit.Value.ValueKind == System.Text.Json.JsonValueKind.False) valText = "ไม่ผ่าน";
+                                                    else valText = crit.Value.ToString();
+
+                                                    ansParts.Add($"{critLabel}: {valText}");
+                                                }
+                                            }
+
+                                            string itemSummary = ansParts.Count > 0 ? string.Join(", ", ansParts) : "";
+                                            if (itemObj.TryGetProperty("note", out var noteProp))
+                                            {
+                                                string noteStr = noteProp.GetString()?.Trim() ?? "";
+                                                if (!string.IsNullOrEmpty(noteStr))
+                                                {
+                                                    itemSummary = !string.IsNullOrEmpty(itemSummary) ? $"{itemSummary} [หมายเหตุ: {noteStr}]" : $"[หมายเหตุ: {noteStr}]";
+                                                }
+                                            }
+
+                                            if (!string.IsNullOrEmpty(itemSummary))
+                                            {
+                                                itemEntries.Add($"{itemLabel}: {itemSummary}");
+                                            }
+                                            idx++;
+                                        }
+
+                                        if (itemEntries.Count > 0)
+                                        {
+                                            return string.Join(" · ", itemEntries);
+                                        }
+                                    }
+
+                                    // ตารางทั่วไป (Grid Table)
+                                    var entries = new List<string>();
+                                    foreach (var prop in root.EnumerateObject())
+                                    {
+                                        string? cellVal = null;
+                                        if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.String)
+                                            cellVal = prop.Value.GetString()?.Trim();
+                                        else if (prop.Value.ValueKind == System.Text.Json.JsonValueKind.Number)
+                                            cellVal = prop.Value.GetRawText().Trim();
+
+                                        if (string.IsNullOrEmpty(cellVal) || cellVal == "0" || cellVal == "-") continue;
+
+                                        var key = prop.Name;
+                                        var parts = key.Split('_', StringSplitOptions.RemoveEmptyEntries);
+                                        string rowLabel = parts.Length >= 2 && parts[0] == "r" ? parts[1] : key;
+
+                                        if (decimal.TryParse(cellVal, out var num))
+                                        {
+                                            entries.Add($"{rowLabel}: {num:#,##0.##}");
+                                        }
+                                        else
+                                        {
+                                            entries.Add($"{rowLabel}: {cellVal}");
+                                        }
+                                    }
+                                    if (entries.Count > 0)
+                                    {
+                                        return string.Join(", ", entries);
+                                    }
+                                }
+                                catch { }
+                                return jsonStr;
+                            }
+
+                            static string FormatAns(string val, string comment, string qType, string qText, string qNum)
+                            {
+                                var v = (val ?? "").Trim();
+                                var c = (comment ?? "").Trim();
+                                string ansText;
+
+                                if (string.IsNullOrEmpty(v))
+                                {
+                                    ansText = "";
+                                }
+                                else if (v.StartsWith("{") && v.EndsWith("}"))
+                                {
+                                    var formattedJson = FormatComplexJson(v);
+                                    var title = !string.IsNullOrEmpty(qText) ? qText : $"ข้อ {qNum}";
+                                    ansText = $"{title} ( {formattedJson} )";
+                                }
+                                else
+                                {
+                                    var vu = v.ToUpper();
+                                    if (vu == "YES" || vu == "TRUE") ansText = "ผ่าน";
+                                    else if (vu == "NO" || vu == "FALSE") ansText = "ไม่ผ่าน";
+                                    else if (vu == "NA") ansText = "N/A";
+                                    else
+                                    {
+                                        var isDetailType = qType == "text" || qType == "number" || qType == "date" || qType == "time" || qType == "select" || qType == "radio";
+                                        ansText = (!string.IsNullOrEmpty(qText) && isDetailType)
+                                            ? $"{qText}: {v}"
+                                            : v;
+                                    }
+                                }
+
+                                if (!string.IsNullOrEmpty(c))
+                                {
+                                    if (string.IsNullOrEmpty(ansText))
+                                    {
+                                        var title = !string.IsNullOrEmpty(qText) ? $"{qText} " : "";
+                                        return $"{qNum}:{title}[หมายเหตุ: {c}]";
+                                    }
+                                    return $"{qNum}:{ansText} [หมายเหตุ: {c}]";
+                                }
+
+                                return $"{qNum}:{ansText}";
+                            }
+
+                            var deltaTokens = changedItemIds
+                                .OrderBy(id => itemNumMap.TryGetValue(id, out var nStr) && int.TryParse(nStr, out var nVal) ? nVal : id)
+                                .Select(id =>
+                                {
+                                    var qNum = itemNumMap.TryGetValue(id, out var numStr) ? numStr : id.ToString();
+                                    var (qText, qType) = itemInfoMap.TryGetValue(id, out var info) ? info : ("", "");
+                                    var ansVal = newAnswers.TryGetValue(id.ToString(), out var aVal) ? aVal : "";
+                                    var commVal = newComments.TryGetValue(id.ToString(), out var cVal) ? cVal : "";
+                                    return FormatAns(ansVal, commVal, qType, qText, qNum);
+                                })
+                                .Where(t => !string.IsNullOrWhiteSpace(t))
+                                .ToList();
+
+                            deltaDetails = string.Join(", ", deltaTokens);
+                        }
+
+                        // 🌟 ตรวจสอบว่าเคยบันทึก AUDIT_START หรือยัง
+                        bool alreadyLoggedStart = await _context.ActivityLogs
+                            .AnyAsync(l => l.Action == "AUDIT_START" && l.EntityType == "AuditDraft" && l.EntityId == draft.Id);
+
+                        if (!alreadyLoggedStart && !draft.ReopenedFromRecordId.HasValue)
+                        {
+                            // บันทึก AUDIT_START ตอนเริ่มตรวจรอบแรก พร้อมคำตอบที่กดบันทึก
+                            await _activityLogger.LogAsync(
+                                effectiveAuditorId,
+                                "AUDIT_START",
+                                "AuditDraft",
+                                draft.Id,
+                                draft.LocationId,
+                                draft.StartedAt,
+                                deltaDetails
+                            );
+                        }
+                        else if (!string.IsNullOrEmpty(deltaDetails))
+                        {
+                            // บันทึกแบบร่างสำหรับรอบถัดๆ ไป
+                            await _activityLogger.LogAsync(
+                                effectiveAuditorId,
+                                "AUDIT_DRAFT_SAVE",
+                                "AuditDraft",
+                                draft.Id,
+                                draft.LocationId,
+                                DateTime.UtcNow,
+                                deltaDetails
+                            );
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to compute or log draft save delta");
                     }
                 }
 
@@ -790,7 +1110,7 @@ namespace QSC.Api.Controllers
                 {
                     try
                     {
-                        metadataValuesObj = System.Text.Json.JsonSerializer.Deserialize<object>(record.MetadataValuesJson) ?? new object();
+                        metadataValuesObj = JsonDefaults.Deserialize<object>(record.MetadataValuesJson) ?? new object();
                         using var doc = System.Text.Json.JsonDocument.Parse(record.MetadataValuesJson);
                         if (doc.RootElement.TryGetProperty("staff_count", out var scElem))
                         {
@@ -847,7 +1167,7 @@ namespace QSC.Api.Controllers
                     startLongitude = record.StartLongitude
                 };
 
-                var draftPayloadJson = System.Text.Json.JsonSerializer.Serialize(payloadObj);
+                var draftPayloadJson = JsonDefaults.Serialize(payloadObj);
 
                 // Generate draft DocumentNo
                 var brandCode = ResolveBrandCode(record.Location);
@@ -922,7 +1242,7 @@ namespace QSC.Api.Controllers
                     EditedByUserId = currentUserId,
                     EditedAt = DateTime.UtcNow,
                     Reason = $"[ย้อนสถานะผลตรวจ] {dto.Reason.Trim()}",
-                    ChangesSummaryJson = JsonSerializer.Serialize(new
+                    ChangesSummaryJson = JsonDefaults.Serialize(new
                     {
                         action = "REOPEN",
                         reason = dto.Reason.Trim(),
@@ -1276,7 +1596,7 @@ namespace QSC.Api.Controllers
                 }
                 node["comments"] = newComments;
 
-                return node.ToJsonString();
+                return node.ToJsonString(JsonDefaults.Options);
             }
             catch (Exception ex)
             {
@@ -2173,6 +2493,17 @@ namespace QSC.Api.Controllers
 
                 if (uniqueDrafts.Any())
                 {
+                    var draftIds = uniqueDrafts.Select(d => d.Id).ToList();
+                    var draftActivityLogs = await _context.ActivityLogs
+                        .Where(l => l.EntityType == "AuditDraft" && l.EntityId.HasValue && draftIds.Contains(l.EntityId.Value))
+                        .ToListAsync();
+
+                    foreach (var al in draftActivityLogs)
+                    {
+                        al.EntityType = "AuditRecord";
+                        al.EntityId = record.Id;
+                    }
+
                     _context.AuditDrafts.RemoveRange(uniqueDrafts);
                 }
 
@@ -3340,7 +3671,7 @@ namespace QSC.Api.Controllers
                     EditedByUserId = currentUserId,
                     EditedAt = DateTime.UtcNow,
                     Reason = dto.Reason.Trim(),
-                    ChangesSummaryJson = System.Text.Json.JsonSerializer.Serialize(new
+                    ChangesSummaryJson = JsonDefaults.Serialize(new
                     {
                         before = beforeOverview,
                         after = afterOverview,
@@ -3390,7 +3721,7 @@ namespace QSC.Api.Controllers
             }
         }
 
-        // ดูประวัติการแก้ไขทั้งหมดของบันทึกตรวจ 1 รายการ (เรียงล่าสุดก่อน)
+        // ดูประวัติการแก้ไขและเหตุการณ์ทั้งหมดของบันทึกตรวจ 1 รายการ (เรียงล่าสุดก่อน)
         [HttpGet("{id:int}/edit-logs")]
         public async Task<IActionResult> GetAuditEditLogs(int id)
         {
@@ -3404,6 +3735,7 @@ namespace QSC.Api.Controllers
                     .AsNoTracking()
                     .Include(r => r.Location)
                         .ThenInclude(l => l!.LocationBrands)
+                    .Include(r => r.PrimaryAuditor)
                     .FirstOrDefaultAsync(r => r.Id == id);
 
                 if (record == null) return NotFound(new { message = "ไม่พบผลการตรวจที่ระบุ" });
@@ -3415,6 +3747,7 @@ namespace QSC.Api.Controllers
                     return Forbid();
                 }
 
+                // 1. ดึงประวัติการแก้ไขจาก AuditRecordEditLogs
                 var dbLogs = await _context.AuditRecordEditLogs
                     .IgnoreQueryFilters()
                     .AsNoTracking()
@@ -3423,42 +3756,331 @@ namespace QSC.Api.Controllers
                     .OrderByDescending(l => l.EditedAt)
                     .Select(l => new
                     {
-                        l.Id,
+                        Id = (long)l.Id,
                         l.EditedAt,
                         l.Reason,
                         editedByName = l.EditedByUser != null ? l.EditedByUser.FullName : "ผู้ใช้งาน",
-                        l.ChangesSummaryJson
+                        l.ChangesSummaryJson,
+                        eventType = l.Reason != null && l.Reason.Contains("[ย้อนสถานะผลตรวจ]") ? "REOPEN" : "EDIT",
+                        details = (string?)null
                     })
                     .ToListAsync();
 
-                var resultLogs = new List<object>(dbLogs);
+                var timeline = new List<dynamic>();
+                foreach (var log in dbLogs)
+                {
+                    timeline.Add(new
+                    {
+                        id = log.Id,
+                        editedAt = log.EditedAt,
+                        reason = log.Reason,
+                        editedByName = log.editedByName,
+                        changesSummaryJson = log.ChangesSummaryJson,
+                        eventType = log.eventType,
+                        details = log.details
+                    });
+                }
 
-                // หากรอบตรวจนี้มีเหตุผลในการย้อนสถานะ แต่ยังไม่มี log บันทึกไว้ ให้เพิ่มข้อมูลการย้อนสถานะแสดงในประวัติด้วย
+                // หากรอบตรวจนี้มีเหตุผลในการย้อนสถานะ แต่ยังไม่มี log ใน AuditRecordEditLogs ให้เติมเข้าไป
                 if (!string.IsNullOrWhiteSpace(record.ReopenReason) &&
                     !dbLogs.Any(l => l.Reason != null && l.Reason.Contains("[ย้อนสถานะผลตรวจ]")))
                 {
-                    resultLogs.Insert(0, new
+                    timeline.Add(new
                     {
-                        Id = -1,
-                        EditedAt = record.AuditDate,
-                        Reason = $"[ย้อนสถานะผลตรวจ] {record.ReopenReason}",
+                        id = (long)-1,
+                        editedAt = record.AuditDate,
+                        reason = $"[ย้อนสถานะผลตรวจ] {record.ReopenReason}",
                         editedByName = "ผู้ดูแลระบบ",
-                        ChangesSummaryJson = JsonSerializer.Serialize(new
+                        changesSummaryJson = JsonDefaults.Serialize(new
                         {
                             action = "REOPEN",
                             reason = record.ReopenReason,
                             statusBefore = "SUBMITTED",
                             statusAfter = "REOPENED"
-                        })
+                        }),
+                        eventType = "REOPEN",
+                        details = (string?)null
                     });
                 }
 
-                return Ok(resultLogs);
+                // 2. ดึงประวัติกิจกรรม (ActivityLogs) เช่น AUDIT_DRAFT_SAVE, AUDIT_START, AUDIT_SUBMIT
+                var activityLogs = await _context.ActivityLogs
+                    .AsNoTracking()
+                    .Where(al => (al.EntityType == "AuditRecord" && al.EntityId == id) ||
+                                 (al.EntityType == "AuditDraft" && al.LocationId == record.LocationId && al.OccurredAt >= (record.StartedAt ?? record.AuditDate).AddHours(-1) && al.OccurredAt <= record.SubmittedAt.AddMinutes(5)))
+                    .OrderByDescending(al => al.OccurredAt)
+                    .ToListAsync();
+
+                var userIds = activityLogs.Select(a => a.UserId).Distinct().ToList();
+                var usersMap = await _context.Users
+                    .AsNoTracking()
+                    .Where(u => userIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id, u => u.FullName);
+
+                var earliestDraftSave = activityLogs
+                    .Where(al => al.Action == "AUDIT_DRAFT_SAVE" && !string.IsNullOrEmpty(al.Details))
+                    .OrderBy(al => al.OccurredAt)
+                    .FirstOrDefault();
+
+                long? firstDraftSaveIdToSkip = null;
+                string? initialStartDetails = null;
+
+                var startLog = activityLogs.FirstOrDefault(al => al.Action == "AUDIT_START");
+                if (startLog != null && string.IsNullOrEmpty(startLog.Details) && earliestDraftSave != null)
+                {
+                    if (Math.Abs((earliestDraftSave.OccurredAt - startLog.OccurredAt).TotalMinutes) <= 3)
+                    {
+                        initialStartDetails = earliestDraftSave.Details;
+                        firstDraftSaveIdToSkip = earliestDraftSave.Id;
+                    }
+                }
+
+                foreach (var act in activityLogs)
+                {
+                    var userName = usersMap.TryGetValue(act.UserId, out var name) ? name : (record.PrimaryAuditor?.FullName ?? "ผู้ตรวจประเมิน");
+
+                    if (act.Action == "AUDIT_DRAFT_SAVE")
+                    {
+                        if (firstDraftSaveIdToSkip.HasValue && act.Id == firstDraftSaveIdToSkip.Value) continue;
+
+                        timeline.Add(new
+                        {
+                            id = (long)(1000000 + act.Id),
+                            editedAt = act.OccurredAt,
+                            reason = (string?)null,
+                            editedByName = userName,
+                            changesSummaryJson = (string?)null,
+                            eventType = "DRAFT_SAVE",
+                            details = act.Details
+                        });
+                    }
+                    else if (act.Action == "AUDIT_START" && !timeline.Any(t => t.eventType == "START"))
+                    {
+                        timeline.Add(new
+                        {
+                            id = (long)(2000000 + act.Id),
+                            editedAt = act.OccurredAt,
+                            reason = (string?)null,
+                            editedByName = userName,
+                            changesSummaryJson = (string?)null,
+                            eventType = "START",
+                            details = !string.IsNullOrEmpty(act.Details) ? act.Details : initialStartDetails
+                        });
+                    }
+                    else if (act.Action == "AUDIT_SUBMIT" && !timeline.Any(t => t.eventType == "SUBMIT"))
+                    {
+                        timeline.Add(new
+                        {
+                            id = (long)(3000000 + act.Id),
+                            editedAt = act.OccurredAt,
+                            reason = (string?)null,
+                            editedByName = userName,
+                            changesSummaryJson = (string?)null,
+                            eventType = "SUBMIT",
+                            details = (string?)null
+                        });
+                    }
+                }
+
+                // หากยังไม่มีเหตุการณ์ SUBMIT ให้สร้างจาก SubmittedAt
+                if (!timeline.Any(t => t.eventType == "SUBMIT"))
+                {
+                    timeline.Add(new
+                    {
+                        id = (long)-2,
+                        editedAt = record.SubmittedAt,
+                        reason = (string?)null,
+                        editedByName = record.PrimaryAuditor?.FullName ?? "ผู้ตรวจประเมิน",
+                        changesSummaryJson = (string?)null,
+                        eventType = "SUBMIT",
+                        details = (string?)null
+                    });
+                }
+
+                // หากยังไม่มีเหตุการณ์ START ให้สร้างจาก StartedAt หรือ AuditDate
+                if (!timeline.Any(t => t.eventType == "START"))
+                {
+                    timeline.Add(new
+                    {
+                        id = (long)-3,
+                        editedAt = record.StartedAt ?? record.AuditDate,
+                        reason = (string?)null,
+                        editedByName = record.PrimaryAuditor?.FullName ?? "ผู้ตรวจประเมิน",
+                        changesSummaryJson = (string?)null,
+                        eventType = "START",
+                        details = (string?)null
+                    });
+                }
+
+                // เรียงลำดับจากล่าสุดไปเก่าสุด (Descending by editedAt)
+                var sortedTimeline = timeline.OrderByDescending(t => (DateTime)t.editedAt).ToList();
+
+                return Ok(sortedTimeline);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error fetching audit edit logs for id {Id}", id);
                 return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการโหลดประวัติการแก้ไข กรุณาลองใหม่อีกครั้ง" });
+            }
+        }
+
+        // ดูประวัติของแบบร่าง (กำลังตรวจ)
+        [Authorize(Roles = "ADMIN,AUDITOR,STANDARD")]
+        [HttpGet("draft/{id:int}/logs")]
+        public async Task<IActionResult> GetDraftLogs(int id)
+        {
+            try
+            {
+                var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+                var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
+
+                var draft = await _context.AuditDrafts
+                    .IgnoreQueryFilters()
+                    .AsNoTracking()
+                    .Include(d => d.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                    .Include(d => d.Auditor)
+                    .FirstOrDefaultAsync(d => d.Id == id);
+
+                if (draft == null) return NotFound(new { message = "ไม่พบแบบร่างการตรวจ" });
+
+                if (allowedLocationIds != null && !allowedLocationIds.Contains(draft.LocationId)) return Forbid();
+                if (allowedBrandIds != null &&
+                    (draft.Location == null || !draft.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId))))
+                {
+                    return Forbid();
+                }
+
+                var timeline = new List<dynamic>();
+
+                // หากย้อนสถานะมาจากผลตรวจเดิม ให้ดึงประวัติการแก้ไขและเหตุผลเดิมมาด้วย
+                if (draft.ReopenedFromRecordId.HasValue)
+                {
+                    var oldRecordId = draft.ReopenedFromRecordId.Value;
+                    var oldEditLogs = await _context.AuditRecordEditLogs
+                        .IgnoreQueryFilters()
+                        .AsNoTracking()
+                        .Include(l => l.EditedByUser)
+                        .Where(l => l.AuditRecordId == oldRecordId)
+                        .OrderByDescending(l => l.EditedAt)
+                        .ToListAsync();
+
+                    foreach (var l in oldEditLogs)
+                    {
+                        timeline.Add(new
+                        {
+                            id = (long)l.Id,
+                            editedAt = l.EditedAt,
+                            reason = l.Reason,
+                            editedByName = l.EditedByUser != null ? l.EditedByUser.FullName : "ผู้ใช้งาน",
+                            changesSummaryJson = l.ChangesSummaryJson,
+                            eventType = l.Reason != null && l.Reason.Contains("[ย้อนสถานะผลตรวจ]") ? "REOPEN" : "EDIT",
+                            details = (string?)null
+                        });
+                    }
+                }
+
+                // ดึงประวัติกิจกรรมของ Draft
+                var activityLogs = await _context.ActivityLogs
+                    .AsNoTracking()
+                    .Where(al => (al.EntityType == "AuditDraft" && al.EntityId == id) ||
+                                 (draft.ReopenedFromRecordId.HasValue && al.EntityType == "AuditRecord" && al.EntityId == draft.ReopenedFromRecordId.Value))
+                    .OrderByDescending(al => al.OccurredAt)
+                    .ToListAsync();
+
+                var userIds = activityLogs.Select(a => a.UserId).Distinct().ToList();
+                var usersMap = await _context.Users
+                    .AsNoTracking()
+                    .Where(u => userIds.Contains(u.Id))
+                    .ToDictionaryAsync(u => u.Id, u => u.FullName);
+
+                var earliestDraftSave = activityLogs
+                    .Where(al => al.Action == "AUDIT_DRAFT_SAVE" && !string.IsNullOrEmpty(al.Details))
+                    .OrderBy(al => al.OccurredAt)
+                    .FirstOrDefault();
+
+                long? firstDraftSaveIdToSkip = null;
+                string? initialStartDetails = null;
+
+                var startLog = activityLogs.FirstOrDefault(al => al.Action == "AUDIT_START");
+                if (startLog != null && string.IsNullOrEmpty(startLog.Details) && earliestDraftSave != null)
+                {
+                    if (Math.Abs((earliestDraftSave.OccurredAt - startLog.OccurredAt).TotalMinutes) <= 3)
+                    {
+                        initialStartDetails = earliestDraftSave.Details;
+                        firstDraftSaveIdToSkip = earliestDraftSave.Id;
+                    }
+                }
+
+                foreach (var act in activityLogs)
+                {
+                    var userName = usersMap.TryGetValue(act.UserId, out var name) ? name : (draft.Auditor?.FullName ?? "ผู้ตรวจประเมิน");
+
+                    if (act.Action == "AUDIT_DRAFT_SAVE")
+                    {
+                        if (firstDraftSaveIdToSkip.HasValue && act.Id == firstDraftSaveIdToSkip.Value) continue;
+
+                        timeline.Add(new
+                        {
+                            id = (long)(1000000 + act.Id),
+                            editedAt = act.OccurredAt,
+                            reason = (string?)null,
+                            editedByName = userName,
+                            changesSummaryJson = (string?)null,
+                            eventType = "DRAFT_SAVE",
+                            details = act.Details
+                        });
+                    }
+                    else if (act.Action == "AUDIT_START" && !timeline.Any(t => t.eventType == "START"))
+                    {
+                        timeline.Add(new
+                        {
+                            id = (long)(2000000 + act.Id),
+                            editedAt = act.OccurredAt,
+                            reason = (string?)null,
+                            editedByName = userName,
+                            changesSummaryJson = (string?)null,
+                            eventType = "START",
+                            details = !string.IsNullOrEmpty(act.Details) ? act.Details : initialStartDetails
+                        });
+                    }
+                    else if (act.Action == "AUDIT_SUBMIT" && !timeline.Any(t => t.eventType == "SUBMIT"))
+                    {
+                        timeline.Add(new
+                        {
+                            id = (long)(3000000 + act.Id),
+                            editedAt = act.OccurredAt,
+                            reason = (string?)null,
+                            editedByName = userName,
+                            changesSummaryJson = (string?)null,
+                            eventType = "SUBMIT",
+                            details = (string?)null
+                        });
+                    }
+                }
+
+                // ถ้ายังไม่มี START ให้สร้างจาก StartedAt
+                if (!timeline.Any(t => t.eventType == "START"))
+                {
+                    timeline.Add(new
+                    {
+                        id = (long)-3,
+                        editedAt = draft.StartedAt ?? draft.UpdatedAt,
+                        reason = (string?)null,
+                        editedByName = draft.Auditor?.FullName ?? "ผู้ตรวจประเมิน",
+                        changesSummaryJson = (string?)null,
+                        eventType = "START",
+                        details = (string?)null
+                    });
+                }
+
+                var sortedTimeline = timeline.OrderByDescending(t => (DateTime)t.editedAt).ToList();
+                return Ok(sortedTimeline);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching draft logs for id {Id}", id);
+                return StatusCode(500, new { message = "เกิดข้อผิดพลาดในการโหลดประวัติแบบร่าง กรุณาลองใหม่อีกครั้ง" });
             }
         }
 

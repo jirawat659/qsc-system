@@ -185,7 +185,7 @@ namespace QSC.Api.Controllers
                                 object? parsedFc = null;
                                 if (!string.IsNullOrEmpty(fcJson))
                                 {
-                                    try { parsedFc = JsonSerializer.Deserialize<object>(fcJson); } catch {}
+                                    try { parsedFc = JsonDefaults.Deserialize<object>(fcJson); } catch {}
                                 }
                                 bool isScored = secType != "INFO" && SectionRules.IsScoredItem(i, i.FullScore);
                                 return new
@@ -300,7 +300,7 @@ namespace QSC.Api.Controllers
                             object? parsedFc = null;
                             if (!string.IsNullOrEmpty(fcJson))
                             {
-                                try { parsedFc = JsonSerializer.Deserialize<object>(fcJson); } catch {}
+                                try { parsedFc = JsonDefaults.Deserialize<object>(fcJson); } catch {}
                             }
                             bool isScored = secType != "INFO" && SectionRules.IsScoredItem(i, i.FullScore);
                             return new
@@ -403,7 +403,7 @@ namespace QSC.Api.Controllers
                         string? fc = item.FieldConfigJson;
                         if (string.IsNullOrWhiteSpace(fc) && item.FieldConfig != null)
                         {
-                            try { fc = JsonSerializer.Serialize(item.FieldConfig); } catch { }
+                            try { fc = JsonDefaults.Serialize(item.FieldConfig); } catch { }
                         }
                         if (!string.IsNullOrWhiteSpace(fc))
                         {
@@ -427,7 +427,7 @@ namespace QSC.Api.Controllers
                 itemLineageMapping = itemLineageMapping ?? new Dictionary<string, int>()
             };
 
-            return JsonSerializer.Serialize(envelope);
+            return JsonDefaults.Serialize(envelope);
         }
 
         public static (string? cleanMetadataJson, Dictionary<string, string> sectionTypes, Dictionary<string, string> itemConfigs) UnpackFormMetadata(string? packedJson)

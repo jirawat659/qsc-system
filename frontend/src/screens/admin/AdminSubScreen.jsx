@@ -18,7 +18,13 @@ import HistoryList from "../../shared/HistoryList";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 
 
-export default function AdminSubScreen({ title, onBack, children }) {
+export default function AdminSubScreen({ 
+  title, 
+  onBack, 
+  children, 
+  maxWidth = "max-w-4xl",
+  subtitle = "เครื่องมือผู้ดูแลระบบ (Admin Suite)"
+}) {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "instant" });
     document.documentElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
@@ -28,8 +34,8 @@ export default function AdminSubScreen({ title, onBack, children }) {
   }, []);
 
   return (
-    <div className="page-transition p-4 sm:p-6 space-y-4 max-w-4xl mx-auto w-full pb-12">
-      <Header title={title} subtitle="เครื่องมือผู้ดูแลระบบ (Admin Suite)" onBack={onBack} />
+    <div className={`page-transition px-3.5 sm:px-6 pt-6 sm:pt-8 pb-28 lg:pb-12 space-y-4 w-full mx-auto font-sans ${maxWidth}`}>
+      <Header title={title} subtitle={subtitle} onBack={onBack} />
       {children}
     </div>
   );

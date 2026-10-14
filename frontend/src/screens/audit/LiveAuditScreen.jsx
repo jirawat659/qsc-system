@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Send } from "lucide-react";
+import { Menu, PenTool, RotateCcw, Edit3, Lock, Unlock, AlertCircle, ChevronDown, ChevronLeft, ChevronUp, Store, Navigation, Search, ChevronRight, CheckCircle2, XCircle, Minus, Camera, MessageSquare, Plus, Trash2, Clock, ClipboardList, Check, Loader2, Save, CheckCheck, AlertTriangle, X, Calendar, BarChart3, FileText, RefreshCw, FileSpreadsheet, Send, History } from "lucide-react";
 
 import { c, sans, mono, cardStyle } from "../../config/theme";
 import { TopBarContext } from "../../context/TopBarContext";
@@ -17,6 +17,7 @@ import ScoreRing from "../../shared/ScoreRing";
 import ErrorBoundary from "../../shared/ErrorBoundary";
 import DynamicFieldRenderer from "../../shared/DynamicFieldRenderer";
 import MultiItemAuditCard from "../../modals/MultiItemAuditCard";
+import AuditEditLogsModal from "../../modals/AuditEditLogsModal";
 import SwipeToast from "../../shared/SwipeToast";
 import { compressImageFile, validateImageFile } from "../../utils/imageCompressor";
 import { isFormApplicableToLocation } from "../../utils/formMatching";
@@ -117,6 +118,7 @@ const QuestionCard = React.memo(function QuestionCard({
   q,
   sec,
   idx,
+  questionNumber,
   answer,
   photosForQuestion,
   commentValue,
@@ -165,7 +167,7 @@ const QuestionCard = React.memo(function QuestionCard({
       <div className="mb-3">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className={`text-[11px] font-black px-1.5 py-0.5 rounded-md ${isFailed ? "text-red-700 bg-red-100" : "text-slate-500 bg-slate-100"}`}>
-            {isNonScored ? `รายการที่ ${q.orderIndex || idx + 1}` : `ข้อ ${q.orderIndex || idx + 1}`}
+            {isNonScored ? `รายการที่ ${questionNumber || q.orderIndex || idx + 1}` : `ข้อ ${questionNumber || q.orderIndex || idx + 1}`}
           </span>
           {isNonScored ? (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-[#0F6659] border border-emerald-200">
@@ -1863,6 +1865,41 @@ export default function LiveAuditScreen({
   const activeSectionIdx = activeSectionIndex ?? 0;
   const [previewImageUrl, setPreviewImageUrl] = useState(null);
 
+  // 🌟 ประวัติการตรวจ (Audit Edit & Draft Logs Modal)
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyLogsCount, setHistoryLogsCount] = useState(0);
+
+  const fetchDraftHistoryLogs = useCallback(async () => {
+    const effDraftId = getEffectiveDraftId();
+    if (!effDraftId) {
+      if (reopenedFromRecordId) {
+        try {
+          const res = await api.get(`/audit/${reopenedFromRecordId}/edit-logs`);
+          const logs = Array.isArray(res.data) ? res.data : (res.data?.logs || []);
+          setHistoryLogsCount(logs.length);
+        } catch (e) {
+          // ignore
+        }
+      } else {
+        setHistoryLogsCount(0);
+      }
+      return;
+    }
+    try {
+      const res = await api.get(`/audit/draft/${effDraftId}/logs`);
+      const logs = Array.isArray(res.data) ? res.data : (res.data?.logs || []);
+      setHistoryLogsCount(logs.length);
+    } catch (e) {
+      // ignore
+    }
+  }, [getEffectiveDraftId, reopenedFromRecordId]);
+
+  useEffect(() => {
+    if (step === "audit") {
+      fetchDraftHistoryLogs();
+    }
+  }, [step, getEffectiveDraftId, fetchDraftHistoryLogs]);
+
   useEffect(() => {
     if (!previewImageUrl) return;
     lockBodyScroll();
@@ -2717,6 +2754,8 @@ export default function LiveAuditScreen({
         }
       }
 
+      fetchDraftHistoryLogs();
+
       const stillUnsaved = hasUnsavedLocalChanges();
       isAnswerModifiedRef.current = stillUnsaved;
       setHasUnsavedChanges(stillUnsaved);
@@ -3410,10 +3449,12 @@ export default function LiveAuditScreen({
 
   const allAuditQuestions = useMemo(() => {
     const list = [];
+    let runningNo = 1;
     currentSections.forEach(sec => {
       (sec.items || []).forEach(q => {
         list.push({
           ...q,
+          num: runningNo++,
           surveyItemId: q.id,
           sectionType: q.sectionType || sec.sectionType,
           sectionTitle: sec.title,
@@ -3422,6 +3463,14 @@ export default function LiveAuditScreen({
     });
     return list;
   }, [currentSections]);
+
+  const questionNumberMap = useMemo(() => {
+    const map = new Map();
+    allAuditQuestions.forEach(q => {
+      if (q.id) map.set(q.id, q.num);
+    });
+    return map;
+  }, [allAuditQuestions]);
 
   const scoreAnalysis = useMemo(() => {
     const res = computeScore(allAuditQuestions, answers, passingScore, { includeUnansweredInMaxScore: true });
@@ -3817,7 +3866,7 @@ export default function LiveAuditScreen({
             sectionIdx: sIdx,
             sectionTitle: sec.title || `หมวดที่ ${sIdx + 1}`,
             questionId: item.id,
-            questionNumber: item.orderIndex || qIdx + 1,
+            questionNumber: questionNumberMap.get(item.id) || item.orderIndex || qIdx + 1,
             questionText: item.questionText || item.text || `ข้อที่ ${qIdx + 1}`
           });
         }
@@ -3975,7 +4024,7 @@ export default function LiveAuditScreen({
               sectionIdx: sIdx,
               sectionTitle: sec.title || `หมวดที่ ${sIdx + 1}`,
               questionId: item.id,
-              questionNumber: item.orderIndex || qIdx + 1,
+              questionNumber: questionNumberMap.get(item.id) || item.orderIndex || qIdx + 1,
               questionText: item.questionText || item.text || `ข้อที่ ${qIdx + 1}`
             });
           }
@@ -4935,6 +4984,31 @@ export default function LiveAuditScreen({
                 <span className="text-[9px] text-slate-400 font-medium">เกณฑ์ ≥ {passingScore}%</span>
               </div>
             </div>
+
+            {/* 🌟 ประวัติการตรวจ Button (Mobile & Desktop View matching Mockup) */}
+            <button
+              type="button"
+              onClick={() => setShowHistoryModal(true)}
+              className="w-full mt-3 p-3 sm:p-3.5 rounded-2xl bg-[#FFFBEB] hover:bg-[#FEF3C7] border border-[#FDE68A] flex items-center justify-between gap-3 text-left transition-all active:scale-[0.99] cursor-pointer shadow-2xs group"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#FEF3C7] text-[#D97706] flex items-center justify-center shrink-0 border border-[#FDE68A]/60 shadow-2xs">
+                  <History size={18} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-extrabold text-slate-800">ประวัติการตรวจ</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#FDE68A] text-[#92400E] text-[11px] font-black">
+                    {historyLogsCount}
+                  </span>
+                  {reopenedFromRecordId && (
+                    <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 text-[10px] font-black border border-rose-200">
+                      ย้อนสถานะ
+                    </span>
+                  )}
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-[#D97706] shrink-0 group-hover:translate-x-0.5 transition-transform" />
+            </button>
           </div>
 
           {/* 📊 Category Scores Breakdown Card */}
@@ -5630,6 +5704,7 @@ export default function LiveAuditScreen({
                         q={q}
                         sec={sec}
                         idx={idx}
+                        questionNumber={questionNumberMap.get(q.id)}
                         answer={answers[q.id]}
                         photosForQuestion={photos[q.id]}
                         commentValue={comments[q.id]}
@@ -6076,8 +6151,8 @@ export default function LiveAuditScreen({
                             }`}
                           />
                           <Save
-                            size={22}
-                            strokeWidth={2.4}
+                            size={28}
+                            strokeWidth={2.6}
                             className={`col-start-1 row-start-1 text-white transition-all duration-200 ${
                               !isSpinning && !isSaveSuccess ? "opacity-100 scale-100" : "opacity-0 scale-50 pointer-events-none"
                             }`}
@@ -6164,6 +6239,17 @@ export default function LiveAuditScreen({
             closeButton={true}
           />,
           document.body
+        )}
+
+        {/* 🌟 ประวัติการตรวจ Modal */}
+        {showHistoryModal && (
+          <AuditEditLogsModal
+            isOpen={showHistoryModal}
+            onClose={() => setShowHistoryModal(false)}
+            draftId={getEffectiveDraftId()}
+            auditRecordId={reopenedFromRecordId}
+            questions={allAuditQuestions}
+          />
         )}
       </div>
     );

@@ -1,19 +1,27 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import {
-  X, History, User, Clock, MessageSquare, ShieldCheck, AlertCircle, Loader2,
-  ArrowRight, CheckCircle2, XCircle, MinusCircle, ChevronDown, ChevronUp,
-  Image as ImageIcon, MapPin, Calendar, ExternalLink
+  X, ShieldCheck, AlertCircle, Loader2,
+  ChevronDown, ChevronUp, ChevronRight,
+  PenLine, Check, Play
 } from "lucide-react";
 import api, { getFullImageUrl } from "../config/api";
-import { mono } from "../config/theme";
 import { lockBodyScroll, unlockBodyScroll } from "../utils/scrollLock";
+import { formatActivityLogDetails } from "../utils/formatters";
 
-export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
+export default function AuditEditLogsModal({ 
+  isOpen, 
+  onClose, 
+  auditRecordId, 
+  draftId,
+  auditRecord = null, 
+  questions = [] 
+}) {
   const [logs, setLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [expandedItems, setExpandedItems] = useState({});
+  const [expandedCards, setExpandedCards] = useState({});
+  const [showAllItemsMap, setShowAllItemsMap] = useState({});
   const [previewPhoto, setPreviewPhoto] = useState(null);
 
   useEffect(() => {
@@ -33,18 +41,22 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
   }, [previewPhoto]);
 
   useEffect(() => {
-    if (!isOpen || !auditRecordId) return;
+    if (!isOpen || (!auditRecordId && !draftId)) return;
 
     let isMounted = true;
     setIsLoading(true);
     setError(null);
 
-    api.get(`/audit/${auditRecordId}/edit-logs`)
+    const endpoint = draftId
+      ? `/audit/draft/${draftId}/logs`
+      : `/audit/${auditRecordId}/edit-logs`;
+
+    api.get(endpoint)
       .then((res) => {
         if (isMounted) setLogs(res.data || []);
       })
       .catch((err) => {
-        if (isMounted) setError(err.response?.data?.message || "ไม่สามารถโหลดประวัติการแก้ไขได้");
+        if (isMounted) setError(err.response?.data?.message || "ไม่สามารถโหลดประวัติการตรวจได้");
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -53,32 +65,7 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
     return () => {
       isMounted = false;
     };
-  }, [isOpen, auditRecordId]);
-
-  if (!isOpen) return null;
-
-  const formatDate = (isoString) => {
-    if (!isoString) return "-";
-    const d = new Date(isoString);
-    return d.toLocaleDateString("th-TH", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit"
-    }) + " น.";
-  };
-
-  const formatShortTime = (isoString) => {
-    if (!isoString) return "-";
-    try {
-      const d = new Date(isoString);
-      if (isNaN(d.getTime())) return "-";
-      return d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }) + " น.";
-    } catch {
-      return "-";
-    }
-  };
+  }, [isOpen, auditRecordId, draftId]);
 
   const parseSummary = (jsonStr) => {
     if (!jsonStr) return null;
@@ -89,325 +76,472 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
     }
   };
 
-  const toggleExpand = (logId) => {
-    setExpandedItems(prev => ({
+  const formatDateTime = (isoString) => {
+    if (!isoString) return "-";
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return "-";
+      const datePart = d.toLocaleDateString("th-TH", {
+        year: "numeric",
+        month: "short",
+        day: "numeric"
+      });
+      const timePart = d.toLocaleTimeString("th-TH", {
+        hour: "2-digit",
+        minute: "2-digit"
+      }) + " น.";
+      return `${datePart} · ${timePart}`;
+    } catch {
+      return "-";
+    }
+  };
+
+  const toggleExpandCard = (logId) => {
+    setExpandedCards(prev => ({
       ...prev,
       [logId]: !prev[logId]
     }));
   };
 
+  const toggleShowAllItems = (logId) => {
+    setShowAllItemsMap(prev => ({
+      ...prev,
+      [logId]: !prev[logId]
+    }));
+  };
+
+  // คะแนนปัจจุบัน
+  const currentScore = useMemo(() => {
+    if (logs && logs.length > 0) {
+      const latestEdit = logs.find(l => l.changesSummaryJson);
+      if (latestEdit) {
+        const latestSummary = parseSummary(latestEdit.changesSummaryJson);
+        const after = latestSummary?.after || {};
+        const scoreVal = after.PercentageScore ?? after.percentageScore;
+        if (scoreVal !== undefined && scoreVal !== null) {
+          return parseFloat(Number(scoreVal).toFixed(1));
+        }
+      }
+    }
+    if (auditRecord?.percentageScore !== undefined && auditRecord?.percentageScore !== null) {
+      return parseFloat(Number(auditRecord.percentageScore).toFixed(1));
+    }
+    return null;
+  }, [logs, auditRecord]);
+
+  // แม็ปปิ้ง surveyItemId / id / text -> เลขข้อจริง (#1, #2...)
+  const questionNumMap = useMemo(() => {
+    const map = new Map();
+    if (Array.isArray(questions)) {
+      questions.forEach((q, idx) => {
+        const num = q.num !== undefined && q.num !== null ? q.num : (idx + 1);
+        if (q.surveyItemId) map.set(Number(q.surveyItemId), num);
+        if (q.id) map.set(String(q.id), num);
+        if (q.text && typeof q.text === "string") {
+          map.set(q.text.trim().toLowerCase(), num);
+        }
+      });
+    }
+    return map;
+  }, [questions]);
+
+  const getQuestionNum = useCallback((item, fallbackIdx) => {
+    if (item.surveyItemId && questionNumMap.has(Number(item.surveyItemId))) {
+      return questionNumMap.get(Number(item.surveyItemId));
+    }
+    if (item.questionText && questionNumMap.has(item.questionText.trim().toLowerCase())) {
+      return questionNumMap.get(item.questionText.trim().toLowerCase());
+    }
+    if (item.qNum !== undefined && item.qNum !== null) {
+      return item.qNum;
+    }
+    return fallbackIdx + 1;
+  }, [questionNumMap]);
+
+  // 🌟 ฟอร์แมตรายละเอียดข้อความใน Log ให้คนทั่วไปอ่านเข้าใจง่าย (แปลง JSON ตาราง / Multians เป็นรายการชื่อและตัวเลข)
+  const formatLogDetails = useCallback((detailsStr) => {
+    return formatActivityLogDetails(detailsStr, questions);
+  }, [questions]);
+
+  if (!isOpen) return null;
+
   const modalContent = (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-200">
       <div 
-        className="w-full max-w-2xl max-h-[88dvh] bg-white rounded-3xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        className="w-full max-w-lg max-h-[92dvh] sm:max-h-[88dvh] bg-white rounded-t-[32px] sm:rounded-[28px] shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom sm:zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100/80 border border-emerald-300/60 flex items-center justify-center text-[#0F6659] shadow-2xs">
-              <History size={16} />
-            </div>
-            <div>
-              <h3 className="text-sm sm:text-base font-extrabold text-slate-800 leading-tight">
-                ประวัติการแก้ไขผลตรวจ
-              </h3>
-              <p className="text-[11px] text-slate-500 font-medium">
-                บันทึกการตรวจสอบย้อนหลังทุกเวอร์ชัน (Audit Trail & Item Diff)
-              </p>
-            </div>
+        <div className="px-5 sm:px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+          <div>
+            <h3 className="text-base sm:text-lg font-extrabold text-slate-800 leading-tight">
+              ประวัติการตรวจ
+            </h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              {currentScore != null ? `คะแนนตอนนี้ ${currentScore}% · ` : ""}{logs.length > 0 ? `มีกิจกรรม ${logs.length} รายการ` : "ข้อมูลการตรวจ"}
+            </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer transition-colors border border-slate-200/60 shadow-2xs active:scale-95"
+            className="w-9 h-9 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer transition-colors border border-slate-200/80 shadow-2xs active:scale-95"
+            aria-label="ปิดหน้าต่าง"
           >
-            <X size={15} />
+            <X size={18} />
           </button>
         </div>
 
-        {/* Content Body */}
-        <div className="p-4 sm:p-5 overflow-y-auto overscroll-contain flex-1 space-y-4 custom-tab-scrollbar">
+        {/* Content Body: Timeline */}
+        <div className="p-5 sm:p-6 overflow-y-auto overscroll-contain flex-1 custom-tab-scrollbar bg-white">
           {isLoading ? (
             <div className="py-14 flex flex-col items-center justify-center text-slate-400 gap-2.5">
               <Loader2 size={24} className="animate-spin text-[#0F6659]" />
-              <span className="text-xs font-semibold">กำลังดึงข้อมูลประวัติการแก้ไข...</span>
+              <span className="text-xs font-semibold">กำลังดึงข้อมูลประวัติการตรวจ...</span>
             </div>
           ) : error ? (
             <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center gap-2">
               <AlertCircle size={16} className="shrink-0" />
               <span>{error}</span>
             </div>
-          ) : logs.length === 0 ? (
-            <div className="py-14 flex flex-col items-center justify-center text-center p-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#0F6659] mb-3 shadow-2xs">
-                <ShieldCheck size={28} />
-              </div>
-              <div className="text-sm font-extrabold text-slate-800">ยังไม่เคยมีการแก้ไขบันทึกนี้</div>
-              <div className="text-xs text-slate-500 max-w-xs mt-1 leading-relaxed font-medium">
-                ผลการตรวจนี้เป็นข้อมูลต้นฉบับจริงจากการลงพื้นที่ตรวจโดยตรง ไม่มีการเปลี่ยนแปลงย้อนหลัง
-              </div>
-            </div>
           ) : (
-            <div className="relative pl-6 space-y-6 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
-              {logs.map((log, idx) => {
-                const summary = parseSummary(log.changesSummaryJson);
+            <div className="relative">
+              {logs.map((item, idx) => {
+                const isLast = idx === logs.length - 1;
+                const eventType = item.eventType || (item.changesSummaryJson ? "EDIT" : "UNKNOWN");
+                const summary = parseSummary(item.changesSummaryJson);
                 const before = summary?.before || {};
                 const after = summary?.after || {};
                 const changedItems = Array.isArray(summary?.changedItems) ? summary.changedItems : [];
-                const isExpanded = expandedItems[log.id] !== false; // Default expanded
 
                 const beforeScore = before.PercentageScore ?? before.percentageScore;
                 const afterScore = after.PercentageScore ?? after.percentageScore;
-                const beforePassed = before.IsPassed ?? before.isPassed;
-                const afterPassed = after.IsPassed ?? after.isPassed;
 
-                const beforeStarted = before.StartedAt ?? before.startedAt;
-                const afterStarted = after.StartedAt ?? after.startedAt;
-                const isTimeChanged = beforeStarted && afterStarted && beforeStarted !== afterStarted;
+                const isReopenLog = eventType === "REOPEN" || summary?.action === "REOPEN" || (item.reason && item.reason.includes("[ย้อนสถานะผลตรวจ]"));
+                const cleanReason = (item.reason || "").replace(/^\[ย้อนสถานะผลตรวจ\]\s*/, "");
 
-                const isReopenLog = summary?.action === "REOPEN" || (log.reason && log.reason.includes("[ย้อนสถานะผลตรวจ]"));
-                const cleanReason = (log.reason || "").replace(/^\[ย้อนสถานะผลตรวจ\]\s*/, "");
+                // กรองเฉพาะข้อที่มีการเปลี่ยนแปลงจริง
+                const realChangedItems = changedItems.filter(it => {
+                  const b = it.before || {};
+                  const a = it.after || {};
+                  const isScoreDiff = b.isPassed !== a.isPassed || b.scoreGiven !== a.scoreGiven || b.isNa !== a.isNa;
+                  const isNoteDiff = (b.notes || "").trim() !== (a.notes || "").trim();
+                  const isImgDiff = (b.imageUrls?.length || 0) !== (a.imageUrls?.length || 0);
+                  const isAnsDiff = (b.answerValue || "").trim() !== (a.answerValue || "").trim();
+                  const hasEditReason = Boolean(it.editReason && it.editReason.trim());
+                  return isScoreDiff || isNoteDiff || isImgDiff || hasEditReason || (Boolean(b.answerValue) && isAnsDiff);
+                });
 
-                return (
-                  <div key={log.id || idx} className="relative group animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {/* Timeline Node Icon */}
-                    <div className="absolute -left-6 top-1 w-5 h-5 rounded-full bg-white border-2 border-[#0F6659] flex items-center justify-center shadow-xs">
-                      <div className={`w-2 h-2 rounded-full ${isReopenLog ? 'bg-amber-500' : 'bg-[#0F6659]'}`} />
+                const sortedChangedItems = [...realChangedItems].sort((a, b) => {
+                  const numA = Number(getQuestionNum(a, 0)) || 0;
+                  const numB = Number(getQuestionNum(b, 0)) || 0;
+                  return numA - numB;
+                });
+
+                const isDetailOpen = Boolean(expandedCards[item.id]);
+                const isShowAll = Boolean(showAllItemsMap[item.id]);
+                const visibleItems = isShowAll ? sortedChangedItems : sortedChangedItems.slice(0, 3);
+                const hasMoreItems = sortedChangedItems.length > 3;
+                const remainingCount = sortedChangedItems.length - 3;
+
+                // 🌟 แยกตามประเภทของ Event
+                // 1. DRAFT_SAVE: บันทึกแบบร่าง
+                if (eventType === "DRAFT_SAVE") {
+                  return (
+                    <div key={item.id || idx} className={`relative pl-12 ${isLast ? "" : "pb-7"} group`}>
+                      {!isLast && <div className="absolute left-[17px] top-9 -bottom-2 w-[2px] bg-slate-200" />}
+                      <div className="absolute left-0 top-0 w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 z-10 shadow-2xs">
+                        <PenLine size={15} />
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <div className="h-9 flex items-center">
+                          <span className="text-sm font-bold text-slate-800">
+                            {formatDateTime(item.editedAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                          <span className="text-xs sm:text-sm font-bold text-slate-800">
+                            บันทึกแบบร่าง
+                          </span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-xl bg-amber-50 text-amber-800 font-semibold text-[11px] border border-amber-200/80">
+                            แบบร่าง
+                          </span>
+                        </div>
+                        {item.details && (
+                          <div className="text-xs font-sans font-medium text-slate-700 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1.5 mt-1 leading-relaxed break-words">
+                            {formatLogDetails(item.details)}
+                          </div>
+                        )}
+                        <div className="text-xs text-slate-500 font-medium pt-0.5 truncate" title={`โดย ${item.editedByName || "ผู้ใช้งาน"}`}>
+                          โดย {item.editedByName || "ผู้ใช้งาน"}
+                        </div>
+                      </div>
                     </div>
+                  );
+                }
 
-                    {/* Card */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-4.5 shadow-2xs space-y-3 transition-all hover:border-slate-300">
-                      {/* Meta Header */}
-                      <div className="flex items-start justify-between gap-2 flex-wrap text-xs">
-                        <div className="flex items-center gap-2">
-                          {isReopenLog ? (
-                            <span className="px-2 py-0.5 rounded-lg bg-amber-100 text-amber-900 font-bold text-[11px] border border-amber-300">
-                              ย้อนสถานะผลตรวจ
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-lg bg-emerald-50 text-[#0F6659] font-bold text-[11px] border border-emerald-200 font-mono">
-                              แก้ไขครั้งที่ {logs.length - idx}
+                // 2. START: เริ่มการตรวจ
+                if (eventType === "START") {
+                  return (
+                    <div key={item.id || idx} className={`relative pl-12 ${isLast ? "" : "pb-7"} group`}>
+                      {!isLast && <div className="absolute left-[17px] top-9 -bottom-2 w-[2px] bg-slate-200" />}
+                      <div className="absolute left-0 top-0 w-9 h-9 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 z-10 shadow-2xs">
+                        <Play size={13} className="fill-current translate-x-0.5" />
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <div className="h-9 flex items-center">
+                          <span className="text-sm font-bold text-slate-800">
+                            {formatDateTime(item.editedAt)}
+                          </span>
+                        </div>
+                        <div className="text-xs sm:text-sm font-bold text-slate-800 pt-0.5">
+                          เริ่มการตรวจ
+                        </div>
+                        {item.details && (
+                          <div className="text-xs font-sans font-medium text-slate-700 bg-slate-50 border border-slate-200/80 rounded-xl px-2.5 py-1.5 mt-1 leading-relaxed break-words">
+                            {formatLogDetails(item.details)}
+                          </div>
+                        )}
+                        <div className="text-xs text-slate-500 font-medium pt-0.5 truncate" title={`โดย ${item.editedByName || "ผู้ตรวจประเมิน"}`}>
+                          โดย {item.editedByName || "ผู้ตรวจประเมิน"}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // 3. SUBMIT: บันทึกผลการตรวจ
+                if (eventType === "SUBMIT") {
+                  return (
+                    <div key={item.id || idx} className={`relative pl-12 ${isLast ? "" : "pb-7"} group`}>
+                      {!isLast && <div className="absolute left-[17px] top-9 -bottom-2 w-[2px] bg-slate-200" />}
+                      <div className="absolute left-0 top-0 w-9 h-9 rounded-full bg-[#D1F2E8] text-[#0F6659] flex items-center justify-center shrink-0 z-10 shadow-2xs">
+                        <Check size={18} strokeWidth={2.6} />
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <div className="h-9 flex items-center">
+                          <span className="text-sm font-bold text-slate-800">
+                            {formatDateTime(item.editedAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                          <span className="text-xs sm:text-sm font-bold text-slate-800">
+                            บันทึกผลการตรวจ
+                          </span>
+                          {auditRecord?.percentageScore != null && (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-600 font-semibold text-xs border border-slate-200/60">
+                              คะแนน {parseFloat(Number(auditRecord.percentageScore).toFixed(1))}%
                             </span>
                           )}
-                          <div className="flex items-center gap-1 font-bold text-slate-800">
-                            <User size={13} className="text-slate-400" />
-                            <span>{log.editedByName || "ผู้ใช้งาน"}</span>
-                          </div>
                         </div>
-
-                        <div className="flex items-center gap-1 text-[11px] text-slate-400 font-medium">
-                          <Clock size={11} />
-                          <span>{formatDate(log.editedAt)}</span>
+                        <div className="text-xs text-slate-500 font-medium pt-0.5 truncate" title={`โดย ${item.editedByName || "ผู้ตรวจประเมิน"}`}>
+                          โดย {item.editedByName || "ผู้ตรวจประเมิน"}
                         </div>
                       </div>
+                    </div>
+                  );
+                }
 
-                      {/* Reason Box */}
-                      <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-slate-700 space-y-1">
-                        <div className="text-[10.5px] font-bold text-amber-900 flex items-center gap-1">
-                          <MessageSquare size={12} className="text-amber-700" />
-                          <span>{isReopenLog ? "เหตุผลในการย้อนสถานะ:" : "เหตุผลในการแก้ไข:"}</span>
+                // 4. REOPEN: ย้อนผลการตรวจเป็นแบบร่าง
+                if (isReopenLog) {
+                  return (
+                    <div key={item.id || idx} className={`relative pl-12 ${isLast ? "" : "pb-7"} group`}>
+                      {!isLast && <div className="absolute left-[17px] top-9 -bottom-2 w-[2px] bg-slate-200" />}
+                      <div className="absolute left-0 top-0 w-9 h-9 rounded-full bg-rose-100 text-rose-800 flex items-center justify-center shrink-0 z-10 shadow-2xs">
+                        <RotateCcw size={15} />
+                      </div>
+                      <div className="space-y-1 min-w-0">
+                        <div className="h-9 flex items-center">
+                          <span className="text-sm font-bold text-slate-800">
+                            {formatDateTime(item.editedAt)}
+                          </span>
                         </div>
-                        <div className="font-semibold text-slate-800 leading-relaxed pl-4">
-                          "{cleanReason}"
+                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                          <span className="text-xs sm:text-sm font-bold text-slate-800">
+                            ย้อนผลการตรวจเป็นแบบร่าง
+                          </span>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-xl bg-rose-100 text-rose-800 font-bold text-xs border border-rose-300">
+                            ย้อนสถานะ
+                          </span>
                         </div>
-                        {summary?.draftDocumentNo && (
-                          <div className="text-[11px] text-amber-800 font-medium pl-4 pt-1">
-                            สร้างแบบร่างเพื่อตรวจต่อ: <span className="font-mono font-bold text-amber-950">{summary.draftDocumentNo}</span>
+                        {cleanReason && (
+                          <div className="text-xs text-slate-600 font-medium">
+                            <span className="text-slate-400">เหตุผล: </span>
+                            <span>{cleanReason}</span>
                           </div>
                         )}
+                        <div className="text-xs text-slate-500 font-medium pt-0.5 truncate" title={`โดย ${item.editedByName || "ผู้ดูแลระบบ"}`}>
+                          โดย {item.editedByName || "ผู้ดูแลระบบ"}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // 5. EDIT: แก้ไขผลตรวจ
+                return (
+                  <div key={item.id || idx} className={`relative pl-12 ${isLast ? "" : "pb-7"} group`}>
+                    {!isLast && <div className="absolute left-[17px] top-9 -bottom-2 w-[2px] bg-slate-200" />}
+                    <div className="absolute left-0 top-0 w-9 h-9 rounded-full bg-[#0F6659] text-white flex items-center justify-center shrink-0 z-10 shadow-2xs">
+                      <PenLine size={16} />
+                    </div>
+
+                    <div className="space-y-1 min-w-0">
+                      <div className="h-9 flex items-center">
+                        <span className="text-sm font-bold text-slate-800">
+                          {formatDateTime(item.editedAt)}
+                        </span>
                       </div>
 
-                      {/* Overview Badges (Score, Pass/Fail, Time) */}
-                      <div className="flex items-center gap-2 flex-wrap text-xs pt-1">
-                        {/* Score Diff */}
+                      <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                        <span className="text-xs sm:text-sm font-bold text-slate-800">
+                          แก้ไขผลตรวจ
+                        </span>
                         {beforeScore !== undefined && afterScore !== undefined && (
-                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 font-medium shadow-2xs">
-                            <span className="text-slate-400 text-[11px] font-bold">คะแนน:</span>
-                            <span className="font-bold line-through text-slate-400 font-mono">
-                              {parseFloat(Number(beforeScore).toFixed(2))}%
-                            </span>
-                            <ArrowRight size={11} className="text-slate-400" />
-                            <span className={`font-black font-mono ${afterPassed ? 'text-emerald-700' : 'text-amber-700'}`}>
-                              {parseFloat(Number(afterScore).toFixed(2))}%
-                            </span>
-                          </div>
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-xl bg-[#E6F4F1] text-[#0F6659] font-bold text-xs border border-[#0F6659]/10">
+                            <span>{parseFloat(Number(beforeScore).toFixed(1))}%</span>
+                            <span className="text-[#0F6659]/60 font-mono">→</span>
+                            <span>{parseFloat(Number(afterScore).toFixed(1))}%</span>
+                          </span>
                         )}
-
-                        {/* Pass/Fail Diff */}
-                        {beforePassed !== undefined && afterPassed !== undefined && beforePassed !== afterPassed && (
-                          <div className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 border border-slate-200 shadow-2xs">
-                            <span className={beforePassed ? "text-emerald-600" : "text-rose-500"}>
-                              {beforePassed ? "ผ่านเกณฑ์" : "ไม่ผ่าน"}
-                            </span>
-                            <ArrowRight size={11} className="text-slate-400" />
-                            <span className={afterPassed ? "text-emerald-700 font-black" : "text-rose-600 font-black"}>
-                              {afterPassed ? "ผ่านเกณฑ์" : "ไม่ผ่าน"}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Audit Time Diff */}
-                        {isTimeChanged && (
-                          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium shadow-2xs">
-                            <Calendar size={12} className="text-slate-400" />
-                            <span className="text-slate-400 text-[11px] font-bold">เวลาเริ่ม:</span>
-                            <span className="line-through text-slate-400 font-mono text-[11px]">
-                              {formatShortTime(beforeStarted)}
-                            </span>
-                            <ArrowRight size={10} className="text-slate-400" />
-                            <span className="font-bold text-[#0F6659] font-mono text-[11px]">
-                              {formatShortTime(afterStarted)}
-                            </span>
-                          </div>
+                        {realChangedItems.length > 0 && (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-xl bg-slate-100 text-slate-600 font-semibold text-xs border border-slate-200/60">
+                            แก้ {realChangedItems.length} ข้อ
+                          </span>
                         )}
                       </div>
 
-                      {/* Changed Items (Item-level diff) */}
-                      {changedItems.length > 0 && (
-                        <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                      <div className="text-xs text-slate-500 font-medium pt-0.5 truncate" title={`โดย ${item.editedByName || "ผู้ใช้งาน"}`}>
+                        โดย {item.editedByName || "ผู้ใช้งาน"}
+                      </div>
+
+                      {cleanReason && (
+                        <div className="text-xs text-slate-600 font-medium">
+                          <span className="text-slate-400">เหตุผล: </span>
+                          <span>{cleanReason}</span>
+                        </div>
+                      )}
+
+                      {realChangedItems.length > 0 && (
+                        <div className="pt-1">
                           <button
                             type="button"
-                            onClick={() => toggleExpand(log.id)}
-                            className="w-full flex items-center justify-between text-xs font-bold text-slate-700 hover:text-[#0F6659] py-1 cursor-pointer transition-colors select-none"
+                            onClick={() => toggleExpandCard(item.id)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-[#0F6659] hover:text-[#0C5247] hover:underline cursor-pointer transition-colors"
                           >
-                            <span className="flex items-center gap-1.5">
-                              <span className="w-2 h-2 rounded-full bg-[#0F6659]" />
-                              <span>รายการข้อตรวจที่แก้ไข ({changedItems.length} ข้อ)</span>
-                            </span>
-                            <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                              <span>{isExpanded ? "ย่อรายการ" : "ดูรายละเอียด"}</span>
-                              {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                            </span>
+                            <span>{isDetailOpen ? "ซ่อนรายละเอียด" : "ดูรายละเอียด"}</span>
+                            {isDetailOpen ? <ChevronUp size={13} /> : <ChevronRight size={13} />}
                           </button>
+                        </div>
+                      )}
 
-                          {isExpanded && (
-                            <div className="space-y-2.5 animate-in fade-in duration-200">
-                              {changedItems.map((item, itemIdx) => {
-                                const b = item.before || {};
-                                const a = item.after || {};
-                                const isScoreDiff = b.isPassed !== a.isPassed || b.scoreGiven !== a.scoreGiven || b.isNa !== a.isNa;
-                                const isNoteDiff = (b.notes || "").trim() !== (a.notes || "").trim();
-                                const isImgDiff = (b.imageUrls?.length || 0) !== (a.imageUrls?.length || 0);
-                                const isAnsDiff = (b.answerValue || "").trim() !== (a.answerValue || "").trim();
-                                const hasEditReason = Boolean(item.editReason && item.editReason.trim());
+                      {isDetailOpen && realChangedItems.length > 0 && (
+                        <div className="mt-2.5 p-3.5 sm:p-4 rounded-2xl bg-[#F8FAF9] border border-slate-200/80 space-y-2.5 animate-in fade-in duration-200">
+                          <div className="text-xs text-slate-500 font-bold">
+                            ข้อตรวจที่แก้
+                          </div>
 
-                                // ซ่อนรายการที่ไม่มีการเปลี่ยนแปลงจริง (ดัก phantom diff จาก log เก่าที่ค้างในระบบ)
-                                const hasRealDiff = isScoreDiff || isNoteDiff || isImgDiff || hasEditReason || (Boolean(b.answerValue) && isAnsDiff);
-                                if (!hasRealDiff) return null;
+                          <div className="divide-y divide-slate-200/70">
+                            {visibleItems.map((qItem, itemIdx) => {
+                              const b = qItem.before || {};
+                              const a = qItem.after || {};
+                              const isScoreDiff = b.isPassed !== a.isPassed || b.scoreGiven !== a.scoreGiven || b.isNa !== a.isNa;
+                              const isAnsDiff = (b.answerValue || "").trim() !== (a.answerValue || "").trim();
 
-                                return (
-                                  <div key={item.surveyItemId || itemIdx} className="p-3 rounded-xl bg-slate-50/80 border border-slate-200/80 space-y-2 text-xs">
-                                    {/* Item Title + Section */}
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div className="font-bold text-slate-800 leading-snug flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
-                                        <span className="text-[#0F6659] font-mono font-black mr-1.5 shrink-0">#{itemIdx + 1}</span>
-                                        <span>{item.questionText}</span>
-                                      </div>
-                                      {item.sectionTitle && (
-                                        <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[10px] font-bold text-slate-500 shrink-0">
-                                          {item.sectionTitle}
-                                        </span>
-                                      )}
+                              const bScore = b.isNa ? "N/A" : (b.scoreGiven !== undefined && b.scoreGiven !== null ? b.scoreGiven : (b.isPassed ? 1 : 0));
+                              const aScore = a.isNa ? "N/A" : (a.scoreGiven !== undefined && a.scoreGiven !== null ? a.scoreGiven : (a.isPassed ? 1 : 0));
+                              const showScoreRow = bScore !== aScore || isScoreDiff;
+                              const showPassFail = b.isPassed !== a.isPassed && !b.isNa && !a.isNa;
+                              const actualQNum = getQuestionNum(qItem, itemIdx);
+
+                              const subTextParts = [];
+                              if (qItem.sectionTitle) subTextParts.push(qItem.sectionTitle);
+                              if (qItem.editReason && qItem.editReason.trim()) subTextParts.push(qItem.editReason.trim());
+                              else if (a.notes && a.notes.trim()) subTextParts.push(a.notes.trim());
+                              else if (b.notes && b.notes.trim()) subTextParts.push(b.notes.trim());
+                              const subText = subTextParts.join(" · ");
+
+                              return (
+                                <div key={qItem.surveyItemId || itemIdx} className="py-2.5 flex items-start justify-between gap-3 text-xs">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-bold text-slate-800 truncate" title={`#${actualQNum} ${qItem.questionText}`}>
+                                      <span className="text-[#0F6659] font-mono mr-1.5 font-bold">
+                                        #{actualQNum}
+                                      </span>
+                                      <span>{qItem.questionText}</span>
                                     </div>
-
-                                    {/* Result Diff */}
-                                    {isScoreDiff && (
-                                      <div className="flex items-center gap-2 flex-wrap text-[11px]">
-                                        <span className="text-slate-400 font-bold">ผลตรวจ:</span>
-                                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-500">
-                                          {b.isNa ? (
-                                            <span className="font-bold text-slate-500">N/A</span>
-                                          ) : b.isPassed ? (
-                                            <span className="font-bold text-emerald-600 flex items-center gap-1">
-                                              <CheckCircle2 size={11} /> ผ่าน {b.scoreGiven !== undefined && b.scoreGiven !== null ? `(${b.scoreGiven} คะแนน)` : ""}
-                                            </span>
-                                          ) : (
-                                            <span className="font-bold text-rose-500 flex items-center gap-1">
-                                              <XCircle size={11} /> ตก {b.scoreGiven !== undefined && b.scoreGiven !== null ? `(${b.scoreGiven} คะแนน)` : ""}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <ArrowRight size={11} className="text-slate-400" />
-                                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-emerald-300 text-slate-800 shadow-2xs">
-                                          {a.isNa ? (
-                                            <span className="font-bold text-slate-600">N/A</span>
-                                          ) : a.isPassed ? (
-                                            <span className="font-bold text-emerald-700 flex items-center gap-1">
-                                              <CheckCircle2 size={11} /> ผ่าน {a.scoreGiven !== undefined && a.scoreGiven !== null ? `(${a.scoreGiven} คะแนน)` : ""}
-                                            </span>
-                                          ) : (
-                                            <span className="font-bold text-rose-600 flex items-center gap-1">
-                                              <XCircle size={11} /> ตก {a.scoreGiven !== undefined && a.scoreGiven !== null ? `(${a.scoreGiven} คะแนน)` : ""}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* Answer Diff (สำหรับข้อที่ไม่คิดคะแนนหรือข้อที่เปลี่ยนคำตอบ) */}
-                                    {isAnsDiff && !isScoreDiff && (
-                                      <div className="flex items-center gap-2 flex-wrap text-[11px]">
-                                        <span className="text-slate-400 font-bold">คำตอบ:</span>
-                                        <span className="line-through text-slate-400 font-medium">"{b.answerValue || "-"}"</span>
-                                        <ArrowRight size={11} className="text-slate-400" />
-                                        <span className="font-bold text-[#0F6659]">"{a.answerValue || "-"}"</span>
-                                      </div>
-                                    )}
-
-                                    {/* Note Diff */}
-                                    {isNoteDiff && (
-                                      <div className="p-2 rounded-lg bg-white border border-slate-200 space-y-1 text-[11px]">
-                                        {b.notes && (
-                                          <div className="text-slate-400 line-through">
-                                            <span className="font-bold mr-1">เดิม:</span>
-                                            <span>"{b.notes}"</span>
-                                          </div>
-                                        )}
-                                        <div className="text-slate-800 font-semibold">
-                                          <span className="text-[#0F6659] font-bold mr-1">{b.notes ? "ใหม่:" : "คอมเมนต์:"}</span>
-                                          <span>"{a.notes || "-"}"</span>
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* 🌟 Item Edit Reason (เหตุผลการปรับแก้ข้อนี้) */}
-                                    {item.editReason && (
-                                      <div className="p-2.5 rounded-lg bg-amber-50/90 border border-amber-200/90 text-[11px] space-y-1">
-                                        <div className="font-extrabold text-amber-900 flex items-center gap-1">
-                                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                                          <span>เหตุผลการปรับแก้ข้อนี้:</span>
-                                        </div>
-                                        <div className="font-medium text-amber-950 pl-2.5 break-words [overflow-wrap:anywhere]">
-                                          "{item.editReason}"
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* Image Gallery Diff */}
-                                    {((b.imageUrls && b.imageUrls.length > 0) || (a.imageUrls && a.imageUrls.length > 0)) && (
-                                      <div className="space-y-1 pt-1">
-                                        <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
-                                          <ImageIcon size={11} />
-                                          <span>รูปภาพหลักฐาน ({a.imageUrls?.length || 0} รูป):</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5 overflow-x-auto py-1 custom-tab-scrollbar">
-                                          {(a.imageUrls || []).map((imgUrl, imgIdx) => (
-                                            <img
-                                              key={imgIdx}
-                                              src={getFullImageUrl(imgUrl)}
-                                              alt={`Evidence ${imgIdx + 1}`}
-                                              className="w-12 h-12 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80 transition-opacity shrink-0 shadow-2xs"
-                                              onClick={() => setPreviewPhoto(getFullImageUrl(imgUrl))}
-                                            />
-                                          ))}
-                                        </div>
+                                    {subText && (
+                                      <div className="text-[11px] text-slate-400 font-medium truncate mt-0.5" title={subText}>
+                                        {subText}
                                       </div>
                                     )}
                                   </div>
-                                );
-                              })}
-                            </div>
+
+                                  <div className="shrink-0 flex flex-col items-end">
+                                    {showScoreRow && (
+                                      <div className="flex items-center gap-1.5 text-xs sm:text-sm font-mono font-semibold">
+                                        <span className="text-slate-400">{bScore}</span>
+                                        <span className="text-slate-300">→</span>
+                                        <span className="font-bold text-slate-900">{aScore}</span>
+                                      </div>
+                                    )}
+                                    {showPassFail && (
+                                      <div className="text-[11px] font-bold text-right flex items-center gap-1 mt-0.5">
+                                        <span className={b.isPassed ? "text-slate-400" : "text-rose-500"}>
+                                          {b.isPassed ? "ผ่าน" : "ไม่ผ่าน"}
+                                        </span>
+                                        <span className="text-slate-300">→</span>
+                                        <span className={a.isPassed ? "text-emerald-700" : "text-rose-600 font-black"}>
+                                          {a.isPassed ? "ผ่าน" : "ไม่ผ่าน"}
+                                        </span>
+                                      </div>
+                                    )}
+                                    {!showScoreRow && !showPassFail && isAnsDiff && (
+                                      <div className="text-[11px] text-slate-500 font-medium">
+                                        <span className="line-through text-slate-400 mr-1">{b.answerValue || "-"}</span>
+                                        <span className="text-[#0F6659] font-bold">{a.answerValue || "-"}</span>
+                                      </div>
+                                    )}
+                                    {a.imageUrls && a.imageUrls.length > 0 && (
+                                      <div className="flex items-center gap-1.5 mt-1.5">
+                                        {a.imageUrls.map((url, imgI) => (
+                                          <div
+                                            key={imgI}
+                                            className="relative group cursor-pointer"
+                                            onClick={() => setPreviewPhoto(getFullImageUrl(url))}
+                                          >
+                                            <img
+                                              src={getFullImageUrl(url)}
+                                              alt="หลักฐาน"
+                                              className="w-12 h-12 sm:w-14 sm:h-14 object-cover rounded-xl border border-slate-200/90 shadow-2xs hover:opacity-90 active:scale-95 transition-all"
+                                            />
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {hasMoreItems && (
+                            <button
+                              type="button"
+                              onClick={() => toggleShowAllItems(item.id)}
+                              className="w-full mt-2 py-2 rounded-xl border border-dashed border-[#0F6659]/30 hover:border-[#0F6659] hover:bg-emerald-50/50 text-[#0F6659] text-xs font-bold transition-all active:scale-98 cursor-pointer flex items-center justify-center gap-1"
+                            >
+                              {isShowAll ? (
+                                <>
+                                  <span>ย่อรายการ</span>
+                                  <ChevronUp size={13} />
+                                </>
+                              ) : (
+                                <>
+                                  <span>ดูทั้งหมด (อีก {remainingCount} ข้อ)</span>
+                                  <ChevronDown size={13} />
+                                </>
+                              )}
+                            </button>
                           )}
                         </div>
                       )}
@@ -420,11 +554,11 @@ export default function AuditEditLogsModal({ isOpen, onClose, auditRecordId }) {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex justify-end shrink-0">
+        <div className="p-4 sm:p-5 border-t border-slate-100 bg-white shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-sm"
+            className="w-full py-3.5 rounded-2xl bg-[#0F6659] hover:bg-[#0c5247] text-white text-sm font-bold shadow-sm active:scale-98 transition-all cursor-pointer"
           >
             ปิดหน้าต่าง
           </button>

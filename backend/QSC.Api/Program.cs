@@ -161,6 +161,7 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
+        options.JsonSerializerOptions.Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
         options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
         options.JsonSerializerOptions.Converters.Add(new QSC.Api.Helpers.UtcDateTimeConverter());
         options.JsonSerializerOptions.Converters.Add(new QSC.Api.Helpers.UtcNullableDateTimeConverter());

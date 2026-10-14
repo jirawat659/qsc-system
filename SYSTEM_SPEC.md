@@ -22,6 +22,8 @@
 7. [มาตรฐานการจัดการพิกัดและระยะทาง (Location & GPS Standards)](#7-มาตรฐานการจัดการพิกัดและระยะทาง-location--gps-standards)
 8. [มาตรฐานบทบาทและสิทธิ์ผู้ใช้งาน (Roles & RBAC Standards)](#8-มาตรฐานบทบาทและสิทธิ์ผู้ใช้งาน-roles--rbac-standards)
 9. [มาตรฐานบันทึกประวัติการใช้งานระบบ (System Activity Log Standards)](#9-มาตรฐานบันทึกประวัติการใช้งานระบบ-system-activity-log-standards-)
+   - [9.3 มาตรฐานการบันทึกประวัติแบบร่างและการย้ายประวัติ (Draft Log & Migration Policy)](#93-มาตรฐานการบันทึกประวัติแบบร่างและการย้ายประวัติ-draft-log--migration-policy-)
+   - [9.4 มาตรฐานการแปลงข้อความประวัติให้อ่านเข้าใจง่าย (Dynamic Log Formatter)](#94-มาตรฐานการแปลงข้อความประวัติให้อ่านเข้าใจง่าย-dynamic-log-formatter-)
 10. [มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์ (Tech Stack & Storage Standards)](#10-มาตรฐานสถาปัตยกรรมและโครงสร้างไฟล์-tech-stack--storage-standards)
 11. [Checklist สำหรับการพัฒนาฟีเจอร์ใหม่ (Developer Checklist)](#11-checklist-สำหรับการพัฒนาฟีเจอร์ใหม่-developer-checklist)
 
@@ -303,9 +305,10 @@ stateDiagram-v2
 | **`OccurredAt`** | `datetime2` (UTC) | เวลาที่เกิดเหตุการณ์ (UTC เสมอ) |
 | **`UserId`** | `int` | รหัสผู้ใช้งานที่กระทำการ |
 | **`Action`** | `nvarchar(50)` | รหัสการกระทำมาตรฐาน (ดูข้อ 9.2) |
-| **`EntityType`** | `nvarchar(50)` (Nullable) | ชนิด Entity ที่เกี่ยวข้อง (เช่น `AuditRecord`, `User`, `SurveyForm`) |
+| **`EntityType`** | `nvarchar(50)` (Nullable) | ชนิด Entity ที่เกี่ยวข้อง (เช่น `AuditRecord`, `AuditDraft`, `User`, `SurveyForm`) |
 | **`EntityId`** | `int` (Nullable) | รหัส ID ของ Entity ที่เกี่ยวข้อง |
 | **`LocationId`** | `int` (Nullable) | รหัสสาขาที่เกี่ยวข้อง (สำหรับฟิลเตอร์ตามสาขา) |
+| **`Details`** 🌟 | `nvarchar(max)` (Nullable) | สรุปข้อมูลการกระทำ / Delta คำตอบและคอมเมนต์ที่เปลี่ยนแปลง (เช่น `1:ผ่าน, 2:ไม่ผ่าน [หมายเหตุ: ...]`) |
 
 **ดัชนี (Indexes):** `(UserId, OccurredAt)`, `(EntityType, EntityId)`, `OccurredAt`
 
@@ -314,7 +317,8 @@ stateDiagram-v2
 | :--- | :--- | :--- | :--- |
 | **การตรวจประเมิน** | `LOGIN` | เข้าสู่ระบบสำเร็จ | `User` |
 | | `LOGOUT` | ออกจากระบบสำเร็จ (ผ่านการกดปุ่ม Logout) | `User` |
-| | `AUDIT_START` | เริ่มต้นการตรวจรอบใหม่ (สร้างแบบร่าง) | `AuditDraft` |
+| | `AUDIT_START` | เริ่มต้นการตรวจรอบใหม่ (สร้างแบบร่าง พร้อม snapshot คำตอบแรก) | `AuditDraft` |
+| | `AUDIT_DRAFT_SAVE` 🌟 | บันทึกแบบร่าง (Draft) ระหว่างการตรวจ พร้อม Delta คำตอบและคอมเมนต์ | `AuditDraft` |
 | | `AUDIT_SUBMIT` | ส่งผลการตรวจสมบูรณ์ | `AuditRecord` |
 | | `AUDIT_EDIT` | แก้ไขข้อมูลหรือคะแนนผลตรวจ | `AuditRecord` |
 | | `AUDIT_REOPEN` | ย้อนสถานะผลตรวจเป็นแบบร่าง | `AuditRecord` |
@@ -343,6 +347,26 @@ stateDiagram-v2
 | | `BRAND_CREATE` | สร้างแบรนด์ใหม่ | `Brand` |
 | | `BRAND_EDIT` | แก้ไขข้อมูลแบรนด์ | `Brand` |
 | | `BRAND_DISABLE` | ระงับการใช้งานแบรนด์ | `Brand` |
+
+### 9.3 มาตรฐานการบันทึกประวัติแบบร่างและการย้ายประวัติ (Draft Log & Migration Policy) 🌟
+1. **การบันทึกการเปลี่ยนแปลง (Delta Detection):**
+   - ในการบันทึกแบบร่าง (`AUDIT_DRAFT_SAVE` หรือ `AUDIT_START`) ระบบจะเปรียบเทียบคำตอบ (`answers`) และคอมเมนต์ (`comments`) ระหว่างรอบปัจจุบันกับรอบก่อนหน้า
+   - **ข้อคำตอบปกติ (YESNO, SCALE):** บันทึกเป็น `ลำดับข้อ:ผ่าน` หรือ `ลำดับข้อ:ไม่ผ่าน`
+   - **ข้อรายละเอียด (Text, Number, Date, Time, Select, Radio):** บันทึกชื่อหัวข้อคำถามควบคู่ค่าที่กรอก เช่น `19:ชื่อผู้จัดการร้าน: นายสมชาย`, `20:วันที่ตรวจ: 2026-10-14`
+   - **ข้อตรวจแบบตาราง (Grid Table):** แปลงโครงสร้างเซลล์เป็นชื่อแถวและตัวเลข เช่น `18:จำนวนพนักงาน ( ผู้จัดการ: 1, พนักงาน: 5 )`
+   - **ข้อตรวจหลายรายการ (Multians Evaluation):** แปลงเกณฑ์ย่อยและชื่อเมนูเป็นภาษาไทย เช่น `10:หวานๆ ( รายการที่ 1: การตกแต่ง: ไม่ผ่าน, รสชาติ: ผ่าน [หมายเหตุ: ไม่มีตัวผู้ขาย] )`
+   - **คอมเมนต์ (Notes):** หากข้อใดมีการพิมพ์คอมเมนต์หรือแก้ไขคอมเมนต์ ให้ต่อท้ายคำตอบด้วย `[หมายเหตุ: <ข้อความ>]` เสมอ
+   - **รูปภาพ (Photos):** ไม่นำมาบันทึกในข้อความ `Details` เพื่อรักษาประสิทธิภาพและไม่ให้ประวัติยาวเกินไป (ไฟล์รูปยังคงถูกจัดเก็บในระบบปกติ)
+2. **การย้ายประวัติ (Log Migration) เมื่อส่งผลตรวจสมบูรณ์ (`SubmitAudit`):**
+   - เมื่อผู้ตรวจส่งผลตรวจ (`SubmitAudit`): ระบบจะค้นหาประวัติกิจกรรมทั้งหมดที่เป็นของแบบร่าง (`EntityType = "AuditDraft"` และ `EntityId = draft.Id`)
+   - ระบบจะ **เปลี่ยนเจ้าของ Entity อัตโนมัติ** ให้เป็น `EntityType = "AuditRecord"` และ `EntityId = record.Id`
+   - ข้อมูลประวัติการบันทึกแบบร่างทุกครั้งจึง **ไม่มีการสูญหาย** แม้จะมีการลบตารางชั่วคราว `AuditDrafts` ออกก็ตาม
+
+### 9.4 มาตรฐานการแปลงข้อความประวัติให้อ่านเข้าใจง่าย (Dynamic Log Formatter) 🌟
+- หน้าจอ UI ([`AuditEditLogsModal.jsx`](frontend/src/modals/AuditEditLogsModal.jsx) และ [`ActivityHistoryScreen.jsx`](frontend/src/screens/admin/ActivityHistoryScreen.jsx)) ใช้ฟังก์ชันมาตรฐาน [`formatActivityLogDetails`](frontend/src/utils/formatters.js)
+- **ห้าม Hardcode ชื่อข้อหรือเลขข้อเด็ดขาด:** ตัวแปลงทำงานผ่าน Balanced-Brace Parser ที่ถอดรหัสโครงสร้าง JSON ก้อนใด ๆ แบบไดนามิก
+- ดึงชื่อรายการจาก `name` ของรายการ หรือ `fieldConfig.items` ของแบบฟอร์มนั้น ๆ
+- ดึงชื่อเกณฑ์ย่อยจาก `fieldConfig.criteria` หรือพจนานุกรมคำศัพท์มาตรฐานสากล (`decor` ➔ การตกแต่ง, `taste` ➔ รสชาติ, `clean` ➔ ความสะอาด ฯลฯ)
 
 > 💡 **หมายเหตุการบันทึก:**
 > - กลุ่มสำคัญ (ตรวจ/ย้อน/แก้/ลบ/ผู้ใช้/บทบาท/ฟอร์ม): ใช้ `_activityLogger.Add(...)` บันทึกใน Transaction เดียวกับการกระทำหลัก หากบันทึกไม่ได้จะ Rollback ทั้งชุด
