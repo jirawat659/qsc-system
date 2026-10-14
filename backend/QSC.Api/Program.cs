@@ -120,10 +120,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     }
                     // 3. ถ้าไม่มีทั้ง 2 อย่าง JwtBearer handler จะอ่านจาก Authorization: Bearer Header ตามปกติ
                 }
-                else if (context.Request.Cookies.ContainsKey("qsc_session"))
-                {
-                    context.Token = context.Request.Cookies["qsc_session"];
-                }
                 return Task.CompletedTask;
             }
         };
