@@ -539,7 +539,7 @@ export default function DashboardScreen({ role, isDesktop }) {
       {isFetchError && (
         <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold shadow-2xs">
           <AlertCircle size={16} className="text-amber-600 shrink-0" />
-          <span className="flex-1">ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อรีเฟรชข้อมูลล่าสุดได้ ระบบกำลังแสดงข้อมูลแคชเดิม</span>
+          <span className="flex-1">ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์เพื่อรีเฟรชข้อมูลล่าสุดได้ ระบบกำลังแสดงข้อมูลเดิม</span>
           <button 
             type="button"
             onClick={() => {
