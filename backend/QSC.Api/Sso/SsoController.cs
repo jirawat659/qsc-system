@@ -80,11 +80,46 @@ public class SsoController(
             return StatusCode(403, new { message = "คุณไม่มีสิทธิ์เข้าใช้งานระบบ QSC", code = "pdp_deny" });
         var permissions = grants.Permissions.ToList();
 
-        // 5) scope สาขา/แบรนด์ (ของเดิมของ QSC ยังใช้ตามเดิมในเฟสนี้)
-        var allowedLocationIds = user.BranchScope == "SPECIFIC"
-            ? await db.UserLocations.Where(x => x.UserId == user.Id).Select(x => x.LocationId).ToListAsync(ct) : new List<int>();
-        var allowedBrandIds = user.BrandScope == "SPECIFIC"
-            ? await db.UserBrands.Where(x => x.UserId == user.Id).Select(x => x.BrandId).ToListAsync(ct) : new List<int>();
+        // 5) scope สาขา/แบรนด์ จาก PDP เท่านั้น (ไม่มี fallback ไปใช้ DB — PDP ชนะเสมอตามสเปค)
+        string branchScope = "SPECIFIC";
+        var allowedLocationIds = new List<int>();
+        var locScope = grants.Scopes.FirstOrDefault(s => s.Dimension is "branch" or "location");
+        if (locScope != null && locScope.Codes.Any())
+        {
+            if (locScope.Codes.Any(c => c == "*" || c == "ALL"))
+            {
+                branchScope = "ALL";
+            }
+            else
+            {
+                branchScope = "SPECIFIC";
+                var codes = locScope.Codes.ToList();
+                allowedLocationIds = await db.Locations
+                    .Where(l => codes.Contains(l.Code))
+                    .Select(l => l.Id)
+                    .ToListAsync(ct);
+            }
+        }
+
+        string brandScope = "SPECIFIC";
+        var allowedBrandIds = new List<int>();
+        var brandScopeItem = grants.Scopes.FirstOrDefault(s => s.Dimension == "brand");
+        if (brandScopeItem != null && brandScopeItem.Codes.Any())
+        {
+            if (brandScopeItem.Codes.Any(c => c == "*" || c == "ALL"))
+            {
+                brandScope = "ALL";
+            }
+            else
+            {
+                brandScope = "SPECIFIC";
+                var codes = brandScopeItem.Codes.ToList();
+                allowedBrandIds = await db.Brands
+                    .Where(b => codes.Contains(b.Code))
+                    .Select(b => b.Id)
+                    .ToListAsync(ct);
+            }
+        }
 
         // 6) ออก session ของ QSC เอง แล้วตอบรูปเดิมเหมือน /auth/login เพื่อให้ frontend แทบไม่ต้องแก้
         var roleCode = user.Role?.Code ?? string.Empty;
@@ -106,8 +141,8 @@ public class SsoController(
                 id = user.Id, username = user.Username, fullName = user.FullName,
                 role = roleCode, roleName = user.Role?.Name ?? "ผู้ใช้งาน",
                 navConfigJson, navConfig,
-                branchScope = user.BranchScope, allowedLocationIds,
-                brandScope = user.BrandScope, allowedBrandIds,
+                branchScope, allowedLocationIds,
+                brandScope, allowedBrandIds,
                 mustChangePassword = false,          // SSO ไม่มีรหัสผ่านให้เปลี่ยน
                 permissions = permissions,
             },

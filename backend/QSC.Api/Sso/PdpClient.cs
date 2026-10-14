@@ -75,26 +75,92 @@ public sealed class PdpClient(HttpClient http, IOptions<SsoOptions> options, ILo
         }
     }
 
-    // ---- จุดเดียวที่ผูกกับหน้าตา response (สันนิษฐาน): { permissions: [..], scopes: [{dimension, codes:[..]}] } ----
+    // ---- แกะข้อมูลจาก Response ของ AU Portal ตามโครงสร้างจริง: { data: { grants: [ { permission, scopes: [ { dimension, code } ] } ] } } ----
     private static PdpGrants ParseGrants(JsonElement root)
     {
-        var perms = new List<string>();
-        if (root.TryGetProperty("permissions", out var p) && p.ValueKind == JsonValueKind.Array)
-            foreach (var e in p.EnumerateArray())
+        // รองรับทั้งแบบครอบด้วย { "data": { "grants": [ ... ] } } และแบบ flat
+        var target = root.TryGetProperty("data", out var dataElem) && dataElem.ValueKind == JsonValueKind.Object
+            ? dataElem
+            : root;
+
+        var perms = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var scopeMap = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        // 1. แกะจากโครงสร้างจริงของ AU Portal: data.grants
+        if (target.TryGetProperty("grants", out var grantsElem) && grantsElem.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var g in grantsElem.EnumerateArray())
+            {
+                if (g.TryGetProperty("permission", out var p) && p.ValueKind == JsonValueKind.String)
+                {
+                    var pStr = p.GetString()?.Trim();
+                    if (!string.IsNullOrEmpty(pStr)) perms.Add(pStr);
+                }
+
+                if (g.TryGetProperty("scopes", out var s) && s.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var sc in s.EnumerateArray())
+                    {
+                        string? dim = null;
+                        string? code = null;
+
+                        if (sc.TryGetProperty("dimension", out var dProp) && dProp.ValueKind == JsonValueKind.String)
+                            dim = dProp.GetString()?.Trim();
+
+                        if (sc.TryGetProperty("code", out var cProp) && cProp.ValueKind == JsonValueKind.String)
+                            code = cProp.GetString()?.Trim();
+
+                        if (!string.IsNullOrEmpty(dim) && !string.IsNullOrEmpty(code))
+                        {
+                            if (!scopeMap.TryGetValue(dim, out var codeSet))
+                            {
+                                codeSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                scopeMap[dim] = codeSet;
+                            }
+                            codeSet.Add(code);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback: รองรับแบบ permissions: [ ... ] และ scopes: [ { dimension, codes: [ ... ] } ]
+        if (perms.Count == 0 && target.TryGetProperty("permissions", out var pList) && pList.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in pList.EnumerateArray())
             {
                 if (e.ValueKind == JsonValueKind.String) perms.Add(e.GetString()!);
                 else if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("code", out var c) && c.ValueKind == JsonValueKind.String)
                     perms.Add(c.GetString()!);
             }
+        }
 
-        var scopes = new List<PdpScope>();
-        if (root.TryGetProperty("scopes", out var s) && s.ValueKind == JsonValueKind.Array)
-            foreach (var e in s.EnumerateArray())
+        if (scopeMap.Count == 0 && target.TryGetProperty("scopes", out var sList) && sList.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var e in sList.EnumerateArray())
+            {
                 if (e.TryGetProperty("dimension", out var d) && d.ValueKind == JsonValueKind.String
                     && e.TryGetProperty("codes", out var cs) && cs.ValueKind == JsonValueKind.Array)
-                    scopes.Add(new PdpScope(d.GetString()!, cs.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()));
+                {
+                    var dim = d.GetString()!;
+                    if (!scopeMap.TryGetValue(dim, out var codeSet))
+                    {
+                        codeSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        scopeMap[dim] = codeSet;
+                    }
+                    foreach (var c in cs.EnumerateArray())
+                    {
+                        if (c.ValueKind == JsonValueKind.String) codeSet.Add(c.GetString()!);
+                    }
+                }
+            }
+        }
 
-        return new PdpGrants(true, perms, scopes);
+        var scopes = scopeMap
+            .Select(kv => new PdpScope(kv.Key, kv.Value.ToList()))
+            .ToList();
+
+        return new PdpGrants(true, perms.ToList(), scopes);
     }
 
     // ---- retry เฉพาะความล้มเหลวชั่วคราว (ต่อไม่ติด/timeout/408/502/503/504) ----
