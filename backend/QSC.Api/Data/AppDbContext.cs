@@ -260,6 +260,12 @@ namespace QSC.Api.Data
             modelBuilder.Entity<AuditRecord>()
                 .HasQueryFilter(ar => ar.Status == "SUBMITTED");
 
+            modelBuilder.Entity<AuditResponse>()
+                .HasQueryFilter(res => res.AuditRecord!.Status == "SUBMITTED");
+
+            modelBuilder.Entity<AuditRecordEditLog>()
+                .HasQueryFilter(log => log.AuditRecord!.Status == "SUBMITTED");
+
             modelBuilder.Entity<AuditDraft>()
                 .HasOne(d => d.ReopenedFromRecord)
                 .WithMany()

@@ -15,7 +15,7 @@ namespace QSC.Api.Sso;
 [Route("api/auth/sso")]
 public class SsoController(
     AppDbContext db, SsoTokenValidator validator, JtiStore jtiStore, PdpClient pdp, TokenService tokens,
-    ILogger<SsoController> log, IActivityLogger activityLogger, IWebHostEnvironment env) : ControllerBase
+    ILogger<SsoController> log, IActivityLogger activityLogger, IWebHostEnvironment env, IConfiguration config) : ControllerBase
 {
     public record SsoTokenDto(string Token);
 
@@ -95,7 +95,8 @@ public class SsoController(
         await activityLogger.LogAsync(user.Id, "LOGIN", "User", user.Id);
 
         var sessionToken = tokens.Issue(user, roleCode);
-        CookieHelper.AppendSessionCookie(Response, sessionToken, env);
+        int ssoTtlHours = config.GetValue<int>("AuPortal:SessionTtlHours", 2);
+        CookieHelper.AppendSessionCookie(Response, sessionToken, env, ssoTtlHours);
 
         return Ok(new
         {

@@ -509,16 +509,24 @@ namespace QSC.Api.Controllers
         public async Task<IActionResult> DiscardDraft([FromQuery] int? id, [FromQuery] int? locationId, [FromQuery] int? surveyFormId, [FromQuery] int? auditorId, [FromQuery] int? scheduleId)
         {
             var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(User, _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(User, _context);
 
             var draftsToDelete = new List<AuditDraft>();
 
             // 1. By specific Draft ID (Most specific - ONLY delete this targeted draft)
             if (id.HasValue && id.Value > 0)
             {
-                var specificDraft = await _context.AuditDrafts.FindAsync(id.Value);
+                var specificDraft = await _context.AuditDrafts
+                    .Include(d => d.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                    .FirstOrDefaultAsync(d => d.Id == id.Value);
+
                 if (specificDraft != null)
                 {
-                    if (role == "ADMIN" || specificDraft.AuditorId == currentUserId || (allowedLocationIds != null && allowedLocationIds.Contains(specificDraft.LocationId)))
+                    bool hasLocationAccess = allowedLocationIds == null || allowedLocationIds.Contains(specificDraft.LocationId);
+                    bool hasBrandAccess = allowedBrandIds == null || (specificDraft.Location != null && specificDraft.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+
+                    if (role == "ADMIN" || (hasLocationAccess && hasBrandAccess))
                     {
                         draftsToDelete.Add(specificDraft);
                     }
@@ -527,37 +535,58 @@ namespace QSC.Api.Controllers
             // 2. By Schedule ID (Only if no specific draft ID was passed)
             else if (scheduleId.HasValue && scheduleId.Value > 0)
             {
-                var schedDrafts = await _context.AuditDrafts
-                    .Where(d => d.AuditScheduleId == scheduleId.Value)
-                    .ToListAsync();
-                draftsToDelete.AddRange(schedDrafts);
+                var sched = await _context.AuditSchedules
+                    .Include(s => s.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                    .FirstOrDefaultAsync(s => s.Id == scheduleId.Value);
+
+                if (sched != null)
+                {
+                    bool hasLocationAccess = allowedLocationIds == null || allowedLocationIds.Contains(sched.LocationId);
+                    bool hasBrandAccess = allowedBrandIds == null || (sched.Location != null && sched.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+
+                    if (role == "ADMIN" || (hasLocationAccess && hasBrandAccess))
+                    {
+                        var schedDrafts = await _context.AuditDrafts
+                            .Where(d => d.AuditScheduleId == scheduleId.Value)
+                            .ToListAsync();
+                        draftsToDelete.AddRange(schedDrafts);
+                    }
+                }
             }
             // 3. By Location ID & Form ID for this specific auditor (Only if neither ID nor Schedule ID was passed)
             else if (locationId.HasValue && locationId.Value > 0)
             {
-                var locQuery = _context.AuditDrafts.Where(d => d.LocationId == locationId.Value);
-
-                if (surveyFormId.HasValue && surveyFormId.Value > 0)
+                bool hasLocationAccess = allowedLocationIds == null || allowedLocationIds.Contains(locationId.Value);
+                if (role == "ADMIN" || hasLocationAccess)
                 {
-                    locQuery = locQuery.Where(d => d.SurveyFormId == surveyFormId.Value);
-                }
+                    var locQuery = _context.AuditDrafts
+                        .Include(d => d.Location)
+                        .ThenInclude(l => l!.LocationBrands)
+                        .Where(d => d.LocationId == locationId.Value);
 
-                int effectiveAuditorId = (role == "ADMIN" && auditorId.HasValue && auditorId.Value > 0)
-                    ? auditorId.Value
-                    : currentUserId;
+                    if (role != "ADMIN" && allowedBrandIds != null)
+                    {
+                        locQuery = locQuery.Where(d => d.Location != null && d.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+                    }
 
-                locQuery = locQuery.Where(d => d.AuditorId == effectiveAuditorId && d.AuditScheduleId == null);
+                    if (surveyFormId.HasValue && surveyFormId.Value > 0)
+                    {
+                        locQuery = locQuery.Where(d => d.SurveyFormId == surveyFormId.Value);
+                    }
 
-                if (allowedLocationIds != null)
-                {
-                    locQuery = locQuery.Where(d => allowedLocationIds.Contains(d.LocationId));
-                }
+                    int effectiveAuditorId = (role == "ADMIN" && auditorId.HasValue && auditorId.Value > 0)
+                        ? auditorId.Value
+                        : currentUserId;
 
-                // 🎯 Safety: ลบเฉพาะแบบร่างล่าสุด 1 รายการของรอบตรวจปัจจุบันเท่านั้น ไม่แตะต้องประวัติหรือดราฟต์เก่า
-                var latestDraft = await locQuery.OrderByDescending(d => d.UpdatedAt).FirstOrDefaultAsync();
-                if (latestDraft != null)
-                {
-                    draftsToDelete.Add(latestDraft);
+                    locQuery = locQuery.Where(d => d.AuditorId == effectiveAuditorId && d.AuditScheduleId == null);
+
+                    // 🎯 Safety: ลบเฉพาะแบบร่างล่าสุด 1 รายการของรอบตรวจปัจจุบันเท่านั้น ไม่แตะต้องประวัติหรือดราฟต์เก่า
+                    var latestDraft = await locQuery.OrderByDescending(d => d.UpdatedAt).FirstOrDefaultAsync();
+                    if (latestDraft != null)
+                    {
+                        draftsToDelete.Add(latestDraft);
+                    }
                 }
             }
 
@@ -615,10 +644,20 @@ namespace QSC.Api.Controllers
             // Also revert schedule if explicit scheduleId was provided (even if no draft existed)
             if (scheduleId.HasValue && scheduleId.Value > 0)
             {
-                var directSchedule = await _context.AuditSchedules.FindAsync(scheduleId.Value);
+                var directSchedule = await _context.AuditSchedules
+                    .Include(s => s.Location)
+                    .ThenInclude(l => l!.LocationBrands)
+                    .FirstOrDefaultAsync(s => s.Id == scheduleId.Value);
+
                 if (directSchedule != null && directSchedule.Status == "in_progress")
                 {
-                    directSchedule.Status = "pending";
+                    bool hasLocationAccess = allowedLocationIds == null || allowedLocationIds.Contains(directSchedule.LocationId);
+                    bool hasBrandAccess = allowedBrandIds == null || (directSchedule.Location != null && directSchedule.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
+
+                    if (role == "ADMIN" || (hasLocationAccess && hasBrandAccess))
+                    {
+                        directSchedule.Status = "pending";
+                    }
                 }
             }
 
@@ -1279,15 +1318,20 @@ namespace QSC.Api.Controllers
         {
             if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest(new { message = "กรุณาแนบข้อมูลรูปภาพ" });
 
-            // Clean previous image if exists
+            // Clean previous image if exists (with Path Traversal protection)
             if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/"))
             {
                 try
                 {
-                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env, _config);
-                    var relPath = dto.PreviousUrl.Substring("/uploads/".Length).Replace('/', Path.DirectorySeparatorChar);
-                    var oldFile = Path.Combine(uploadsRoot, relPath);
-                    if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
+                    var cleanUrl = dto.PreviousUrl.Split('?')[0].Split('#')[0];
+                    var uploadsRoot = Path.GetFullPath(UploadHelper.GetUploadsRootPath(_env, _config));
+                    var relPath = cleanUrl.Substring("/uploads/".Length).Replace('/', Path.DirectorySeparatorChar);
+                    var fullTarget = Path.GetFullPath(Path.Combine(uploadsRoot, relPath));
+                    // 🛡️ Path Traversal Guard: ป้องกันไม่ให้ลบไฟล์นอกโฟลเดอร์ uploads
+                    if (fullTarget.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(fullTarget))
+                    {
+                        System.IO.File.Delete(fullTarget);
+                    }
                 }
                 catch { }
             }
@@ -1314,15 +1358,20 @@ namespace QSC.Api.Controllers
         {
             if (string.IsNullOrEmpty(dto.Base64Data)) return BadRequest(new { message = "กรุณาแนบข้อมูลลายเซ็น" });
 
-            // Clean previous signature file to prevent disk clutter
+            // Clean previous signature file to prevent disk clutter (with Path Traversal protection)
             if (!string.IsNullOrWhiteSpace(dto.PreviousUrl) && dto.PreviousUrl.StartsWith("/uploads/"))
             {
                 try
                 {
-                    var uploadsRoot = UploadHelper.GetUploadsRootPath(_env, _config);
-                    var relPath = dto.PreviousUrl.Substring("/uploads/".Length).Replace('/', Path.DirectorySeparatorChar);
-                    var oldFile = Path.Combine(uploadsRoot, relPath);
-                    if (System.IO.File.Exists(oldFile)) System.IO.File.Delete(oldFile);
+                    var cleanUrl = dto.PreviousUrl.Split('?')[0].Split('#')[0];
+                    var uploadsRoot = Path.GetFullPath(UploadHelper.GetUploadsRootPath(_env, _config));
+                    var relPath = cleanUrl.Substring("/uploads/".Length).Replace('/', Path.DirectorySeparatorChar);
+                    var fullTarget = Path.GetFullPath(Path.Combine(uploadsRoot, relPath));
+                    // 🛡️ Path Traversal Guard: ป้องกันไม่ให้ลบไฟล์นอกโฟลเดอร์ uploads
+                    if (fullTarget.StartsWith(uploadsRoot, StringComparison.OrdinalIgnoreCase) && System.IO.File.Exists(fullTarget))
+                    {
+                        System.IO.File.Delete(fullTarget);
+                    }
                 }
                 catch { }
             }

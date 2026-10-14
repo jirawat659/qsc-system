@@ -330,6 +330,7 @@ stateDiagram-v2
 | หมวดหมู่ | รหัสการกระทำ (`Action`) | คำอธิบาย | ชนิด Entity |
 | :--- | :--- | :--- | :--- |
 | **การตรวจประเมิน** | `LOGIN` | เข้าสู่ระบบสำเร็จ | `User` |
+| | `LOGOUT` | ออกจากระบบสำเร็จ (ผ่านการกดปุ่ม Logout) | `User` |
 | | `AUDIT_START` | เริ่มต้นการตรวจรอบใหม่ (สร้างแบบร่าง) | `AuditDraft` |
 | | `AUDIT_SUBMIT` | ส่งผลการตรวจสมบูรณ์ | `AuditRecord` |
 | | `AUDIT_EDIT` | แก้ไขข้อมูลหรือคะแนนผลตรวจ | `AuditRecord` |
@@ -436,6 +437,17 @@ uploads/
    - **กฎ 1:1 ห้ามซ้ำ (Filtered Unique Index):** 1 Entra OID ผูกได้กับ 1 QSC User เท่านั้น (`[EntraOid] IS NOT NULL` มี Unique Constraint ในระดับฐานข้อมูล)
    - **สิทธิ์อิงตามบัญชีที่ผูก:** เมื่อผู้ใช้ล็อกอินผ่าน SSO ระบบจะค้นหา User ใน QSC ด้วย OID และสวมสิทธิ์/ขอบเขตสาขาตามบัญชีนั้นทันที
    - **ความปลอดภัยในการผูก:** สงวนสิทธิ์การผูก/ปลด OID ให้กับบทบาท `ADMIN` เท่านั้นผ่าน Endpoint `PUT /api/user/{id}/entra-oid`
+
+3. **การแยก Session Lifecycle ระหว่าง Password Login และ SSO (Multi-tier TTL):**
+   - **Password Login:** มี Claim `auth = "password"`, อายุ Session Token = **8 ชั่วโมง** เหมาะกับการทำงานหน้างานตรวจ
+   - **SSO Login:** มี Claim `auth = "sso"`, อายุ Session Token = **2 ชั่วโมง** (กำหนดผ่าน `AuPortal:SessionTtlHours`, ค่าเริ่มต้น 2 ชม.) สอดคล้องกับมาตรฐาน SSO องค์กร
+   - **การตัดสิทธิ์ทันทีเมื่อปิดบัญชี:** `UserScopeHelper` ตรวจสอบ `user.IsActive` กับฐานข้อมูลเสมอทุก Request แม้เป็น Role `ADMIN` หรือ `EXEC` หากบัญชีถูกระงับ สิทธิ์การเข้าถึงข้อมูลทั้งหมดจะถูกตัดทันที
+   - **การปิด Password Login เมื่อขึ้นระบบจริง:** เมื่อต้องการตัดสิทธิ์การเข้าผ่านรหัสผ่าน ให้ตั้งค่า `"Auth:PasswordLoginEnabled": false` ใน `appsettings.json` หรือ Environment Variable
+
+4. **ระบบรักษาความปลอดภัยไฟล์และ Real-time Rooms (Security Guards):**
+   - **Path Traversal Protection:** ทุก Endpoint อัปโหลดไฟล์ที่มีการส่ง URL เก่ามาลบ (`previousUrl`) เช่น `UploadImage`, `UploadSignature` จะถูกตรวจสอบด้วย `Path.GetFullPath` ให้ลบได้เฉพาะไฟล์ที่อยู่ใต้โฟลเดอร์ `uploads/` เท่านั้น ห้ามมี `..` ทะลุออกไปลบไฟล์ระบบ
+   - **Real-time Scope Guard (SignalR):** เมธอด `JoinAuditRoom` ใน `CapChatHub` จะตรวจสอบสิทธิ์ขอบเขตสาขาและแบรนด์ (`allowedLocationIds`, `allowedBrandIds`) เสมอ ป้องกันไม่ให้ผู้ใช้เข้าร่วมห้อง Real-time ของสาขาหรือแบบร่างที่ตนเองไม่มีสิทธิ์
+   - **Orphan File Cleanup Service:** ทำงานเป็น Background Hosted Service วนรอบทุก 24 ชั่วโมง เพื่อตรวจสอบและลบไฟล์รูปภาพใน `uploads/audit_images` ที่ตกค้างเกิน 48 ชั่วโมงและไม่มี Record ใดในระบบอ้างอิงถึง
 
 ---
 

@@ -19,10 +19,6 @@ namespace QSC.Api.Helpers
             }
 
             var roleClaim = userPrincipal.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
-            if (roleClaim == "ADMIN" || roleClaim == "EXEC")
-            {
-                return new UserFullScope(userId, roleClaim, null, null);
-            }
 
             var user = await context.Users
                 .AsNoTracking()
@@ -34,6 +30,11 @@ namespace QSC.Api.Helpers
             if (user == null || !user.IsActive)
             {
                 return new UserFullScope(0, string.Empty, new List<int>(), new List<int>());
+            }
+
+            if (roleClaim == "ADMIN" || roleClaim == "EXEC")
+            {
+                return new UserFullScope(userId, roleClaim, null, null);
             }
 
             var role = user.Role?.Code ?? string.Empty;

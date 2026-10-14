@@ -20,7 +20,8 @@ function App() {
 
   const handleLogout = async () => {
     try {
-      await api.post('/auth/logout');
+      const user = authStorage.getUser();
+      await api.post('/auth/logout', { userId: user?.id });
     } catch {
       // ignore
     }

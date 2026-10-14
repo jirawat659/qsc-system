@@ -204,10 +204,102 @@ namespace QSC.Api.Hubs
             await Clients.Group(groupName).SendAsync("CapStatusUpdated", statusPayload);
         }
 
+        private async Task<bool> CanAccessLocationAsync(int locId, bool isGlobal, List<int>? allowedLocs, List<int>? allowedBrands)
+        {
+            if (isGlobal) return true;
+            if (allowedLocs != null && !allowedLocs.Contains(locId)) return false;
+            if (allowedBrands != null)
+            {
+                var match = await _context.LocationBrands
+                    .AsNoTracking()
+                    .AnyAsync(lb => lb.LocationId == locId && allowedBrands.Contains(lb.BrandId));
+                if (!match) return false;
+            }
+            return true;
+        }
+
         public async Task JoinAuditRoom(string roomKey)
         {
             if (string.IsNullOrWhiteSpace(roomKey)) return;
-            await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+
+            var (currentUserId, role, allowedLocationIds) = await UserScopeHelper.GetUserScopeAsync(Context.User ?? new ClaimsPrincipal(), _context);
+            var (_, _, allowedBrandIds) = await UserScopeHelper.GetUserBrandScopeAsync(Context.User ?? new ClaimsPrincipal(), _context);
+
+            bool isGlobal = role == "ADMIN" || (allowedLocationIds == null && allowedBrandIds == null);
+
+            // 1. audit_all: เฉพาะผู้มีสิทธิ์เข้าถึงทุกสาขา/แบรนด์
+            if (roomKey.Equals("audit_all", StringComparison.OrdinalIgnoreCase))
+            {
+                if (isGlobal)
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                }
+                return;
+            }
+
+            // 2. loc_{id}
+            if (roomKey.StartsWith("loc_", StringComparison.OrdinalIgnoreCase) && int.TryParse(roomKey.Substring(4), out int locId))
+            {
+                if (await CanAccessLocationAsync(locId, isGlobal, allowedLocationIds, allowedBrandIds))
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                }
+                return;
+            }
+
+            // 3. audit_loc_{locId}_form_{formId}
+            if (roomKey.StartsWith("audit_loc_", StringComparison.OrdinalIgnoreCase))
+            {
+                var parts = roomKey.Split('_');
+                if (parts.Length >= 3 && int.TryParse(parts[2], out int targetLocId))
+                {
+                    if (await CanAccessLocationAsync(targetLocId, isGlobal, allowedLocationIds, allowedBrandIds))
+                    {
+                        await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                    }
+                    return;
+                }
+            }
+
+            // 4. audit_sched_{scheduleId}
+            if (roomKey.StartsWith("audit_sched_", StringComparison.OrdinalIgnoreCase) && int.TryParse(roomKey.Substring("audit_sched_".Length), out int schedId))
+            {
+                if (isGlobal)
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                    return;
+                }
+
+                var sched = await _context.AuditSchedules.AsNoTracking().FirstOrDefaultAsync(s => s.Id == schedId);
+                if (sched != null && await CanAccessLocationAsync(sched.LocationId, isGlobal, allowedLocationIds, allowedBrandIds))
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                }
+                return;
+            }
+
+            // 5. audit_draft_{draftId}
+            if (roomKey.StartsWith("audit_draft_", StringComparison.OrdinalIgnoreCase) && int.TryParse(roomKey.Substring("audit_draft_".Length), out int draftId))
+            {
+                if (isGlobal)
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                    return;
+                }
+
+                var draft = await _context.AuditDrafts.AsNoTracking().FirstOrDefaultAsync(d => d.Id == draftId);
+                if (draft != null && await CanAccessLocationAsync(draft.LocationId, isGlobal, allowedLocationIds, allowedBrandIds))
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+                }
+                return;
+            }
+
+            // ห้องทั่วไปอื่นๆ ให้เฉพาะ Admin หรือ Global user
+            if (isGlobal)
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, roomKey);
+            }
         }
 
         public async Task LeaveAuditRoom(string roomKey)

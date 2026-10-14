@@ -6,7 +6,7 @@ public static class CookieHelper
 {
     public const string CookieName = "qsc_token";
 
-    public static void AppendSessionCookie(HttpResponse response, string token, IWebHostEnvironment env)
+    public static void AppendSessionCookie(HttpResponse response, string token, IWebHostEnvironment env, int expireHours = 8)
     {
         var isDev = env.IsDevelopment();
 
@@ -16,8 +16,8 @@ public static class CookieHelper
             // ในโหมด Development (HTTP/localhost) ต้องเป็น SameSite=Lax และ Secure=false
             // ในโหมด Production (HTTPS) ต้องเป็น Secure=true และ SameSite=Lax (หรือ None ถ้าแยก subdomain/domain)
             Secure = !isDev,
-            SameSite = isDev ? SameSiteMode.Lax : SameSiteMode.Lax,
-            Expires = DateTimeOffset.UtcNow.AddHours(8),
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTimeOffset.UtcNow.AddHours(expireHours),
             Path = "/"
         };
 

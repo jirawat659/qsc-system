@@ -59,6 +59,11 @@ namespace QSC.Api.Controllers
             public string NewPassword { get; set; } = string.Empty;
         }
 
+        public class LogoutDto
+        {
+            public int? UserId { get; set; }
+        }
+
         [AllowAnonymous]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto dto)
@@ -192,7 +197,8 @@ namespace QSC.Api.Controllers
                 {
                     new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
                     new Claim(ClaimTypes.Name, user.Username),
-                    new Claim(ClaimTypes.Role, roleCode)
+                    new Claim(ClaimTypes.Role, roleCode),
+                    new Claim("auth", "password")
                 }),
                 Expires = DateTime.UtcNow.AddHours(8),
                 Issuer = jwtIssuer,
@@ -237,8 +243,24 @@ namespace QSC.Api.Controllers
 
         [AllowAnonymous]
         [HttpPost("logout")]
-        public IActionResult Logout()
+        public async Task<IActionResult> Logout([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] LogoutDto? dto = null)
         {
+            int? userId = null;
+            var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdStr, out var parsedId))
+            {
+                userId = parsedId;
+            }
+            else if (dto?.UserId != null && dto.UserId > 0)
+            {
+                userId = dto.UserId;
+            }
+
+            if (userId.HasValue)
+            {
+                await _activityLogger.LogAsync(userId.Value, "LOGOUT", "User", userId.Value);
+            }
+
             CookieHelper.DeleteSessionCookie(Response, _env);
             return Ok(new { message = "ออกจากระบบเรียบร้อยแล้ว" });
         }

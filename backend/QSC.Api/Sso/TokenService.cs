@@ -25,10 +25,13 @@ public sealed class TokenService(IConfiguration config)
         // oid ใช้เรียก PDP ภายหลัง (เช่น /check ก่อน action sensitive)
         if (user.EntraOid is Guid oid) claims.Add(new Claim("oid", oid.ToString()));
 
+        // อายุ session สำหรับ SSO แยกต่างหาก (ค่าเริ่มต้น 2 ชม. หรือกำหนดใน AuPortal:SessionTtlHours)
+        int ssoTtlHours = config.GetValue<int>("AuPortal:SessionTtlHours", 2);
+
         var descriptor = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddHours(8),
+            Expires = DateTime.UtcNow.AddHours(ssoTtlHours),
             Issuer = config["Jwt:Issuer"] ?? "QscApi",
             Audience = config["Jwt:Audience"] ?? "QscFrontend",
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
