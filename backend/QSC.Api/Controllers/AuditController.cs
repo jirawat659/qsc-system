@@ -526,7 +526,7 @@ namespace QSC.Api.Controllers
                     bool hasLocationAccess = allowedLocationIds == null || allowedLocationIds.Contains(specificDraft.LocationId);
                     bool hasBrandAccess = allowedBrandIds == null || (specificDraft.Location != null && specificDraft.Location.LocationBrands.Any(lb => allowedBrandIds.Contains(lb.BrandId)));
 
-                    if (role == "ADMIN" || (hasLocationAccess && hasBrandAccess))
+                    if (role == "ADMIN" || (specificDraft.AuditorId == currentUserId && hasLocationAccess && hasBrandAccess))
                     {
                         draftsToDelete.Add(specificDraft);
                     }
