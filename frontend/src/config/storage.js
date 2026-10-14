@@ -1,4 +1,5 @@
-// 🗄️ Centralized LocalStorage Utility for QSC System
+// 🗄️ Centralized Storage Utility for QSC System
+// รองรับทั้ง HttpOnly Cookie (Production) และ Bearer Token Fallback (Development Cross-Port HTTP)
 
 const KEYS = {
   TOKEN: 'token',
@@ -10,39 +11,44 @@ const KEYS = {
 export const authStorage = {
   isTokenValid: () => {
     const token = localStorage.getItem(KEYS.TOKEN);
-    if (!token) return false;
-    try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return false;
-      // Handle base64url decoding
-      const base64Url = parts[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(
-        atob(base64)
-          .split('')
-          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-          .join('')
-      );
-      const payload = JSON.parse(jsonPayload);
-      if (payload.exp && Date.now() >= payload.exp * 1000) {
-        // Token is expired
-        Object.values(KEYS).forEach((key) => localStorage.removeItem(key));
-        return false;
+    if (token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const base64Url = parts[1];
+          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+          const jsonPayload = decodeURIComponent(
+            atob(base64)
+              .split('')
+              .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+              .join('')
+          );
+          const payload = JSON.parse(jsonPayload);
+          if (payload.exp && Date.now() >= payload.exp * 1000) {
+            authStorage.clearSession();
+            return false;
+          }
+          return true;
+        }
+      } catch {
+        // format ไม่ถูกต้อง ให้ลองดู user object
       }
-      return true;
-    } catch {
-      // Invalid JWT format
-      return false;
     }
+    const user = authStorage.getUser();
+    return !!(user && user.id);
+  },
+
+  isSessionActive: () => {
+    return authStorage.isTokenValid();
   },
 
   getToken: () => {
-    if (!authStorage.isTokenValid()) {
-      return null;
-    }
-    return localStorage.getItem(KEYS.TOKEN);
+    return localStorage.getItem(KEYS.TOKEN) || null;
   },
-  setToken: (token) => localStorage.setItem(KEYS.TOKEN, token),
+  setToken: (token) => {
+    if (token) localStorage.setItem(KEYS.TOKEN, token);
+    else localStorage.removeItem(KEYS.TOKEN);
+  },
 
   getRole: () => localStorage.getItem(KEYS.ROLE),
   setRole: (role) => localStorage.setItem(KEYS.ROLE, role),
@@ -75,4 +81,3 @@ export const authStorage = {
 };
 
 export default authStorage;
-

@@ -20,13 +20,15 @@ namespace QSC.Api.Controllers
         private readonly IConfiguration _config;
         private readonly LoginRateLimiterService _rateLimiter;
         private readonly IActivityLogger _activityLogger;
+        private readonly IWebHostEnvironment _env;
 
-        public AuthController(AppDbContext context, IConfiguration config, LoginRateLimiterService rateLimiter, IActivityLogger activityLogger)
+        public AuthController(AppDbContext context, IConfiguration config, LoginRateLimiterService rateLimiter, IActivityLogger activityLogger, IWebHostEnvironment env)
         {
             _context = context;
             _config = config;
             _rateLimiter = rateLimiter;
             _activityLogger = activityLogger;
+            _env = env;
         }
 
         private string GetClientIp()
@@ -55,6 +57,11 @@ namespace QSC.Api.Controllers
             public int UserId { get; set; }
             public string OldPassword { get; set; } = string.Empty;
             public string NewPassword { get; set; } = string.Empty;
+        }
+
+        public class LogoutDto
+        {
+            public int? UserId { get; set; }
         }
 
         [AllowAnonymous]
@@ -193,6 +200,9 @@ namespace QSC.Api.Controllers
             var token = tokenHandler.CreateToken(tokenDescriptor);
             var tokenString = tokenHandler.WriteToken(token);
 
+            // ฝัง session token ลงใน HttpOnly cookie
+            CookieHelper.AppendSessionCookie(Response, tokenString, _env);
+
             var navConfig = RoleNavHelper.ParseOrDefault(user.Role?.NavConfigJson, roleCode);
             var navConfigJson = !string.IsNullOrWhiteSpace(user.Role?.NavConfigJson)
                 ? user.Role.NavConfigJson
@@ -220,6 +230,30 @@ namespace QSC.Api.Controllers
                     permissions = permissions
                 }
             });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout([FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] LogoutDto? dto = null)
+        {
+            int? userId = null;
+            var userIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(userIdStr, out var parsedId))
+            {
+                userId = parsedId;
+            }
+            else if (dto?.UserId != null && dto.UserId > 0)
+            {
+                userId = dto.UserId;
+            }
+
+            if (userId.HasValue)
+            {
+                await _activityLogger.LogAsync(userId.Value, "LOGOUT", "User", userId.Value);
+            }
+
+            CookieHelper.DeleteSessionCookie(Response, _env);
+            return Ok(new { message = "ออกจากระบบเรียบร้อยแล้ว" });
         }
 
         [Authorize]

@@ -5,7 +5,7 @@ import authStorage from "../config/storage";
 class SignalRService {
   constructor() {
     this.connection = null;
-    this.connectedToken = null;
+    this.connectedUserId = null;
     this.joinedRooms = new Set();
     this.joinedAuditRooms = new Set();
     this.messageHandlers = new Set();
@@ -21,15 +21,16 @@ class SignalRService {
    * Initializes or returns active SignalR connection
    */
   async getConnection() {
-    const currentToken = authStorage.getToken() || "";
+    const currentUser = authStorage.getUser();
+    const currentUserId = currentUser?.id ?? null;
 
-    // 🛡️ If user switched accounts or token changed, disconnect old connection immediately
-    if (this.connection && this.connectedToken !== currentToken) {
+    // 🛡️ If user switched accounts, disconnect old connection immediately
+    if (this.connection && this.connectedUserId !== currentUserId) {
       try {
         await this.connection.stop();
       } catch (e) {}
       this.connection = null;
-      this.connectedToken = null;
+      this.connectedUserId = null;
       this.joinedRooms.clear();
       this.joinedAuditRooms.clear();
     }
@@ -57,6 +58,7 @@ class SignalRService {
       const builder = new signalR.HubConnectionBuilder()
         .withUrl(hubUrl, {
           accessTokenFactory: () => authStorage.getToken() || "",
+          withCredentials: true, // 🍪 ส่ง HttpOnly session cookie ไปกับการเชื่อมต่อ SignalR
           skipNegotiation: false,
           transport: signalR.HttpTransportType.WebSockets | signalR.HttpTransportType.LongPolling,
         })
@@ -64,7 +66,7 @@ class SignalRService {
         .configureLogging(signalR.LogLevel.Warning);
 
       this.connection = builder.build();
-      this.connectedToken = currentToken;
+      this.connectedUserId = currentUserId;
 
       // Register server event listeners
       this.connection.on("ReceiveCapMessage", (comment) => {

@@ -23,7 +23,9 @@ builder.Services.AddSingleton<QSC.Api.Services.LoginRateLimiterService>();
 builder.Services.AddScoped<AuditStampInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions => sqlOptions.UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery));
     options.AddInterceptors(sp.GetRequiredService<AuditStampInterceptor>());
     options.ConfigureWarnings(w => w.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.RelationalEventId.PendingModelChangesWarning));
 });
@@ -99,6 +101,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 {
                     context.Token = accessToken;
                 }
+                else if (context.Request.Cookies.ContainsKey("qsc_session"))
+                {
+                    context.Token = context.Request.Cookies["qsc_session"];
+                }
                 return Task.CompletedTask;
             }
         };
@@ -118,6 +124,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddScoped<QSC.Api.Services.AiService>();
 builder.Services.AddScoped<QSC.Api.Services.IActivityLogger, QSC.Api.Services.ActivityLogger>();
+builder.Services.AddHostedService<QSC.Api.Services.OrphanFileCleanupService>();
 
 // 6. Rate Limiting for AI Endpoints
 builder.Services.AddRateLimiter(options =>

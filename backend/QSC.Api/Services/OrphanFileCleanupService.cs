@@ -21,15 +21,18 @@ namespace QSC.Api.Services
     {
         private readonly IServiceProvider _serviceProvider;
         private readonly IWebHostEnvironment _env;
+        private readonly IConfiguration _config;
         private readonly ILogger<OrphanFileCleanupService> _logger;
 
         public OrphanFileCleanupService(
             IServiceProvider serviceProvider,
             IWebHostEnvironment env,
+            IConfiguration config,
             ILogger<OrphanFileCleanupService> logger)
         {
             _serviceProvider = serviceProvider;
             _env = env;
+            _config = config;
             _logger = logger;
         }
 
@@ -74,7 +77,7 @@ namespace QSC.Api.Services
 
         private async Task CleanupOrphanFilesAsync(CancellationToken stoppingToken)
         {
-            var uploadsRoot = UploadHelper.GetUploadsRootPath(_env);
+            var uploadsRoot = UploadHelper.GetUploadsRootPath(_env, _config);
             if (!Directory.Exists(uploadsRoot)) return;
 
             var auditImagesDir = Path.Combine(uploadsRoot, "audit_images");

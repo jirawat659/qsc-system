@@ -4,6 +4,8 @@ import MainDashboard from './pages/MainDashboard';
 import authStorage from './config/storage';
 import signalRService from './services/signalrService';
 
+import api from './config/api';
+
 function App() {
   const [token, setToken] = useState(() => authStorage.getToken());
 
@@ -15,7 +17,13 @@ function App() {
     return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      const user = authStorage.getUser();
+      await api.post('/auth/logout', { userId: user?.id });
+    } catch {
+      // ignore
+    }
     authStorage.clearSession();
     signalRService.disconnect();
     setToken(null);
