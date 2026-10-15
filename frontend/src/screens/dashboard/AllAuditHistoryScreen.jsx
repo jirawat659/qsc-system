@@ -1023,7 +1023,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
 
         {/* Actions (มือถือแสดงเป็นไอคอน, sm ขึ้นไปแสดงข้อความ) */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Excel Export Button */}
+          {/* 🌟 ซ่อนปุ่มส่งออก Excel ชั่วคราว (ExcelExportModal 5-3 ชีท)
           <button
             type="button"
             onClick={() => {
@@ -1039,6 +1039,7 @@ export default function AllAuditHistoryScreen({ onBack, onSelectLog, onExportExc
             <Download size={13} className="text-[#0F6659]" />
             <span className="hidden sm:inline">Excel</span>
           </button>
+          */}
 
           {/* ตรวจงานใหม่ Button */}
           <button

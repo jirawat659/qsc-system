@@ -525,6 +525,7 @@ export default function DashboardScreen({ role, isDesktop }) {
             <BarChart3 size={13} className="text-[#0F6659]" />
             <span>รายงานประจำเดือน</span>
           </button>
+          {/* 🌟 ซ่อนปุ่มส่งออก Excel ชั่วคราว (ExcelExportModal 5-3 ชีท)
           <button
             onClick={() => setShowExportModal(true)}
             className="px-2.5 sm:px-3 py-1.5 rounded-2xl border border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center gap-1.5 transition-colors"
@@ -532,6 +533,7 @@ export default function DashboardScreen({ role, isDesktop }) {
             <FileSpreadsheet size={13} className="text-[#0F6659]" />
             <span>ส่งออก Excel</span>
           </button>
+          */}
         </div>
       </div>
 
