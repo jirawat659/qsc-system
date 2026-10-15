@@ -39,6 +39,39 @@ namespace QSC.Api.Helpers
 
             var role = user.Role?.Code ?? string.Empty;
 
+            // 🌟 ถ้ามาจาก SSO (auth == "sso") ให้ยึด Scope ตามที่ PDP อนุญาตใน Claims (PDP ชนะเสมอ)
+            if (userPrincipal.FindFirst("auth")?.Value == "sso")
+            {
+                var branchScopeClaim = userPrincipal.FindFirst("branch_scope")?.Value;
+                List<int>? ssoLocationIds = null;
+                if (branchScopeClaim == "SPECIFIC")
+                {
+                    var locStr = userPrincipal.FindFirst("allowed_locations")?.Value;
+                    ssoLocationIds = !string.IsNullOrWhiteSpace(locStr)
+                        ? locStr.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                .Select(s => int.TryParse(s, out var id) ? id : 0)
+                                .Where(id => id > 0)
+                                .ToList()
+                        : new List<int>();
+                }
+
+                var brandScopeClaim = userPrincipal.FindFirst("brand_scope")?.Value;
+                List<int>? ssoBrandIds = null;
+                if (brandScopeClaim == "SPECIFIC")
+                {
+                    var brandStr = userPrincipal.FindFirst("allowed_brands")?.Value;
+                    ssoBrandIds = !string.IsNullOrWhiteSpace(brandStr)
+                        ? brandStr.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                                  .Select(s => int.TryParse(s, out var id) ? id : 0)
+                                  .Where(id => id > 0)
+                                  .ToList()
+                        : new List<int>();
+                }
+
+                var effectiveRole = !string.IsNullOrWhiteSpace(roleClaim) ? roleClaim : role;
+                return new UserFullScope(user.Id, effectiveRole, ssoLocationIds, ssoBrandIds);
+            }
+
             List<int>? allowedLocationIds = null;
             if (role == "AUDITEE" || user.BranchScope == "SPECIFIC")
             {
@@ -100,6 +133,32 @@ namespace QSC.Api.Helpers
         // เช็คจากตาราง RolePermission ตรงๆ แทนที่จะ hardcode [Authorize(Roles=...)] เพื่อให้ Admin
         // ไปเปิด/ปิดสิทธิ์ (เช่น "users.manage", "roles.manage") ให้ role ไหนก็ได้จากหน้า "บทบาทและสิทธิ์"
         // ADMIN ผ่านเสมอโดยไม่ต้องมีแถวใน RolePermission (กันเคส seed ข้อมูลไม่ครบ)
+        public static async Task<bool> HasPermissionAsync(ClaimsPrincipal userPrincipal, string permissionCode, AppDbContext context)
+        {
+            // ถ้ามาจาก SSO (auth == "sso"): เช็คสิทธิ์จาก PDP ที่ฝังมาใน Token
+            if (userPrincipal.FindFirst("auth")?.Value == "sso")
+            {
+                var role = userPrincipal.FindFirst(ClaimTypes.Role)?.Value;
+                if (string.Equals(role, "ADMIN", StringComparison.OrdinalIgnoreCase)) return true;
+
+                if (userPrincipal.FindAll("perm").Any(c => string.Equals(c.Value, permissionCode, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+
+                var permClaimStr = userPrincipal.FindFirst("permissions")?.Value;
+                if (!string.IsNullOrWhiteSpace(permClaimStr))
+                {
+                    var perms = permClaimStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (perms.Any(p => string.Equals(p, permissionCode, StringComparison.OrdinalIgnoreCase)))
+                        return true;
+                }
+
+                return false;
+            }
+
+            var roleClaim = userPrincipal.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
+            return await HasPermissionAsync(roleClaim, permissionCode, context);
+        }
+
         public static async Task<bool> HasPermissionAsync(string role, string permissionCode, AppDbContext context)
         {
             if (role == "ADMIN") return true;

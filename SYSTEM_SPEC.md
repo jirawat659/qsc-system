@@ -276,9 +276,9 @@ stateDiagram-v2
 
 ### 8.3 สิทธิ์ในระบบมาตรฐานและแคตตาล็อกสำหรับ PDP (Permission Catalog for PDP) 🛡️
 
-ระบบ QSC รองรับการตรวจสอบสิทธิ์แบบ 2 ชั้น (Hybrid Authorization):
-1. **Local RBAC Mode (Default):** ตรวจสอบสิทธิ์ผ่านตาราง `RolePermissions` ในฐานข้อมูลของ QSC
-2. **PDP Enforced Mode (AU Portal SSO):** เมื่อเปิด `AuPortal:EnforcePdpPermissions = true` ระบบจะยิงถาม PDP ของ AU Portal สดทุกครั้ง (`POST /api/pdp/check` หรือ `GET /api/pdp/my-grants`) โดย **PDP ชนะเสมอ (Fail-Closed)**
+ระบบ QSC รองรับการตรวจสอบสิทธิ์แบบ 2 โหมด:
+1. **Local RBAC Mode (สำหรับ Password Login):** ตรวจสอบสิทธิ์ผ่านตาราง `RolePermissions` ในฐานข้อมูลของ QSC
+2. **PDP Enforced Mode (สำหรับ SSO Login - PDP 100% Authority):** เมื่อผู้ใช้เข้าสู่ระบบผ่าน SSO (AU Portal Launcher หรือ Entra ID) ระบบจะยึดสิทธิ์จาก PDP ทั้งหมด 100% โดยตรง (`grants.Roles`, `grants.Permissions`, `grants.Scopes`) โดย **PDP ชนะเสมอ (Fail-Closed)** ไม่มีการดึงสิทธิ์จากตาราง `RolePermissions` ในฐานข้อมูลมา Override ทับเด็ดขาด
 
 > ⚠️ **คำสั่งสำคัญสำหรับการเชื่อมต่อ AU Portal (PDP Catalog Registration):**  
 > รายการ Permission Code ด้านล่างนี้คือ **Catalog กลางของระบบ QSC ทั้งหมด 21 สิทธิ์** ที่ต้องนำไปส่งมอบให้ทีม AU Portal เพื่อลงทะเบียนในระบบ PDP กลาง (ห้ามแก้ไขตัวสะกดหรือ Case-sensitive โดยพลการ เพื่อป้องกันปัญหา Catalog Drift ตาม Spec §3.1)
@@ -456,11 +456,18 @@ uploads/
      - **Frontend:** ส่งทั้ง `withCredentials: true` (เพื่อรองรับ Cookie บน Production HTTPS) และแนบ Bearer Header จาก `localStorage` (สำหรับ Localhost Development)
      - **Production Ready:** เมื่อขึ้นเซิร์ฟเวอร์จริงที่มี Reverse Proxy (เช่น Nginx) และวิ่งผ่าน HTTPS โดเมนเดียวกัน Cookie จะทำงานเต็มรูปแบบ 100%
 
-2. **หลักการผูกบัญชีด้วย Entra OID (Identity Mapping Rules):**
-   - **OID คือตัวตนหลัก:** ระบบใช้ **`oid` (Object ID GUID)** เป็นค่าระบุตัวตนของผู้ใช้ ห้ามใช้ `email` หรือ `username` ในการ Match
-   - **กฎ 1:1 ห้ามซ้ำ (Filtered Unique Index):** 1 Entra OID ผูกได้กับ 1 QSC User เท่านั้น (`[EntraOid] IS NOT NULL` มี Unique Constraint ในระดับฐานข้อมูล)
-   - **สิทธิ์อิงตามบัญชีที่ผูก:** เมื่อผู้ใช้ล็อกอินผ่าน SSO ระบบจะค้นหา User ใน QSC ด้วย OID และสวมสิทธิ์/ขอบเขตสาขาตามบัญชีนั้นทันที
-   - **ความปลอดภัยในการผูก:** สงวนสิทธิ์การผูก/ปลด OID ให้กับบทบาท `ADMIN` เท่านั้นผ่าน Endpoint `PUT /api/user/{id}/entra-oid`
+2. **หลักการจับคู่ตัวตนผู้ใช้งานและการบังคับสิทธิ์ (Identity & Scope Mapping Strategy):**
+   - **กลยุทธ์จับคู่ตัวตน 3 ขั้นตอน (Strict 3-Step Match: Oid → Id → Username):**
+     - **ขั้นที่ 1 (OID / GUID):** สำหรับผู้ใช้ที่ผ่าน Microsoft Entra ID ระบบจะนำ GUID ไปค้นหาเทียบกับคอลัมน์ `EntraOid` หรือค่า GUID เดิมในคอลัมน์ `PasswordHash`
+     - **ขั้นที่ 2 (Id ตัวเลข):** สำหรับค่าที่ส่งมาเป็นตัวเลข (เช่น Primary Key Id) จะนำไปเทียบกับคอลัมน์ `Id` ในตาราง `Users`
+     - **ขั้นที่ 3 (Username / รหัสพนักงาน):** นำค่า Subject (เช่น `10016`, `U001`, `admin`) ไปเทียบกับคอลัมน์ `Username` ในตาราง `Users`
+     - ⛔ **Fail-Closed:** หากไม่พบในทั้ง 3 ขั้นตอน ระบบจะปฏิเสธการเข้าสู่ระบบด้วย `403 account_not_linked` ทันที โดยไม่มีการเดาจากชื่อ-นามสกุล (`FullName`)
+   - **นโยบายการผูก OID (No Auto-Link):** ระบบไม่มีการแอบผูกหรือเขียน `EntraOid` ลงฐานข้อมูลอัตโนมัติขณะล็อกอิน เพื่อให้สิทธิ์การผูก/ปลด OID เป็นของผู้ดูแลระบบ (Admin) ควบคุมเท่านั้นผ่านหน้า Admin Master Management
+   - **อำนาจสิทธิ์เป็นของ PDP 100% (PDP Absolute Authority):**
+     - **บทบาท (Role):** ยึดตาม `grants.Roles` จาก PDP เป็นหลัก
+     - **สิทธิ์การทำงาน (Action Permissions):** ได้รับจาก `grants.Permissions` และฝังลงใน Claim `perm` ของ JWT Token เพื่อให้ทั้ง Backend API (`PermissionService`) และปุ่มบนหน้าเว็บ (`roles.js` ฟังก์ชัน `hasToolAccess`) ตรวจสอบอย่างเข้มงวด
+     - **ขอบเขตสาขา (Branch Scope):** เทียบจากรหัสสาขา `Code` หรือตัวเลข `Id` เป็นหลัก และ Fallback ด้วยชื่อสาขา `Name`
+     - **ขอบเขตแบรนด์ (Brand Scope):** เทียบจาก `Code`, `Id` และ Fallback ด้วย `Name` หรือ Derive อัตโนมัติจากสาขาที่สังกัดกรณี Portal ไม่ได้ส่งมิติ Brand มา
 
 3. **การแยก Session Lifecycle ระหว่าง Password Login และ SSO (Multi-tier TTL):**
    - **Password Login:** มี Claim `auth = "password"`, อายุ Session Token = **8 ชั่วโมง** เหมาะกับการทำงานหน้างานตรวจ
@@ -472,6 +479,19 @@ uploads/
    - **Path Traversal Protection:** ทุก Endpoint อัปโหลดไฟล์ที่มีการส่ง URL เก่ามาลบ (`previousUrl`) เช่น `UploadImage`, `UploadSignature` จะถูกตรวจสอบด้วย `Path.GetFullPath` ให้ลบได้เฉพาะไฟล์ที่อยู่ใต้โฟลเดอร์ `uploads/` เท่านั้น ห้ามมี `..` ทะลุออกไปลบไฟล์ระบบ
    - **Real-time Scope Guard (SignalR):** เมธอด `JoinAuditRoom` ใน `CapChatHub` จะตรวจสอบสิทธิ์ขอบเขตสาขาและแบรนด์ (`allowedLocationIds`, `allowedBrandIds`) เสมอ ป้องกันไม่ให้ผู้ใช้เข้าร่วมห้อง Real-time ของสาขาหรือแบบร่างที่ตนเองไม่มีสิทธิ์
    - **Orphan File Cleanup Service:** ทำงานเป็น Background Hosted Service วนรอบทุก 24 ชั่วโมง เพื่อตรวจสอบและลบไฟล์รูปภาพใน `uploads/audit_images` ที่ตกค้างเกิน 48 ชั่วโมงและไม่มี Record ใดในระบบอ้างอิงถึง
+
+### 11.4 เครื่องมือจำลอง AU Portal สำหรับการทดสอบ (Mock AU Portal Test Suite) 🧪
+
+โฟลเดอร์ [`mock-au-portal/`](mock-au-portal/) เป็นเซิร์ฟเวอร์จำลอง (Mock Server) ที่พัฒนาขึ้นด้วย Node.js (รันบนพอร์ต `5090`) เพื่อใช้จำลอง AU Portal Platform และ PDP สำหรับการทดสอบในสภาพแวดล้อม Local Development:
+- **ฟังก์ชันการทำงานหลัก:**
+  1. **JWKS & Token Minting:** สร้างคู่กุญแจเข้ารหัส RSA (RS256) ไดนามิก พร้อมให้บริการ JWKS Endpoint (`/api/auth/jwks`) และจำลองการออก Launch Token ที่ลงนามถูกต้องตามสเปค
+  2. **PDP Simulator:** จำลอง Endpoint สิทธิ์กลางของ AU Portal (`GET /api/pdp/my-grants` และ `POST /api/pdp/check`)
+  3. **Interactive Control Dashboard:** มีหน้าเว็บ UI จัดการสิทธิ์ที่เข้าถึงได้ผ่าน `http://localhost:5090` เพื่อให้นักพัฒนาปรับเปลี่ยน Role, Action Permissions, และขอบเขตสาขา/แบรนด์ได้แบบ Real-time พร้อมปุ่มกด Launch แอป QSC เพื่อทดสอบสิทธิ์ในมุมมองต่างๆ ได้ทันที
+- **คำสั่งการเริ่มต้นใช้งาน:**
+  ```bash
+  cd mock-au-portal
+  node server.js
+  ```
 
 ---
 

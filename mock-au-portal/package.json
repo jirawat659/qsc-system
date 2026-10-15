@@ -1,0 +1,13 @@
+{
+  "name": "mock-au-portal",
+  "version": "1.0.0",
+  "description": "Mock AU Portal and PDP Service for testing QSC SSO (Route B)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["sso", "au-portal", "pdp", "mock"],
+  "author": "",
+  "license": "ISC"
+}
+

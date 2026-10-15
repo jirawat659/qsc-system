@@ -8,11 +8,11 @@ namespace QSC.Api.Sso;
 
 public sealed record PdpScope(string Dimension, IReadOnlyList<string> Codes);
 
-public sealed record PdpGrants(bool Ok, IReadOnlyList<string> Permissions, IReadOnlyList<PdpScope> Scopes, string? Error = null)
+public sealed record PdpGrants(bool Ok, IReadOnlyList<string> Permissions, IReadOnlyList<PdpScope> Scopes, IReadOnlyList<string>? Roles = null, string? Error = null)
 {
-    public static PdpGrants Fail(string error) => new(false, Array.Empty<string>(), Array.Empty<PdpScope>(), error);
+    public static PdpGrants Fail(string error) => new(false, Array.Empty<string>(), Array.Empty<PdpScope>(), Array.Empty<string>(), error);
     /// <summary>เข้าแอปได้ = PDP ตอบสำเร็จและมีสิทธิ์อย่างน้อย 1 รายการ (สันนิษฐานจากเอกสาร ยืนยันกับทีม AU Portal)</summary>
-    public bool CanEnter => Ok && Permissions.Count > 0;
+    public bool CanEnter => Ok && (Permissions.Count > 0 || (Roles != null && Roles.Count > 0));
 }
 
 public sealed record PdpDecision(bool Allowed, string Reason);
@@ -160,7 +160,32 @@ public sealed class PdpClient(HttpClient http, IOptions<SsoOptions> options, ILo
             .Select(kv => new PdpScope(kv.Key, kv.Value.ToList()))
             .ToList();
 
-        return new PdpGrants(true, perms.ToList(), scopes);
+        // 3. แกะ roles จาก response (ถ้ามี)
+        var roles = new List<string>();
+        if (target.TryGetProperty("roles", out var rList) && rList.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var r in rList.EnumerateArray())
+            {
+                if (r.ValueKind == JsonValueKind.String)
+                {
+                    var rStr = r.GetString()?.Trim();
+                    if (!string.IsNullOrEmpty(rStr)) roles.Add(rStr);
+                }
+            }
+        }
+        else if (root.TryGetProperty("roles", out var rListRoot) && rListRoot.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var r in rListRoot.EnumerateArray())
+            {
+                if (r.ValueKind == JsonValueKind.String)
+                {
+                    var rStr = r.GetString()?.Trim();
+                    if (!string.IsNullOrEmpty(rStr)) roles.Add(rStr);
+                }
+            }
+        }
+
+        return new PdpGrants(true, perms.ToList(), scopes, roles);
     }
 
     // ---- retry เฉพาะความล้มเหลวชั่วคราว (ต่อไม่ติด/timeout/408/502/503/504) ----

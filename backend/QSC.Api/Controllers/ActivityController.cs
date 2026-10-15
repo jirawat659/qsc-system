@@ -64,8 +64,7 @@ namespace QSC.Api.Controllers
             [FromQuery] DateTime? startDate = null,
             [FromQuery] DateTime? endDate = null)
         {
-            var roleClaim = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
-            var hasPermission = await UserScopeHelper.HasPermissionAsync(roleClaim, "activity.view", _context);
+            var hasPermission = await UserScopeHelper.HasPermissionAsync(User, "activity.view", _context);
             if (!hasPermission)
             {
                 return StatusCode(StatusCodes.Status403Forbidden, new { message = "คุณไม่มีสิทธิ์ในการเข้าถึงประวัติกิจกรรมระบบ" });

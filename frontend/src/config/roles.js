@@ -402,7 +402,10 @@ export const SYSTEM_TOOLS = [
 export function hasToolAccess(tool, role, permissions = []) {
   const normRole = String(role || "").trim().toUpperCase();
   if (normRole === "ADMIN") return true;
-  if (tool.perm && Array.isArray(permissions) && permissions.includes(tool.perm)) return true;
+  // 🌟 ถ้าระบุ perm ให้ยึดสิทธิ์ permissions จาก PDP เป็นหลักเด็ดขาด (ไม่ให้ role มา bypass)
+  if (tool.perm) {
+    return Array.isArray(permissions) && permissions.includes(tool.perm);
+  }
   if (tool.roles && tool.roles.map(r => r.toUpperCase()).includes(normRole)) return true;
   return false;
 }

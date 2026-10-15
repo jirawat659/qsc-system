@@ -7,7 +7,7 @@ namespace QSC.Api.Sso;
 
 public enum SsoRoute { Launch, Entra }
 
-public sealed record SsoIdentity(string Oid, string? Jti, SsoRoute Route);
+public sealed record SsoIdentity(string Oid, string? Jti, SsoRoute Route, string? Email = null, string? Name = null, string? Sub = null);
 
 public sealed record SsoValidation(SsoIdentity? Identity, string? Error)
 {
@@ -36,10 +36,10 @@ public sealed class SsoTokenValidator(
         string issuer, audience, jwksUrl;
         if (route == SsoRoute.Launch)
         {
-            if (string.IsNullOrEmpty(_o.PdpBaseUrl) || string.IsNullOrEmpty(_o.AppCode))
+            if (string.IsNullOrEmpty(_o.PdpBaseUrl) || (string.IsNullOrEmpty(_o.AppCode) && string.IsNullOrEmpty(_o.Audience)))
                 return SsoValidation.Fail("launch_not_configured");
-            issuer = _o.BaseUrl;
-            audience = _o.AppCode;                       // aud ต้องเป็น AppCode ของแอปเราเอง
+            issuer = !string.IsNullOrWhiteSpace(_o.Authority) ? _o.Authority : _o.BaseUrl;
+            audience = !string.IsNullOrWhiteSpace(_o.Audience) ? _o.Audience : _o.AppCode; // aud ต้องเป็น AppCode/Audience ของแอปเราเอง
             jwksUrl = $"{_o.BaseUrl}/api/auth/jwks";
         }
         else
@@ -81,19 +81,27 @@ public sealed class SsoTokenValidator(
             log.LogInformation("SSO[{Route}] DEBUG claims=[{Names}] iss={Iss} aud={Aud} lifetimeSec={Life}",
                 route, string.Join(",", result.Claims.Keys), jwt.Issuer, string.Join(",", jwt.Audiences), (jwt.ValidTo - jwt.ValidFrom).TotalSeconds);
 
-        // subject ต้องเป็น oid เท่านั้น (ห้าม email/upn) — ชื่อ claim ปรับได้ที่ AuPortal:SubjectClaim
-        var subjectClaim = string.IsNullOrWhiteSpace(_o.SubjectClaim) ? "oid" : _o.SubjectClaim;
-        if (!result.Claims.TryGetValue(subjectClaim, out var oidObj) || oidObj is not string oid || string.IsNullOrWhiteSpace(oid))
+        // 1. ตรวจหา oid ก่อนเป็นอันดับแรก (ตาม SPEC: Entra ID ต้องใช้ oid ของ user เท่านั้น)
+        // 2. ถ้าไม่มี oid ค่อย fallback ไปใช้ sub (สำหรับ AU Portal Launcher เช่น U001)
+        string? oid = result.Claims.TryGetValue("oid", out var oidObj) && oidObj is string o && !string.IsNullOrWhiteSpace(o) ? o : null;
+        string? sub = result.Claims.TryGetValue("sub", out var subObj) && subObj is string s && !string.IsNullOrWhiteSpace(s) ? s : null;
+        string? cust = !string.IsNullOrWhiteSpace(_o.SubjectClaim) && result.Claims.TryGetValue(_o.SubjectClaim, out var custObj) && custObj is string c && !string.IsNullOrWhiteSpace(c) ? c : null;
+
+        string? subject = oid ?? sub ?? cust;
+
+        if (string.IsNullOrWhiteSpace(subject))
         {
-            // log เฉพาะ "ชื่อ" claim (ไม่ log ค่า) เพื่อใช้ debug ตอนยังไม่รู้หน้าตา token จริง
-            log.LogWarning("SSO[{Route}] ไม่พบ claim '{Claim}' — claim ที่มีใน token: [{Names}]", route, subjectClaim, string.Join(",", result.Claims.Keys));
+            log.LogWarning("SSO[{Route}] ไม่พบ claim subject (oid/sub) — claim ที่มีใน token: [{Names}]", route, string.Join(",", result.Claims.Keys));
             return SsoValidation.Fail("missing_oid");
         }
 
         string? jti = result.Claims.TryGetValue("jti", out var j) ? j as string : null;
         if (route == SsoRoute.Launch && string.IsNullOrEmpty(jti)) return SsoValidation.Fail("missing_jti");
 
-        return new SsoValidation(new SsoIdentity(oid, jti, route), null);
+        string? email = result.Claims.TryGetValue("email", out var em) ? em as string : null;
+        string? name = result.Claims.TryGetValue("name", out var nm) ? nm as string : null;
+
+        return new SsoValidation(new SsoIdentity(subject, jti, route, email, name, sub), null);
     }
 
     private static TokenValidationParameters BuildParams(string issuer, string audience, IList<SecurityKey> keys) => new()

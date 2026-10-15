@@ -12,7 +12,14 @@ namespace QSC.Api.Sso;
 /// </summary>
 public sealed class TokenService(IConfiguration config)
 {
-    public string Issue(User user, string roleCode)
+    public string Issue(
+        User user,
+        string roleCode,
+        string branchScope = "ALL",
+        List<int>? allowedLocationIds = null,
+        string brandScope = "ALL",
+        List<int>? allowedBrandIds = null,
+        IEnumerable<string>? permissions = null)
     {
         var key = Encoding.UTF8.GetBytes(config["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key is missing in Configuration!"));
         var claims = new List<Claim>
@@ -21,7 +28,23 @@ public sealed class TokenService(IConfiguration config)
             new Claim(ClaimTypes.Name, user.Username),
             new Claim(ClaimTypes.Role, roleCode),
             new Claim("auth", "sso"),   // บอกว่า session นี้มาจาก SSO (ใช้แยกจาก password login ในเฟสถัดไป)
+            new Claim("branch_scope", branchScope),
+            new Claim("allowed_locations", allowedLocationIds != null && allowedLocationIds.Any() ? string.Join(",", allowedLocationIds) : string.Empty),
+            new Claim("brand_scope", brandScope),
+            new Claim("allowed_brands", allowedBrandIds != null && allowedBrandIds.Any() ? string.Join(",", allowedBrandIds) : string.Empty),
         };
+
+        // 🌟 ฝังสิทธิ์ permissions จาก PDP ลงใน JWT Claims
+        if (permissions != null)
+        {
+            var permList = permissions.Where(p => !string.IsNullOrWhiteSpace(p)).Distinct().ToList();
+            foreach (var p in permList)
+            {
+                claims.Add(new Claim("perm", p));
+            }
+            claims.Add(new Claim("permissions", string.Join(",", permList)));
+        }
+
         // oid ใช้เรียก PDP ภายหลัง (เช่น /check ก่อน action sensitive)
         if (user.EntraOid is Guid oid) claims.Add(new Claim("oid", oid.ToString()));
 

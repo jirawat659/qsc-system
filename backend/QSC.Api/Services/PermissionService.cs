@@ -28,6 +28,28 @@ public sealed class PermissionService(
         var viaPdp = user.FindFirst("auth")?.Value == "sso" && cfg.GetValue<bool>("AuPortal:EnforcePdpPermissions", false);
         if (!viaPdp)
         {
+            // 🌟 ถ้ามาจาก SSO (auth == "sso"): ตรวจสิทธิ์จาก Permissions ของ PDP โดยตรง 100% ไม่ต้องอ่านตาราง DB
+            if (user.FindFirst("auth")?.Value == "sso")
+            {
+                var ssoRole = user.FindFirst(ClaimTypes.Role)?.Value;
+                if (string.Equals(ssoRole, "ADMIN", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                if (user.FindAll("perm").Any(c => string.Equals(c.Value, permissionCode, StringComparison.OrdinalIgnoreCase)))
+                    return true;
+
+                var permClaimStr = user.FindFirst("permissions")?.Value;
+                if (!string.IsNullOrWhiteSpace(permClaimStr))
+                {
+                    var perms = permClaimStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (perms.Any(p => string.Equals(p, permissionCode, StringComparison.OrdinalIgnoreCase)))
+                        return true;
+                }
+
+                return false;
+            }
+
+            // กรณีล็อกอินด้วย Username/Password ปกติ: ตรวจสอบจาก RolePermission ใน DB เหมือนเดิม
             var (_, role, _) = await UserScopeHelper.GetUserScopeAsync(user, db);
             return await UserScopeHelper.HasPermissionAsync(role, permissionCode, db);
         }
